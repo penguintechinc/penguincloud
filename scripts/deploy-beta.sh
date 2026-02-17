@@ -11,7 +11,7 @@ RELEASE_NAME="penguincloud"
 CHART_PATH="$PROJECT_ROOT/k8s/helm/project-template"
 VALUES_FILE="$CHART_PATH/values-beta.yaml"
 IMAGE_REGISTRY="registry-dal2.penguintech.io"
-APP_HOST="penguincloud.penguintech.io"
+APP_HOST="penguincloud.penguintech.cloud"
 
 DRY_RUN=0
 ROLLBACK=0
