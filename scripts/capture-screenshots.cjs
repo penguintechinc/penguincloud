@@ -1,0 +1,179 @@
+const puppeteer = require('puppeteer');
+const path = require('path');
+const fs = require('fs');
+
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+const OUTPUT_DIR = path.join(__dirname, '..', 'docs', 'screenshots');
+
+// Pages to capture - customize with your application routes
+const pages = [
+  { name: 'login', path: '/login', requiresAuth: false },
+  { name: 'dashboard', path: '/' },
+  // Add your additional pages here:
+  // { name: 'products', path: '/products' },
+  // { name: 'orders', path: '/orders' },
+  // { name: 'settings', path: '/settings' },
+];
+
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function removeOldScreenshots() {
+  if (fs.existsSync(OUTPUT_DIR)) {
+    const files = fs.readdirSync(OUTPUT_DIR);
+    files.forEach(file => {
+      if (file.endsWith('.png')) {
+        const filePath = path.join(OUTPUT_DIR, file);
+        fs.unlinkSync(filePath);
+        console.log(`Removed old screenshot: ${file}`);
+      }
+    });
+  }
+}
+
+async function captureScreenshots() {
+  // Remove old screenshots first
+  await removeOldScreenshots();
+
+  if (!fs.existsSync(OUTPUT_DIR)) {
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  }
+
+  const browser = await puppeteer.launch({
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1920, height: 1080 });
+
+  // Capture login page first (unauthenticated)
+  console.log('Capturing login...');
+  await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle0', timeout: 60000 });
+  await sleep(1000);
+  await page.screenshot({ path: path.join(OUTPUT_DIR, 'login.png') });
+  console.log('  Saved login.png');
+
+  // Perform actual login through UI
+  console.log('Logging in with test credentials (admin@localhost)...');
+
+  // Find and fill login form - email field, password field
+  const inputs = await page.$$('input');
+  console.log(`Found ${inputs.length} input fields`);
+  if (inputs.length >= 2) {
+    await inputs[0].type('admin@localhost');  // Email field
+    await inputs[1].type('admin123');         // Password field
+  }
+
+  // Click submit button
+  await page.click('button[type="submit"]');
+
+  // Wait for navigation to complete
+  try {
+    await page.waitForFunction(
+      () => !window.location.pathname.includes('/login'),
+      { timeout: 30000 }
+    );
+  } catch (e) {
+    console.log('Navigation timeout - checking if login succeeded anyway');
+  }
+  await sleep(2000);
+  console.log('Current URL after login:', page.url());
+
+  // Verify we're logged in
+  const isLoggedIn = await page.evaluate(() => {
+    return localStorage.getItem('token') !== null ||
+           localStorage.getItem('access_token') !== null ||
+           !window.location.pathname.includes('/login');
+  });
+
+  if (!isLoggedIn) {
+    console.error('❌ Login failed! Cannot capture authenticated pages.');
+    console.error('   Ensure mock data is seeded and services are running.');
+    console.error('   Run: make seed-mock-data');
+    await browser.close();
+    return;
+  }
+  console.log('✓ Login successful!');
+
+  // Capture all other pages
+  let successCount = 0;
+  let skipCount = 0;
+  let errorCount = 0;
+
+  for (const pageInfo of pages) {
+    if (pageInfo.name === 'login') continue;
+
+    try {
+      console.log(`Capturing ${pageInfo.name}...`);
+
+      // Navigate to the page
+      await page.goto(`${BASE_URL}${pageInfo.path}`, {
+        waitUntil: 'networkidle0',
+        timeout: 60000
+      });
+
+      // Wait for content to load
+      await sleep(2500);
+
+      // Check if we got redirected to login (session expired or auth issue)
+      const currentUrl = page.url();
+      if (currentUrl.includes('/login')) {
+        console.log(`  WARNING: Redirected to login for ${pageInfo.name}`);
+
+        // Try to re-login
+        console.log('  Attempting re-login...');
+        const inputs = await page.$$('input');
+        if (inputs.length >= 2) {
+          await inputs[0].type('admin@localhost');
+          await inputs[1].type('admin123');
+          await page.click('button[type="submit"]');
+          await sleep(2000);
+
+          // Navigate back to the target page
+          await page.goto(`${BASE_URL}${pageInfo.path}`, {
+            waitUntil: 'networkidle0',
+            timeout: 60000
+          });
+          await sleep(2500);
+
+          // Check again
+          const newUrl = page.url();
+          if (newUrl.includes('/login')) {
+            console.log(`  SKIP: Still redirected to login for ${pageInfo.name}`);
+            skipCount++;
+            continue;
+          }
+        } else {
+          skipCount++;
+          continue;
+        }
+      }
+
+      // Take screenshot
+      await page.screenshot({
+        path: path.join(OUTPUT_DIR, `${pageInfo.name}.png`),
+        fullPage: false,
+      });
+      console.log(`  ✓ Saved ${pageInfo.name}.png`);
+      successCount++;
+
+    } catch (error) {
+      console.error(`  ✗ Error capturing ${pageInfo.name}: ${error.message}`);
+      errorCount++;
+    }
+  }
+
+  await browser.close();
+
+  console.log('\n========================================');
+  console.log('Screenshot capture complete!');
+  console.log(`  ✓ Success: ${successCount}`);
+  console.log(`  ⊘ Skipped: ${skipCount}`);
+  console.log(`  ✗ Errors:  ${errorCount}`);
+  console.log(`  📁 Output:  ${OUTPUT_DIR}`);
+  console.log('========================================\n');
+}
+
+captureScreenshots().catch(console.error);

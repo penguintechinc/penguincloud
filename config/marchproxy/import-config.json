@@ -1,0 +1,71 @@
+{
+  "metadata": {
+    "app_name": "projectname",
+    "generated_by": "project-template",
+    "version": "0.0.0",
+    "description": "MarchProxy import configuration for projectname"
+  },
+  "services": [
+    {
+      "name": "projectname-flask-api",
+      "ip_fqdn": "flask-backend",
+      "port": 8080,
+      "protocol": "http",
+      "collection": "projectname",
+      "auth_type": "jwt",
+      "tls_enabled": false,
+      "tls_verify": true,
+      "health_check_enabled": true,
+      "health_check_path": "/healthz",
+      "health_check_interval": 30
+    },
+    {
+      "name": "projectname-go-backend",
+      "ip_fqdn": "go-backend",
+      "port": 50051,
+      "protocol": "grpc",
+      "collection": "projectname",
+      "auth_type": "none",
+      "tls_enabled": false,
+      "tls_verify": true,
+      "health_check_enabled": true,
+      "health_check_path": "/grpc.health.v1.Health/Check",
+      "health_check_interval": 10
+    },
+    {
+      "name": "projectname-webui",
+      "ip_fqdn": "webui",
+      "port": 80,
+      "protocol": "http",
+      "collection": "projectname",
+      "auth_type": "none",
+      "tls_enabled": false,
+      "tls_verify": true,
+      "health_check_enabled": true,
+      "health_check_path": "/",
+      "health_check_interval": 30
+    }
+  ],
+  "mappings": [
+    {
+      "name": "projectname-external-api",
+      "description": "External REST API access via MarchProxy",
+      "source_services": ["external"],
+      "dest_services": ["projectname-flask-api"],
+      "listen_port": 443,
+      "protocol": "https",
+      "path_prefix": "/api/v1",
+      "is_active": true
+    },
+    {
+      "name": "projectname-webui-access",
+      "description": "WebUI frontend access via MarchProxy",
+      "source_services": ["external"],
+      "dest_services": ["projectname-webui"],
+      "listen_port": 443,
+      "protocol": "https",
+      "path_prefix": "/",
+      "is_active": true
+    }
+  ]
+}

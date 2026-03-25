@@ -1,0 +1,24 @@
+{
+  "mappings": [
+    {
+      "name": "projectname-external-api",
+      "description": "External REST API access via MarchProxy",
+      "source_services": ["external"],
+      "dest_services": ["projectname-flask-api"],
+      "listen_port": 443,
+      "protocol": "https",
+      "path_prefix": "/api/v1",
+      "is_active": true
+    },
+    {
+      "name": "projectname-webui-access",
+      "description": "WebUI frontend access via MarchProxy",
+      "source_services": ["external"],
+      "dest_services": ["projectname-webui"],
+      "listen_port": 443,
+      "protocol": "https",
+      "path_prefix": "/",
+      "is_active": true
+    }
+  ]
+}

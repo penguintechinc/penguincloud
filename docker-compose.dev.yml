@@ -1,0 +1,65 @@
+# ==========================================================================
+# DEPRECATED: Docker Compose support has been deprecated.
+# Kubernetes (microk8s) with Helm v3 is now the standard deployment method.
+#
+# Use instead:
+#   Alpha:  make k8s-alpha-deploy
+#   Beta:   make k8s-beta-deploy
+#   Prod:   make k8s-prod-deploy
+#
+# See k8s/helm/project-template/ for Helm charts and values files.
+# This file is retained for reference only and will be removed in a future release.
+# ==========================================================================
+
+version: '3.8'
+
+# Development overrides for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  # PostgreSQL - expose port for local dev tools
+  postgres:
+    ports:
+      - "5432:5432"
+
+  # Redis - expose port for local dev tools
+  redis:
+    ports:
+      - "6379:6379"
+
+  # Flask Backend - development mode with hot reload
+  flask-backend:
+    build:
+      context: ./services/flask-backend
+      dockerfile: Dockerfile
+      target: builder  # Use non-gunicorn for development
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+    volumes:
+      - ./services/flask-backend/app:/app/app:ro
+    command: python -m flask run --host=0.0.0.0 --port=5000 --reload
+
+  # Go Backend - development mode
+  go-backend:
+    environment:
+      - GO_ENV=development
+    # For development, you might want to mount source and use air for hot reload
+    # volumes:
+    #   - ./services/go-backend:/app
+
+  # WebUI - development mode with Vite dev server
+  webui:
+    build:
+      context: ./services/webui
+      dockerfile: Dockerfile
+      target: builder
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./services/webui/src:/app/src:ro
+      - ./services/webui/index.html:/app/index.html:ro
+    command: npm run dev
+    ports:
+      - "3000:3000"
+      - "5173:5173"  # Vite dev server
