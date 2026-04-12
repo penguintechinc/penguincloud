@@ -36,21 +36,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     numactl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user (note: XDP operations may require root)
-RUN groupadd -r gobackend && useradd -r -g gobackend gobackend
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /app/server .
+COPY --chown=appuser:appuser --from=builder /app/server .
 
-# Set ownership
-RUN chown -R gobackend:gobackend /app
+# Set ownership of writable dirs
+RUN chown -R appuser:appuser /app
 
 # Note: For XDP operations, container must run with:
 #   --privileged or --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --cap-add=IPC_LOCK
-# If not using XDP features, can run as non-root:
-# USER gobackend
+USER appuser
 
 # Environment defaults
 ENV GO_ENV=production \

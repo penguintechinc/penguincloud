@@ -30,12 +30,19 @@ RUN curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/st
 # Accept Android licenses
 RUN yes | flutter doctor --android-licenses 2>/dev/null || true
 
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /opt/flutter
+
 # Set working directory
 WORKDIR /app
+RUN chown -R appuser:appuser /app
+
+USER appuser
 
 # --- Dependencies stage ---
 FROM base AS deps
-COPY pubspec.yaml pubspec.lock* ./
+COPY --chown=appuser:appuser pubspec.yaml pubspec.lock* ./
 RUN flutter pub get
 
 # --- Analysis stage ---
