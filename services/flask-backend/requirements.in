@@ -13,11 +13,11 @@ alembic==1.14.1
 # Database Drivers (PostgreSQL, MySQL/MariaDB, SQLite)
 psycopg2-binary==2.9.10      # PostgreSQL driver
 PyMySQL==1.1.1               # MySQL/MariaDB driver (pure Python)
-cryptography==44.0.1         # Required for MySQL/MariaDB SSL connections
+cryptography==50.0.0          # Required for MySQL/MariaDB SSL connections; CVE-2026-26007/69247/69249/GHSA-537c-gmf6-5ccf
 # SQLite driver is built into Python stdlib - no package needed
 
 # Authentication
-PyJWT==2.10.1
+PyJWT==2.13.0                # CVE-2026-32597, CVE-2026-48526
 bcrypt==4.2.1
 pyotp==2.9.0
 Flask-Limiter==3.7.0
@@ -37,7 +37,7 @@ prometheus-client==0.21.1
 # Development & Linting
 pytest==8.3.4
 pytest-cov==6.0.0
-black==24.10.0
+black==26.3.1                # CVE-2026-32274
 flake8==7.1.1
 isort==5.13.2
 mypy==1.14.0
