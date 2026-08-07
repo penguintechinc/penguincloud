@@ -1,9 +1,9 @@
-import axios from 'axios';
+import axios from "axios";
 
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: "/api/v1",
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
 });
 
@@ -33,7 +33,7 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
 // Response interceptor — handle 401 and token refresh
@@ -50,7 +50,7 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        const response = await axios.post('/api/v1/auth/refresh', {
+        const response = await axios.post("/api/v1/auth/refresh", {
           refresh_token: refreshToken,
         });
 
@@ -61,13 +61,13 @@ api.interceptors.response.use(
         return api(originalRequest);
       } catch {
         clearTokens();
-        window.location.href = '/login';
+        window.location.href = "/login";
         return Promise.reject(error);
       }
     }
 
     return Promise.reject(error);
-  }
+  },
 );
 
 export default api;

@@ -1,58 +1,62 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { usersApi } from '../hooks/useApi';
-import Card from '../components/Card';
-import Button from '../components/Button';
-import { FormBuilder, FieldConfig } from '@penguintechinc/react-libs';
-import type { User } from '../types';
+import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { usersApi } from "../hooks/useApi";
+import Card from "../components/Card";
+import Button from "../components/Button";
+import { FormBuilder, FieldConfig } from "@penguintechinc/react-libs";
+import type { User } from "../types";
 
 // User edit form field configuration
 const getUserEditFields = (showPasswordField: boolean): FieldConfig[] => [
   {
-    name: 'full_name',
-    label: 'Full Name',
-    type: 'text',
+    name: "full_name",
+    label: "Full Name",
+    type: "text",
     required: true,
-    className: 'md:col-span-1',
+    className: "md:col-span-1",
   },
   {
-    name: 'email',
-    label: 'Email',
-    type: 'email',
+    name: "email",
+    label: "Email",
+    type: "email",
     required: true,
-    className: 'md:col-span-1',
+    className: "md:col-span-1",
   },
   {
-    name: 'role',
-    label: 'Role',
-    type: 'select',
+    name: "role",
+    label: "Role",
+    type: "select",
     required: true,
     options: [
-      { value: 'viewer', label: 'Viewer' },
-      { value: 'maintainer', label: 'Maintainer' },
-      { value: 'admin', label: 'Admin' },
+      { value: "viewer", label: "Viewer" },
+      { value: "maintainer", label: "Maintainer" },
+      { value: "admin", label: "Admin" },
     ],
-    className: 'md:col-span-1',
+    className: "md:col-span-1",
   },
   {
-    name: 'is_active',
-    label: 'Status',
-    type: 'select',
+    name: "is_active",
+    label: "Status",
+    type: "select",
     required: true,
     options: [
-      { value: 'true', label: 'Active' },
-      { value: 'false', label: 'Inactive' },
+      { value: "true", label: "Active" },
+      { value: "false", label: "Inactive" },
     ],
-    className: 'md:col-span-1',
+    className: "md:col-span-1",
   },
-  ...(showPasswordField ? [{
-    name: 'password',
-    label: 'New Password (leave blank to keep current)',
-    type: 'password' as const,
-    minLength: 8,
-    placeholder: '••••••••',
-    className: 'md:col-span-2',
-  }] : []),
+  ...(showPasswordField
+    ? [
+        {
+          name: "password",
+          label: "New Password (leave blank to keep current)",
+          type: "password" as const,
+          minLength: 8,
+          placeholder: "••••••••",
+          className: "md:col-span-2",
+        },
+      ]
+    : []),
 ];
 
 export default function UserDetail() {
@@ -71,7 +75,7 @@ export default function UserDetail() {
         setUser(userData);
         setError(null);
       } catch (err) {
-        setError('Failed to load user');
+        setError("Failed to load user");
       } finally {
         setIsLoading(false);
       }
@@ -87,14 +91,14 @@ export default function UserDetail() {
       // Convert is_active from string to boolean
       const updateData = {
         ...data,
-        is_active: data.is_active === 'true',
+        is_active: data.is_active === "true",
         password: data.password || undefined, // Don't send empty password
       };
 
       await usersApi.update(parseInt(id, 10), updateData);
-      navigate('/users');
+      navigate("/users");
     } catch (err) {
-      setError('Failed to update user');
+      setError("Failed to update user");
       throw err; // Re-throw to keep FormBuilder in submitting state
     }
   };
@@ -102,8 +106,8 @@ export default function UserDetail() {
   if (isLoading) {
     return (
       <div className="animate-pulse">
-        <div className="h-8 bg-dark-700 rounded w-1/4 mb-6"></div>
-        <div className="h-64 bg-dark-700 rounded"></div>
+        <div className="h-8 bg-slate-700 rounded w-1/4 mb-6"></div>
+        <div className="h-64 bg-slate-700 rounded"></div>
       </div>
     );
   }
@@ -120,8 +124,10 @@ export default function UserDetail() {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gold-400">Edit User</h1>
-        <p className="text-dark-400 mt-1">Update user information and permissions</p>
+        <h1 className="text-2xl font-bold text-amber-400">Edit User</h1>
+        <p className="text-slate-400 mt-1">
+          Update user information and permissions
+        </p>
       </div>
 
       {/* Error Message */}
@@ -145,25 +151,29 @@ export default function UserDetail() {
           submitLabel="Save Changes"
           cancelLabel="Cancel"
           onSubmit={handleSubmit}
-          onCancel={() => navigate('/users')}
+          onCancel={() => navigate("/users")}
           error={error}
           className="grid grid-cols-1 md:grid-cols-2 gap-6"
         />
 
         {/* User Info */}
-        <div className="border-t border-dark-700 pt-4 mt-6">
-          <h3 className="text-sm font-medium text-dark-400 mb-3">User Information</h3>
+        <div className="border-t border-slate-700 pt-4 mt-6">
+          <h3 className="text-sm font-medium text-slate-400 mb-3">
+            User Information
+          </h3>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-dark-500">Created:</span>
-              <span className="text-dark-300 ml-2">
+              <span className="text-slate-500">Created:</span>
+              <span className="text-slate-300 ml-2">
                 {new Date(user.created_at).toLocaleDateString()}
               </span>
             </div>
             <div>
-              <span className="text-dark-500">Last Updated:</span>
-              <span className="text-dark-300 ml-2">
-                {user.updated_at ? new Date(user.updated_at).toLocaleDateString() : 'Never'}
+              <span className="text-slate-500">Last Updated:</span>
+              <span className="text-slate-300 ml-2">
+                {user.updated_at
+                  ? new Date(user.updated_at).toLocaleDateString()
+                  : "Never"}
               </span>
             </div>
           </div>

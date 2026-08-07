@@ -1,5 +1,5 @@
-import { useTenantStore } from '../../stores/tenantStore';
-import AuditTable from '../../components/AuditTable';
+import { useTenantStore } from "../../stores/tenantStore";
+import AuditTable from "../../components/AuditTable";
 
 export default function AuditLog() {
   const { currentTenant } = useTenantStore();
@@ -7,7 +7,7 @@ export default function AuditLog() {
   if (!currentTenant) {
     return (
       <div className="text-center py-12">
-        <p className="text-dark-400">Select a tenant to view audit logs.</p>
+        <p className="text-slate-400">Select a tenant to view audit logs.</p>
       </div>
     );
   }
@@ -15,9 +15,10 @@ export default function AuditLog() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gold-400">Audit Log</h1>
-        <p className="text-dark-400 mt-1">
-          Activity history for {currentTenant.display_name || currentTenant.name}
+        <h1 className="text-2xl font-bold text-amber-400">Audit Log</h1>
+        <p className="text-slate-400 mt-1">
+          Activity history for{" "}
+          {currentTenant.display_name || currentTenant.name}
         </p>
       </div>
 

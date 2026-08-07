@@ -1,6 +1,11 @@
-import { create } from 'zustand';
-import api from '../lib/api';
-import type { ProductConnection, ProductType, DashboardOverview, ProductManagementSchema } from '../types';
+import { create } from "zustand";
+import api from "../lib/api";
+import type {
+  ProductConnection,
+  ProductType,
+  DashboardOverview,
+  ProductManagementSchema,
+} from "../types";
 
 interface ProductsStore {
   connections: ProductConnection[];
@@ -11,8 +16,13 @@ interface ProductsStore {
   fetchProductTypes: () => Promise<void>;
   fetchConnections: (tenantId: number) => Promise<void>;
   fetchOverview: (tenantId: number) => Promise<void>;
-  registerProduct: (data: Record<string, unknown>) => Promise<ProductConnection>;
-  updateProduct: (productId: number, data: Record<string, unknown>) => Promise<void>;
+  registerProduct: (
+    data: Record<string, unknown>,
+  ) => Promise<ProductConnection>;
+  updateProduct: (
+    productId: number,
+    data: Record<string, unknown>,
+  ) => Promise<void>;
   deleteProduct: (productId: number) => Promise<void>;
   testConnection: (productId: number) => Promise<Record<string, unknown>>;
   getProductHealth: (productId: number) => Promise<Record<string, unknown>>;
@@ -26,14 +36,16 @@ export const useProductsStore = create<ProductsStore>()((set, get) => ({
   isLoading: false,
 
   fetchProductTypes: async () => {
-    const response = await api.get('/products/types');
+    const response = await api.get("/products/types");
     set({ productTypes: response.data.product_types });
   },
 
   fetchConnections: async (tenantId: number) => {
     set({ isLoading: true });
     try {
-      const response = await api.get('/products', { params: { tenant_id: tenantId } });
+      const response = await api.get("/products", {
+        params: { tenant_id: tenantId },
+      });
       set({ connections: response.data.products, isLoading: false });
     } catch {
       set({ isLoading: false });
@@ -41,12 +53,14 @@ export const useProductsStore = create<ProductsStore>()((set, get) => ({
   },
 
   fetchOverview: async (tenantId: number) => {
-    const response = await api.get('/dashboard/overview', { params: { tenant_id: tenantId } });
+    const response = await api.get("/dashboard/overview", {
+      params: { tenant_id: tenantId },
+    });
     set({ overview: response.data });
   },
 
   registerProduct: async (data) => {
-    const response = await api.post('/products', data);
+    const response = await api.post("/products", data);
     const product = response.data;
     set((state) => ({ connections: [...state.connections, product] }));
     return product;
@@ -56,7 +70,9 @@ export const useProductsStore = create<ProductsStore>()((set, get) => ({
     const response = await api.put(`/products/${productId}`, data);
     const updated = response.data;
     set((state) => ({
-      connections: state.connections.map((c) => (c.id === productId ? updated : c)),
+      connections: state.connections.map((c) =>
+        c.id === productId ? updated : c,
+      ),
     }));
   },
 

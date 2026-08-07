@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
-import { useTenantStore } from '../stores/tenantStore';
-import { useProductsStore } from '../stores/productsStore';
+import { useEffect } from "react";
+import { useTenantStore } from "../stores/tenantStore";
+import { useProductsStore } from "../stores/productsStore";
 
 export function useTenant() {
   const {
@@ -53,7 +53,7 @@ export function useTenant() {
     },
     isTenantAdmin: () => {
       const role = currentTenant?.user_role;
-      return role === 'owner' || role === 'admin';
+      return role === "owner" || role === "admin";
     },
   };
 }

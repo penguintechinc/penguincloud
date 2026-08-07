@@ -1,17 +1,22 @@
-import type { ProductConnection } from '../types';
-import ProductStatusCard from './ProductStatusCard';
+import type { ProductConnection } from "../types";
+import ProductStatusCard from "./ProductStatusCard";
 
 interface HealthGridProps {
   products: ProductConnection[];
   onProductClick?: (product: ProductConnection) => void;
 }
 
-export default function HealthGrid({ products, onProductClick }: HealthGridProps) {
+export default function HealthGrid({
+  products,
+  onProductClick,
+}: HealthGridProps) {
   if (products.length === 0) {
     return (
-      <div className="text-center py-12 text-dark-400">
+      <div className="text-center py-12 text-slate-400">
         <p className="text-lg mb-2">No products connected</p>
-        <p className="text-sm">Connect a PenguinTech product to start monitoring.</p>
+        <p className="text-sm">
+          Connect a PenguinTech product to start monitoring.
+        </p>
       </div>
     );
   }
