@@ -63,3 +63,6 @@ RUN flutter build apk --release && flutter build appbundle --release
 FROM scratch AS output
 COPY --from=build /app/build/app/outputs/flutter-apk/app-release.apk /app-release.apk
 COPY --from=build /app/build/app/outputs/bundle/release/app-release.aab /app-release.aab
+# CI build/artifact-export stage only (FROM scratch, no runtime process) — not a
+# long-running service, so there is nothing for a HEALTHCHECK to probe.
+HEALTHCHECK NONE
