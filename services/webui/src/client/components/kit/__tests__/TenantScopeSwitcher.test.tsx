@@ -318,4 +318,75 @@ describe("TenantScopeSwitcher", () => {
     await user.click(button);
     expect(screen.getByTestId("tenant-switcher-search")).toBeInTheDocument();
   });
+
+  it("switches to provider tenant when provider option clicked", async () => {
+    const mockResponse = {
+      data: {
+        access_token: "new-token",
+        tenant: mockTenants[0],
+      },
+    };
+    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
+
+    const user = userEvent.setup();
+
+    // Set current tenant to a customer first
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
+      tenants: mockTenants,
+      currentTenant: mockTenants[1],
+      setCurrentTenant: mockSetCurrentTenant,
+    });
+
+    render(<TenantScopeSwitcher />);
+
+    const button = screen.getByTestId("tenant-switcher-button");
+    await user.click(button);
+
+    // Click on provider option (option-1)
+    const providerButton = screen.getByTestId("tenant-option-1");
+    await user.click(providerButton);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith("/tenants/1/switch");
+      expect(mockSetCurrentTenant).toHaveBeenCalledWith(mockTenants[0]);
+    });
+  });
+
+  it("cleans up event listeners on unmount", async () => {
+    const addEventListenerSpy = jest.spyOn(document, "addEventListener");
+    const removeEventListenerSpy = jest.spyOn(document, "removeEventListener");
+
+    const user = userEvent.setup();
+    const { unmount } = render(<TenantScopeSwitcher />);
+
+    // Interact with the component to ensure the listener is registered
+    const button = screen.getByTestId("tenant-switcher-button");
+    await user.click(button);
+
+    // Verify that addEventListener was called
+    expect(addEventListenerSpy).toHaveBeenCalledWith(
+      "mousedown",
+      expect.any(Function),
+    );
+
+    // Get the listener function that was added
+    const addedHandler =
+      addEventListenerSpy.mock.calls.find(
+        (call) => call[0] === "mousedown",
+      )?.[1] || undefined;
+
+    // Unmount component
+    unmount();
+
+    // Verify that removeEventListener was called with the same handler
+    if (addedHandler) {
+      expect(removeEventListenerSpy).toHaveBeenCalledWith(
+        "mousedown",
+        addedHandler,
+      );
+    }
+
+    addEventListenerSpy.mockRestore();
+    removeEventListenerSpy.mockRestore();
+  });
 });
