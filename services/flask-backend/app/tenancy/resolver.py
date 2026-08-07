@@ -7,6 +7,7 @@ Cache via in-process dict or Redis/Valkey when configured.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -95,8 +96,10 @@ async def get_hierarchy(tenant_id: int) -> TenantHierarchy:
     depth = getattr(tenant_row, "depth", 0)
 
     # Get ancestors and descendants in parallel
-    ancestors = await get_ancestors(tenant_id)
-    descendants = await get_descendants(tenant_id)
+    ancestors, descendants = await asyncio.gather(
+        get_ancestors(tenant_id),
+        get_descendants(tenant_id),
+    )
 
     return TenantHierarchy(
         tenant_id=tenant_id,
