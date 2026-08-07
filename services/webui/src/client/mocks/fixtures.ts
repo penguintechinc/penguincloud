@@ -1,15 +1,20 @@
 /**
- * Mock data fixtures for testing and MSW-mocked dev mode.
- * 2-provider org with 4 customer tenants, realistic shape matching task-2B API.
+ * Mock data fixtures for jest and the MSW-mocked dev/E2E mode.
+ *
+ * Two provider orgs with two customer tenants each. Ids are numbers because
+ * that is what `tenants.id` is in the API and what the `Tenant` type declares —
+ * string ids here would let type errors pass unnoticed in mocked runs.
  */
 
+import type { HealthStatus, TenantKind } from "../types";
+
 export interface MockTenant {
-  id: string;
+  id: number;
   name: string;
   display_name?: string;
   slug: string;
-  kind: "provider" | "customer";
-  parent_tenant_id?: string | null;
+  kind: TenantKind;
+  parent_tenant_id: number | null;
   depth: number;
   plan?: string;
   created_at: string;
@@ -17,30 +22,28 @@ export interface MockTenant {
 }
 
 export interface MockProduct {
-  id: string;
+  id: number;
   product_type: string;
   display_name: string;
-  status: "healthy" | "degraded" | "unhealthy" | "unknown";
-}
-
-export interface MockTenantWithProducts extends MockTenant {
-  products?: MockProduct[];
+  health_status: HealthStatus;
 }
 
 export interface MockDashboardRollup {
-  tenant_id: string;
+  tenant_id: number;
   tenant_name: string;
   products: Array<{
     connection_id: string;
     product: string;
-    status: "healthy" | "degraded" | "unhealthy" | "unknown";
+    status: HealthStatus;
   }>;
 }
 
+export const PROVIDER_ONE = 1;
+export const PROVIDER_TWO = 2;
+
 export const MOCK_TENANTS: MockTenant[] = [
-  // Provider orgs
   {
-    id: "provider-1",
+    id: PROVIDER_ONE,
     name: "Acme Corp",
     display_name: "Acme Corp (Provider)",
     slug: "acme-corp",
@@ -51,7 +54,7 @@ export const MOCK_TENANTS: MockTenant[] = [
     created_at: "2025-01-01T00:00:00Z",
   },
   {
-    id: "provider-2",
+    id: PROVIDER_TWO,
     name: "TechVision",
     display_name: "TechVision (Provider)",
     slug: "techvision",
@@ -61,48 +64,46 @@ export const MOCK_TENANTS: MockTenant[] = [
     plan: "enterprise",
     created_at: "2025-02-01T00:00:00Z",
   },
-  // Customer tenants under provider-1
   {
-    id: "customer-1",
+    id: 11,
     name: "Acme Production",
     display_name: "Acme Production",
     slug: "acme-prod",
     kind: "customer",
-    parent_tenant_id: "provider-1",
+    parent_tenant_id: PROVIDER_ONE,
     depth: 1,
     plan: "professional",
     created_at: "2025-03-01T00:00:00Z",
   },
   {
-    id: "customer-2",
+    id: 12,
     name: "Acme Staging",
     display_name: "Acme Staging",
     slug: "acme-stage",
     kind: "customer",
-    parent_tenant_id: "provider-1",
+    parent_tenant_id: PROVIDER_ONE,
     depth: 1,
     plan: "professional",
     created_at: "2025-03-05T00:00:00Z",
   },
-  // Customer tenants under provider-2
   {
-    id: "customer-3",
+    id: 13,
     name: "TechVision Platform",
     display_name: "TechVision Platform",
     slug: "techvision-platform",
     kind: "customer",
-    parent_tenant_id: "provider-2",
+    parent_tenant_id: PROVIDER_TWO,
     depth: 1,
     plan: "professional",
     created_at: "2025-04-01T00:00:00Z",
   },
   {
-    id: "customer-4",
+    id: 14,
     name: "TechVision Research",
     display_name: "TechVision Research",
     slug: "techvision-research",
     kind: "customer",
-    parent_tenant_id: "provider-2",
+    parent_tenant_id: PROVIDER_TWO,
     depth: 1,
     plan: "free",
     created_at: "2025-04-10T00:00:00Z",
@@ -111,19 +112,11 @@ export const MOCK_TENANTS: MockTenant[] = [
 
 export const MOCK_DASHBOARD_ROLLUP: MockDashboardRollup[] = [
   {
-    tenant_id: "customer-1",
+    tenant_id: 11,
     tenant_name: "Acme Production",
     products: [
-      {
-        connection_id: "conn-gough-1",
-        product: "gough",
-        status: "healthy",
-      },
-      {
-        connection_id: "conn-nest-1",
-        product: "nest",
-        status: "healthy",
-      },
+      { connection_id: "conn-gough-1", product: "gough", status: "healthy" },
+      { connection_id: "conn-nest-1", product: "nest", status: "healthy" },
       {
         connection_id: "conn-waddleai-1",
         product: "waddleai",
@@ -132,23 +125,15 @@ export const MOCK_DASHBOARD_ROLLUP: MockDashboardRollup[] = [
     ],
   },
   {
-    tenant_id: "customer-2",
+    tenant_id: 12,
     tenant_name: "Acme Staging",
     products: [
-      {
-        connection_id: "conn-gough-2",
-        product: "gough",
-        status: "healthy",
-      },
-      {
-        connection_id: "conn-nest-2",
-        product: "nest",
-        status: "healthy",
-      },
+      { connection_id: "conn-gough-2", product: "gough", status: "healthy" },
+      { connection_id: "conn-nest-2", product: "nest", status: "healthy" },
     ],
   },
   {
-    tenant_id: "customer-3",
+    tenant_id: 13,
     tenant_name: "TechVision Platform",
     products: [
       {
@@ -164,25 +149,57 @@ export const MOCK_DASHBOARD_ROLLUP: MockDashboardRollup[] = [
     ],
   },
   {
-    tenant_id: "customer-4",
+    tenant_id: 14,
     tenant_name: "TechVision Research",
     products: [
-      {
-        connection_id: "conn-elder-1",
-        product: "elder",
-        status: "unhealthy",
-      },
+      { connection_id: "conn-elder-1", product: "elder", status: "unhealthy" },
     ],
   },
 ];
 
-/**
- * Mock token payload (simplified JWT content).
- */
+/** Product connections returned per tenant scope. */
+export const MOCK_PRODUCTS_BY_TENANT: Record<number, MockProduct[]> = {
+  11: [
+    {
+      id: 101,
+      product_type: "gough",
+      display_name: "Gough (Prod)",
+      health_status: "healthy",
+    },
+    {
+      id: 102,
+      product_type: "nest",
+      display_name: "Nest (Prod)",
+      health_status: "healthy",
+    },
+    {
+      id: 103,
+      product_type: "waddleai",
+      display_name: "WaddleAI (Prod)",
+      health_status: "degraded",
+    },
+  ],
+  13: [
+    {
+      id: 104,
+      product_type: "tobogganing",
+      display_name: "Tobogganing (Platform)",
+      health_status: "healthy",
+    },
+    {
+      id: 105,
+      product_type: "waddlebot",
+      display_name: "WaddleBot (Platform)",
+      health_status: "healthy",
+    },
+  ],
+};
+
+/** Simplified JWT payload used by the mock token generator. */
 export interface MockTokenPayload {
   sub: string;
-  tenant: string;
-  home_tenant: string;
+  tenant: number;
+  home_tenant: number;
   roles: string[];
   scope: string[];
   iat: number;
@@ -190,14 +207,14 @@ export interface MockTokenPayload {
 }
 
 /**
- * Generate a mock JWT token (base64-encoded JSON, no real signature).
- * DO NOT use in production; for testing only.
+ * Generates a mock JWT (base64 header.payload with a fake signature).
+ * Test/dev fixture only — never a substitute for a real signed token.
  */
 export function generateMockToken(payload: Partial<MockTokenPayload>): string {
   const defaults: MockTokenPayload = {
     sub: "user-1",
-    tenant: "provider-1",
-    home_tenant: "provider-1",
+    tenant: PROVIDER_ONE,
+    home_tenant: PROVIDER_ONE,
     roles: ["Admin"],
     scope: ["tenants:read", "products:read"],
     iat: Math.floor(Date.now() / 1000),
@@ -206,7 +223,6 @@ export function generateMockToken(payload: Partial<MockTokenPayload>): string {
 
   const finalPayload = { ...defaults, ...payload };
 
-  // Simplified JWT: header.payload.signature (signature is fake)
   const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const body = btoa(JSON.stringify(finalPayload));
   const signature = "fake_signature";

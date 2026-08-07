@@ -176,11 +176,7 @@ export interface DashboardOverview {
  * product connected to it. Shape per Task 2B `GET /api/v1/dashboard/rollup`.
  */
 export interface DashboardRollupRow {
-  /**
-   * Opaque to the portal: Phase 2B has not yet fixed whether tenant ids
-   * serialise as integers or UUIDs, and the matrix only uses this as a row key.
-   */
-  tenant_id: string | number;
+  tenant_id: number;
   tenant_name: string;
   products: Array<{
     connection_id: string;

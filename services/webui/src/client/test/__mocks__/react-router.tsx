@@ -40,3 +40,6 @@ export const Route = ({ element }: { element?: ReactNode }) => <>{element}</>;
 export const Navigate = ({ to }: { to?: string }) => (
   <div data-testid="navigate" data-to={to} />
 );
+
+/** Renders nothing by default; Layout tests only assert the surrounding shell. */
+export const Outlet = () => <div data-testid="outlet" />;

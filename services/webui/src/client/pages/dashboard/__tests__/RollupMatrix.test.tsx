@@ -40,7 +40,7 @@ describe("toMatrixRows", () => {
   });
 
   it("keys rows by tenant id as a string", () => {
-    expect(matrix[0].id).toBe("customer-1");
+    expect(matrix[0].id).toBe("11");
   });
 
   it("fills a cell for every column, null where not connected", () => {
@@ -51,7 +51,7 @@ describe("toMatrixRows", () => {
   });
 
   it("carries a non-healthy status through unchanged", () => {
-    const research = matrix.find((r) => r.id === "customer-4");
+    const research = matrix.find((r) => r.id === "14");
     expect(research?.elder).toBe("unhealthy");
   });
 });
@@ -89,7 +89,7 @@ describe("RollupMatrix", () => {
   it("shows an empty state when no customer has products", () => {
     render(
       <RollupMatrix
-        rows={[{ tenant_id: "t1", tenant_name: "Solo", products: [] }]}
+        rows={[{ tenant_id: 99, tenant_name: "Solo", products: [] }]}
         isLoading={false}
         error={null}
       />,

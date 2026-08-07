@@ -23,3 +23,41 @@ export const AlertCircle = (props: IconProps) => (
 export const AlertTriangle = (props: IconProps) => (
   <svg data-testid="icon-alerttriangle" {...props} />
 );
+export const Menu = (props: IconProps) => (
+  <svg data-testid="icon-menu" {...props} />
+);
+
+// Sidebar category icons (components/layout/menuCategories.ts).
+export const Home = (props: IconProps) => (
+  <svg data-testid="icon-home" {...props} />
+);
+export const Activity = (props: IconProps) => (
+  <svg data-testid="icon-activity" {...props} />
+);
+export const Building = (props: IconProps) => (
+  <svg data-testid="icon-building" {...props} />
+);
+export const Users = (props: IconProps) => (
+  <svg data-testid="icon-users" {...props} />
+);
+export const Zap = (props: IconProps) => (
+  <svg data-testid="icon-zap" {...props} />
+);
+export const Lock = (props: IconProps) => (
+  <svg data-testid="icon-lock" {...props} />
+);
+export const Settings = (props: IconProps) => (
+  <svg data-testid="icon-settings" {...props} />
+);
+export const Database = (props: IconProps) => (
+  <svg data-testid="icon-database" {...props} />
+);
+export const Shield = (props: IconProps) => (
+  <svg data-testid="icon-shield" {...props} />
+);
+export const Radio = (props: IconProps) => (
+  <svg data-testid="icon-radio" {...props} />
+);
+export const Gauge = (props: IconProps) => (
+  <svg data-testid="icon-gauge" {...props} />
+);

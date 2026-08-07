@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import Layout from "./components/Layout";
@@ -20,7 +21,14 @@ import AuditLog from "./pages/audit/AuditLog";
 import ProductPage from "./pages/products/ProductPage";
 
 function App() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, checkAuth } = useAuth();
+
+  // The store starts in `isLoading: true` and only leaves it once auth has
+  // been resolved. Without this, a visitor arriving without a token never
+  // mounts a route — including /login — and sits on the spinner forever.
+  useEffect(() => {
+    void checkAuth();
+  }, [checkAuth]);
 
   if (isLoading) {
     return (

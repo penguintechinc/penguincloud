@@ -1,146 +1,168 @@
 /**
- * MSW request handlers for mocked API endpoints.
- * Matches task-2B-brief endpoint shapes for tenants, switch, dashboard rollup, and auth.
+ * MSW request handlers.
+ *
+ * Endpoint shapes follow task-2B-brief: tenants (with `include_children`),
+ * the switch endpoint, the provider rollup, and the auth surface — plus the
+ * `/api/ui/login` BFF adapter the shared-library login page posts to.
  */
 
 import { http, HttpResponse } from "msw";
 import {
   MOCK_TENANTS,
   MOCK_DASHBOARD_ROLLUP,
+  MOCK_PRODUCTS_BY_TENANT,
+  PROVIDER_ONE,
   generateMockToken,
-  type MockTenant,
 } from "./fixtures";
 
 const API_BASE = "/api/v1";
 
+const MOCK_USER = {
+  id: 1,
+  email: "admin@penguincloud.test",
+  full_name: "Ada Admin",
+  role: "admin",
+  is_active: true,
+  created_at: "2025-01-01T00:00:00Z",
+  updated_at: null,
+  home_tenant_id: PROVIDER_ONE,
+};
+
+function tokenPair(tenant: number) {
+  return {
+    access_token: generateMockToken({
+      sub: "user-1",
+      tenant,
+      home_tenant: PROVIDER_ONE,
+      roles: ["Admin"],
+      scope: ["tenants:read", "tenants:manage", "products:read"],
+    }),
+    refresh_token: generateMockToken({ sub: "user-1", tenant }),
+  };
+}
+
 export const handlers = [
   /**
    * GET /api/v1/tenants?include_children=true
-   * Returns hierarchical tenant tree (provider org + customer tenants).
+   * Flat roster; with include_children each provider also carries its
+   * customers inline.
    */
   http.get(`${API_BASE}/tenants`, ({ request }) => {
-    const url = new URL(request.url);
-    const includeChildren = url.searchParams.get("include_children") === "true";
+    const includeChildren =
+      new URL(request.url).searchParams.get("include_children") === "true";
 
     if (includeChildren) {
-      // Return full hierarchy
       return HttpResponse.json({
         tenants: MOCK_TENANTS.map((t) => ({
           ...t,
-          children: MOCK_TENANTS.filter(
-            (child) => child.parent_tenant_id === t.id,
-          ),
+          children: MOCK_TENANTS.filter((c) => c.parent_tenant_id === t.id),
         })),
+        count: MOCK_TENANTS.length,
       });
     }
 
-    // Return flat list (caller's perspective)
     return HttpResponse.json({
       tenants: MOCK_TENANTS,
+      count: MOCK_TENANTS.length,
     });
   }),
 
   /**
    * POST /api/v1/tenants/:id/switch
-   * Switches active tenant, re-issues access token with updated claims.
+   * Re-issues an access token whose claims name the new active tenant.
    */
-  http.post(`${API_BASE}/tenants/:id/switch`, async ({ params }) => {
-    const tenantId = params.id as string;
-
+  http.post(`${API_BASE}/tenants/:id/switch`, ({ params }) => {
+    const tenantId = Number(params.id);
     const tenant = MOCK_TENANTS.find((t) => t.id === tenantId);
+
     if (!tenant) {
       return HttpResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Generate re-issued token with updated tenant claim
-    const newToken = generateMockToken({
-      tenant: tenantId,
-      home_tenant: "provider-1", // Simulate provider context
-    });
-
     return HttpResponse.json({
-      access_token: newToken,
-      refresh_token: generateMockToken({
-        sub: "user-1",
-        tenant: tenantId,
-        home_tenant: "provider-1",
-      }),
-      tenant: tenant as MockTenant,
-      tenant_role: "maintainer", // Simulated role
+      ...tokenPair(tenantId),
+      tenant,
+      tenant_role: "admin",
     });
   }),
 
   /**
    * GET /api/v1/dashboard/rollup?tenant_id=
    * Per-customer × per-product status for the requesting provider org. Row
-   * shape matches task-2B-brief: {tenant_id, tenant_name, products: [{
+   * shape per task-2B-brief: {tenant_id, tenant_name, products: [{
    * connection_id, product, status}]}.
    */
   http.get(`${API_BASE}/dashboard/rollup`, ({ request }) => {
-    const tenantId = new URL(request.url).searchParams.get("tenant_id");
+    const tenantId = Number(
+      new URL(request.url).searchParams.get("tenant_id") ?? NaN,
+    );
 
-    // Scoped to the provider's own customers; an unknown scope rolls up
-    // nothing rather than leaking another provider's customers.
+    if (Number.isNaN(tenantId)) {
+      return HttpResponse.json({ rollup: MOCK_DASHBOARD_ROLLUP });
+    }
+
+    // Scoped to the caller's own customers — a provider must not see another
+    // provider's subtree, which is what the delegated-admin check enforces.
     const customerIds = MOCK_TENANTS.filter(
       (t) => t.parent_tenant_id === tenantId,
     ).map((t) => t.id);
 
-    const rollup = tenantId
-      ? MOCK_DASHBOARD_ROLLUP.filter((row) =>
-          customerIds.includes(row.tenant_id),
-        )
-      : MOCK_DASHBOARD_ROLLUP;
-
-    return HttpResponse.json({ rollup });
+    return HttpResponse.json({
+      rollup: MOCK_DASHBOARD_ROLLUP.filter((row) =>
+        customerIds.includes(row.tenant_id),
+      ),
+    });
   }),
 
-  /**
-   * POST /api/v1/auth/login
-   * Authenticates user, returns access + refresh tokens.
-   */
-  http.post(`${API_BASE}/auth/login`, async ({ request }) => {
-    try {
-      const body = (await request.json()) as {
-        email?: string;
-        password?: string;
-      };
+  /** GET /api/v1/dashboard/overview */
+  http.get(`${API_BASE}/dashboard/overview`, ({ request }) => {
+    const tenantId = Number(
+      new URL(request.url).searchParams.get("tenant_id") ?? NaN,
+    );
+    const products = MOCK_PRODUCTS_BY_TENANT[tenantId] ?? [];
 
-      if (!body.email || !body.password) {
-        return HttpResponse.json(
-          { error: "Email and password required" },
-          { status: 400 },
-        );
-      }
-
-      // Mock: accept any email/password combo for testing
-      const accessToken = generateMockToken({
-        sub: "user-1",
-        tenant: "provider-1",
-        home_tenant: "provider-1",
-        roles: ["Admin"],
-        scope: ["tenants:read", "products:read", "tenants:manage"],
-      });
-
-      const refreshToken = generateMockToken({
-        sub: "user-1",
-        tenant: "provider-1",
-        home_tenant: "provider-1",
-      });
-
-      return HttpResponse.json({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        user: {
-          id: "user-1",
-          email: body.email,
-          full_name: "Test User",
-          role: "admin",
+    return HttpResponse.json({
+      tenant: { id: tenantId, name: "Mock Tenant", plan: "enterprise" },
+      stats: {
+        total_products: products.length,
+        total_members: 4,
+        health: {
+          healthy: products.filter((p) => p.health_status === "healthy").length,
+          degraded: products.filter((p) => p.health_status === "degraded")
+            .length,
+          unhealthy: 0,
+          unknown: 0,
         },
-      });
-    } catch {
-      return HttpResponse.json({ error: "Invalid request" }, { status: 400 });
-    }
+        categories: { infrastructure: products.length },
+      },
+      products,
+    });
   }),
+
+  /** GET /api/v1/dashboard/activity */
+  http.get(`${API_BASE}/dashboard/activity`, () =>
+    HttpResponse.json({
+      activity: [
+        {
+          id: 1,
+          user_id: 1,
+          action: "tenant.switch",
+          resource_type: "tenant",
+          resource_id: "11",
+          tenant_id: PROVIDER_ONE,
+          product_connection_id: null,
+          ip_address: "10.0.0.1",
+          created_at: "2026-08-01T12:00:00Z",
+        },
+      ],
+      count: 1,
+    }),
+  ),
+
+  /** GET /api/v1/dashboard/health */
+  http.get(`${API_BASE}/dashboard/health`, () =>
+    HttpResponse.json({ status: "healthy" }),
+  ),
 
   /**
    * POST /api/ui/login
@@ -151,7 +173,6 @@ export const handlers = [
     const body = (await request.json().catch(() => ({}))) as {
       email?: string;
       password?: string;
-      mfaCode?: string;
     };
 
     if (!body.email || !body.password) {
@@ -178,132 +199,97 @@ export const handlers = [
       );
     }
 
+    const tokens = tokenPair(PROVIDER_ONE);
     return HttpResponse.json({
       success: true,
-      token: generateMockToken({
-        sub: "user-1",
-        tenant: "provider-1",
-        home_tenant: "provider-1",
-        roles: ["Admin"],
-        scope: ["tenants:read", "products:read", "tenants:manage"],
-      }),
-      refreshToken: generateMockToken({ sub: "user-1", tenant: "provider-1" }),
+      token: tokens.access_token,
+      refreshToken: tokens.refresh_token,
       user: {
-        id: "1",
+        id: String(MOCK_USER.id),
         email: body.email,
-        name: "Test User",
-        roles: ["admin"],
+        name: MOCK_USER.full_name,
+        roles: [MOCK_USER.role],
       },
     });
   }),
 
-  /**
-   * GET /api/v1/auth/me
-   * Current user profile; hydrates the auth store after login and on reload.
-   */
-  http.get(`${API_BASE}/auth/me`, () =>
-    HttpResponse.json({
-      id: 1,
-      email: "admin@penguincloud.test",
-      full_name: "Test User",
-      role: "admin",
-      is_active: true,
-      created_at: "2025-01-01T00:00:00Z",
-      updated_at: null,
-      home_tenant_id: 1,
-    }),
-  ),
+  /** GET /api/v1/auth/me — hydrates the auth store after login and on reload. */
+  http.get(`${API_BASE}/auth/me`, () => HttpResponse.json(MOCK_USER)),
 
-  /**
-   * POST /api/v1/auth/refresh
-   * Refreshes access token using refresh token.
-   */
-  http.post(`${API_BASE}/auth/refresh`, async ({ request }) => {
-    try {
-      const body = (await request.json()) as { refresh_token?: string };
+  /** POST /api/v1/auth/login — direct API contract, no `success` envelope. */
+  http.post(`${API_BASE}/auth/login`, async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      email?: string;
+      password?: string;
+    };
 
-      if (!body.refresh_token) {
-        return HttpResponse.json(
-          { error: "Refresh token required" },
-          { status: 400 },
-        );
-      }
-
-      const newAccessToken = generateMockToken({
-        sub: "user-1",
-        tenant: "provider-1",
-        home_tenant: "provider-1",
-        roles: ["Admin"],
-        scope: ["tenants:read", "products:read"],
-      });
-
-      return HttpResponse.json({
-        access_token: newAccessToken,
-      });
-    } catch {
-      return HttpResponse.json({ error: "Invalid request" }, { status: 400 });
-    }
-  }),
-
-  /**
-   * POST /api/v1/auth/logout
-   * Clears session/tokens.
-   */
-  http.post(`${API_BASE}/auth/logout`, () => {
-    return HttpResponse.json({ success: true });
-  }),
-
-  /**
-   * GET /api/v1/products
-   * Returns product connections for a tenant.
-   */
-  http.get(`${API_BASE}/products`, ({ request }) => {
-    const url = new URL(request.url);
-    const tenantId = url.searchParams.get("tenant_id");
-
-    // Mock: return different products per tenant
-    const products = [];
-
-    if (tenantId === "customer-1") {
-      products.push(
-        {
-          id: "conn-gough-1",
-          product_type: "gough",
-          display_name: "Gough (Prod)",
-          status: "healthy",
-        },
-        {
-          id: "conn-nest-1",
-          product_type: "nest",
-          display_name: "Nest (Prod)",
-          status: "healthy",
-        },
-        {
-          id: "conn-waddleai-1",
-          product_type: "waddleai",
-          display_name: "WaddleAI (Prod)",
-          status: "degraded",
-        },
-      );
-    } else if (tenantId === "customer-3") {
-      products.push(
-        {
-          id: "conn-tobogganing-1",
-          product_type: "tobogganing",
-          display_name: "Tobogganing (Platform)",
-          status: "healthy",
-        },
-        {
-          id: "conn-waddlebot-1",
-          product_type: "waddlebot",
-          display_name: "WaddleBot (Platform)",
-          status: "healthy",
-        },
+    if (!body.email || !body.password) {
+      return HttpResponse.json(
+        { error: "Email and password required" },
+        { status: 400 },
       );
     }
 
     return HttpResponse.json({
-      products,
+      ...tokenPair(PROVIDER_ONE),
+      token_type: "Bearer",
+      expires_in: 3600,
+      user: MOCK_USER,
     });
   }),
+
+  /** POST /api/v1/auth/refresh */
+  http.post(`${API_BASE}/auth/refresh`, async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      refresh_token?: string;
+    };
+
+    if (!body.refresh_token) {
+      return HttpResponse.json(
+        { error: "Refresh token required" },
+        { status: 400 },
+      );
+    }
+
+    return HttpResponse.json(tokenPair(PROVIDER_ONE));
+  }),
+
+  /** POST /api/v1/auth/logout */
+  http.post(`${API_BASE}/auth/logout`, () =>
+    HttpResponse.json({ success: true }),
+  ),
+
+  /** GET /api/v1/products?tenant_id= */
+  http.get(`${API_BASE}/products`, ({ request }) => {
+    const tenantId = Number(
+      new URL(request.url).searchParams.get("tenant_id") ?? NaN,
+    );
+    const products = MOCK_PRODUCTS_BY_TENANT[tenantId] ?? [];
+    return HttpResponse.json({ products, count: products.length });
+  }),
+
+  /**
+   * GET /api/v1/status
+   * Polled by the shared-library AppConsoleVersion banner in the footer; the
+   * whole shell logs a failed request on every page without it.
+   */
+  http.get(`${API_BASE}/status`, () =>
+    HttpResponse.json({ version: "1.0.0", build_epoch: 1754500000 }),
+  ),
+
+  /** GET /api/v1/audit/logs */
+  http.get(`${API_BASE}/audit/logs`, () =>
+    HttpResponse.json({ logs: [], total: 0 }),
+  ),
+
+  /** GET /api/v1/users */
+  http.get(`${API_BASE}/users`, () =>
+    HttpResponse.json({
+      items: [MOCK_USER],
+      total: 1,
+      page: 1,
+      per_page: 20,
+      pages: 1,
+    }),
+  ),
 ];

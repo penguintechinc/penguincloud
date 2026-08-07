@@ -3,6 +3,9 @@ export default {
   testEnvironment: "jsdom",
   roots: ["<rootDir>/src"],
   testMatch: ["**/__tests__/**/*.ts?(x)", "**/?(*.)+(spec|test).ts?(x)"],
+  // Playwright specs live under src and match testMatch; jest cannot load
+  // @playwright/test, so they are excluded here and run via `npm run test:e2e`.
+  testPathIgnorePatterns: ["/node_modules/", "/src/client/tests/e2e/"],
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
   moduleNameMapper: {
     "\\.(css|less|scss|sass)$": "identity-obj-proxy",
@@ -11,6 +14,9 @@ export default {
     // build and let the transform below convert it.
     "^@penguintechinc/react-libs$":
       "<rootDir>/node_modules/@penguintechinc/react-libs/dist/index.js",
+    // lib/viteEnv is the only module touching `import.meta`, which jest's CJS
+    // transform cannot parse; the stub reads process.env instead.
+    "viteEnv$": "<rootDir>/src/client/test/__mocks__/viteEnv.ts",
     "^lucide-react$": "<rootDir>/src/client/test/__mocks__/lucide-react.tsx",
     "^react-router$": "<rootDir>/src/client/test/__mocks__/react-router.tsx",
     "^react-router-dom$":

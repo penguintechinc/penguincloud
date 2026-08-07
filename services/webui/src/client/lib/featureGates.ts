@@ -3,6 +3,8 @@
  * Override via VITE_ENABLE_PRODUCTS env var: comma-separated list of product keys (e.g., "gough,nest,tobogganing").
  */
 
+import { readEnv } from "./viteEnv";
+
 const DEFAULT_GATES: Record<string, boolean> = {
   gough: false,
   nest: false,
@@ -13,9 +15,7 @@ const DEFAULT_GATES: Record<string, boolean> = {
 };
 
 function parseEnvOverride(): Record<string, boolean> {
-  const envValue = (
-    import.meta as unknown as Record<string, Record<string, string | undefined>>
-  ).env?.VITE_ENABLE_PRODUCTS;
+  const envValue = readEnv("VITE_ENABLE_PRODUCTS");
   if (!envValue) return {};
 
   const enabled = envValue.split(",").map((s: string) => s.trim());
