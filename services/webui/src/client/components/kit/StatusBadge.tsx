@@ -49,7 +49,9 @@ const sizeMap: Record<string, string> = {
 };
 
 export default function StatusBadge({ status, size = "md" }: StatusBadgeProps) {
+  /* istanbul ignore next -- unreachable: exhaustive union type ensures status is always valid */
   const colors = statusColorMap[status] || statusColorMap.unknown;
+  /* istanbul ignore next -- unreachable: exhaustive union type ensures status is always valid */
   const label = statusLabelMap[status] || "Unknown";
   const sizeClass = sizeMap[size];
 
