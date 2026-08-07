@@ -18,7 +18,7 @@
 ## Architecture
 
 ### Current Status
-Phase 0 repository hygiene in progress on `chore/phase0-repo-hygiene`. Current state: legacy template lineage deleted; go-backend retired (unused, permanent osv-scanner advisory GO-2026-5932); git hooks live (gitleaks/flake8/mypy pre-commit, full security scans pre-push); test suite runs clean (33 passed, 46 skipped-as-not-implemented, 22 xfailed, exit 0). Backend currently Flask (`services/flask-backend`) — migration to Quart 0.19+ scheduled Phase 1a.
+Phase 0 repository hygiene in progress on `chore/phase0-repo-hygiene`. Current state: legacy template lineage deleted; go-backend retired (unused, permanent osv-scanner advisory GO-2026-5932); git hooks live (gitleaks/flake8/mypy pre-commit, full security scans pre-push); test suite runs clean (73 passed, 12 skipped-as-not-implemented, 19 xfailed, exit 0). Backend currently Flask (`services/flask-backend`) — migration to Quart 0.19+ scheduled Phase 1a.
 
 ### Services
 
