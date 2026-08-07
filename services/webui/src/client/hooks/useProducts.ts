@@ -20,7 +20,7 @@ import type { ProductConnection, ProductType } from "../types";
  */
 export function useProductConnections(tenantId: number | undefined) {
   return useQuery({
-    queryKey: queryKeys.connectionsByTenant(tenantId ?? -1),
+    queryKey: queryKeys.connectionsByTenant(tenantId),
     queryFn: async (): Promise<ProductConnection[]> => {
       // Guarded by `enabled` below; the assertion keeps queryFn total.
       if (tenantId === undefined) return [];

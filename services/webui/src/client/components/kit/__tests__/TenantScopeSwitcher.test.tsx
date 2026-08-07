@@ -1,30 +1,25 @@
 /**
- * TenantScopeSwitcher component tests.
- * Covers: dropdown toggle, search, tenant selection, token update, URL sync.
+ * TenantScopeSwitcher tests.
+ * Covers dropdown behaviour, search, selection, URL sync, and the
+ * click-outside listener. The roster comes from TanStack Query and the switch
+ * itself from tenantStore, so both are mocked at their module boundaries.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TenantScopeSwitcher } from "../TenantScopeSwitcher";
 import { useTenantStore } from "../../../stores/tenantStore";
-import api from "../../../lib/api";
+import { useTenants } from "../../../hooks/useTenants";
+import type { Tenant } from "../../../types";
 
-// Mock react-router
+const setSearchParams = jest.fn();
+
 jest.mock("react-router", () => ({
-  useSearchParams: () => {
-    const params = new URLSearchParams();
-    return [params, jest.fn()];
-  },
-  useNavigate: jest.fn(),
-  useParams: jest.fn(),
-  useLocation: jest.fn(),
-  BrowserRouter: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
+  useSearchParams: () => [new URLSearchParams(), setSearchParams],
 }));
 
-jest.mock("../../../lib/api");
 jest.mock("../../../stores/tenantStore");
+jest.mock("../../../hooks/useTenants");
 
 const mockTenants = [
   {
@@ -33,8 +28,6 @@ const mockTenants = [
     display_name: "Provider A",
     slug: "provider-a",
     parent_tenant_id: null,
-    kind: "provider",
-    depth: 0,
   },
   {
     id: 2,
@@ -42,8 +35,6 @@ const mockTenants = [
     display_name: "Customer 1",
     slug: "customer-1",
     parent_tenant_id: 1,
-    kind: "customer",
-    depth: 1,
   },
   {
     id: 3,
@@ -51,342 +42,250 @@ const mockTenants = [
     display_name: "Customer 2",
     slug: "customer-2",
     parent_tenant_id: 1,
-    kind: "customer",
-    depth: 1,
   },
-];
+] as unknown as Tenant[];
+
+const switchTenant = jest.fn(() => Promise.resolve(true));
+
+/** Drives the zustand selector API the component uses. */
+function setStore(currentTenant: Tenant | null) {
+  (useTenantStore as unknown as jest.Mock).mockImplementation(
+    (selector: (state: Record<string, unknown>) => unknown) =>
+      selector({ currentTenant, switchTenant }),
+  );
+}
+
+function setTenants(tenants: Tenant[] | undefined) {
+  (useTenants as jest.Mock).mockReturnValue({ data: tenants });
+}
 
 describe("TenantScopeSwitcher", () => {
-  const mockSetCurrentTenant = jest.fn();
-
   beforeEach(() => {
     jest.clearAllMocks();
-    (useTenantStore as unknown as jest.Mock).mockReturnValue({
-      tenants: mockTenants,
-      currentTenant: mockTenants[0],
-      setCurrentTenant: mockSetCurrentTenant,
-    });
+    switchTenant.mockResolvedValue(true);
+    setStore(mockTenants[0]);
+    setTenants(mockTenants);
   });
 
   it("renders trigger button with current tenant name", () => {
     render(<TenantScopeSwitcher />);
 
     const button = screen.getByTestId("tenant-switcher-button");
-    expect(button).toBeInTheDocument();
     expect(button).toHaveTextContent("Provider A");
+    expect(button).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("shows empty state when no tenants available", () => {
-    (useTenantStore as unknown as jest.Mock).mockReturnValue({
-      tenants: [],
-      currentTenant: null,
-      setCurrentTenant: mockSetCurrentTenant,
-    });
+  it("falls back to a placeholder when no tenant is active", () => {
+    setStore(null);
+    render(<TenantScopeSwitcher />);
 
+    expect(screen.getByTestId("tenant-switcher-button")).toHaveTextContent(
+      "Select Tenant",
+    );
+  });
+
+  it("shows a disabled empty state when the roster is empty", () => {
+    setTenants([]);
     render(<TenantScopeSwitcher />);
 
     const button = screen.getByTestId("tenant-switcher-empty");
-    expect(button).toBeInTheDocument();
     expect(button).toBeDisabled();
     expect(button).toHaveTextContent("No tenants available");
   });
 
-  it("opens dropdown when button clicked", async () => {
-    const user = userEvent.setup();
-
+  it("shows the empty state while the roster query is still loading", () => {
+    setTenants(undefined);
     render(<TenantScopeSwitcher />);
 
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
+    expect(screen.getByTestId("tenant-switcher-empty")).toBeInTheDocument();
+  });
 
-    // Should show search input and tenant options
+  it("opens the dropdown when the trigger is clicked", async () => {
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+
     expect(screen.getByTestId("tenant-switcher-search")).toBeInTheDocument();
     expect(screen.getByTestId("tenant-option-1")).toBeInTheDocument();
+    expect(screen.getByTestId("tenant-switcher-button")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
-  it("filters tenants by search query", async () => {
+  it("toggles the dropdown on repeated clicks", async () => {
     const user = userEvent.setup();
-
     render(<TenantScopeSwitcher />);
-
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
-
-    const searchInput = screen.getByTestId("tenant-switcher-search");
-    await user.type(searchInput, "Customer 1");
-
-    // Should show only Customer 1
-    expect(screen.getByTestId("tenant-option-2")).toBeInTheDocument();
-    expect(screen.queryByTestId("tenant-option-3")).not.toBeInTheDocument();
-  });
-
-  it("calls API to switch tenant when selected", async () => {
-    const mockResponse = {
-      data: {
-        access_token: "new-token",
-        tenant: mockTenants[1],
-      },
-    };
-    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
-
-    const user = userEvent.setup();
-
-    render(<TenantScopeSwitcher />);
-
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
-
-    const customerButton = screen.getByTestId("tenant-option-2");
-    await user.click(customerButton);
-
-    await waitFor(() => {
-      expect(api.post).toHaveBeenCalledWith("/tenants/2/switch");
-    });
-  });
-
-  it("closes dropdown after tenant selection", async () => {
-    const mockResponse = {
-      data: {
-        access_token: "new-token",
-        tenant: mockTenants[1],
-      },
-    };
-    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
-
-    const user = userEvent.setup();
-
-    render(<TenantScopeSwitcher />);
-
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
-
-    const customerButton = screen.getByTestId("tenant-option-2");
-    await user.click(customerButton);
-
-    await waitFor(() => {
-      expect(
-        screen.queryByTestId("tenant-switcher-search"),
-      ).not.toBeInTheDocument();
-    });
-  });
-
-  it("marks current tenant as selected", async () => {
-    const user = userEvent.setup();
-
-    render(<TenantScopeSwitcher />);
-
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
-
-    const currentOption = screen.getByTestId("tenant-option-1");
-    expect(currentOption).toHaveClass("text-amber-400");
-    expect(currentOption).toHaveTextContent("✓ Current");
-  });
-
-  it("handles API errors gracefully", async () => {
-    const mockError = new Error("API Error");
-    (api.post as unknown as jest.Mock).mockRejectedValue(mockError);
-
-    const consoleSpy = jest
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-
-    const user = userEvent.setup();
-
-    render(<TenantScopeSwitcher />);
-
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
-
-    const customerButton = screen.getByTestId("tenant-option-2");
-    await user.click(customerButton);
-
-    await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "[TenantScopeSwitcher] Failed to switch tenant:",
-        mockError,
-      );
-    });
-
-    consoleSpy.mockRestore();
-  });
-
-  it("handles no results from search", async () => {
-    const user = userEvent.setup();
-
-    render(<TenantScopeSwitcher />);
-
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
-
-    const searchInput = screen.getByTestId("tenant-switcher-search");
-    await user.type(searchInput, "NonexistentTenant");
-
-    // Should show no results message
-    expect(screen.getByText("No tenants found")).toBeInTheDocument();
-  });
-
-  it("shows provider header with children when expanded", async () => {
-    const user = userEvent.setup();
-
-    render(<TenantScopeSwitcher />);
-
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
-
-    // Provider should show with children
-    const providerOption = screen.getByTestId("tenant-option-1");
-    expect(providerOption).toBeInTheDocument();
-
-    // Children should also be visible
-    expect(screen.getByTestId("tenant-option-2")).toBeInTheDocument();
-    expect(screen.getByTestId("tenant-option-3")).toBeInTheDocument();
-  });
-
-  it("clears search after selection", async () => {
-    const mockResponse = {
-      data: {
-        access_token: "new-token",
-        tenant: mockTenants[1],
-      },
-    };
-    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
-
-    const user = userEvent.setup();
-
-    render(<TenantScopeSwitcher />);
-
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
-
-    const searchInput = screen.getByTestId("tenant-switcher-search");
-    await user.type(searchInput, "Customer");
-
-    const customerButton = screen.getByTestId("tenant-option-2");
-    await user.click(customerButton);
-
-    await waitFor(() => {
-      // After selection, dropdown closes and search is cleared
-      expect(
-        screen.queryByTestId("tenant-switcher-search"),
-      ).not.toBeInTheDocument();
-    });
-  });
-
-  it("calls setCurrentTenant after successful switch", async () => {
-    const mockResponse = {
-      data: {
-        access_token: "new-token",
-        tenant: mockTenants[1],
-      },
-    };
-    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
-
-    const user = userEvent.setup();
-
-    render(<TenantScopeSwitcher />);
-
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
-
-    const customerButton = screen.getByTestId("tenant-option-2");
-    await user.click(customerButton);
-
-    await waitFor(() => {
-      expect(mockSetCurrentTenant).toHaveBeenCalledWith(mockTenants[1]);
-    });
-  });
-
-  it("toggles dropdown state on repeated clicks", async () => {
-    const user = userEvent.setup();
-
-    render(<TenantScopeSwitcher />);
-
     const button = screen.getByTestId("tenant-switcher-button");
 
-    // First click opens
     await user.click(button);
     expect(screen.getByTestId("tenant-switcher-search")).toBeInTheDocument();
 
-    // Second click closes
     await user.click(button);
     expect(
       screen.queryByTestId("tenant-switcher-search"),
     ).not.toBeInTheDocument();
 
-    // Third click opens again
     await user.click(button);
     expect(screen.getByTestId("tenant-switcher-search")).toBeInTheDocument();
   });
 
-  it("switches to provider tenant when provider option clicked", async () => {
-    const mockResponse = {
-      data: {
-        access_token: "new-token",
-        tenant: mockTenants[0],
-      },
-    };
-    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
-
+  it("shows providers with their customers nested", async () => {
     const user = userEvent.setup();
-
-    // Set current tenant to a customer first
-    (useTenantStore as unknown as jest.Mock).mockReturnValue({
-      tenants: mockTenants,
-      currentTenant: mockTenants[1],
-      setCurrentTenant: mockSetCurrentTenant,
-    });
-
     render(<TenantScopeSwitcher />);
 
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
+    await user.click(screen.getByTestId("tenant-switcher-button"));
 
-    // Click on provider option (option-1)
-    const providerButton = screen.getByTestId("tenant-option-1");
-    await user.click(providerButton);
-
-    await waitFor(() => {
-      expect(api.post).toHaveBeenCalledWith("/tenants/1/switch");
-      expect(mockSetCurrentTenant).toHaveBeenCalledWith(mockTenants[0]);
-    });
+    expect(screen.getByTestId("tenant-option-1")).toBeInTheDocument();
+    expect(screen.getByTestId("tenant-option-2")).toBeInTheDocument();
+    expect(screen.getByTestId("tenant-option-3")).toBeInTheDocument();
   });
 
-  it("cleans up event listeners on unmount", async () => {
-    const addEventListenerSpy = jest.spyOn(document, "addEventListener");
-    const removeEventListenerSpy = jest.spyOn(document, "removeEventListener");
-
+  it("filters tenants by search query", async () => {
     const user = userEvent.setup();
-    const { unmount } = render(<TenantScopeSwitcher />);
+    render(<TenantScopeSwitcher />);
 
-    // Interact with the component to ensure the listener is registered
-    const button = screen.getByTestId("tenant-switcher-button");
-    await user.click(button);
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    await user.type(screen.getByTestId("tenant-switcher-search"), "Customer 1");
 
-    // Verify that addEventListener was called
-    expect(addEventListenerSpy).toHaveBeenCalledWith(
-      "mousedown",
-      expect.any(Function),
+    expect(screen.getByTestId("tenant-option-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("tenant-option-3")).not.toBeInTheDocument();
+  });
+
+  it("reports when a search matches nothing", async () => {
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    await user.type(screen.getByTestId("tenant-switcher-search"), "nope");
+
+    expect(screen.getByText("No tenants found")).toBeInTheDocument();
+  });
+
+  it("marks the active tenant", async () => {
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+
+    const current = screen.getByTestId("tenant-option-1");
+    expect(current).toHaveClass("text-amber-400");
+    expect(current).toHaveTextContent("✓ Current");
+  });
+
+  it("marks an active customer tenant", async () => {
+    setStore(mockTenants[1]);
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+
+    expect(screen.getByTestId("tenant-option-2")).toHaveTextContent(
+      "✓ Current",
+    );
+  });
+
+  it("delegates the switch to the store and reflects it in the URL", async () => {
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    await user.click(screen.getByTestId("tenant-option-2"));
+
+    await waitFor(() => expect(switchTenant).toHaveBeenCalledWith(2));
+    const params = setSearchParams.mock.calls[0][0] as URLSearchParams;
+    expect(params.get("tenant")).toBe("2");
+  });
+
+  it("switches into a provider when its header is clicked", async () => {
+    setStore(mockTenants[1]);
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    await user.click(screen.getByTestId("tenant-option-1"));
+
+    await waitFor(() => expect(switchTenant).toHaveBeenCalledWith(1));
+  });
+
+  it("closes the dropdown and clears the search after a switch", async () => {
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    await user.type(screen.getByTestId("tenant-switcher-search"), "Customer");
+    await user.click(screen.getByTestId("tenant-option-2"));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("tenant-switcher-search"),
+      ).not.toBeInTheDocument(),
     );
 
-    // Get the listener function that was added
-    const addedHandler =
-      addEventListenerSpy.mock.calls.find(
-        (call) => call[0] === "mousedown",
-      )?.[1] || undefined;
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    expect(screen.getByTestId("tenant-switcher-search")).toHaveValue("");
+  });
 
-    // Unmount component
+  it("keeps the dropdown open when the switch is rejected", async () => {
+    switchTenant.mockResolvedValue(false);
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    await user.click(screen.getByTestId("tenant-option-2"));
+
+    await waitFor(() => expect(switchTenant).toHaveBeenCalledWith(2));
+    expect(screen.getByTestId("tenant-switcher-search")).toBeInTheDocument();
+    expect(setSearchParams).not.toHaveBeenCalled();
+  });
+
+  it("closes the dropdown on a mousedown outside it", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <TenantScopeSwitcher />
+        <button data-testid="outside">outside</button>
+      </div>,
+    );
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    expect(screen.getByTestId("tenant-switcher-search")).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByTestId("outside"));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("tenant-switcher-search"),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("stays open on a mousedown inside it", async () => {
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    fireEvent.mouseDown(screen.getByTestId("tenant-switcher-search"));
+
+    expect(screen.getByTestId("tenant-switcher-search")).toBeInTheDocument();
+  });
+
+  it("removes the click-outside listener on unmount", async () => {
+    const addSpy = jest.spyOn(document, "addEventListener");
+    const removeSpy = jest.spyOn(document, "removeEventListener");
+
+    const { unmount } = render(<TenantScopeSwitcher />);
+    const handler = addSpy.mock.calls.find(
+      (call) => call[0] === "mousedown",
+    )?.[1];
+
     unmount();
 
-    // Verify that removeEventListener was called with the same handler
-    if (addedHandler) {
-      expect(removeEventListenerSpy).toHaveBeenCalledWith(
-        "mousedown",
-        addedHandler,
-      );
-    }
+    expect(handler).toBeDefined();
+    expect(removeSpy).toHaveBeenCalledWith("mousedown", handler);
 
-    addEventListenerSpy.mockRestore();
-    removeEventListenerSpy.mockRestore();
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
   });
 });

@@ -1,11 +1,16 @@
+/**
+ * Tenant creation form. The mutation lives in TanStack Query so the tenant
+ * list invalidates itself on success.
+ */
+
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { useTenantStore } from "../../stores/tenantStore";
+import { useCreateTenant } from "../../hooks/useTenants";
 import Card from "../../components/Card";
 
 export default function TenantCreate() {
   const navigate = useNavigate();
-  const { createTenant } = useTenantStore();
+  const createTenant = useCreateTenant();
   const [form, setForm] = useState({
     name: "",
     slug: "",
@@ -28,7 +33,7 @@ export default function TenantCreate() {
     setError(null);
     setIsSubmitting(true);
     try {
-      const tenant = await createTenant(form);
+      const tenant = await createTenant.mutateAsync(form);
       navigate(`/tenants/${tenant.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create tenant");

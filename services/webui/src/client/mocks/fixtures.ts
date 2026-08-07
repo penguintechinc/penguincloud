@@ -20,7 +20,7 @@ export interface MockProduct {
   id: string;
   product_type: string;
   display_name: string;
-  status: "healthy" | "degraded" | "down" | "unknown";
+  status: "healthy" | "degraded" | "unhealthy" | "unknown";
 }
 
 export interface MockTenantWithProducts extends MockTenant {
@@ -33,7 +33,7 @@ export interface MockDashboardRollup {
   products: Array<{
     connection_id: string;
     product: string;
-    status: "healthy" | "degraded" | "down" | "unknown";
+    status: "healthy" | "degraded" | "unhealthy" | "unknown";
   }>;
 }
 
@@ -170,7 +170,7 @@ export const MOCK_DASHBOARD_ROLLUP: MockDashboardRollup[] = [
       {
         connection_id: "conn-elder-1",
         product: "elder",
-        status: "healthy",
+        status: "unhealthy",
       },
     ],
   },

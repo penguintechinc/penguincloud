@@ -1,17 +1,20 @@
 /**
- * ActingAsBanner — Persistent amber strip showing active tenant ≠ home tenant.
- * Shows "Acting as {customer name} — Exit" affordance. Not dismissible; only via Exit.
+ * Persistent amber strip shown whenever the active tenant is not the operator's
+ * home tenant. Not dismissible — the only way out is Exit, which switches the
+ * scope back home.
  */
 
 import { useTenantStore } from "../../stores/tenantStore";
+import { useTenants } from "../../hooks/useTenants";
 import { useAuth } from "../../hooks/useAuth";
-import api from "../../lib/api";
 
 export function ActingAsBanner() {
-  const { currentTenant, tenants, setCurrentTenant } = useTenantStore();
+  const currentTenant = useTenantStore((state) => state.currentTenant);
+  const switchTenant = useTenantStore((state) => state.switchTenant);
+  const tenantsQuery = useTenants();
   const { user } = useAuth();
 
-  // Determine if currently acting as a different tenant
+  const tenants = tenantsQuery.data ?? [];
   const homeTenant = user?.home_tenant_id
     ? tenants.find((t) => t.id === user.home_tenant_id)
     : null;
@@ -23,20 +26,10 @@ export function ActingAsBanner() {
   }
 
   async function handleExit() {
-    try {
-      if (!homeTenant) return;
-
-      const response = await api.post(`/tenants/${homeTenant.id}/switch`);
-      const { access_token, tenant } = response.data;
-
-      const { setTokens } = await import("../../lib/api");
-      const refreshToken =
-        localStorage.getItem("penguincloud_refresh_token") || "";
-      setTokens(access_token, refreshToken);
-
-      setCurrentTenant(tenant);
-    } catch (error) {
-      console.error("[ActingAsBanner] Failed to exit tenant:", error);
+    if (!homeTenant) return;
+    const switched = await switchTenant(homeTenant.id);
+    if (!switched) {
+      console.log("[ActingAsBanner] ExitFailed { id:", homeTenant.id, "}");
     }
   }
 
@@ -55,7 +48,7 @@ export function ActingAsBanner() {
       </span>
       <button
         onClick={handleExit}
-        className="ml-4 px-3 py-1 text-sm text-amber-400 hover:text-amber-300 font-medium hover:bg-amber-400/10 rounded transition-colors"
+        className="ml-4 px-3 py-1 text-sm text-amber-400 hover:text-amber-300 font-medium hover:bg-amber-400/10 rounded transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500"
         data-testid="exit-acting-as-button"
         aria-label="Exit acting as tenant"
       >
