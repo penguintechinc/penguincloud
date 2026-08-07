@@ -65,16 +65,21 @@ body {
   @apply bg-slate-500;
 }
 
+/*
+ * Composable button base. Declared with v4's `@utility` (not a plain class in
+ * `@layer components`) because `@apply btn` below can only inline a REGISTERED
+ * utility — v4 errors with "Cannot apply unknown utility class" on custom
+ * component classes, unlike v3.
+ */
+@utility btn {
+  @apply px-4 py-2 rounded-lg font-medium transition-colors duration-200;
+}
+
 /* Component layer — migrate from old index.css */
 @layer components {
   /* Card component */
   .card {
     @apply bg-surface-secondary border border-surface-tertiary rounded-lg p-4 shadow-lg;
-  }
-
-  /* Button variants */
-  .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-colors duration-200;
   }
 
   .btn-primary {
@@ -174,9 +179,11 @@ body {
   }
 }
 
-/* Utility classes */
-@layer utilities {
-  .text-gold-gradient {
-    @apply bg-gradient-to-r from-amber-500 to-amber-300 bg-clip-text text-transparent;
-  }
+/*
+ * Gradient heading text. Named `text-amber-gradient` to match the call sites
+ * (Sidebar brand + shell heading) — the palette is amber, there is no "gold"
+ * token in the theme. `bg-linear-to-r` is the v4 name for v3's `bg-gradient-to-r`.
+ */
+@utility text-amber-gradient {
+  @apply bg-linear-to-r from-amber-500 to-amber-300 bg-clip-text text-transparent;
 }

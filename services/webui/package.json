@@ -34,7 +34,7 @@
   "devDependencies": {
     "@eslint/js": "9.16.0",
     "@playwright/test": "1.62.1",
-    "@tailwindcss/postcss": "4.1.17",
+    "@tailwindcss/vite": "4.1.17",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.3",
@@ -53,7 +53,6 @@
     "identity-obj-proxy": "3.0.0",
     "jest": "30.4.2",
     "jest-environment-jsdom": "30.4.1",
-    "postcss": "8.5.26",
     "prettier": "3.9.6",
     "puppeteer": "23.10.0",
     "tailwindcss": "4.1.17",
