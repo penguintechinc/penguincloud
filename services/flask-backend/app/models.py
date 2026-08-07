@@ -6,7 +6,7 @@ All DB operations here are async and use penguin-dal.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from penguin_dal.quart_ext import get_db
@@ -88,12 +88,15 @@ async def create_user(
 ) -> dict[str, Any] | None:
     """Create a new user (async)."""
     db = get_db()
+    now = datetime.now(UTC)
     user_id = await db.users.async_insert(
         email=email,
         password_hash=password_hash,
         full_name=full_name,
         role=role,
         is_active=True,
+        created_at=now,
+        updated_at=now,
     )
     if user_id:
         row = await db(db.users.id == user_id).select()

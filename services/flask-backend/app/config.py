@@ -138,3 +138,7 @@ class TestingConfig(Config):
     DB_NAME = os.environ.get("TEST_DB_PATH") or os.path.join(
         tempfile.mkdtemp(prefix="penguincloud-test-"), "test.db"
     )
+
+    # JWT Configuration for testing
+    JWT_ISSUER = "penguincloud-test"
+    JWT_AUDIENCE = "penguincloud-test-client"
