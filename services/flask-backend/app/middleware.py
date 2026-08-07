@@ -1,5 +1,6 @@
 """Authentication and Authorization Middleware (async Quart)."""
 
+import logging
 import time
 import uuid
 from functools import wraps
@@ -13,8 +14,17 @@ from .config import UNSCOPED_TENANT
 from .killkrill import killkrill_manager
 from .models import get_user_by_id
 
+log = logging.getLogger(__name__)
+
 P = ParamSpec("P")
 R = TypeVar("R")
+
+#: Value penguin-aaa stamps into the `token_use` claim of an access token
+#: (see penguin_aaa.authn.oidc_provider.issue_token_set). Id tokens carry
+#: "id" and are otherwise byte-for-byte comparable — same issuer, same
+#: audience, same signing key — so this claim is the only thing separating
+#: "may call a protected route" from "describes a user".
+TOKEN_USE_ACCESS = "access"
 
 # Decorators below either call through to the wrapped async view or
 # short-circuit with an (error_body, status) tuple, so the wrapper's return
@@ -143,6 +153,17 @@ def auth_required(
                 audience=list(current_app.config["JWT_AUDIENCES"]),
             )
 
+            # Only an ACCESS token authenticates a protected route.
+            # penguin-aaa's issue_token_set mints the access and id tokens
+            # from one base payload, with the same iss, aud and signing key
+            # — the sole discriminator is `token_use`. Without this check an
+            # id token (handed to clients for profile display, and routinely
+            # passed around more freely) is accepted everywhere an access
+            # token is. Refresh tokens are opaque strings, so they fail
+            # earlier at header parsing, but are named here for the reader.
+            if payload.get("token_use") != TOKEN_USE_ACCESS:
+                return {"error": "Invalid token type - access token required"}, 401
+
             # Validate required claims
             user_id = payload.get("sub")
             if not user_id:
@@ -168,10 +189,20 @@ def auth_required(
 
         except pyjwt.ExpiredSignatureError:
             return {"error": "Token has expired"}, 401
-        except pyjwt.InvalidTokenError as e:
-            return {"error": f"Invalid token: {str(e)}"}, 401
-        except Exception as e:
-            return {"error": f"Authentication error: {str(e)}"}, 500
+        except pyjwt.InvalidTokenError:
+            # Detail stays server-side: the reason a token failed
+            # verification (bad signature vs wrong audience vs malformed)
+            # is a probing oracle for an unauthenticated caller.
+            log.info("token_verification_failed", exc_info=True)
+            return {"error": "Invalid token"}, 401
+        except Exception:
+            # Anything else is a server fault, not a client one. The
+            # previous message echoed raw exception text — which also
+            # mislabelled genuine 500s raised inside the wrapped view as
+            # "Authentication error", hiding real bugs behind an auth
+            # message.
+            log.exception("authentication_error")
+            return {"error": "Authentication error"}, 500
 
     return decorated
 
