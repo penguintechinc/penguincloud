@@ -5,12 +5,15 @@ See models.py for runtime operations.
 """
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -18,6 +21,34 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import DeclarativeBase
+
+# Enumerated columns are String, not SQLAlchemy Enum, and deliberately.
+#
+# `Enum(PyEnum)` persists the MEMBER NAME ("CUSTOMER") on most backends and
+# emits a native CREATE TYPE on PostgreSQL, while this migration declares
+# String(50) and penguin-dal writes the lowercase VALUE at runtime. Those
+# three disagreed: the ORM would have produced a native pg enum whose labels
+# ("PROVIDER") no runtime write ever matches, so every insert raises on
+# PostgreSQL while passing on SQLite. String + a CHECK constraint keeps the
+# ORM, the migration and the runtime writing exactly the same bytes, and
+# leaves the allowed set enforced by the database rather than by convention.
+
+#: Allowed values for tenants.kind. Mirrors models.VALID_TENANT_KINDS.
+TENANT_KINDS: tuple[str, ...] = ("provider", "customer")
+
+#: Allowed values for product_tenant_map.external_kind.
+#: Mirrors models.VALID_EXTERNAL_KINDS.
+PRODUCT_EXTERNAL_KINDS: tuple[str, ...] = (
+    "tenant_id",
+    "organization_id",
+    "namespace",
+)
+
+
+def _in_values(column: str, values: tuple[str, ...]) -> str:
+    """Render an IN (...) CHECK expression for an enumerated text column."""
+    rendered = ", ".join(f"'{value}'" for value in values)
+    return f"{column} IN ({rendered})"
 
 
 class Base(DeclarativeBase):
@@ -102,6 +133,17 @@ class Tenant(Base):
     )
     settings = Column(Text)
     is_active = Column(Boolean, default=True, server_default=text("1"), nullable=False)
+    # Hierarchical tenancy columns
+    parent_tenant_id: Any = Column(
+        Integer, ForeignKey("tenants.id"), nullable=True
+    )
+    kind: Any = Column(
+        String(50),
+        default="customer",
+        server_default="customer",
+        nullable=False,
+    )
+    depth: Any = Column(Integer, default=0, server_default=text("0"), nullable=False)
     created_at = Column(
         DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
     )
@@ -111,6 +153,14 @@ class Tenant(Base):
         onupdate=datetime.utcnow,
         server_default=func.now(),
         nullable=False,
+    )
+
+    # Every hierarchy walk (both recursive CTEs, and the direct-children
+    # query behind depth recomputation) filters on parent_tenant_id; without
+    # an index each level of the recursion is a full table scan.
+    __table_args__ = (
+        Index("ix_tenants_parent_tenant_id", "parent_tenant_id"),
+        CheckConstraint(_in_values("kind", TENANT_KINDS), name="ck_tenants_kind"),
     )
 
 
@@ -267,3 +317,33 @@ class APIKey(Base):
     scopes = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ProductTenantMap(Base):
+    """Product tenant external mapping."""
+
+    __tablename__ = "product_tenant_map"
+    id = Column(Integer, primary_key=True)
+    connection_id = Column(
+        Integer, ForeignKey("product_connections.id"), nullable=False
+    )
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    external_kind: Any = Column(String(50), nullable=False)
+    external_id = Column(String(255), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _in_values("external_kind", PRODUCT_EXTERNAL_KINDS),
+            name="ck_product_tenant_map_external_kind",
+        ),
+    )

@@ -12,6 +12,7 @@ from penguin_dal.quart_ext import get_db, init_dal
 from penguin_aaa.crypto.keystore import FileKeyStore, KeyStore, MemoryKeyStore
 from quart import Quart
 from quart_cors import cors
+from quart_schema import QuartSchema
 
 from .config import Config
 from .killkrill import killkrill_manager
@@ -64,6 +65,10 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     app.config["SESSION_COOKIE_SECURE"] = True
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+    # Initialize QuartSchema for request/response validation
+    app.config["QUART_SCHEMA_CONVERT_CASING"] = False
+    QuartSchema(app)
 
     # Initialize CORS with explicit origin allowlist (security: no open CORS)
     origins_str = app.config.get("CORS_ORIGINS_ENV", "http://localhost:3000")

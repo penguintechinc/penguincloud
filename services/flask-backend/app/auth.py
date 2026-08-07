@@ -76,6 +76,8 @@ async def create_token_set_async(
     tenant_id: str,
     role: str,
     teams: list[str] | None = None,
+    home_tenant: str | None = None,
+    scopes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a JWT token set using penguin-aaa.
 
@@ -85,15 +87,25 @@ async def create_token_set_async(
             sentinel, since penguin-aaa rejects an empty tenant claim.
         role: User role
         teams: Team IDs the user belongs to; looked up when omitted.
+        home_tenant: The user's "home" tenant (for tenant switching context).
+        scopes: Resolved authorization scopes for the active tenant. Omitted
+            means "no active tenant" and yields the unscoped bundle — a
+            holder can enumerate their tenants and switch, nothing more.
+            Scopes are resolved once, at issue time (security.md: authz
+            decisions are made on `scope`, never on a role name), and never
+            contain a descendant id list.
 
     Returns:
         Dict with access_token, id_token, refresh_token, expires_in
     """
     from .models import get_user_teams
+    from .tenancy import UNSCOPED_SCOPES
 
     if teams is None:
         user_teams = await get_user_teams(user_id)
         teams = [str(t["id"]) for t in user_teams]
+
+    resolved_scopes = list(scopes) if scopes is not None else list(UNSCOPED_SCOPES)
 
     oidc = get_oidc_provider()
     now = datetime.now(UTC)
@@ -101,6 +113,11 @@ async def create_token_set_async(
         "JWT_ACCESS_TOKEN_EXPIRES", timedelta(hours=1)
     )
     exp = now + ttl
+
+    # Build extra claims dict
+    ext_claims: dict[str, Any] = {}
+    if home_tenant:
+        ext_claims["home_tenant"] = home_tenant
 
     claims = Claims(
         sub=str(user_id),
@@ -110,10 +127,11 @@ async def create_token_set_async(
         aud=list(current_app.config["JWT_AUDIENCES"]),
         iat=now,
         exp=exp,
-        scope=["read", "write"],
+        scope=resolved_scopes,
         roles=[role],
         tenant=tenant_id or UNSCOPED_TENANT,
         teams=teams,
+        ext=ext_claims,
     )
 
     token_set = oidc.issue_token_set(claims)
