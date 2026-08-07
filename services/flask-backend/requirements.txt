@@ -8,7 +8,7 @@
 -e file:///home/penguin/code/penguin-libs/packages/python-licensing#egg=penguin-licensing
 
 # Web Framework & ASGI
-Quart==0.19.4
+Quart==0.20.1
 hypercorn==0.17.0
 quart-cors==0.7.0
 
