@@ -9,6 +9,7 @@ export interface User {
   is_active: boolean;
   created_at: string;
   updated_at: string | null;
+  home_tenant_id?: number; // Introduced in Phase 2B
 }
 
 export interface CreateUserData {
@@ -87,6 +88,8 @@ export type TenantPlan = "free" | "starter" | "business" | "enterprise";
 export type TenantRole = "owner" | "admin" | "member" | "viewer";
 export type HealthStatus = "healthy" | "degraded" | "unhealthy" | "unknown";
 
+export type TenantKind = "provider" | "customer";
+
 export interface Tenant {
   id: number;
   name: string;
@@ -101,6 +104,10 @@ export interface Tenant {
   created_at: string;
   updated_at: string;
   user_role?: TenantRole;
+  // Introduced in Phase 2B (hierarchical tenancy)
+  parent_tenant_id?: number | null;
+  kind?: TenantKind;
+  depth?: number;
 }
 
 export interface TenantMember {

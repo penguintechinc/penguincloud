@@ -17,3 +17,5 @@ export {
 } from "./DataTableSortHeader";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog";
+export { TenantScopeSwitcher } from "./TenantScopeSwitcher";
+export { ActingAsBanner } from "./ActingAsBanner";

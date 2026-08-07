@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom";
+import { server } from "../mocks/server";
 
 // Mock window.matchMedia
 Object.defineProperty(window, "matchMedia", {
@@ -14,6 +15,11 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: jest.fn(),
   })),
 });
+
+// MSW server setup
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
 
 // Suppress console errors during tests (optional)
 const originalError = console.error;
