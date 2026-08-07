@@ -4,10 +4,10 @@ import asyncio
 import secrets
 from datetime import datetime, timedelta, UTC
 from functools import wraps
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional, ParamSpec, TypeVar
 from urllib.parse import urlencode
 
-import requests  # type: ignore[import-untyped]
+import requests
 from quart import Blueprint, current_app, redirect, request, session
 
 from .auth import create_token_set_async
@@ -24,13 +24,18 @@ from .models import (
 
 oauth_bp = Blueprint("oauth", __name__)
 
+P = ParamSpec("P")
+R = TypeVar("R")
 
-def require_feature(feature_name: str) -> Any:
-    """Decorator to gate features behind license checks (async)."""
 
-    def decorator(f: Any) -> Any:
+def require_feature(
+    feature_name: str,
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[Any]]]:
+    """Build a decorator gating an async view behind a license feature."""
+
+    def decorator(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
         @wraps(f)
-        async def decorated_function(*args: Any, **kwargs: Any) -> Any:
+        async def decorated_function(*args: P.args, **kwargs: P.kwargs) -> Any:
             # In development mode, skip feature gating
             if not Config.RELEASE_MODE:
                 return await f(*args, **kwargs)
@@ -90,7 +95,7 @@ async def get_redirect_uri(provider: str) -> str:
 
 
 @oauth_bp.route("/auth/oauth/<provider>", methods=["GET"])
-@require_feature("sso_integration")  # type: ignore[misc]
+@require_feature("sso_integration")
 async def oauth_redirect(provider: str) -> Any:
     """Redirect to OAuth provider for authorization."""
     config = get_provider_config(provider)
@@ -118,7 +123,7 @@ async def oauth_redirect(provider: str) -> Any:
 
 
 @oauth_bp.route("/auth/oauth/<provider>/callback", methods=["GET"])
-@require_feature("sso_integration")  # type: ignore[misc]
+@require_feature("sso_integration")
 async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
     """Handle OAuth2 callback and create/link user account."""
     config = get_provider_config(provider)
@@ -235,7 +240,9 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
         # Generate JWT tokens using penguin-aaa
         token_set = await create_token_set_async(
             user_id=user_id,
-            tenant_id="",  # OAuth users may not have a default tenant yet
+            # OAuth users have no active tenant until they switch to one;
+            # create_token_set_async maps "" onto the UNSCOPED_TENANT sentinel.
+            tenant_id="",
             role=user["role"],
         )
 
@@ -260,9 +267,7 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
         return {"error": "Failed to complete OAuth flow"}, 500
 
 
-def _extract_provider_user_id(
-    provider: str, userinfo: dict[str, Any]
-) -> Optional[str]:
+def _extract_provider_user_id(provider: str, userinfo: dict[str, Any]) -> Optional[str]:
     """Extract provider-specific user ID."""
     if provider == "google":
         return userinfo.get("sub")
@@ -273,9 +278,7 @@ def _extract_provider_user_id(
     return None
 
 
-def _extract_provider_email(
-    provider: str, userinfo: dict[str, Any]
-) -> Optional[str]:
+def _extract_provider_email(provider: str, userinfo: dict[str, Any]) -> Optional[str]:
     """Extract provider-specific email."""
     if provider == "google":
         return userinfo.get("email")
@@ -287,9 +290,7 @@ def _extract_provider_email(
     return None
 
 
-def _extract_provider_name(
-    provider: str, userinfo: dict[str, Any]
-) -> str:
+def _extract_provider_name(provider: str, userinfo: dict[str, Any]) -> str:
     """Extract provider-specific full name."""
     if provider == "google":
         name = userinfo.get("name", "")

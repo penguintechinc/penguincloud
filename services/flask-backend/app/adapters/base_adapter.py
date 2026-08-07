@@ -1,8 +1,13 @@
 """Base Product Adapter — all adapters inherit from this."""
 
+import asyncio
 import logging
+from functools import partial
+from typing import Any
 
 import requests
+from werkzeug.wrappers.response import Response as WerkzeugResponse
+
 from quart import Response, make_response
 
 from ..encryption import decrypt_value
@@ -22,7 +27,7 @@ class ProductAdapter:
     DISCOVERY_PORTS: list[int] = []
     DISCOVERY_SIGNATURES: list[str] = []
 
-    def __init__(self, connection: dict):
+    def __init__(self, connection: dict[str, Any]) -> None:
         self.connection = connection
         self.base_url = connection.get("base_url", "").rstrip("/")
         self.auth_type = connection.get("auth_type", "bearer")
@@ -51,7 +56,7 @@ class ProductAdapter:
         except (ValueError, Exception):
             return ""
 
-    def get_headers(self) -> dict:
+    def get_headers(self) -> dict[str, str]:
         """Build authentication headers for the product API."""
         headers = {"Content-Type": "application/json"}
         key = self._decrypt_key()
@@ -62,13 +67,14 @@ class ProductAdapter:
             headers["X-API-Key"] = key
         elif self.auth_type == "basic":
             import base64
+
             secret = self._decrypt_secret()
             creds = base64.b64encode(f"{key}:{secret}".encode()).decode()
             headers["Authorization"] = f"Basic {creds}"
 
         return headers
 
-    def health_check(self) -> dict:
+    def health_check(self) -> dict[str, Any]:
         """Check product health."""
         url = f"{self.base_url}{self.health_endpoint}"
         try:
@@ -92,7 +98,7 @@ class ProductAdapter:
                 "response_time_ms": 0,
             }
 
-    def get_dashboard_summary(self) -> dict:
+    def get_dashboard_summary(self) -> dict[str, Any]:
         """Get summary data for the dashboard overview."""
         health = self.health_check()
         return {
@@ -102,8 +108,14 @@ class ProductAdapter:
             "health": health,
         }
 
-    def proxy_request(self, method: str, path: str, **kwargs) -> Response:
-        """Forward a request to the product API."""
+    async def proxy_request(
+        self, method: str, path: str, **kwargs: Any
+    ) -> Response | WerkzeugResponse:
+        """Forward a request to the product API.
+
+        Async because quart.make_response is a coroutine; the sync Flask
+        spelling returned an un-awaited coroutine instead of a Response.
+        """
         url = f"{self.base_url}/api/{self.api_version}/{path.lstrip('/')}"
         headers = self.get_headers()
 
@@ -112,20 +124,25 @@ class ProductAdapter:
             headers.update(kwargs.pop("headers"))
 
         try:
-            resp = requests.request(
-                method=method,
-                url=url,
-                headers=headers,
-                timeout=30,
-                **kwargs,
+            # requests is blocking — keep it off the event loop. (The whole
+            # adapter layer moves to an async client in Task 3.)
+            resp = await asyncio.to_thread(
+                partial(
+                    requests.request,
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    timeout=30,
+                    **kwargs,
+                )
             )
-            flask_resp = make_response(resp.content, resp.status_code)
+            proxied = await make_response(resp.content, resp.status_code)
             for key, value in resp.headers.items():
                 if key.lower() not in ("transfer-encoding", "connection"):
-                    flask_resp.headers[key] = value
-            return flask_resp
+                    proxied.headers[key] = value
+            return proxied
         except requests.RequestException as e:
-            return make_response(
+            return await make_response(
                 {"error": f"Proxy request failed: {str(e)}"}, 502
             )
 
@@ -133,7 +150,7 @@ class ProductAdapter:
         """Return list of supported capabilities."""
         return ["health_check", "proxy"]
 
-    def get_management_schema(self) -> dict:
+    def get_management_schema(self) -> dict[str, Any]:
         """Describe available management actions/endpoints for the WebUI."""
         return {
             "product_type": self.PRODUCT_TYPE,

@@ -6,13 +6,30 @@ See models.py for runtime operations.
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
+from sqlalchemy.orm import DeclarativeBase
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Declarative base for every schema model in this module.
+
+    SQLAlchemy 2.0's typed DeclarativeBase, not the legacy untyped
+    declarative_base() factory — the latter forced a
+    `type: ignore[valid-type,misc]` on every subclass below.
+    """
 
 
-class User(Base):  # type: ignore[valid-type,misc]
+class User(Base):
     """User account."""
 
     __tablename__ = "users"
@@ -20,15 +37,21 @@ class User(Base):  # type: ignore[valid-type,misc]
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255))
-    role = Column(String(50), default="viewer", nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    role = Column(String(50), default="viewer", server_default="viewer", nullable=False)
+    is_active = Column(Boolean, default=True, server_default=text("1"), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
     updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        server_default=func.now(),
+        nullable=False,
     )
 
 
-class RefreshToken(Base):  # type: ignore[valid-type,misc]
+class RefreshToken(Base):
     """Refresh token for invalidation."""
 
     __tablename__ = "refresh_tokens"
@@ -36,11 +59,13 @@ class RefreshToken(Base):  # type: ignore[valid-type,misc]
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     token_hash = Column(String(255), unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    revoked = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    revoked = Column(Boolean, default=False, server_default=text("0"), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
 
 
-class MfaSecret(Base):  # type: ignore[valid-type,misc]
+class MfaSecret(Base):
     """MFA TOTP secret."""
 
     __tablename__ = "mfa_secrets"
@@ -49,10 +74,12 @@ class MfaSecret(Base):  # type: ignore[valid-type,misc]
     secret = Column(String(255), nullable=False)
     backup_codes = Column(Text)
     enabled_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
 
 
-class Tenant(Base):  # type: ignore[valid-type,misc]
+class Tenant(Base):
     """Tenant (workspace)."""
 
     __tablename__ = "tenants"
@@ -61,31 +88,41 @@ class Tenant(Base):  # type: ignore[valid-type,misc]
     slug = Column(String(63), unique=True, nullable=False)
     display_name = Column(String(255))
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    plan_tier = Column(String(50), default="free", nullable=False)
+    plan_tier = Column(
+        String(50), default="free", server_default="free", nullable=False
+    )
     license_key = Column(String(255))
     max_users = Column(Integer, default=10)
     max_products = Column(Integer, default=5)
     settings = Column(Text)
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_active = Column(Boolean, default=True, server_default=text("1"), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
     updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        server_default=func.now(),
+        nullable=False,
     )
 
 
-class TenantMember(Base):  # type: ignore[valid-type,misc]
+class TenantMember(Base):
     """Tenant membership."""
 
     __tablename__ = "tenant_members"
     id = Column(Integer, primary_key=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    role = Column(String(50), default="member", nullable=False)
+    role = Column(String(50), default="member", server_default="member", nullable=False)
     invited_by_id = Column(Integer, ForeignKey("users.id"))
-    joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    joined_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
 
 
-class ProductConnection(Base):  # type: ignore[valid-type,misc]
+class ProductConnection(Base):
     """Product connection."""
 
     __tablename__ = "product_connections"
@@ -96,21 +133,29 @@ class ProductConnection(Base):  # type: ignore[valid-type,misc]
     base_url = Column(String(500), nullable=False)
     api_key = Column(Text)
     api_secret = Column(Text)
-    auth_type = Column(String(50), default="bearer", nullable=False)
+    auth_type = Column(
+        String(50), default="bearer", server_default="bearer", nullable=False
+    )
     health_endpoint = Column(String(255), default="/healthz")
     api_version = Column(String(20), default="v1")
-    is_active = Column(Boolean, default=True, nullable=False)
+    is_active = Column(Boolean, default=True, server_default=text("1"), nullable=False)
     last_health_check = Column(DateTime)
     health_status = Column(String(50), default="unknown")
     discovered = Column(Boolean, default=False)
     metadata_json = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
     updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        server_default=func.now(),
+        nullable=False,
     )
 
 
-class TenantProductFeature(Base):  # type: ignore[valid-type,misc]
+class TenantProductFeature(Base):
     """Tenant product feature flag."""
 
     __tablename__ = "tenant_product_features"
@@ -118,11 +163,11 @@ class TenantProductFeature(Base):  # type: ignore[valid-type,misc]
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     product_type = Column(String(50), nullable=False)
     feature_name = Column(String(255), nullable=False)
-    enabled = Column(Boolean, default=True, nullable=False)
+    enabled = Column(Boolean, default=True, server_default=text("1"), nullable=False)
     limits = Column(Text)
 
 
-class Team(Base):  # type: ignore[valid-type,misc]
+class Team(Base):
     """Team."""
 
     __tablename__ = "teams"
@@ -134,18 +179,18 @@ class Team(Base):  # type: ignore[valid-type,misc]
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class TeamMember(Base):  # type: ignore[valid-type,misc]
+class TeamMember(Base):
     """Team membership."""
 
     __tablename__ = "team_members"
     id = Column(Integer, primary_key=True)
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    role = Column(String(50), default="member", nullable=False)
+    role = Column(String(50), default="member", server_default="member", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-class OAuthConnection(Base):  # type: ignore[valid-type,misc]
+class OAuthConnection(Base):
     """OAuth provider connection."""
 
     __tablename__ = "oauth_connections"
@@ -159,7 +204,7 @@ class OAuthConnection(Base):  # type: ignore[valid-type,misc]
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class AuditLog(Base):  # type: ignore[valid-type,misc]
+class AuditLog(Base):
     """Audit log entry."""
 
     __tablename__ = "audit_logs"
@@ -178,7 +223,7 @@ class AuditLog(Base):  # type: ignore[valid-type,misc]
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-class PasswordResetToken(Base):  # type: ignore[valid-type,misc]
+class PasswordResetToken(Base):
     """Password reset token."""
 
     __tablename__ = "password_reset_tokens"
@@ -190,7 +235,7 @@ class PasswordResetToken(Base):  # type: ignore[valid-type,misc]
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-class EmailConfirmationToken(Base):  # type: ignore[valid-type,misc]
+class EmailConfirmationToken(Base):
     """Email confirmation token."""
 
     __tablename__ = "email_confirmation_tokens"
@@ -202,7 +247,7 @@ class EmailConfirmationToken(Base):  # type: ignore[valid-type,misc]
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-class APIKey(Base):  # type: ignore[valid-type,misc]
+class APIKey(Base):
     """API key."""
 
     __tablename__ = "api_keys"

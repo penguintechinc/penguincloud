@@ -86,8 +86,6 @@ async def client(app: Quart) -> Any:
 @pytest_asyncio.fixture
 async def user_id(client: Any) -> int:
     """Register and login a test user, return user ID (async)."""
-    from app.config import TestingConfig
-
     # Unique email — see auth_headers below; the shared file-based sqlite
     # DB persists across the whole pytest process (TestingConfig.DB_NAME is
     # resolved once), so a fixed literal risks colliding with another
@@ -119,11 +117,83 @@ async def user_id(client: Any) -> int:
 
     token = (await login_response.get_json())["access_token"]
 
-    # Decode token to get user_id
-    payload = jwt.decode(
-        token, TestingConfig.JWT_SECRET_KEY, algorithms=["HS256"]
-    )
+    # Access tokens are now RS256, signed by penguin-aaa's keystore (the old
+    # hand-rolled HS256/JWT_SECRET_KEY scheme is gone). This fixture only
+    # needs the subject, and the token was just minted by the app under
+    # test, so decode without signature verification rather than plumbing
+    # the JWKS in here — auth_required is what actually verifies signatures,
+    # and tests/api/test_auth.py covers that path.
+    payload = jwt.decode(token, options={"verify_signature": False})
     return int(payload["sub"])
+
+
+@pytest_asyncio.fixture
+async def admin_headers(client: Any, app: Quart) -> dict[str, str]:
+    """Create a genuine admin-role authenticated user.
+
+    Registration always defaults to role="viewer" (see auth.py:register) —
+    there is no self-service way to become admin. Elevate the role via the
+    DB layer inside an app context, then log in again so the fresh JWT's
+    `roles` claim (baked in at token issuance) reflects it.
+
+    Lived in test_audit.py/test_license.py as duplicated local fixtures
+    before the Quart migration; shared here so both suites use one
+    async-ported definition.
+    """
+    unique_email = f"admin-{uuid.uuid4().hex[:8]}@example.com"
+    register_response = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": unique_email,
+            "password": "adminpass123",
+            "full_name": "Admin User",
+        },
+    )
+    assert register_response.status_code in [
+        200,
+        201,
+    ], f"Failed to register: {await register_response.get_json()}"
+    new_user_id = (await register_response.get_json())["user"]["id"]
+
+    async with app.app_context():
+        from app.models import update_user
+
+        await update_user(new_user_id, role="admin")
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"email": unique_email, "password": "adminpass123"},
+    )
+    assert (
+        response.status_code == 200
+    ), f"Failed to login: {await response.get_json()}"
+
+    token = (await response.get_json())["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+async def tenant_id(client: Any, admin_headers: dict[str, str]) -> int:
+    """Create a tenant owned by the admin_headers user; return its id.
+
+    create_tenant() (unlike create_team()) adds the creator as a
+    tenant_members row with role="owner", so this gives audit/license tests
+    a tenant the admin user genuinely has owner role on — which is what the
+    tenant-scoped endpoints require.
+    """
+    response = await client.post(
+        "/api/v1/tenants",
+        headers=admin_headers,
+        json={
+            "name": "Audit Test Tenant",
+            "slug": f"audit-tenant-{uuid.uuid4().hex[:8]}",
+            "plan": "free",
+        },
+    )
+    assert (
+        response.status_code == 201
+    ), f"Failed to create tenant: {await response.get_json()}"
+    return int((await response.get_json())["id"])
 
 
 @pytest_asyncio.fixture

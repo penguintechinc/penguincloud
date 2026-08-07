@@ -6,6 +6,8 @@ Tests for audit log creation, retrieval, and filtering.
 
 import uuid
 
+from typing import Any
+
 import pytest
 
 # create_team() (models.py:1028) never adds the creator as a team_members
@@ -24,7 +26,7 @@ class TestAuditLogCreation:
     """Test audit log creation"""
 
     @pytest.mark.asyncio
-    async def test_login_creates_audit_log(self, client):
+    async def test_login_creates_audit_log(self, client: Any) -> None:
         """Test that login creates audit entry"""
         # A uuid-based unique email avoids colliding with a same-literal
         # registration from another test in this session (the shared
@@ -32,7 +34,7 @@ class TestAuditLogCreation:
         # tests/conftest.py) that could register "test@example.com" with a
         # different password and make this login 401 instead of 200.
         unique_email = f"login-audit-{uuid.uuid4().hex[:8]}@example.com"
-        client.post(
+        await client.post(
             "/api/v1/auth/register",
             json={
                 "email": unique_email,
@@ -50,7 +52,9 @@ class TestAuditLogCreation:
         # Login should be logged
 
     @pytest.mark.asyncio
-    async def test_team_creation_audit_log(self, client, auth_headers):
+    async def test_team_creation_audit_log(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test that team creation creates audit entry"""
         response = await client.post(
             "/api/v1/teams",
@@ -62,7 +66,9 @@ class TestAuditLogCreation:
         # Team creation should be audited
 
     @pytest.mark.asyncio
-    async def test_user_creation_audit_log(self, client, admin_headers):
+    async def test_user_creation_audit_log(
+        self, client: Any, admin_headers: dict[str, str]
+    ) -> None:
         """Test that user management creates audit entries"""
         response = await client.get("/api/v1/users", headers=admin_headers)
 
@@ -73,7 +79,9 @@ class TestAuditLogRetrieval:
     """Test retrieving audit logs"""
 
     @pytest.mark.asyncio
-    async def test_list_audit_logs_admin(self, client, admin_headers, tenant_id):
+    async def test_list_audit_logs_admin(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test admin can view all audit logs"""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
@@ -81,11 +89,13 @@ class TestAuditLogRetrieval:
 
         assert response.status_code in [200, 402, 403]  # 402 if not entitled
         if response.status_code == 200:
-            data = response.get_json()
+            data = await response.get_json()
             assert "logs" in data
 
     @pytest.mark.asyncio
-    async def test_list_audit_logs_team_admin(self, client, auth_headers):
+    async def test_list_audit_logs_team_admin(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test team admin can view team audit logs"""
         # No team-scoped audit log endpoint exists — audit_bp is mounted
         # at /api/v1/audit with only /logs and /export (both tenant_id-
@@ -100,7 +110,7 @@ class TestAuditLogRetrieval:
             headers=auth_headers,
             json={"name": "Team", "slug": "ta-team-admin-audit"},
         )
-        team_id = create_response.get_json()["id"]
+        team_id = (await create_response.get_json())["id"]
 
         response = await client.get(
             f"/api/v1/teams/{team_id}/audit-logs", headers=auth_headers
@@ -109,7 +119,9 @@ class TestAuditLogRetrieval:
         assert response.status_code in [200, 402, 404]
 
     @pytest.mark.asyncio
-    async def test_list_audit_logs_non_admin(self, client, auth_headers, tenant_id):
+    async def test_list_audit_logs_non_admin(
+        self, client: Any, auth_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test non-admin cannot view all audit logs"""
         # `tenant_id` is owned by the (unrelated) admin_headers user —
         # auth_headers's user has no membership in it at all, so the
@@ -126,7 +138,9 @@ class TestAuditLogFiltering:
     """Test filtering audit logs"""
 
     @pytest.mark.asyncio
-    async def test_filter_by_action(self, client, admin_headers, tenant_id):
+    async def test_filter_by_action(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test filtering audit logs by action"""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}&action=login",
@@ -135,14 +149,16 @@ class TestAuditLogFiltering:
 
         assert response.status_code in [200, 402]
         if response.status_code == 200:
-            data = response.get_json()
+            data = await response.get_json()
             for log in data.get("logs", []):
                 # Schema field is action_type, not action (see models.py
                 # audit_logs table)
                 assert log.get("action_type") == "login"
 
     @pytest.mark.asyncio
-    async def test_filter_by_resource(self, client, admin_headers, tenant_id):
+    async def test_filter_by_resource(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test filtering by resource type"""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}&resource_type=team",
@@ -152,7 +168,9 @@ class TestAuditLogFiltering:
         assert response.status_code in [200, 402]
 
     @pytest.mark.asyncio
-    async def test_filter_by_date_range(self, client, admin_headers, tenant_id):
+    async def test_filter_by_date_range(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test filtering by date range"""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}"
@@ -163,7 +181,9 @@ class TestAuditLogFiltering:
         assert response.status_code in [200, 402]
 
     @pytest.mark.asyncio
-    async def test_filter_by_user(self, client, admin_headers, tenant_id):
+    async def test_filter_by_user(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test filtering by user"""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}&user_id=user_123",
@@ -177,14 +197,16 @@ class TestAuditLogDetails:
     """Test audit log data structure"""
 
     @pytest.mark.asyncio
-    async def test_audit_log_structure(self, client, admin_headers, tenant_id):
+    async def test_audit_log_structure(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test that audit logs contain required fields"""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
         )
 
         if response.status_code == 200:
-            data = response.get_json()
+            data = await response.get_json()
             for log in data.get("logs", []):
                 # Required fields — actual schema uses action_type/
                 # created_at (see models.py:961 create_audit_log /
@@ -195,28 +217,32 @@ class TestAuditLogDetails:
                 assert "user_id" in log
 
     @pytest.mark.asyncio
-    async def test_audit_log_contains_metadata(self, client, admin_headers, tenant_id):
+    async def test_audit_log_contains_metadata(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test audit logs contain metadata"""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
         )
 
         if response.status_code == 200:
-            data = response.get_json()
+            data = await response.get_json()
             for log in data.get("logs", []):
                 # Should have metadata
                 if "metadata" in log:
                     assert isinstance(log["metadata"], (dict, str, type(None)))
 
     @pytest.mark.asyncio
-    async def test_audit_log_contains_ip(self, client, admin_headers, tenant_id):
+    async def test_audit_log_contains_ip(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test audit logs capture IP address"""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
         )
 
         if response.status_code == 200:
-            data = response.get_json()
+            data = await response.get_json()
             for log in data.get("logs", []):
                 # Should have IP address
                 if "ip_address" in log:
@@ -227,7 +253,7 @@ class TestAuditLogEvents:
     """Test various audit log events"""
 
     @pytest.mark.asyncio
-    async def test_audit_log_user_login(self, client):
+    async def test_audit_log_user_login(self, client: Any) -> None:
         """Test login is audited"""
         response = await client.post(
             "/api/v1/auth/login",
@@ -238,7 +264,9 @@ class TestAuditLogEvents:
         assert response.status_code in [200, 401]
 
     @pytest.mark.asyncio
-    async def test_audit_log_user_logout(self, client, auth_headers):
+    async def test_audit_log_user_logout(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test logout is audited"""
         response = await client.post("/api/v1/auth/logout", headers=auth_headers)
 
@@ -246,7 +274,9 @@ class TestAuditLogEvents:
         assert response.status_code in [200, 401]
 
     @pytest.mark.asyncio
-    async def test_audit_log_password_change(self, client, auth_headers):
+    async def test_audit_log_password_change(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test password change is audited"""
         response = await client.put(
             "/api/v1/users/me/password",
@@ -259,7 +289,9 @@ class TestAuditLogEvents:
 
     @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
     @pytest.mark.asyncio
-    async def test_audit_log_team_member_added(self, client, auth_headers):
+    async def test_audit_log_team_member_added(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test team member addition is audited"""
         # Create team
         create_response = await client.post(
@@ -267,7 +299,7 @@ class TestAuditLogEvents:
             headers=auth_headers,
             json={"name": "Team", "slug": "ta-member-added"},
         )
-        team_id = create_response.get_json()["id"]
+        team_id = (await create_response.get_json())["id"]
 
         # Add member
         response = await client.post(
@@ -284,7 +316,9 @@ class TestAuditLogPagination:
     """Test audit log pagination"""
 
     @pytest.mark.asyncio
-    async def test_audit_log_pagination(self, client, admin_headers, tenant_id):
+    async def test_audit_log_pagination(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int
+    ) -> None:
         """Test pagination of audit logs"""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}&page=1&per_page=10",
@@ -293,7 +327,7 @@ class TestAuditLogPagination:
 
         assert response.status_code in [200, 402]
         if response.status_code == 200:
-            data = response.get_json()
+            data = await response.get_json()
             assert "page" in data
             assert "per_page" in data
             assert "total" in data

@@ -5,12 +5,15 @@ import os
 import time
 from datetime import datetime
 from functools import wraps
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, ParamSpec, TypeVar
 
 import requests
 from quart import jsonify
 
 logger = logging.getLogger(__name__)
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 class FeatureNotEntitledException(Exception):
@@ -22,15 +25,15 @@ class FeatureNotEntitledException(Exception):
 class LicenseManager:
     """Singleton license manager for PenguinTech License Server."""
 
-    _instance = None
+    _instance: "LicenseManager | None" = None
     _lock = False
 
-    def __new__(cls):
+    def __new__(cls) -> "LicenseManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize license manager."""
         if not hasattr(self, "_initialized"):
             self.license_key = os.getenv("LICENSE_KEY", "")
@@ -41,8 +44,8 @@ class LicenseManager:
             self.release_mode = os.getenv("RELEASE_MODE", "false").lower() == "true"
 
             self._features_cache: Dict[str, Any] = {}
-            self._cache_expiry = 0
-            self._full_cache_expiry = 0
+            self._cache_expiry: float = 0.0
+            self._full_cache_expiry: float = 0.0
             self._validation_cache: Dict[str, Any] = {}
 
             self._initialized = True
@@ -108,7 +111,8 @@ class LicenseManager:
             self._refresh_features()
 
         features = self._features_cache.get("features", {})
-        return features.get(feature_name, {}).get("enabled", False)
+        enabled: bool = features.get(feature_name, {}).get("enabled", False)
+        return enabled
 
     def _refresh_features(self) -> None:
         """Refresh feature cache from server."""
@@ -130,11 +134,13 @@ class LicenseManager:
 
     def get_tier(self) -> str:
         """Get license tier."""
-        return self._validation_cache.get("tier", "community")
+        tier: str = self._validation_cache.get("tier", "community")
+        return tier
 
     def get_limits(self) -> Dict[str, Any]:
         """Get usage limits."""
-        return self._validation_cache.get("limits", {})
+        limits: Dict[str, Any] = self._validation_cache.get("limits", {})
+        return limits
 
     def checkin(self, usage_stats: Optional[Dict[str, Any]] = None) -> bool:
         """
@@ -150,7 +156,7 @@ class LicenseManager:
             return True
 
         try:
-            payload = {
+            payload: Dict[str, Any] = {
                 "license_key": self.license_key,
                 "product_name": self.product_name,
                 "timestamp": datetime.utcnow().isoformat(),
@@ -182,20 +188,18 @@ class LicenseManager:
         }
 
 
-def require_feature(feature_name: str):
-    """
-    Decorator to require a specific license feature.
+def require_feature(
+    feature_name: str,
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[Any]]]:
+    """Build a decorator gating an async view on a licensed feature.
 
-    Args:
-        feature_name: Name of the feature required.
-
-    Raises:
-        FeatureNotEntitledException: If feature is not enabled.
+    Quart views are coroutines, so the wrapper must be async and await the
+    wrapped view — a sync wrapper would hand Quart an un-awaited coroutine.
     """
 
-    def decorator(f):
+    def decorator(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
         @wraps(f)
-        def decorated_function(*args, **kwargs):
+        async def decorated_function(*args: P.args, **kwargs: P.kwargs) -> Any:
             manager = LicenseManager()
             if not manager.is_feature_enabled(feature_name):
                 return (
@@ -210,7 +214,7 @@ def require_feature(feature_name: str):
                     ),
                     403,
                 )
-            return f(*args, **kwargs)
+            return await f(*args, **kwargs)
 
         return decorated_function
 

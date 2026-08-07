@@ -87,9 +87,7 @@ async def create_new_user() -> tuple[dict[str, Any], int]:
         return {"error": "Password must be at least 8 characters"}, 400
 
     if role not in VALID_ROLES:
-        return {
-            "error": f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}"
-        }, 400
+        return {"error": f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}"}, 400
 
     # Check if user exists
     existing = await get_user_by_email(email)
@@ -284,11 +282,7 @@ async def change_password() -> tuple[dict[str, Any], int]:
 
     data = await request.get_json()
 
-    if (
-        not data
-        or not data.get("current_password")
-        or not data.get("new_password")
-    ):
+    if not data or not data.get("current_password") or not data.get("new_password"):
         return {"error": "Current and new password required"}, 400
 
     pwd_valid = await verify_password_async(
@@ -334,8 +328,9 @@ async def create_api_key_endpoint() -> tuple[dict[str, Any], int]:
     if not data or not data.get("name"):
         return {"error": "API key name required"}, 400
 
-    key, key_id = await asyncio.to_thread(
-        create_api_key,
+    # create_api_key is itself async — to_thread would only build the
+    # coroutine in a worker thread and hand it back un-awaited.
+    key, key_id = await create_api_key(
         user["id"],
         data.get("name"),
         data.get("scopes", ""),

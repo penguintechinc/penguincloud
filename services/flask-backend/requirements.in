@@ -25,10 +25,15 @@ cryptography>=50.0.0          # Required for MySQL/MariaDB SSL connections
 # Authentication & Cryptography
 bcrypt>=4.2.0
 pyotp>=2.9.0
+PyJWT>=2.10.0               # JWKS verification in app/middleware.py
 
 # Validation
 email-validator>=2.2.0
 pydantic>=2.10.0
+
+# HTTP clients
+aiohttp>=3.11.0              # async probing in app/discovery.py
+requests>=2.32.0             # sync adapters + license server (async rewrite: Task 3)
 
 # Monitoring & Metrics
 prometheus-client>=0.21.0
@@ -44,5 +49,6 @@ black>=26.0.0
 flake8>=7.1.0
 isort>=5.13.0
 mypy>=1.14.0
+types-requests>=2.32.0       # stubs for `requests` (no inline types upstream)
 bandit>=1.8.0
 safety>=3.8.0

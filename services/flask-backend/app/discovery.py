@@ -3,16 +3,19 @@
 import asyncio
 import logging
 import socket
+import time
 from typing import Any
 
 import aiohttp
 from quart import Blueprint, request
 
 from .adapters import ADAPTER_REGISTRY
+from .adapters.base_adapter import ProductAdapter
 from .middleware import auth_required, get_current_user
 from .models import (
     create_audit_log,
     create_product_connection,
+    get_product_connection_by_id,
     get_user_tenant_role,
 )
 
@@ -21,11 +24,14 @@ logger = logging.getLogger(__name__)
 discovery_bp = Blueprint("discovery", __name__)
 
 # In-memory store for latest scan results per tenant
-_scan_results: dict[int, list[dict]] = {}
+_scan_results: dict[int, list[dict[str, Any]]] = {}
 
 
 async def _probe_endpoint(
-    host: str, port: int, adapter_cls: type, session: aiohttp.ClientSession
+    host: str,
+    port: int,
+    adapter_cls: type[ProductAdapter],
+    session: aiohttp.ClientSession,
 ) -> dict[str, Any] | None:
     """Probe a single host:port for a PenguinTech product (async)."""
     base_url = f"http://{host}:{port}"
@@ -33,10 +39,13 @@ async def _probe_endpoint(
 
     try:
         async with asyncio.timeout(5):
+            started = time.perf_counter()
             async with session.get(f"{base_url}{health_ep}") as resp:
                 body = (await resp.text()).lower()
                 status = resp.status
-                elapsed_ms = int((resp.elapsed or 0) * 1000)
+                # aiohttp's ClientResponse has no `.elapsed` (that is a
+                # requests attribute), so measure the round trip directly.
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
 
                 # Check if any discovery signature matches
                 for sig in adapter_cls.DISCOVERY_SIGNATURES:
@@ -98,6 +107,8 @@ async def _scan_network(network_ranges: list[str]) -> list[dict[str, Any]]:
 async def trigger_scan() -> tuple[dict[str, Any], int]:
     """Trigger network scan for PenguinTech products."""
     user = get_current_user()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
     data = await request.get_json() or {}
 
     tenant_id = data.get("tenant_id")
@@ -130,6 +141,7 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
         user_id=user["id"],
         action="discovery.scan",
         resource_type="discovery",
+        resource_id=str(tenant_id),
         tenant_id=tenant_id,
         ip_address=request.remote_addr,
     )
@@ -146,6 +158,8 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
 async def get_scan_results() -> tuple[dict[str, Any], int]:
     """Get latest scan results."""
     user = get_current_user()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
     tenant_id = request.args.get("tenant_id", type=int)
 
     if not tenant_id:
@@ -161,11 +175,11 @@ async def get_scan_results() -> tuple[dict[str, Any], int]:
 
 @discovery_bp.route("/accept/<int:discovery_id>", methods=["POST"])
 @auth_required
-async def accept_discovered_product(discovery_id: int) -> tuple[
-    dict[str, Any], int
-]:
+async def accept_discovered_product(discovery_id: int) -> tuple[dict[str, Any], int]:
     """Accept a discovered product and create a connection."""
     user = get_current_user()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
     data = await request.get_json() or {}
 
     tenant_id = data.get("tenant_id")
@@ -182,7 +196,7 @@ async def accept_discovered_product(discovery_id: int) -> tuple[
     if not discovered:
         return {"error": "Discovery result not found"}, 404
 
-    conn = await create_product_connection(
+    conn_id = await create_product_connection(
         tenant_id=tenant_id,
         product_type=discovered["product_type"],
         display_name=data.get("display_name", discovered["display_name"]),
@@ -194,11 +208,20 @@ async def accept_discovered_product(discovery_id: int) -> tuple[
         discovered=True,
     )
 
+    if not conn_id:
+        return {"error": "Failed to create product connection"}, 500
+
+    # create_product_connection returns the new row's id; re-read it so the
+    # response body is the connection record, not a bare integer.
+    conn = await get_product_connection_by_id(conn_id)
+    if not conn:  # pragma: no cover - row was just inserted
+        return {"error": "Product connection not found after creation"}, 500
+
     await create_audit_log(
         user_id=user["id"],
         action="discovery.accept",
         resource_type="product_connection",
-        resource_id=str(conn["id"]),
+        resource_id=str(conn_id),
         tenant_id=tenant_id,
         ip_address=request.remote_addr,
     )

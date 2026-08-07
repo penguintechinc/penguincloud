@@ -1,6 +1,5 @@
 """API Proxy/Relay Engine — Forwards requests to product APIs (async Quart)."""
 
-import asyncio
 import logging
 from typing import Any
 
@@ -57,16 +56,16 @@ async def proxy_request(product_id: int, subpath: str) -> Any:
     data = await request.get_data()
     if data:
         kwargs["data"] = data
-        kwargs["headers"] = {
-            "Content-Type": request.content_type or "application/json"
-        }
+        kwargs["headers"] = {"Content-Type": request.content_type or "application/json"}
     args = request.args
     if args:
         kwargs["params"] = dict(args)
 
-    # Forward request (blocking adapter call)
-    response = await asyncio.to_thread(
-        adapter.proxy_request,
+    # proxy_request is a coroutine (it awaits quart.make_response); the
+    # blocking `requests` call inside it is what still needs a thread, and
+    # that is handled within the adapter rather than by wrapping the
+    # coroutine function itself in to_thread.
+    response = await adapter.proxy_request(
         request.method,
         subpath,
         **kwargs,

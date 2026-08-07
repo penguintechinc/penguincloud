@@ -11,6 +11,7 @@ from quart import Blueprint, current_app, request
 from penguin_aaa.authn.oidc_provider import OIDCProvider
 from penguin_aaa.authn.types import Claims
 
+from .config import UNSCOPED_TENANT
 from .middleware import auth_required, get_current_user
 from .models import (
     create_user,
@@ -23,11 +24,23 @@ from .models import (
 auth_bp = Blueprint("auth", __name__)
 
 
-def get_oidc_provider() -> OIDCProvider | None:
-    """Get OIDC provider from app context (None if not initialized)."""
+def get_oidc_provider() -> OIDCProvider:
+    """Return the OIDC provider registered by the app factory.
+
+    Raises RuntimeError rather than returning None: create_app always
+    registers a provider, so its absence is a misconfigured app, not a
+    condition every caller should have to branch on.
+    """
     oidc = current_app.extensions.get("oidc_provider")
     if oidc is None:
-        return None
+        raise RuntimeError(
+            "OIDC provider not initialized — create_app() must register "
+            "app.extensions['oidc_provider']"
+        )
+    if not isinstance(oidc, OIDCProvider):  # pragma: no cover - defensive
+        raise RuntimeError(
+            f"app.extensions['oidc_provider'] is {type(oidc)!r}, expected OIDCProvider"
+        )
     return oidc
 
 
@@ -58,13 +71,14 @@ async def create_token_set_async(
     role: str,
     teams: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Create JWT token set using penguin-aaa.
+    """Create a JWT token set using penguin-aaa.
 
     Args:
         user_id: User ID
-        tenant_id: Tenant ID (required in claims)
+        tenant_id: Active tenant ID; empty selects the UNSCOPED_TENANT
+            sentinel, since penguin-aaa rejects an empty tenant claim.
         role: User role
-        teams: List of team IDs (user is a member of)
+        teams: Team IDs the user belongs to; looked up when omitted.
 
     Returns:
         Dict with access_token, id_token, refresh_token, expires_in
@@ -77,18 +91,22 @@ async def create_token_set_async(
 
     oidc = get_oidc_provider()
     now = datetime.now(UTC)
-    ttl = current_app.config.get("JWT_ACCESS_TOKEN_EXPIRES", timedelta(hours=1))
+    ttl: timedelta = current_app.config.get(
+        "JWT_ACCESS_TOKEN_EXPIRES", timedelta(hours=1)
+    )
     exp = now + ttl
 
     claims = Claims(
         sub=str(user_id),
         iss=current_app.config["JWT_ISSUER"],
-        aud=current_app.config["JWT_AUDIENCE"],
+        # aud is list[str] in penguin-aaa's Claims model — a bare string
+        # fails validation before the token is ever signed.
+        aud=list(current_app.config["JWT_AUDIENCES"]),
         iat=now,
         exp=exp,
         scope=["read", "write"],
         roles=[role],
-        tenant=tenant_id,
+        tenant=tenant_id or UNSCOPED_TENANT,
         teams=teams,
     )
 
@@ -264,6 +282,8 @@ async def register() -> tuple[dict[str, Any], int]:
         full_name=full_name,
         role="viewer",
     )
+    if not user:
+        return {"error": "Failed to create user"}, 500
 
     # Create personal team
     from .models import create_team
@@ -313,8 +333,17 @@ async def forgot_password() -> tuple[dict[str, Any], int]:
 
     from .auth_features import create_password_reset_token
 
-    token = await create_password_reset_token(user["id"])
-    return {"message": "Reset link sent", "token": token}, 200
+    # create_password_reset_token returns (token, expires_at) — unpack it
+    # rather than serialising the whole tuple into the response body.
+    token, expires_at = await create_password_reset_token(user["id"])
+    return (
+        {
+            "message": "Reset link sent",
+            "token": token,
+            "expires_at": expires_at.isoformat(),
+        },
+        200,
+    )
 
 
 @auth_bp.route("/reset-password", methods=["POST"])
@@ -343,29 +372,31 @@ async def reset_password() -> tuple[dict[str, Any], int]:
 
 
 @auth_bp.route("/confirm-email/<token>", methods=["POST"])
-async def confirm_email(token: str) -> tuple[dict[str, Any], int]:
-    """Confirm email with token."""
+async def confirm_email_endpoint(token: str) -> tuple[dict[str, Any], int]:
+    """Confirm a user's email address with a confirmation token.
+
+    Both helpers are async coroutines; awaiting them directly (rather than
+    scheduling them on an executor, which would just hand back an
+    un-awaited coroutine object) is what actually runs the DB work.
+    """
     from .auth_features import confirm_email, validate_email_token
 
-    user_id = await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: validate_email_token(token)
-    )
+    user_id = await validate_email_token(token)
     if not user_id:
         return {"error": "Invalid or expired token"}, 401
 
-    await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: confirm_email(token)
-    )
+    await confirm_email(token)
     return {"message": "Email confirmed"}, 200
 
 
 @auth_bp.route("/sessions", methods=["GET"])
 @auth_required
 async def list_sessions() -> tuple[dict[str, Any], int]:
-    """List active sessions."""
+    """List active sessions for the authenticated user."""
     user = get_current_user()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
+
     from .auth_features import get_user_sessions
 
     sessions = await get_user_sessions(user["id"])
@@ -375,8 +406,11 @@ async def list_sessions() -> tuple[dict[str, Any], int]:
 @auth_bp.route("/sessions/<int:session_id>", methods=["DELETE"])
 @auth_required
 async def revoke_session_endpoint(session_id: int) -> tuple[dict[str, Any], int]:
-    """Revoke a session."""
+    """Revoke one of the authenticated user's sessions."""
     user = get_current_user()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
+
     from .auth_features import revoke_session
 
     revoked = await revoke_session(session_id, user["id"])

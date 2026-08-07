@@ -17,15 +17,23 @@ from .models import (
 dashboard_bp = Blueprint("dashboard", __name__)
 
 
-async def _get_tenant_id() -> int | None:
-    """Extract current tenant ID from JWT or query param (async)."""
-    from .middleware import decode_token, get_token_from_header
+def _get_tenant_id() -> int | None:
+    """Resolve the active tenant ID from verified claims, else query param.
 
-    token = get_token_from_header()
-    if token:
-        payload = decode_token(token)
-        if payload and payload.get("current_tenant_id"):
-            return payload["current_tenant_id"]
+    Reads the tenant that auth_required already verified and stashed on the
+    request context — re-decoding the bearer token here would duplicate
+    (and risk weakening) signature verification.
+    """
+    from .middleware import get_current_tenant_id
+
+    claim_tenant = get_current_tenant_id()
+    if claim_tenant:
+        try:
+            return int(claim_tenant)
+        except ValueError:
+            # A non-numeric tenant claim cannot address this schema's
+            # integer tenants.id; fall through to the explicit param.
+            pass
     return request.args.get("tenant_id", type=int)
 
 
@@ -34,7 +42,9 @@ async def _get_tenant_id() -> int | None:
 async def dashboard_overview() -> tuple[dict[str, Any], int]:
     """Aggregated stats for all products in the current tenant."""
     user = get_current_user()
-    tenant_id = await _get_tenant_id()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
+    tenant_id = _get_tenant_id()
 
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
@@ -91,7 +101,9 @@ async def dashboard_overview() -> tuple[dict[str, Any], int]:
 async def dashboard_health() -> tuple[dict[str, Any], int]:
     """Health matrix for all products."""
     user = get_current_user()
-    tenant_id = await _get_tenant_id()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
+    tenant_id = _get_tenant_id()
 
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
@@ -123,7 +135,9 @@ async def dashboard_health() -> tuple[dict[str, Any], int]:
 async def dashboard_activity() -> tuple[dict[str, Any], int]:
     """Recent audit events for the tenant."""
     user = get_current_user()
-    tenant_id = await _get_tenant_id()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
+    tenant_id = _get_tenant_id()
 
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
@@ -152,7 +166,9 @@ async def dashboard_activity() -> tuple[dict[str, Any], int]:
 async def dashboard_alerts() -> tuple[dict[str, Any], int]:
     """Aggregated alerts — products with non-healthy status."""
     user = get_current_user()
-    tenant_id = await _get_tenant_id()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
+    tenant_id = _get_tenant_id()
 
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
@@ -174,9 +190,7 @@ async def dashboard_alerts() -> tuple[dict[str, Any], int]:
                     "display_name": conn.get("display_name"),
                     "health_status": status,
                     "last_health_check": conn.get("last_health_check"),
-                    "severity": "critical"
-                    if status == "unhealthy"
-                    else "warning",
+                    "severity": "critical" if status == "unhealthy" else "warning",
                 }
             )
 

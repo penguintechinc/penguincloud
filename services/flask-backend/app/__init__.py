@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
+from penguin_aaa.authn.oidc_provider import OIDCProvider, OIDCProviderConfig
 from penguin_dal.quart_ext import get_db, init_dal
+from penguin_aaa.crypto.keystore import FileKeyStore, KeyStore, MemoryKeyStore
 from quart import Quart
 from quart_cors import cors
 
@@ -17,7 +21,37 @@ from .middleware import setup_request_logging
 log = logging.getLogger(__name__)
 
 
-def create_app(config_class: type = Config) -> Quart:
+def _build_oidc_provider(app: Quart) -> OIDCProvider:
+    """Build the penguin-aaa OIDC provider backing this app's tokens.
+
+    Uses a FileKeyStore when JWT_KEYSTORE_PATH is configured so signing keys
+    survive restarts and are shared across replicas; falls back to an
+    in-process MemoryKeyStore for tests and single-process development.
+    """
+    algorithm: str = app.config["JWT_ALGORITHM"]
+    keystore_path: str = app.config["JWT_KEYSTORE_PATH"]
+    keystore: KeyStore = (
+        FileKeyStore(Path(keystore_path), algorithm=algorithm)
+        if keystore_path
+        else MemoryKeyStore(algorithm=algorithm)
+    )
+
+    token_ttl = app.config["JWT_ACCESS_TOKEN_EXPIRES"]
+    provider_config = OIDCProviderConfig(
+        issuer=app.config["JWT_ISSUER"],
+        audiences=list(app.config["JWT_AUDIENCES"]),
+        algorithm=algorithm,
+        token_ttl=token_ttl,
+        # max_token_ttl is an upper bound penguin-aaa asserts token_ttl
+        # against; keep it at or above the configured access-token lifetime
+        # so a longer JWT_ACCESS_TOKEN_MINUTES doesn't fail app startup.
+        max_token_ttl=max(token_ttl, timedelta(hours=1)),
+        refresh_ttl=app.config["JWT_REFRESH_TOKEN_EXPIRES"],
+    )
+    return OIDCProvider(provider_config, keystore)
+
+
+def create_app(config_class: type[Config] = Config) -> Quart:
     """Create and configure the Quart application.
 
     Note: Routes are async; the factory itself is sync.
@@ -41,6 +75,11 @@ def create_app(config_class: type = Config) -> Quart:
         allow_headers=["Content-Type", "Authorization", "X-Tenant-Scope"],
         allow_credentials=True,
     )
+
+    # Initialize the OIDC token provider (penguin-aaa). Every token this app
+    # issues or verifies goes through it, so failing to register it leaves
+    # auth_required returning 500 on every protected route.
+    app.extensions["oidc_provider"] = _build_oidc_provider(app)
 
     # Initialize database (penguin-dal AsyncDB) for immediate test availability
     try:
@@ -70,15 +109,15 @@ def create_app(config_class: type = Config) -> Quart:
     async def _init_killkrill() -> None:
         """Initialize KillKrill on application startup."""
         killkrill_manager.setup(
-            api_url=app.config.get("KILLKRILL_API_URL"),
-            grpc_url=app.config.get("KILLKRILL_GRPC_URL"),
-            client_id=app.config.get("KILLKRILL_CLIENT_ID"),
-            client_secret=app.config.get("KILLKRILL_CLIENT_SECRET"),
-            enabled=app.config.get("KILLKRILL_ENABLED"),
+            api_url=str(app.config.get("KILLKRILL_API_URL", "")),
+            grpc_url=str(app.config.get("KILLKRILL_GRPC_URL", "")),
+            client_id=str(app.config.get("KILLKRILL_CLIENT_ID", "")),
+            client_secret=str(app.config.get("KILLKRILL_CLIENT_SECRET", "")),
+            enabled=bool(app.config.get("KILLKRILL_ENABLED", False)),
         )
 
     # Setup structured request logging middleware
-    setup_request_logging(app)  # type: ignore[no-untyped-call]
+    setup_request_logging(app)
 
     # Register blueprints
     from .auth import auth_bp
@@ -117,9 +156,9 @@ def create_app(config_class: type = Config) -> Quart:
         Tests database connectivity by attempting a simple query.
         """
         try:
-            db = get_db()  # type: ignore[no-untyped-call]
-            # Simple test: count users to verify DB connection
-            _ = await db(db.users).select(limitby=(0, 1))
+            db = get_db()
+            # Simple connectivity probe: read at most one user row.
+            _ = await db(db.users.id > 0).select(limitby=(0, 1))
             return {"status": "healthy", "database": "connected"}, 200
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}, 503

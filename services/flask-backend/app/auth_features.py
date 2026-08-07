@@ -10,6 +10,15 @@ from quart import current_app, request
 
 from .models import get_db
 
+#: Operands for SQL NULL / boolean predicates built through penguin-dal's
+#: FieldProxy, which exposes no isnull() helper — its comparison operators are
+#: the public API. Bound to names rather than written as `== None` / `== True`
+#: literals: flake8's E711/E712 target Python identity comparisons, which these
+#: are not, and a name keeps the intent (a SQL predicate) explicit.
+SQL_NULL: Any = None
+SQL_TRUE: Any = True
+SQL_FALSE: Any = False
+
 
 # Password reset
 async def create_password_reset_token(user_id: int) -> tuple[str, datetime]:
@@ -31,7 +40,7 @@ async def validate_password_reset_token(token: str) -> int | None:
     rows = await db(
         (db.password_reset_tokens.token == token)
         & (db.password_reset_tokens.expires_at > datetime.now(UTC))
-        & (db.password_reset_tokens.used_at.isnull())
+        & (db.password_reset_tokens.used_at == SQL_NULL)
     ).select()
     return rows[0]["user_id"] if rows else None
 
@@ -39,9 +48,7 @@ async def validate_password_reset_token(token: str) -> int | None:
 async def mark_token_used(token: str) -> None:
     """Mark password reset token as used (async)."""
     db = get_db()
-    await db(db.password_reset_tokens.token == token).update(
-        used_at=datetime.now(UTC)
-    )
+    await db(db.password_reset_tokens.token == token).update(used_at=datetime.now(UTC))
 
 
 # Email confirmation
@@ -64,7 +71,7 @@ async def validate_email_token(token: str) -> int | None:
     rows = await db(
         (db.email_confirmation_tokens.token == token)
         & (db.email_confirmation_tokens.expires_at > datetime.now(UTC))
-        & (db.email_confirmation_tokens.confirmed_at.isnull())
+        & (db.email_confirmation_tokens.confirmed_at == SQL_NULL)
     ).select()
     return rows[0]["user_id"] if rows else None
 
@@ -79,9 +86,7 @@ async def confirm_email(token: str) -> bool:
 
 
 # API keys
-async def create_api_key(
-    user_id: int, name: str, scopes: str = ""
-) -> tuple[str, str]:
+async def create_api_key(user_id: int, name: str, scopes: str = "") -> tuple[str, str]:
     """Create API key. Returns (full_key, key_id) (async)."""
     prefix = "pk_live" if not current_app.config.get("DEBUG") else "pk_test"
     key = f"{prefix}_{secrets.token_hex(16)}"
@@ -104,13 +109,11 @@ async def validate_api_key(key: str) -> dict[str, Any] | None:
     key_hash = hashlib.sha256(key.encode()).hexdigest()
     db = get_db()
     rows = await db(
-        (db.api_keys.key_hash == key_hash) & (db.api_keys.is_active)
+        (db.api_keys.key_hash == key_hash) & (db.api_keys.is_active == SQL_TRUE)
     ).select()
     if rows:
         record = rows[0]
-        await db(db.api_keys.id == record["id"]).update(
-            last_used_at=datetime.now(UTC)
-        )
+        await db(db.api_keys.id == record["id"]).update(last_used_at=datetime.now(UTC))
         return dict(record)
     return None
 
@@ -135,35 +138,35 @@ async def get_user_api_keys(user_id: int) -> list[dict[str, Any]]:
             "id": k["id"],
             "name": k["name"],
             "prefix": k["key_prefix"],
-            "last_used_at": k["last_used_at"].isoformat()
-            if k.get("last_used_at")
-            else None,
-            "expires_at": k["expires_at"].isoformat()
-            if k.get("expires_at")
-            else None,
-            "created_at": k["created_at"].isoformat()
-            if k.get("created_at")
-            else None,
+            "last_used_at": (
+                k["last_used_at"].isoformat() if k.get("last_used_at") else None
+            ),
+            "expires_at": k["expires_at"].isoformat() if k.get("expires_at") else None,
+            "created_at": k["created_at"].isoformat() if k.get("created_at") else None,
         }
         for k in keys
     ]
 
 
 # Audit logging
-async def audit_log(  # type: ignore[no-untyped-def]
+async def audit_log(
     action: str,
     resource_type: str | None = None,
     resource_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     user_id: int | None = None,
 ) -> None:
-    """Log an audit event (async)."""
+    """Log an audit event (async).
+
+    Writes `action_type` (the schema's column name, not `action`) via
+    async_insert so the coroutine is actually awaited.
+    """
     db = get_db()
     remote_addr = request.remote_addr if request else None
     user_agent = request.headers.get("User-Agent") if request else None
-    await db.audit_logs.insert(
+    await db.audit_logs.async_insert(
         user_id=user_id,
-        action=action,
+        action_type=action,
         resource_type=resource_type,
         resource_id=resource_id,
         ip_address=remote_addr,
@@ -175,7 +178,7 @@ async def audit_log(  # type: ignore[no-untyped-def]
 async def get_audit_logs(limit: int = 100) -> list[dict[str, Any]]:
     """Get recent audit logs (async)."""
     db = get_db()
-    logs = await db(db.audit_logs).select(
+    logs = await db(db.audit_logs.id > 0).select(
         orderby=~db.audit_logs.created_at,
         limitby=(0, limit),
     )
@@ -187,9 +190,9 @@ async def get_audit_logs(limit: int = 100) -> list[dict[str, Any]]:
             "resource_type": log["resource_type"],
             "resource_id": log["resource_id"],
             "ip_address": log["ip_address"],
-            "created_at": log["created_at"].isoformat()
-            if log.get("created_at")
-            else None,
+            "created_at": (
+                log["created_at"].isoformat() if log.get("created_at") else None
+            ),
         }
         for log in logs
     ]
@@ -199,9 +202,13 @@ async def get_audit_logs(limit: int = 100) -> list[dict[str, Any]]:
 async def get_user_sessions(user_id: int) -> list[dict[str, Any]]:
     """List active sessions (refresh tokens) for user (async)."""
     db = get_db()
+    # `~field` is penguin-dal's descending-ORDER-BY sugar (see the orderby
+    # below), not a boolean NOT — using it as a predicate raises
+    # "Neither 'UnaryExpression' object nor 'Comparator' object has an
+    # attribute '_clause'". Compare the column instead.
     tokens = await db(
         (db.refresh_tokens.user_id == user_id)
-        & (~db.refresh_tokens.revoked)
+        & (db.refresh_tokens.revoked == SQL_FALSE)
         & (db.refresh_tokens.expires_at > datetime.now(UTC))
     ).select(orderby=~db.refresh_tokens.created_at)
     return [

@@ -1,8 +1,16 @@
-"""Flask Backend Configuration."""
+"""Quart Backend Configuration."""
 
 import os
 import tempfile
 from datetime import timedelta
+
+#: Reserved ``tenant`` claim value for a token minted before the user has
+#: selected an active tenant. penguin-aaa's ``Claims`` model rejects an empty
+#: tenant outright, and the house standard requires the claim on every token,
+#: so an explicit sentinel carries "authenticated but not tenant-scoped"
+#: instead. ``middleware.get_current_tenant_id`` maps it back to ``None`` so
+#: tenant-gated routes still refuse it.
+UNSCOPED_TENANT = "_unscoped"
 
 
 class Config:
@@ -20,6 +28,22 @@ class Config:
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(
         days=int(os.getenv("JWT_REFRESH_TOKEN_DAYS", "7"))
     )
+
+    # OIDC provider (penguin-aaa). The issuer must be a fully-qualified URL —
+    # penguin-aaa's validate_https_url() requires HTTPS for any non-localhost
+    # host, so an opaque string like "penguincloud" is rejected at startup.
+    JWT_ISSUER = os.getenv("JWT_ISSUER", "https://penguincloud.localhost.local")
+    JWT_AUDIENCES = [
+        a.strip()
+        for a in os.getenv("JWT_AUDIENCES", "penguincloud-portal").split(",")
+        if a.strip()
+    ]
+    JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "RS256")
+    # Path for the persistent signing keystore. Unset (the default) selects an
+    # in-process MemoryKeyStore, whose keys die with the worker — acceptable
+    # for tests/dev, never for a multi-replica deployment where every replica
+    # would otherwise sign with a key the others cannot verify.
+    JWT_KEYSTORE_PATH = os.getenv("JWT_KEYSTORE_PATH", "")
 
     # Database - PyDAL compatible
     DB_TYPE = os.getenv("DB_TYPE", "postgres")
@@ -140,5 +164,5 @@ class TestingConfig(Config):
     )
 
     # JWT Configuration for testing
-    JWT_ISSUER = "penguincloud-test"
-    JWT_AUDIENCE = "penguincloud-test-client"
+    JWT_ISSUER = "https://penguincloud-test.localhost.local"
+    JWT_AUDIENCES = ["penguincloud-test-client"]

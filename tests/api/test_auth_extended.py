@@ -8,6 +8,8 @@ session management. Includes regression tests for security fix.
 import hashlib
 from datetime import UTC, datetime, timedelta
 
+from typing import Any
+
 import pytest
 
 from app.models import (
@@ -39,7 +41,9 @@ class TestRefreshTokenSecurity:
             password_hash="hashedpwd",
             role="viewer",
         )
-        user_id: int = user["id"]  # type: ignore[index]
+        assert user is not None
+        assert user is not None
+        user_id: int = user["id"]
 
         refresh_token = "test-refresh-token-expired"
         token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
@@ -63,6 +67,7 @@ class TestRefreshTokenSecurity:
             password_hash="hashedpwd",
             role="viewer",
         )
+        assert user is not None
         user_id: int = user["id"]
 
         refresh_token = "test-refresh-token-revoked"
@@ -92,6 +97,7 @@ class TestRefreshTokenSecurity:
             password_hash="hashedpwd",
             role="viewer",
         )
+        assert user is not None
         user_id: int = user["id"]
 
         refresh_token = "test-refresh-token-valid"
@@ -113,18 +119,18 @@ class TestPasswordReset:
     """Test password reset flow"""
 
     @pytest.mark.asyncio
-    async def test_forgot_password_success(self, client):
+    async def test_forgot_password_success(self, client: Any) -> None:
         """Test forgot password request"""
         response = await client.post(
             "/api/v1/auth/forgot-password", json={"email": "user@example.com"}
         )
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert "message" in data
 
     @pytest.mark.asyncio
-    async def test_forgot_password_nonexistent_user(self, client):
+    async def test_forgot_password_nonexistent_user(self, client: Any) -> None:
         """Test forgot password for non-existent user"""
         response = await client.post(
             "/api/v1/auth/forgot-password", json={"email": "nonexistent@example.com"}
@@ -138,7 +144,7 @@ class TestPasswordReset:
         strict=False,
     )
     @pytest.mark.asyncio
-    async def test_reset_password_success(self, client):  # type: ignore[no-untyped-def]
+    async def test_reset_password_success(self, client: Any) -> None:
         """Test password reset with valid token"""
         # This would need actual token from forgot-password
         response = await client.post(
@@ -153,7 +159,7 @@ class TestPasswordReset:
         strict=False,
     )
     @pytest.mark.asyncio
-    async def test_reset_password_invalid_token(self, client):
+    async def test_reset_password_invalid_token(self, client: Any) -> None:
         """Test password reset with invalid token"""
         response = await client.post(
             "/api/v1/auth/reset-password",
@@ -167,7 +173,7 @@ class TestPasswordReset:
         strict=False,
     )
     @pytest.mark.asyncio
-    async def test_reset_password_weak(self, client):  # type: ignore[no-untyped-def]
+    async def test_reset_password_weak(self, client: Any) -> None:
         """Test password reset with weak password"""
         response = await client.post(
             "/api/v1/auth/reset-password",
@@ -186,7 +192,7 @@ class TestEmailConfirmation:
         strict=False,
     )
     @pytest.mark.asyncio
-    async def test_confirm_email_success(self, client):  # type: ignore[no-untyped-def]
+    async def test_confirm_email_success(self, client: Any) -> None:
         """Test email confirmation with valid token"""
         response = await client.post("/api/v1/auth/confirm-email/invalid-token")
 
@@ -197,14 +203,16 @@ class TestEmailConfirmation:
         strict=False,
     )
     @pytest.mark.asyncio
-    async def test_confirm_email_expired_token(self, client):
+    async def test_confirm_email_expired_token(self, client: Any) -> None:
         """Test email confirmation with expired token"""
         response = await client.post("/api/v1/auth/confirm-email/expired-token")
 
         assert response.status_code in [400, 404]
 
     @pytest.mark.asyncio
-    async def test_email_confirmation_required(self, client, auth_headers):
+    async def test_email_confirmation_required(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test features requiring email confirmation"""
         # Try to use feature before confirming email
         response = await client.get("/api/v1/users/me", headers=auth_headers)
@@ -217,19 +225,23 @@ class TestProfileManagement:
     """Test user profile management"""
 
     @pytest.mark.asyncio
-    async def test_get_own_profile(self, client, auth_headers):
+    async def test_get_own_profile(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test getting own profile"""
         response = await client.get("/api/v1/users/me", headers=auth_headers)
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert "id" in data
         assert "email" in data
         # users.py get_profile()/update_user() use `full_name`, not `name`
         assert "full_name" in data
 
     @pytest.mark.asyncio
-    async def test_update_profile(self, client, auth_headers):
+    async def test_update_profile(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test updating own profile"""
         response = await client.put(
             "/api/v1/users/me",
@@ -238,11 +250,13 @@ class TestProfileManagement:
         )
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert data["full_name"] == "Updated Name"
 
     @pytest.mark.asyncio
-    async def test_change_password_success(self, client, auth_headers):
+    async def test_change_password_success(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test changing password successfully"""
         response = await client.put(
             "/api/v1/users/me/password",
@@ -253,7 +267,9 @@ class TestProfileManagement:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_change_password_wrong_current(self, client, auth_headers):
+    async def test_change_password_wrong_current(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test changing password with wrong current password"""
         response = await client.put(
             "/api/v1/users/me/password",
@@ -267,7 +283,9 @@ class TestProfileManagement:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_change_password_weak_new(self, client, auth_headers):
+    async def test_change_password_weak_new(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test changing password with weak new password"""
         response = await client.put(
             "/api/v1/users/me/password",
@@ -282,17 +300,21 @@ class TestSessionManagement:
     """Test session management endpoints"""
 
     @pytest.mark.asyncio
-    async def test_list_sessions(self, client, auth_headers):
+    async def test_list_sessions(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test listing active sessions"""
         response = await client.get("/api/v1/auth/sessions", headers=auth_headers)
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert "sessions" in data
         assert isinstance(data["sessions"], list)
 
     @pytest.mark.asyncio
-    async def test_revoke_session(self, client, auth_headers):
+    async def test_revoke_session(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test revoking a session"""
         response = await client.delete(
             "/api/v1/auth/sessions/session-id", headers=auth_headers
@@ -305,7 +327,9 @@ class TestSessionManagement:
         strict=False,
     )
     @pytest.mark.asyncio
-    async def test_revoke_all_sessions(self, client, auth_headers):
+    async def test_revoke_all_sessions(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test revoking all sessions"""
         response = await client.post(
             "/api/v1/auth/sessions/revoke-all",
@@ -315,12 +339,14 @@ class TestSessionManagement:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_session_info_captures_device(self, client, auth_headers):
+    async def test_session_info_captures_device(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
         """Test that session info captures device information"""
         response = await client.get("/api/v1/auth/sessions", headers=auth_headers)
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         if data["sessions"]:
             session = data["sessions"][0]
             # Should have device/IP info

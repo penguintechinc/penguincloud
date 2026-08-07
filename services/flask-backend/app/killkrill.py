@@ -3,26 +3,29 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle guard for typing only
+    from .killkrill_client import ReceiverClient
 
 
 class KillKrillManager:
     """Singleton manager for KillKrill integration."""
 
-    _instance = None
+    _instance: "KillKrillManager | None" = None
 
-    def __new__(cls):
+    def __new__(cls) -> "KillKrillManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize KillKrill manager."""
         self.enabled = False
-        self.client = None
+        self.client: "ReceiverClient | None" = None
         self.logger = logging.getLogger(__name__)
-        self._log_queue = []
-        self._metric_queue = []
+        self._log_queue: list[dict[str, Any]] = []
+        self._metric_queue: list[dict[str, Any]] = []
 
     def setup(
         self,
@@ -31,7 +34,7 @@ class KillKrillManager:
         client_id: str,
         client_secret: str,
         enabled: bool = True,
-    ):
+    ) -> None:
         """Initialize KillKrill connection."""
         self.enabled = enabled
         if not enabled:
@@ -53,13 +56,13 @@ class KillKrillManager:
             self.logger.error(f"Failed to initialize KillKrill: {e}")
             self.enabled = False
 
-    def log(self, level: str, message: str, **kwargs):
+    def log(self, level: str, message: str, **kwargs: Any) -> None:
         """Queue log entry in ECS format."""
         if not self.enabled or not self.client:
             return
 
         try:
-            entry = {
+            entry: dict[str, Any] = {
                 "@timestamp": datetime.utcnow().isoformat() + "Z",
                 "log.level": level.upper(),
                 "message": message,
@@ -76,13 +79,13 @@ class KillKrillManager:
         value: float,
         metric_type: str = "counter",
         labels: Optional[Dict[str, str]] = None,
-    ):
+    ) -> None:
         """Queue metric entry."""
         if not self.enabled or not self.client:
             return
 
         try:
-            entry = {
+            entry: dict[str, Any] = {
                 "name": name,
                 "value": value,
                 "type": metric_type,
@@ -95,7 +98,7 @@ class KillKrillManager:
         except Exception as e:
             self.logger.error(f"Error queueing metric: {e}")
 
-    async def _flush_queues(self):
+    async def _flush_queues(self) -> None:
         """Background task to flush logs/metrics every 5 seconds."""
         if not self.enabled or not self.client:
             return
@@ -104,10 +107,10 @@ class KillKrillManager:
             try:
                 await asyncio.sleep(5)
                 if self._log_queue:
-                    await self.client.send_logs(self._log_queue)
+                    await self.client.submit_logs(self._log_queue)
                     self._log_queue = []
                 if self._metric_queue:
-                    await self.client.send_metrics(self._metric_queue)
+                    await self.client.submit_metrics(self._metric_queue)
                     self._metric_queue = []
             except Exception as e:
                 self.logger.error(f"Error flushing KillKrill queues: {e}")
@@ -118,7 +121,8 @@ class KillKrillManager:
             return False
 
         try:
-            return await self.client.health_check()
+            healthy: bool = await self.client.health_check()
+            return healthy
         except Exception as e:
             self.logger.error(f"KillKrill health check failed: {e}")
             return False
@@ -129,7 +133,9 @@ killkrill_manager = KillKrillManager()
 
 
 # Helper functions for common metrics
-def track_api_request(endpoint: str, method: str, status: int, duration_ms: float):
+def track_api_request(
+    endpoint: str, method: str, status: int, duration_ms: float
+) -> None:
     """Track API request metric."""
     killkrill_manager.metric(
         f"api.request.{method.lower()}",
@@ -142,7 +148,9 @@ def track_api_request(endpoint: str, method: str, status: int, duration_ms: floa
     )
 
 
-def track_user_action(action: str, user_id: str, team_id: Optional[str] = None):
+def track_user_action(
+    action: str, user_id: str, team_id: Optional[str] = None
+) -> None:
     """Track user action metric."""
     labels = {"user_id": user_id}
     if team_id:
@@ -150,7 +158,7 @@ def track_user_action(action: str, user_id: str, team_id: Optional[str] = None):
     killkrill_manager.metric(f"user.action.{action}", 1, "counter", labels)
 
 
-def track_feature_usage(feature_name: str, team_id: str):
+def track_feature_usage(feature_name: str, team_id: str) -> None:
     """Track feature usage metric."""
     killkrill_manager.metric(
         f"feature.usage.{feature_name}", 1, "counter", {"team_id": team_id}

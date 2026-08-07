@@ -1,5 +1,7 @@
 """Generic Product Adapter — fallback for unknown product types."""
 
+from typing import Any
+
 from .base_adapter import ProductAdapter
 
 
@@ -15,7 +17,7 @@ class GenericAdapter(ProductAdapter):
     DISCOVERY_PORTS: list[int] = []
     DISCOVERY_SIGNATURES: list[str] = []
 
-    def get_management_schema(self) -> dict:
+    def get_management_schema(self) -> dict[str, Any]:
         return {
             "product_type": self.PRODUCT_TYPE,
             "display_name": self.connection.get("display_name", "Unknown Product"),

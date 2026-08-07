@@ -11,6 +11,11 @@ from typing import Any
 
 from penguin_dal.quart_ext import get_db
 
+#: Operand for SQL boolean predicates built through penguin-dal's FieldProxy.
+#: Bound to a name so the expression reads as a SQL predicate and does not trip
+#: flake8's E712, which targets Python identity comparisons rather than these.
+SQL_FALSE: Any = False
+
 __all__ = [
     "get_db",
     "create_user",
@@ -59,20 +64,39 @@ VALID_TENANT_ROLES = ["owner", "admin", "member", "viewer"]
 VALID_AUTH_TYPES = ["bearer", "basic", "api_key", "none"]
 VALID_HEALTH_STATUSES = ["healthy", "degraded", "unhealthy", "unknown"]
 PRODUCT_TYPES = [
-    "marchproxy", "squawk", "license_server", "skauswatch", "waddleai",
-    "articdbm", "cerberus", "waddlebot", "waddleperf", "iceshelves",
-    "icecharts", "killkrill", "tobogganing", "nest", "darwin", "gough",
-    "current", "elder", "admin", "generic",
+    "marchproxy",
+    "squawk",
+    "license_server",
+    "skauswatch",
+    "waddleai",
+    "articdbm",
+    "cerberus",
+    "waddlebot",
+    "waddleperf",
+    "iceshelves",
+    "icecharts",
+    "killkrill",
+    "tobogganing",
+    "nest",
+    "darwin",
+    "gough",
+    "current",
+    "elder",
+    "admin",
+    "generic",
 ]
 PRODUCT_CATEGORIES = {
-    "infrastructure": [
-        "marchproxy", "squawk", "articdbm", "iceshelves"
-    ],
+    "infrastructure": ["marchproxy", "squawk", "articdbm", "iceshelves"],
     "security": ["skauswatch", "cerberus"],
     "ai": ["waddleai", "waddlebot"],
     "monitoring": ["waddleperf", "icecharts"],
     "operations": [
-        "killkrill", "tobogganing", "darwin", "gough", "current", "license_server"
+        "killkrill",
+        "tobogganing",
+        "darwin",
+        "gough",
+        "current",
+        "license_server",
     ],
     "development": ["nest"],
     "legacy": ["elder"],
@@ -123,23 +147,24 @@ async def store_refresh_token(
 ) -> int | None:
     """Store refresh token (async)."""
     db = get_db()
-    return await db.refresh_tokens.async_insert(
+    new_id: int | None = await db.refresh_tokens.async_insert(
         user_id=user_id,
         token_hash=token_hash,
         expires_at=expires_at,
         revoked=False,
         created_at=datetime.now(UTC),
     )
+    return new_id
 
 
 async def is_refresh_token_valid(user_id: int, token_hash: str) -> bool:
     """Check if refresh token is valid and not expired (async)."""
     db = get_db()
     rows = await db(
-        (db.refresh_tokens.user_id == user_id) &
-        (db.refresh_tokens.token_hash == token_hash) &
-        (db.refresh_tokens.revoked == False) &  # noqa: E712
-        (db.refresh_tokens.expires_at > datetime.now(UTC))
+        (db.refresh_tokens.user_id == user_id)
+        & (db.refresh_tokens.token_hash == token_hash)
+        & (db.refresh_tokens.revoked == SQL_FALSE)
+        & (db.refresh_tokens.expires_at > datetime.now(UTC))
     ).select()
     return len(rows) > 0
 
@@ -150,10 +175,11 @@ async def revoke_refresh_token(token_hash: str) -> None:
     await db(db.refresh_tokens.token_hash == token_hash).update(revoked=True)
 
 
-async def revoke_all_user_tokens(user_id: int) -> None:
-    """Revoke all refresh tokens for a user (async)."""
+async def revoke_all_user_tokens(user_id: int) -> int:
+    """Revoke all refresh tokens for a user; return how many were revoked."""
     db = get_db()
-    await db(db.refresh_tokens.user_id == user_id).update(revoked=True)
+    revoked = await db(db.refresh_tokens.user_id == user_id).update(revoked=True)
+    return int(revoked or 0)
 
 
 async def get_mfa_secret(user_id: int) -> dict[str, Any] | None:
@@ -171,16 +197,35 @@ async def is_mfa_enabled(user_id: int) -> bool:
 
 
 async def create_tenant(
-    name: str, slug: str, owner_id: int, plan_tier: str = "free"
+    name: str,
+    slug: str,
+    owner_id: int,
+    plan_tier: str = "free",
+    display_name: str = "",
 ) -> int | None:
-    """Create a new tenant (async)."""
+    """Create a new tenant and enrol the owner as a member (async).
+
+    The owner row in tenant_members is what get_user_tenant_role() reads, so
+    without it the creator cannot switch to, or act on, the tenant they just
+    created.
+    """
     db = get_db()
-    return await db.tenants.async_insert(
+    new_id: int | None = await db.tenants.async_insert(
         name=name,
         slug=slug,
+        display_name=display_name or name,
         owner_id=owner_id,
         plan_tier=plan_tier,
     )
+    if new_id is None:
+        return None
+
+    await db.tenant_members.async_insert(
+        tenant_id=new_id,
+        user_id=owner_id,
+        role="owner",
+    )
+    return new_id
 
 
 async def get_tenant_by_id(tenant_id: int) -> dict[str, Any] | None:
@@ -219,9 +264,10 @@ async def add_team_member(
 ) -> int | None:
     """Add user to team (async)."""
     db = get_db()
-    return await db.team_members.async_insert(
+    new_id: int | None = await db.team_members.async_insert(
         team_id=team_id, user_id=user_id, role=role
     )
+    return new_id
 
 
 async def get_user_teams(user_id: int) -> list[dict[str, Any]]:
@@ -249,13 +295,14 @@ async def create_oauth_connection(
 ) -> int | None:
     """Create OAuth connection (async)."""
     db = get_db()
-    return await db.oauth_connections.async_insert(
+    new_id: int | None = await db.oauth_connections.async_insert(
         user_id=user_id,
         provider=provider,
         provider_user_id=provider_user_id,
         access_token=access_token,
         refresh_token=refresh_token,
     )
+    return new_id
 
 
 async def update_user(user_id: int, **kwargs: Any) -> dict[str, Any] | None:
@@ -349,9 +396,7 @@ async def get_user_tenants(user_id: int) -> list[dict[str, Any]]:
     return result
 
 
-async def get_user_tenant_role(
-    user_id: int, tenant_id: int
-) -> str | None:
+async def get_user_tenant_role(user_id: int, tenant_id: int) -> str | None:
     """Get user's role in a tenant (async)."""
     db = get_db()
     row = await db(
@@ -414,8 +459,9 @@ async def create_product_connection(
 ) -> int | None:
     """Create a new product connection (async)."""
     from .encryption import encrypt_value
+
     db = get_db()
-    return await db.product_connections.async_insert(
+    new_id: int | None = await db.product_connections.async_insert(
         tenant_id=tenant_id,
         product_type=product_type,
         display_name=display_name,
@@ -427,6 +473,7 @@ async def create_product_connection(
         api_version=api_version,
         discovered=discovered,
     )
+    return new_id
 
 
 async def get_product_connection_by_id(conn_id: int) -> dict[str, Any] | None:
@@ -482,17 +529,24 @@ async def create_audit_log(
     changes: str | None = None,
     ip_address: str | None = None,
 ) -> int | None:
-    """Create audit log entry (async)."""
+    """Create audit log entry (async).
+
+    Column names follow the audit_logs schema in models_sqlalchemy.py:
+    the action lands in `action_type`, and the change summary in the
+    Text column exposed to the DB as `metadata` — inserting `action`
+    or `changes` raises "Unconsumed column names".
+    """
     db = get_db()
-    return await db.audit_logs.async_insert(
+    new_id: int | None = await db.audit_logs.async_insert(
         user_id=user_id,
         tenant_id=tenant_id,
-        action=action,
+        action_type=action,
         resource_type=resource_type,
         resource_id=resource_id,
-        changes=changes,
+        metadata=changes,
         ip_address=ip_address,
     )
+    return new_id
 
 
 async def get_oauth_connection(user_id: int, provider: str) -> dict[str, Any] | None:
@@ -542,7 +596,7 @@ async def store_oauth_connection(
         return existing.get("id")
     else:
         # Create new connection
-        return await db.oauth_connections.async_insert(
+        new_id: int | None = await db.oauth_connections.async_insert(
             user_id=user_id,
             provider=provider,
             provider_user_id=provider_user_id,
@@ -550,3 +604,4 @@ async def store_oauth_connection(
             refresh_token=refresh_token,
             expires_at=expires_at,
         )
+        return new_id
