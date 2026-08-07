@@ -15,6 +15,9 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 
+// Note: MSW setup deferred to integration tests that actually need it.
+// Unit tests of kit components don't require API mocking.
+
 // Suppress console errors during tests (optional)
 const originalError = console.error;
 beforeAll(() => {

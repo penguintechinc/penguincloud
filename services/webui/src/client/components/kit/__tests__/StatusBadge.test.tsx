@@ -16,9 +16,9 @@ describe("StatusBadge", () => {
     expect(screen.getByTestId("status-badge")).toHaveClass("bg-amber-500/10");
   });
 
-  it("renders down status", () => {
-    render(<StatusBadge status="down" />);
-    expect(screen.getByText("Down")).toBeInTheDocument();
+  it("renders unhealthy status", () => {
+    render(<StatusBadge status="unhealthy" />);
+    expect(screen.getByText("Unhealthy")).toBeInTheDocument();
     expect(screen.getByTestId("status-badge")).toHaveClass("bg-red-500/10");
   });
 
@@ -46,8 +46,8 @@ describe("StatusBadge", () => {
     rerender(<StatusBadge status="degraded" size="sm" />);
     expect(screen.getByText("Degraded")).toHaveClass("text-amber-400");
 
-    rerender(<StatusBadge status="down" size="sm" />);
-    expect(screen.getByText("Down")).toHaveClass("text-red-400");
+    rerender(<StatusBadge status="unhealthy" size="sm" />);
+    expect(screen.getByText("Unhealthy")).toHaveClass("text-red-400");
 
     rerender(<StatusBadge status="unknown" size="sm" />);
     expect(screen.getByText("Unknown")).toHaveClass("text-slate-400");

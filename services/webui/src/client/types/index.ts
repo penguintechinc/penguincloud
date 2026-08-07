@@ -9,6 +9,7 @@ export interface User {
   is_active: boolean;
   created_at: string;
   updated_at: string | null;
+  home_tenant_id?: number; // Introduced in Phase 2B
 }
 
 export interface CreateUserData {
@@ -87,6 +88,8 @@ export type TenantPlan = "free" | "starter" | "business" | "enterprise";
 export type TenantRole = "owner" | "admin" | "member" | "viewer";
 export type HealthStatus = "healthy" | "degraded" | "unhealthy" | "unknown";
 
+export type TenantKind = "provider" | "customer";
+
 export interface Tenant {
   id: number;
   name: string;
@@ -101,6 +104,10 @@ export interface Tenant {
   created_at: string;
   updated_at: string;
   user_role?: TenantRole;
+  // Introduced in Phase 2B (hierarchical tenancy)
+  parent_tenant_id?: number | null;
+  kind?: TenantKind;
+  depth?: number;
 }
 
 export interface TenantMember {
@@ -162,6 +169,20 @@ export interface DashboardOverview {
     categories: Record<string, number>;
   };
   products: ProductConnection[];
+}
+
+/**
+ * One row of the provider rollup: a customer tenant and the status of every
+ * product connected to it. Shape per Task 2B `GET /api/v1/dashboard/rollup`.
+ */
+export interface DashboardRollupRow {
+  tenant_id: number;
+  tenant_name: string;
+  products: Array<{
+    connection_id: string;
+    product: string;
+    status: HealthStatus;
+  }>;
 }
 
 export interface AuditLog {

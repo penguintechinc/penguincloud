@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import Layout from "./components/Layout";
@@ -18,9 +19,17 @@ import ConnectionCreate from "./pages/connections/ConnectionCreate";
 import ConnectionDetail from "./pages/connections/ConnectionDetail";
 import AuditLog from "./pages/audit/AuditLog";
 import ProductPage from "./pages/products/ProductPage";
+import Teams from "./pages/Teams";
 
 function App() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, checkAuth } = useAuth();
+
+  // The store starts in `isLoading: true` and only leaves it once auth has
+  // been resolved. Without this, a visitor arriving without a token never
+  // mounts a route — including /login — and sits on the spinner forever.
+  useEffect(() => {
+    void checkAuth();
+  }, [checkAuth]);
 
   if (isLoading) {
     return (
@@ -135,6 +144,16 @@ function App() {
           element={
             <RoleGuard allowedRoles={["admin"]}>
               <UserDetail />
+            </RoleGuard>
+          }
+        />
+
+        {/* Teams - Admin and Maintainer */}
+        <Route
+          path="/teams"
+          element={
+            <RoleGuard allowedRoles={["admin", "maintainer"]}>
+              <Teams />
             </RoleGuard>
           }
         />

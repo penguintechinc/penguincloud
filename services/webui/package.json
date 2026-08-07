@@ -16,8 +16,9 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --watch=false",
     "test:coverage": "jest --coverage",
-    "test:e2e": "playwright test",
-    "screenshots": "node ../../scripts/capture-screenshots.cjs"
+    "test:e2e": "rm -rf /tmp/playwright-penguincloud && playwright test; status=$?; rm -rf /tmp/playwright-penguincloud; exit $status",
+    "screenshots": "node ../../scripts/capture-screenshots.cjs",
+    "dev:client:mocks": "VITE_MOCKS=true vite"
   },
   "dependencies": {
     "@penguintechinc/react-libs": "1.3.4",
@@ -54,6 +55,7 @@
     "identity-obj-proxy": "3.0.0",
     "jest": "30.4.2",
     "jest-environment-jsdom": "30.4.1",
+    "msw": "2.15.0",
     "prettier": "3.9.6",
     "puppeteer": "23.10.0",
     "tailwindcss": "4.1.17",
@@ -62,5 +64,10 @@
     "typescript": "5.7.2",
     "typescript-eslint": "8.47.0",
     "vite": "6.4.3"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }

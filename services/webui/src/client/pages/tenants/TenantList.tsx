@@ -1,15 +1,19 @@
-import { useEffect } from "react";
+/**
+ * Tenant list. The roster is server state (TanStack Query); only the act of
+ * switching scope touches the zustand store, which holds the active tenant.
+ */
+
 import { Link, useNavigate } from "react-router";
 import { useTenantStore } from "../../stores/tenantStore";
+import { useTenants } from "../../hooks/useTenants";
 import Card from "../../components/Card";
 
 export default function TenantList() {
-  const { tenants, fetchTenants, switchTenant, isLoading } = useTenantStore();
+  const switchTenant = useTenantStore((state) => state.switchTenant);
+  const tenantsQuery = useTenants();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchTenants();
-  }, [fetchTenants]);
+  const tenants = tenantsQuery.data ?? [];
 
   const handleSwitch = async (tenantId: number) => {
     await switchTenant(tenantId);
@@ -28,8 +32,8 @@ export default function TenantList() {
         </Link>
       </div>
 
-      {isLoading ? (
-        <div className="animate-pulse space-y-4">
+      {tenantsQuery.isLoading ? (
+        <div className="animate-pulse space-y-4" data-testid="tenants-loading">
           {[...Array(3)].map((_, i) => (
             <div key={i} className="h-20 bg-slate-700 rounded" />
           ))}
@@ -37,14 +41,14 @@ export default function TenantList() {
       ) : tenants.length === 0 ? (
         <Card title="No Tenants">
           <p className="text-slate-400 mb-4">
-            You don't belong to any tenants yet.
+            You don&apos;t belong to any tenants yet.
           </p>
           <Link to="/tenants/new" className="btn btn-primary">
             Create Your First Tenant
           </Link>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3" data-testid="tenant-list">
           {tenants.map((tenant) => (
             <Card key={tenant.id} title="">
               <div className="flex items-center justify-between">
@@ -69,7 +73,8 @@ export default function TenantList() {
                 </div>
                 <button
                   onClick={() => handleSwitch(tenant.id)}
-                  className="btn btn-secondary btn-sm"
+                  className="btn btn-secondary btn-sm focus:ring-2 focus:ring-sky-500"
+                  aria-label={`Switch to ${tenant.display_name || tenant.name}`}
                 >
                   Switch
                 </button>

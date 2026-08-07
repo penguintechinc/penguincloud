@@ -18,6 +18,8 @@ export const queryKeys = {
     [...queryKeys.dashboard(), "overview", tenantId] as const,
   dashboardActivity: (tenantId: number | undefined, limit: number) =>
     [...queryKeys.dashboard(), "activity", tenantId, limit] as const,
+  dashboardRollup: (tenantId: number | undefined) =>
+    [...queryKeys.dashboard(), "rollup", tenantId] as const,
 
   // Health checks
   health: () => [...queryKeys.all(), "health"] as const,
@@ -26,7 +28,13 @@ export const queryKeys = {
 
   // Tenants
   tenants: () => [...queryKeys.all(), "tenants"] as const,
+  tenantList: (includeChildren: boolean) =>
+    [...queryKeys.tenants(), "list", includeChildren] as const,
   tenant: (id: string) => [...queryKeys.tenants(), id] as const,
+  tenantMembers: (tenantId: number | undefined) =>
+    [...queryKeys.tenants(), "members", tenantId] as const,
+  tenantUsage: (tenantId: number | undefined) =>
+    [...queryKeys.tenants(), "usage", tenantId] as const,
 
   // Connections (product connections registered to a tenant)
   connections: () => [...queryKeys.all(), "connections"] as const,
@@ -39,8 +47,17 @@ export const queryKeys = {
 
   // Users
   users: () => [...queryKeys.all(), "users"] as const,
+  userList: (page: number, perPage: number) =>
+    [...queryKeys.users(), "list", page, perPage] as const,
   user: (id: string) => [...queryKeys.users(), id] as const,
 
   // Audit logs
   auditLogs: () => [...queryKeys.all(), "audit"] as const,
+  auditLogPage: (tenantId: number | undefined, page: number, perPage: number) =>
+    [...queryKeys.auditLogs(), tenantId, page, perPage] as const,
+
+  // Teams (tenant-scoped)
+  teams: () => [...queryKeys.all(), "teams"] as const,
+  teamList: (tenantId: number | undefined) =>
+    [...queryKeys.teams(), "list", tenantId] as const,
 };

@@ -1,108 +1,73 @@
-import { useState } from "react";
+/**
+ * Login page — thin wrapper over the shared-library `LoginPageBuilder`.
+ * No custom login UI lives here; this file only supplies configuration and
+ * hands the resulting token pair to the auth store.
+ */
+
+import { useCallback } from "react";
 import { useNavigate, useLocation } from "react-router";
+import { LoginPageBuilder } from "@penguintechinc/react-libs";
+import type { LoginResponse } from "@penguintechinc/react-libs";
 import { useAuth } from "../hooks/useAuth";
-import Button from "../components/Button";
 
 interface LocationState {
   from?: { pathname: string };
 }
 
-export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+/**
+ * BFF endpoint, not the portal API directly: `LoginPageBuilder` requires a
+ * `success` flag and a 2xx MFA challenge that `/api/v1/auth/login` does not
+ * emit. `src/server/authAdapter.ts` performs the translation.
+ */
+export const LOGIN_ENDPOINT = "/api/ui/login";
 
-  const { login } = useAuth();
+export default function Login() {
+  const { establishSession } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = (location.state as LocationState)?.from?.pathname || "/";
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setIsLoading(true);
-
-    try {
-      await login({ email, password });
-      navigate(from, { replace: true });
-    } catch {
-      setError("Invalid email or password");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const handleSuccess = useCallback(
+    (response: LoginResponse) => {
+      if (!response.token || !response.refreshToken) {
+        console.log("[Login] Success without tokens { ignored: true }");
+        return;
+      }
+      console.log("[Login] Authenticated { redirectTo:", from, "}");
+      void establishSession(response.token, response.refreshToken).then(() => {
+        navigate(from, { replace: true });
+      });
+    },
+    [establishSession, navigate, from],
+  );
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950">
-      <div className="w-full max-w-md">
-        {/* Logo/Title */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-amber-gradient mb-2">
-            WebUI Shell
-          </h1>
-          <p className="text-slate-400">Sign in to your account</p>
-        </div>
-
-        {/* Login Form */}
-        <div className="card">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
-              <div className="p-3 bg-red-900/30 border border-red-700 rounded-lg text-red-400 text-sm">
-                {error}
-              </div>
-            )}
-
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-amber-400 mb-2"
-              >
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input"
-                placeholder="you@example.com"
-                required
-                autoComplete="email"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-amber-400 mb-2"
-              >
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="input"
-                placeholder="••••••••"
-                required
-                autoComplete="current-password"
-              />
-            </div>
-
-            <Button type="submit" className="w-full" isLoading={isLoading}>
-              Sign In
-            </Button>
-          </form>
-        </div>
-
-        {/* Footer */}
-        <p className="text-center text-sm text-slate-500 mt-6">
-          Penguin Tech Inc. &copy; {new Date().getFullYear()}
-        </p>
-      </div>
-    </div>
+    <LoginPageBuilder
+      api={{
+        loginUrl: LOGIN_ENDPOINT,
+        method: "POST",
+        headers: { Accept: "application/json" },
+      }}
+      branding={{
+        appName: "PenguinCloud",
+        tagline: "Unified control plane for the PenguinTech product line",
+        githubRepo: "penguintechinc/penguincloud",
+      }}
+      onSuccess={handleSuccess}
+      // The API verifies TOTP codes on the login endpoint, so the builder's
+      // MFA prompt is wired up. CAPTCHA, passkey and GDPR consent have no
+      // backing endpoints yet and stay off until they do (Phase 5).
+      mfa={{ enabled: true, codeLength: 6, allowRememberDevice: false }}
+      gdpr={{ enabled: false, privacyPolicyUrl: "" }}
+      themeMode="dark"
+      showForgotPassword={false}
+      showSignUp={false}
+      showRememberMe
+      onError={(error, errorCode) => {
+        console.log("[Login] Failed { errorCode:", errorCode ?? "none", "}");
+        void error;
+      }}
+    />
   );
 }

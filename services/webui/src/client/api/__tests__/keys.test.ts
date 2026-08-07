@@ -117,3 +117,90 @@ describe("Query Keys", () => {
     expect(Array.isArray(key)).toBe(true);
   });
 });
+
+describe("Query keys added for the portal shell", () => {
+  it("scopes the dashboard rollup by tenant", () => {
+    expect(queryKeys.dashboardRollup(7)).toEqual([
+      "api",
+      "dashboard",
+      "rollup",
+      7,
+    ]);
+  });
+
+  it("accepts an undefined tenant for the rollup key", () => {
+    expect(queryKeys.dashboardRollup(undefined)).toEqual([
+      "api",
+      "dashboard",
+      "rollup",
+      undefined,
+    ]);
+  });
+
+  it("distinguishes flat and subtree tenant lists", () => {
+    expect(queryKeys.tenantList(false)).toEqual([
+      "api",
+      "tenants",
+      "list",
+      false,
+    ]);
+    expect(queryKeys.tenantList(true)).not.toEqual(queryKeys.tenantList(false));
+  });
+
+  it("scopes tenant members and usage by tenant", () => {
+    expect(queryKeys.tenantMembers(3)).toEqual([
+      "api",
+      "tenants",
+      "members",
+      3,
+    ]);
+    expect(queryKeys.tenantUsage(3)).toEqual(["api", "tenants", "usage", 3]);
+  });
+
+  it("keys user pages by page and page size", () => {
+    expect(queryKeys.userList(2, 20)).toEqual(["api", "users", "list", 2, 20]);
+    expect(queryKeys.userList(2, 20)).not.toEqual(queryKeys.userList(3, 20));
+  });
+
+  it("keys audit pages by tenant, page and page size", () => {
+    expect(queryKeys.auditLogPage(5, 1, 50)).toEqual([
+      "api",
+      "audit",
+      5,
+      1,
+      50,
+    ]);
+    // Tenant is part of the key: switching scope must not reuse cached rows.
+    expect(queryKeys.auditLogPage(5, 1, 50)).not.toEqual(
+      queryKeys.auditLogPage(6, 1, 50),
+    );
+  });
+
+  it("scopes health overview by tenant", () => {
+    expect(queryKeys.healthOverview(9)).toEqual([
+      "api",
+      "health",
+      "overview",
+      9,
+    ]);
+  });
+
+  it("scopes dashboard activity by tenant and limit", () => {
+    expect(queryKeys.dashboardActivity(9, 10)).toEqual([
+      "api",
+      "dashboard",
+      "activity",
+      9,
+      10,
+    ]);
+  });
+
+  it("keys a single connection and the product type catalogue", () => {
+    expect(queryKeys.connection("c1")).toEqual(["api", "connections", "c1"]);
+    expect(queryKeys.productTypes()).toEqual(["api", "product-types"]);
+  });
+
+  it("keys a single user", () => {
+    expect(queryKeys.user("11")).toEqual(["api", "users", "11"]);
+  });
+});
