@@ -9,11 +9,14 @@ export default {
     "^lucide-react$": "<rootDir>/src/client/test/__mocks__/lucide-react.tsx",
   },
   setupFilesAfterEnv: ["<rootDir>/src/client/tests/setup.ts"],
+  // Scope deliberately matches coverageThreshold below. Collecting from all of
+  // src/client while only thresholding kit + api reported a misleading
+  // whole-app percentage that no threshold actually enforced.
+  // TODO(phase-2): widen to src/client/** once lib/api.ts interceptor tests land.
   collectCoverageFrom: [
-    "src/client/**/*.{ts,tsx}",
+    "src/client/components/kit/**/*.{ts,tsx}",
+    "src/client/api/**/*.{ts,tsx}",
     "!src/client/**/*.d.ts",
-    "!src/client/main.tsx",
-    "!src/client/index.css",
     "!src/client/components/kit/index.ts", // Barrel exports have no behavior to test
   ],
   coverageThreshold: {

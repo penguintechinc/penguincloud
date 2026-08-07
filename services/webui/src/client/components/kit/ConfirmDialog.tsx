@@ -43,17 +43,18 @@ export function ConfirmDialog({
         onCancel();
       }
 
-      /* istanbul ignore next -- unreachable: focus trap Tab handling requires simulating browser activeElement state which jsdom does not fully support */
+      /* istanbul ignore next -- reachable in a browser, not assertable here:
+         jsdom does not move activeElement on Tab, so the focus trap cannot be
+         driven from a unit test. Covered by the Playwright e2e run. */
       if (e.key === "Tab") {
-        const focusableElements = dialogRef.current?.querySelectorAll(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
+        const focusableElements =
+          dialogRef.current?.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+          );
         if (!focusableElements || focusableElements.length === 0) return;
 
-        const firstElement = focusableElements[0] as HTMLElement;
-        const lastElement = focusableElements[
-          focusableElements.length - 1
-        ] as HTMLElement;
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
 
         if (e.shiftKey) {
           if (document.activeElement === firstElement) {

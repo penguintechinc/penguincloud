@@ -233,6 +233,25 @@ describe("DataTable", () => {
     expect(within(rows[0]).getByText("Alice")).toBeInTheDocument();
   });
 
+  it("sorts on Space as well as Enter", () => {
+    render(<DataTable columns={mockColumns} data={mockData} pageSize={25} />);
+
+    const nameSort = screen.getByTestId("sort-name");
+    fireEvent.keyDown(nameSort, { key: " " });
+
+    expect(nameSort.closest("th")).toHaveAttribute("aria-sort", "ascending");
+  });
+
+  it("ignores keys other than Enter and Space", () => {
+    render(<DataTable columns={mockColumns} data={mockData} pageSize={25} />);
+
+    const nameSort = screen.getByTestId("sort-name");
+    fireEvent.keyDown(nameSort, { key: "a" });
+
+    // Still unsorted: an unrelated keypress must not trigger a sort.
+    expect(nameSort.closest("th")).toHaveAttribute("aria-sort", "none");
+  });
+
   it("has proper ARIA labels and roles", () => {
     render(
       <DataTable

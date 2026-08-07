@@ -30,6 +30,67 @@ describe("Query Keys", () => {
     expect(key).toEqual(["api", "connections"]);
   });
 
+  it("scopes connections by tenant", () => {
+    expect(queryKeys.connectionsByTenant(7)).toEqual([
+      "api",
+      "connections",
+      "tenant",
+      7,
+    ]);
+  });
+
+  it("provides product types query key", () => {
+    expect(queryKeys.productTypes()).toEqual(["api", "product-types"]);
+  });
+
+  it("scopes dashboard overview by tenant", () => {
+    expect(queryKeys.dashboardOverview(42)).toEqual([
+      "api",
+      "dashboard",
+      "overview",
+      42,
+    ]);
+  });
+
+  it("scopes dashboard activity by tenant and limit", () => {
+    expect(queryKeys.dashboardActivity(42, 10)).toEqual([
+      "api",
+      "dashboard",
+      "activity",
+      42,
+      10,
+    ]);
+  });
+
+  it("scopes health overview by tenant", () => {
+    expect(queryKeys.healthOverview(42)).toEqual([
+      "api",
+      "health",
+      "overview",
+      42,
+    ]);
+  });
+
+  it("keeps different tenants on distinct keys", () => {
+    // Regression guard: without the tenant id in the key, switching tenants
+    // reuses the previous tenant's cached rows.
+    expect(queryKeys.connectionsByTenant(1)).not.toEqual(
+      queryKeys.connectionsByTenant(2),
+    );
+    expect(queryKeys.dashboardOverview(1)).not.toEqual(
+      queryKeys.dashboardOverview(2),
+    );
+  });
+
+  it("represents an unselected tenant as undefined rather than a sentinel", () => {
+    expect(queryKeys.connectionsByTenant(undefined)).toEqual([
+      "api",
+      "connections",
+      "tenant",
+      undefined,
+    ]);
+  });
+
   it("provides connection-specific query key", () => {
     const key = queryKeys.connection("456");
     expect(key).toEqual(["api", "connections", "456"]);
