@@ -1,5 +1,7 @@
 """WaddleBot Adapter — Bot automation."""
 
+from typing import Any
+
 from .base_adapter import ProductAdapter
 
 
@@ -16,7 +18,7 @@ class WaddleBotAdapter(ProductAdapter):
     def get_capabilities(self) -> list[str]:
         return ["health_check", "proxy", "bots", "labels", "channels"]
 
-    def get_management_schema(self) -> dict:
+    def get_management_schema(self) -> dict[str, Any]:
         return {
             "product_type": self.PRODUCT_TYPE,
             "display_name": self.DISPLAY_NAME,

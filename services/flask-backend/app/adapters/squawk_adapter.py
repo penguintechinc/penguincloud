@@ -1,5 +1,7 @@
 """Squawk Adapter — DNS management."""
 
+from typing import Any
+
 from .base_adapter import ProductAdapter
 
 
@@ -16,7 +18,7 @@ class SquawkAdapter(ProductAdapter):
     def get_capabilities(self) -> list[str]:
         return ["health_check", "proxy", "domains", "queries", "ioc_feeds"]
 
-    def get_management_schema(self) -> dict:
+    def get_management_schema(self) -> dict[str, Any]:
         return {
             "product_type": self.PRODUCT_TYPE,
             "display_name": self.DISPLAY_NAME,

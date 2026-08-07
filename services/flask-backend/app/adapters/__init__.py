@@ -1,5 +1,7 @@
 """Product Adapter Registry."""
 
+from typing import Any
+
 from .base_adapter import ProductAdapter
 from .generic_adapter import GenericAdapter
 from .marchproxy_adapter import MarchProxyAdapter
@@ -47,13 +49,13 @@ ADAPTER_REGISTRY: dict[str, type[ProductAdapter]] = {
 }
 
 
-def get_adapter(product_type: str, connection: dict) -> ProductAdapter:
+def get_adapter(product_type: str, connection: dict[str, Any]) -> ProductAdapter:
     """Get an adapter instance for the given product type and connection."""
     adapter_class = ADAPTER_REGISTRY.get(product_type, GenericAdapter)
     return adapter_class(connection)
 
 
-def get_adapter_metadata(product_type: str) -> dict:
+def get_adapter_metadata(product_type: str) -> dict[str, Any]:
     """Get metadata for a product type without a connection."""
     adapter_class = ADAPTER_REGISTRY.get(product_type, GenericAdapter)
     return {
@@ -67,19 +69,21 @@ def get_adapter_metadata(product_type: str) -> dict:
     }
 
 
-def get_all_product_types() -> list[dict]:
+def get_all_product_types() -> list[dict[str, Any]]:
     """Get metadata for all registered product types."""
     result = []
     for ptype, cls in ADAPTER_REGISTRY.items():
         if ptype == "generic":
             continue
-        result.append({
-            "product_type": cls.PRODUCT_TYPE,
-            "display_name": cls.DISPLAY_NAME,
-            "category": cls.CATEGORY,
-            "icon": cls.ICON,
-            "default_health_endpoint": cls.DEFAULT_HEALTH_ENDPOINT,
-            "default_api_version": cls.DEFAULT_API_VERSION,
-            "discovery_ports": cls.DISCOVERY_PORTS,
-        })
+        result.append(
+            {
+                "product_type": cls.PRODUCT_TYPE,
+                "display_name": cls.DISPLAY_NAME,
+                "category": cls.CATEGORY,
+                "icon": cls.ICON,
+                "default_health_endpoint": cls.DEFAULT_HEALTH_ENDPOINT,
+                "default_api_version": cls.DEFAULT_API_VERSION,
+                "discovery_ports": cls.DISCOVERY_PORTS,
+            }
+        )
     return sorted(result, key=lambda x: (x["category"], x["display_name"]))

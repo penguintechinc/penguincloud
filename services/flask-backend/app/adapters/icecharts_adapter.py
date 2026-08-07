@@ -1,5 +1,7 @@
 """IceCharts Adapter — Visualization."""
 
+from typing import Any
+
 from .base_adapter import ProductAdapter
 
 
@@ -16,7 +18,7 @@ class IceChartsAdapter(ProductAdapter):
     def get_capabilities(self) -> list[str]:
         return ["health_check", "proxy", "charts", "dashboards"]
 
-    def get_management_schema(self) -> dict:
+    def get_management_schema(self) -> dict[str, Any]:
         return {
             "product_type": self.PRODUCT_TYPE,
             "display_name": self.DISPLAY_NAME,

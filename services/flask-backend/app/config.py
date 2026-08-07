@@ -1,8 +1,16 @@
-"""Flask Backend Configuration."""
+"""Quart Backend Configuration."""
 
 import os
 import tempfile
 from datetime import timedelta
+
+#: Reserved ``tenant`` claim value for a token minted before the user has
+#: selected an active tenant. penguin-aaa's ``Claims`` model rejects an empty
+#: tenant outright, and the house standard requires the claim on every token,
+#: so an explicit sentinel carries "authenticated but not tenant-scoped"
+#: instead. ``middleware.get_current_tenant_id`` maps it back to ``None`` so
+#: tenant-gated routes still refuse it.
+UNSCOPED_TENANT = "_unscoped"
 
 
 class Config:
@@ -21,6 +29,22 @@ class Config:
         days=int(os.getenv("JWT_REFRESH_TOKEN_DAYS", "7"))
     )
 
+    # OIDC provider (penguin-aaa). The issuer must be a fully-qualified URL —
+    # penguin-aaa's validate_https_url() requires HTTPS for any non-localhost
+    # host, so an opaque string like "penguincloud" is rejected at startup.
+    JWT_ISSUER = os.getenv("JWT_ISSUER", "https://penguincloud.localhost.local")
+    JWT_AUDIENCES = [
+        a.strip()
+        for a in os.getenv("JWT_AUDIENCES", "penguincloud-portal").split(",")
+        if a.strip()
+    ]
+    JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "RS256")
+    # Path for the persistent signing keystore. Unset (the default) selects an
+    # in-process MemoryKeyStore, whose keys die with the worker — acceptable
+    # for tests/dev, never for a multi-replica deployment where every replica
+    # would otherwise sign with a key the others cannot verify.
+    JWT_KEYSTORE_PATH = os.getenv("JWT_KEYSTORE_PATH", "")
+
     # Database - PyDAL compatible
     DB_TYPE = os.getenv("DB_TYPE", "postgres")
     DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -30,8 +54,8 @@ class Config:
     DB_PASS = os.getenv("DB_PASS", "app_pass")
     DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
 
-    # CORS
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+    # CORS - comma-separated allowlist (parsed in app factory)
+    CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 
     # OAuth2/SSO Configuration
     OAUTH_ENABLED = os.getenv("OAUTH_ENABLED", "false").lower() == "true"
@@ -86,10 +110,10 @@ class Config:
 
     @classmethod
     def get_db_uri(cls) -> str:
-        """Build PyDAL-compatible database URI."""
+        """Build penguin-dal compatible database URI."""
         db_type = cls.DB_TYPE
 
-        # Map common aliases to PyDAL format
+        # Map common aliases to penguin-dal format
         type_map = {
             "postgresql": "postgres",
             "mysql": "mysql",
@@ -99,7 +123,11 @@ class Config:
         db_type = type_map.get(db_type, db_type)
 
         if db_type == "sqlite":
-            return f"sqlite://{cls.DB_NAME}.db"
+            # Handle both bare names (app_db) and full paths (/tmp/test.db)
+            db_path = cls.DB_NAME
+            if not db_path.endswith(".db"):
+                db_path = f"{db_path}.db"
+            return f"sqlite:///{db_path}"
 
         return (
             f"{db_type}://{cls.DB_USER}:{cls.DB_PASS}@"
@@ -134,3 +162,7 @@ class TestingConfig(Config):
     DB_NAME = os.environ.get("TEST_DB_PATH") or os.path.join(
         tempfile.mkdtemp(prefix="penguincloud-test-"), "test.db"
     )
+
+    # JWT Configuration for testing
+    JWT_ISSUER = "https://penguincloud-test.localhost.local"
+    JWT_AUDIENCES = ["penguincloud-test-client"]

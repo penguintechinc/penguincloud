@@ -4,29 +4,34 @@ Database Migration Tests
 Tests for Alembic migrations, schema changes, and rollback.
 """
 
-import pytest
+import re
+
 from alembic.config import Config
-from alembic.command import upgrade, downgrade
+
+from collections.abc import Iterator
+from typing import Any
+
+import pytest
 
 
 class TestMigrationSetup:
     """Test Alembic setup and configuration"""
 
-    def test_alembic_config_exists(self):
+    def test_alembic_config_exists(self) -> None:
         """Test Alembic configuration exists"""
         import os
 
         alembic_ini = "services/flask-backend/alembic.ini"
         assert os.path.exists(alembic_ini), "alembic.ini not found"
 
-    def test_alembic_env_exists(self):
+    def test_alembic_env_exists(self) -> None:
         """Test Alembic env.py exists"""
         import os
 
         env_py = "services/flask-backend/alembic/env.py"
         assert os.path.exists(env_py), "env.py not found"
 
-    def test_versions_directory_exists(self):
+    def test_versions_directory_exists(self) -> None:
         """Test versions directory exists"""
         import os
 
@@ -37,16 +42,15 @@ class TestMigrationSetup:
 class TestMigrationHistory:
     """Test migration history tracking"""
 
-    def test_get_current_revision(self, db):
+    def test_get_current_revision(self, db: Any) -> None:
         """Test getting current migration revision"""
         # This would need actual DB setup
         # For now, just verify command structure
-        from alembic.config import Config
 
         cfg = Config("services/flask-backend/alembic.ini")
         assert cfg is not None
 
-    def test_migration_list(self, db):
+    def test_migration_list(self, db: Any) -> None:
         """Test listing migrations"""
         # Verify migrations can be discovered
         import os
@@ -60,16 +64,15 @@ class TestMigrationHistory:
 class TestMigrationUpgrade:
     """Test upgrading database schema"""
 
-    def test_upgrade_head(self, db):
+    def test_upgrade_head(self, db: Any) -> None:
         """Test upgrading to head"""
         # This would require actual database connection
         # Verify command structure is correct
-        from alembic.config import Config
 
         cfg = Config("services/flask-backend/alembic.ini")
         assert cfg is not None
 
-    def test_upgrade_specific_version(self, db):
+    def test_upgrade_specific_version(self, db: Any) -> None:
         """Test upgrading to specific version"""
         # Verify command structure
         import os
@@ -77,7 +80,7 @@ class TestMigrationUpgrade:
         versions_dir = "services/flask-backend/alembic/versions"
         assert os.path.isdir(versions_dir)
 
-    def test_upgrade_creates_tables(self, db):
+    def test_upgrade_creates_tables(self, db: Any) -> None:
         """Test that upgrade creates expected tables"""
         # Verify tables exist after migration
         pass
@@ -86,15 +89,14 @@ class TestMigrationUpgrade:
 class TestMigrationDowngrade:
     """Test downgrading database schema"""
 
-    def test_downgrade_one_revision(self, db):
+    def test_downgrade_one_revision(self, db: Any) -> None:
         """Test downgrading by one revision"""
         # Verify command structure
-        from alembic.config import Config
 
         cfg = Config("services/flask-backend/alembic.ini")
         assert cfg is not None
 
-    def test_downgrade_to_version(self, db):
+    def test_downgrade_to_version(self, db: Any) -> None:
         """Test downgrading to specific version"""
         # Verify command works
         pass
@@ -103,7 +105,7 @@ class TestMigrationDowngrade:
 class TestMigrationIntegrity:
     """Test migration integrity"""
 
-    def test_migration_file_syntax(self):
+    def test_migration_file_syntax(self) -> None:
         """Test migration files have valid Python syntax"""
         import os
         import py_compile
@@ -118,10 +120,9 @@ class TestMigrationIntegrity:
                     except py_compile.PyCompileError as e:
                         pytest.fail(f"Syntax error in {filename}: {e}")
 
-    def test_migration_has_upgrade_downgrade(self):
+    def test_migration_has_upgrade_downgrade(self) -> None:
         """Test migrations have upgrade and downgrade functions"""
         import os
-        import re
 
         versions_dir = "services/flask-backend/alembic/versions"
         if os.path.isdir(versions_dir):
@@ -137,26 +138,26 @@ class TestMigrationIntegrity:
 class TestSQLAlchemyModels:
     """Test SQLAlchemy model definitions"""
 
-    def test_models_file_exists(self):
+    def test_models_file_exists(self) -> None:
         """Test models.py exists"""
         import os
 
         models_file = "services/flask-backend/app/models.py"
         assert os.path.exists(models_file), "models.py not found"
 
-    def test_models_imports(self):
+    def test_models_imports(self) -> None:
         """Test models can be imported"""
         try:
-            from app.models import Base
+            from app.models_sqlalchemy import Base
 
             assert Base is not None
         except ImportError:
             pytest.skip("Cannot import models")
 
-    def test_base_metadata_exists(self):
+    def test_base_metadata_exists(self) -> None:
         """Test SQLAlchemy Base metadata exists"""
         try:
-            from app.models import Base
+            from app.models_sqlalchemy import Base
 
             assert hasattr(Base, "metadata")
         except ImportError:
@@ -166,10 +167,9 @@ class TestSQLAlchemyModels:
 class TestMigrationNaming:
     """Test migration file naming conventions"""
 
-    def test_migration_naming_convention(self):
+    def test_migration_naming_convention(self) -> None:
         """Test migrations follow naming convention"""
         import os
-        import re
 
         versions_dir = "services/flask-backend/alembic/versions"
         if os.path.isdir(versions_dir):
@@ -184,10 +184,9 @@ class TestMigrationNaming:
 class TestMigrationConflicts:
     """Test handling of migration conflicts"""
 
-    def test_no_duplicate_versions(self):
+    def test_no_duplicate_versions(self) -> None:
         """Test no duplicate version identifiers"""
         import os
-        import re
 
         versions_dir = "services/flask-backend/alembic/versions"
         version_ids = []
@@ -205,17 +204,7 @@ class TestMigrationConflicts:
 
 
 @pytest.fixture
-def db():
+def db() -> Iterator[None]:
     """Create test database"""
     # This would initialize test DB
     yield None
-
-
-@pytest.fixture
-def client():
-    """Create test client"""
-    from app import create_app
-
-    app = create_app(config_name="testing")
-    with app.test_client() as client:
-        yield client

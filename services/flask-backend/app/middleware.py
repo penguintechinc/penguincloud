@@ -1,15 +1,34 @@
-"""Authentication and Authorization Middleware."""
+"""Authentication and Authorization Middleware (async Quart)."""
 
+import logging
 import time
 import uuid
 from functools import wraps
-from typing import Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, ParamSpec, TypeVar
 
-import jwt
-from flask import current_app, g, jsonify, request
+import jwt as pyjwt
+from jwt import PyJWK
+from quart import Quart, Response, current_app, g, request
 
+from .config import UNSCOPED_TENANT
 from .killkrill import killkrill_manager
 from .models import get_user_by_id
+
+log = logging.getLogger(__name__)
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+#: Value penguin-aaa stamps into the `token_use` claim of an access token
+#: (see penguin_aaa.authn.oidc_provider.issue_token_set). Id tokens carry
+#: "id" and are otherwise byte-for-byte comparable — same issuer, same
+#: audience, same signing key — so this claim is the only thing separating
+#: "may call a protected route" from "describes a user".
+TOKEN_USE_ACCESS = "access"
+
+# Decorators below either call through to the wrapped async view or
+# short-circuit with an (error_body, status) tuple, so the wrapper's return
+# type widens to Any rather than staying the view's own R.
 
 
 def get_token_from_header() -> Optional[str]:
@@ -20,257 +39,341 @@ def get_token_from_header() -> Optional[str]:
     return None
 
 
-def decode_token(token: str) -> Optional[dict]:
-    """Decode and validate JWT token."""
-    try:
-        payload = jwt.decode(
-            token,
-            current_app.config["JWT_SECRET_KEY"],
-            algorithms=["HS256"],
-        )
-        return payload
-    except jwt.ExpiredSignatureError:
-        return None
-    except jwt.InvalidTokenError:
-        return None
-
-
-def get_current_user() -> Optional[dict]:
+def get_current_user() -> Optional[dict[str, Any]]:
     """Get current authenticated user from request context."""
-    return getattr(g, "current_user", None)
+    user: Optional[dict[str, Any]] = g.get("current_user", None)
+    return user
 
 
-def get_current_tenant_id() -> Optional[int]:
-    """Get current tenant ID from JWT claims or request context."""
-    tenant_id = getattr(g, "current_tenant_id", None)
-    if tenant_id:
+def get_current_tenant_id() -> Optional[str]:
+    """Return the active tenant ID, or None when the token is unscoped.
+
+    The UNSCOPED_TENANT sentinel satisfies penguin-aaa's mandatory,
+    non-empty tenant claim but does not name a real tenant, so it is
+    normalised back to None here — tenant-gated routes must still reject it.
+    """
+    tenant_id: Optional[str] = g.get("current_tenant_id", None)
+    if tenant_id and tenant_id != UNSCOPED_TENANT:
         return tenant_id
-    token = get_token_from_header()
-    if token:
-        payload = decode_token(token)
-        if payload:
-            return payload.get("current_tenant_id")
+    claims: Optional[dict[str, Any]] = g.get("current_claims", None)
+    if claims:
+        claim_tenant = claims.get("tenant")
+        if claim_tenant and claim_tenant != UNSCOPED_TENANT:
+            return str(claim_tenant)
     return None
 
 
-def tenant_required(f: Callable) -> Callable:
-    """Decorator to require an active tenant context."""
+def tenant_required(
+    f: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[Any]]:
+    """Require an active (non-sentinel) tenant on the request's token."""
 
     @wraps(f)
-    def decorated(*args, **kwargs):
+    async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
         tenant_id = get_current_tenant_id()
         if not tenant_id:
-            return jsonify({"error": "No active tenant. Switch to a tenant first."}), 400
+            return (
+                {"error": "No active tenant. Switch to a tenant first."},
+                400,
+            )
         g.current_tenant_id = tenant_id
-        return f(*args, **kwargs)
+        return await f(*args, **kwargs)
 
     return decorated
 
 
-def require_feature(feature_name: str) -> Callable:
-    """Decorator to require a specific license-gated feature."""
+def require_feature(
+    feature_name: str,
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[Any]]]:
+    """Build a decorator requiring a specific license-gated feature."""
 
-    def decorator(f: Callable) -> Callable:
+    def decorator(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
         @wraps(f)
-        def decorated(*args, **kwargs):
+        async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
             tenant_id = get_current_tenant_id()
             if not tenant_id:
-                return jsonify({"error": "Tenant context required"}), 400
+                return {"error": "Tenant context required"}, 400
 
-            from .models import get_db
-            db = get_db()
-            feature = db(
-                (db.tenant_product_features.tenant_id == tenant_id)
-                & (db.tenant_product_features.feature_name == feature_name)
-                & (db.tenant_product_features.enabled == True)
-            ).select().first()
-
-            if not feature:
-                return jsonify({
-                    "error": f"Feature '{feature_name}' not available",
-                    "upgrade_required": True,
-                }), 403
-
-            return f(*args, **kwargs)
+            # TODO(phase-1b): resolve per-tenant entitlements through
+            # penguin-dal (tenant_product_features) and grant when the
+            # tenant holds `feature_name`.
+            #
+            # Until that lookup exists there is no way to establish that
+            # the tenant is entitled, so this DENIES. A gate that cannot
+            # check anything must not grant: an unverifiable entitlement is
+            # exactly the case flags are required to default OFF for. The
+            # previous body fell through to the view, making the decorator
+            # documentation rather than enforcement.
+            log.warning(
+                "feature_gate_denied_unresolvable",
+                extra={"feature": feature_name, "tenant": tenant_id},
+            )
+            return (
+                {
+                    "error": "feature_not_entitled",
+                    "message": (
+                        f"Feature '{feature_name}' is not enabled for this tenant"
+                    ),
+                },
+                403,
+            )
 
         return decorated
 
     return decorator
 
 
-def auth_required(f: Callable) -> Callable:
-    """Decorator to require authentication."""
+def auth_required(
+    f: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[Any]]:
+    """Require a valid, signature-verified JWT on the request."""
 
     @wraps(f)
-    def decorated(*args, **kwargs):
+    async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
         token = get_token_from_header()
 
         if not token:
-            return jsonify({"error": "Missing authorization token"}), 401
+            return {"error": "Missing authorization token"}, 401
 
-        payload = decode_token(token)
-        if not payload:
-            return jsonify({"error": "Invalid or expired token"}), 401
+        try:
+            from .auth import get_oidc_provider
 
-        # Check token type
-        if payload.get("type") != "access":
-            return jsonify({"error": "Invalid token type"}), 401
+            oidc = get_oidc_provider()
 
-        # Get user from database
-        user_id = payload.get("sub")
-        if not user_id:
-            return jsonify({"error": "Invalid token payload"}), 401
+            # Get token header (kid) to find correct signing key
+            header = pyjwt.get_unverified_header(token)
+            kid = header.get("kid")
 
-        user = get_user_by_id(int(user_id))
-        if not user:
-            return jsonify({"error": "User not found"}), 401
+            # Public JWKS off the provider — no reaching into private
+            # _keystore/_config attributes.
+            jwks: dict[str, Any] = oidc.jwks()
 
-        if not user.get("is_active"):
-            return jsonify({"error": "User account is deactivated"}), 401
+            if not jwks.get("keys"):
+                return {"error": "Auth system not initialized"}, 500
 
-        # Store user in request context
-        g.current_user = user
+            # Find the public key by kid
+            public_key_data = None
+            for key_data in jwks.get("keys", []):
+                if key_data.get("kid") == kid:
+                    # from_dict, not from_json — get_jwks() hands back parsed
+                    # dicts, and from_json expects a raw JSON string.
+                    jwk = PyJWK.from_dict(key_data)
+                    public_key_data = jwk.key
+                    break
 
-        return f(*args, **kwargs)
+            if not public_key_data:
+                return {"error": "Invalid token - key not found"}, 401
+
+            # Verify signature + claims with explicit algorithm allowlist
+            payload: dict[str, Any] = pyjwt.decode(
+                token,
+                public_key_data,
+                algorithms=["RS256", "ES256", "ES384", "ES512"],
+                issuer=current_app.config["JWT_ISSUER"],
+                audience=list(current_app.config["JWT_AUDIENCES"]),
+            )
+
+            # Only an ACCESS token authenticates a protected route.
+            # penguin-aaa's issue_token_set mints the access and id tokens
+            # from one base payload, with the same iss, aud and signing key
+            # — the sole discriminator is `token_use`. Without this check an
+            # id token (handed to clients for profile display, and routinely
+            # passed around more freely) is accepted everywhere an access
+            # token is. Refresh tokens are opaque strings, so they fail
+            # earlier at header parsing, but are named here for the reader.
+            if payload.get("token_use") != TOKEN_USE_ACCESS:
+                return {"error": "Invalid token type - access token required"}, 401
+
+            # Validate required claims
+            user_id = payload.get("sub")
+            if not user_id:
+                return {"error": "Invalid token payload - missing sub"}, 401
+
+            tenant_id = payload.get("tenant")
+            if not tenant_id:
+                return {"error": "Invalid token payload - missing tenant"}, 401
+
+            # Get user from database
+            user = await get_user_by_id(int(user_id))
+            if not user:
+                return {"error": "User not found"}, 401
+
+            if not user.get("is_active"):
+                return {"error": "User account is deactivated"}, 401
+
+            # Store user and claims in request context
+            g.current_user = user
+            g.current_claims = payload
+
+            return await f(*args, **kwargs)
+
+        except pyjwt.ExpiredSignatureError:
+            return {"error": "Token has expired"}, 401
+        except pyjwt.InvalidTokenError:
+            # Detail stays server-side: the reason a token failed
+            # verification (bad signature vs wrong audience vs malformed)
+            # is a probing oracle for an unauthenticated caller.
+            log.info("token_verification_failed", exc_info=True)
+            return {"error": "Invalid token"}, 401
+        except Exception:
+            # Anything else is a server fault, not a client one. The
+            # previous message echoed raw exception text — which also
+            # mislabelled genuine 500s raised inside the wrapped view as
+            # "Authentication error", hiding real bugs behind an auth
+            # message.
+            log.exception("authentication_error")
+            return {"error": "Authentication error"}, 500
 
     return decorated
 
 
-def role_required(*allowed_roles: str) -> Callable:
-    """Decorator to require specific roles."""
+def role_required(
+    *allowed_roles: str,
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[Any]]]:
+    """Build a decorator restricting a view to the given roles."""
 
-    def decorator(f: Callable) -> Callable:
+    def decorator(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
         @wraps(f)
-        def decorated(*args, **kwargs):
+        async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
             user = get_current_user()
 
             if not user:
-                return jsonify({"error": "Authentication required"}), 401
+                return {"error": "Authentication required"}, 401
 
             user_role = user.get("role", "")
             if user_role not in allowed_roles:
                 return (
-                    jsonify(
-                        {
-                            "error": "Insufficient permissions",
-                            "required_roles": list(allowed_roles),
-                            "your_role": user_role,
-                        }
-                    ),
+                    {
+                        "error": "Insufficient permissions",
+                        "required_roles": list(allowed_roles),
+                        "your_role": user_role,
+                    },
                     403,
                 )
 
-            return f(*args, **kwargs)
+            return await f(*args, **kwargs)
 
         return decorated
 
     return decorator
 
 
-def admin_required(f: Callable) -> Callable:
-    """Decorator to require admin role."""
+def admin_required(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
+    """Restrict a view to users holding the admin role."""
     return role_required("admin")(f)
 
 
-def maintainer_or_admin_required(f: Callable) -> Callable:
-    """Decorator to require maintainer or admin role."""
+def maintainer_or_admin_required(
+    f: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[Any]]:
+    """Restrict a view to users holding the maintainer or admin role."""
     return role_required("admin", "maintainer")(f)
 
 
-def team_member_required(f: Callable) -> Callable:
-    """Decorator to check team membership. Expects team_id in kwargs."""
+def _coerce_team_id(raw: Any) -> int | None:
+    """Narrow a route kwarg to an int team id, or None when unusable.
+
+    Route kwargs arrive as `object` under ParamSpec, so the team decorators
+    below need an explicit narrowing step before passing the value to
+    get_user_team_role(user_id: int, team_id: int).
+    """
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str) and raw.isdigit():
+        return int(raw)
+    return None
+
+
+def team_member_required(
+    f: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[Any]]:
+    """Require team membership; expects team_id in the view's kwargs."""
 
     @wraps(f)
-    def decorated(*args, **kwargs):
+    async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
         user = get_current_user()
         if not user:
-            return jsonify({"error": "Authentication required"}), 401
+            return {"error": "Authentication required"}, 401
 
-        team_id = kwargs.get("team_id")
+        team_id = _coerce_team_id(kwargs.get("team_id"))
         if not team_id:
-            return jsonify({"error": "Team ID required"}), 400
+            return {"error": "Team ID required"}, 400
 
-        role = get_user_team_role(user["id"], team_id)
+        from .models import get_user_team_role as model_get_role
+        role = await model_get_role(user["id"], team_id)
         if not role:
-            return jsonify({"error": "Not a member of this team"}), 403
+            return {"error": "Not a member of this team"}, 403
 
-        return f(*args, **kwargs)
+        return await f(*args, **kwargs)
 
     return decorated
 
 
-def team_admin_required(f: Callable) -> Callable:
-    """Decorator to check team admin role. Expects team_id in kwargs."""
+def team_admin_required(
+    f: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[Any]]:
+    """Require team admin/owner role; expects team_id in the view's kwargs."""
 
     @wraps(f)
-    def decorated(*args, **kwargs):
+    async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
         user = get_current_user()
         if not user:
-            return jsonify({"error": "Authentication required"}), 401
+            return {"error": "Authentication required"}, 401
 
-        team_id = kwargs.get("team_id")
+        team_id = _coerce_team_id(kwargs.get("team_id"))
         if not team_id:
-            return jsonify({"error": "Team ID required"}), 400
+            return {"error": "Team ID required"}, 400
 
-        role = get_user_team_role(user["id"], team_id)
+        from .models import get_user_team_role as model_get_role
+        role = await model_get_role(user["id"], team_id)
         if role not in ["owner", "admin"]:
-            return jsonify({"error": "Team admin access required"}), 403
+            return {"error": "Team admin access required"}, 403
 
-        return f(*args, **kwargs)
+        return await f(*args, **kwargs)
 
     return decorated
 
 
-def team_owner_required(f: Callable) -> Callable:
-    """Decorator to check team ownership. Expects team_id in kwargs."""
+def team_owner_required(
+    f: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[Any]]:
+    """Require team ownership; expects team_id in the view's kwargs."""
 
     @wraps(f)
-    def decorated(*args, **kwargs):
+    async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
         user = get_current_user()
         if not user:
-            return jsonify({"error": "Authentication required"}), 401
+            return {"error": "Authentication required"}, 401
 
-        team_id = kwargs.get("team_id")
+        team_id = _coerce_team_id(kwargs.get("team_id"))
         if not team_id:
-            return jsonify({"error": "Team ID required"}), 400
+            return {"error": "Team ID required"}, 400
 
-        role = get_user_team_role(user["id"], team_id)
+        from .models import get_user_team_role as model_get_role
+        role = await model_get_role(user["id"], team_id)
         if role != "owner":
-            return jsonify({"error": "Team owner access required"}), 403
+            return {"error": "Team owner access required"}, 403
 
-        return f(*args, **kwargs)
+        return await f(*args, **kwargs)
 
     return decorated
 
 
-def get_user_team_role(user_id: int, team_id: int) -> Optional[str]:
-    """Get user's role in a team."""
-    from .models import get_user_team_role as model_get_role
-
-    return model_get_role(user_id, team_id)
-
-
-def setup_request_logging(app):
-    """Setup structured logging middleware for all requests."""
+def setup_request_logging(app: Quart) -> None:
+    """Attach structured request/response logging hooks to the Quart app."""
 
     @app.before_request
-    def before_request():
+    async def before_request() -> None:
         g.request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         g.start_time = time.time()
         g.user_id = None
         g.team_id = None
-
-        # Try to extract user and tenant from token
-        token = get_token_from_header()
-        if token:
-            payload = decode_token(token)
-            if payload:
-                g.user_id = payload.get("sub")
-                g.team_id = payload.get("current_team_id")
-                g.current_tenant_id = payload.get("current_tenant_id")
+        # TODO: Extract user and tenant from JWT claims
 
     @app.after_request
-    def after_request(response):
+    async def after_request(response: Response) -> Response:
         # Log request in ECS format
         duration_ms = (time.time() - g.start_time) * 1000
         killkrill_manager.log(
@@ -286,12 +389,4 @@ def setup_request_logging(app):
             team={"id": str(g.team_id)} if g.team_id else None,
             request_id=g.request_id,
         )
-
-        # Track API request metric
-        from .killkrill import track_api_request
-
-        track_api_request(
-            request.path, request.method, response.status_code, duration_ms
-        )
-
         return response

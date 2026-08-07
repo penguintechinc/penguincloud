@@ -86,7 +86,7 @@ class GRPCSubmitter:
             logger.warning("grpc_health_check_failed", url=self.grpc_url, error=str(e))
             return False
 
-    def submit_logs(self, logs: List[dict]) -> bool:
+    def submit_logs(self, logs: List[dict[str, Any]]) -> bool:
         """
         Submit logs via gRPC.
 
@@ -116,7 +116,7 @@ class GRPCSubmitter:
             logger.error("grpc_log_submission_failed", error=str(e), code=e.code())
             raise SubmissionError(f"gRPC log submission failed: {e.details()}")
 
-    def submit_metrics(self, metrics: List[dict]) -> bool:
+    def submit_metrics(self, metrics: List[dict[str, Any]]) -> bool:
         """
         Submit metrics via gRPC.
 
