@@ -407,7 +407,10 @@ async def enable_mfa(user_id: int) -> bool:
     """Enable MFA for user (async)."""
     db = get_db()
     rows = await db(db.mfa_secrets.user_id == user_id).update(
-        enabled_at=datetime.utcnow()
+        # now(UTC), not utcnow(): utcnow() is deprecated on 3.12+ and
+        # returns a NAIVE datetime, which compares as local time against
+        # the timezone-aware values written everywhere else in this module.
+        enabled_at=datetime.now(UTC)
     )
     return bool(rows)
 
@@ -580,11 +583,17 @@ async def get_tenant_product_count(tenant_id: int) -> int:
 async def update_product_health(
     conn_id: int, status: str, last_check: Any = None
 ) -> bool:
-    """Update product connection health status (async)."""
+    """Update product connection health status and timestamp (async).
+
+    The column is `last_health_check` (models_sqlalchemy.ProductConnection);
+    writing `health_check_at` raises "Unconsumed column names", so every
+    health check failed to record. Defaults the timestamp to now rather
+    than writing NULL — a recorded status with no time is not useful.
+    """
     db = get_db()
     rows = await db(db.product_connections.id == conn_id).update(
         health_status=status,
-        health_check_at=last_check,
+        last_health_check=last_check or datetime.now(UTC),
     )
     return bool(rows)
 

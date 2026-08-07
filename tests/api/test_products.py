@@ -138,6 +138,80 @@ async def test_absent_credentials_are_empty_not_masked(
 
 
 @pytest.mark.asyncio
+async def test_health_check_records_status_and_timestamp(
+    app: Any,
+    client: Any,
+    admin_headers: dict[str, str],
+    tenant_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /products/<id>/test persists the health result.
+
+    update_product_health wrote `health_check_at`; the column is
+    `last_health_check` (models_sqlalchemy.ProductConnection:142), so the
+    UPDATE raised "Unconsumed column names" and no health check was ever
+    recorded. The endpoint's own 200 did not reveal it — the write is a
+    side effect, so this reads the row back.
+
+    The adapter is stubbed so the test exercises persistence rather than
+    making a real outbound HTTP call.
+    """
+    created = await _register_product(client, admin_headers, tenant_id)
+
+    from app.adapters.base_adapter import ProductAdapter
+
+    monkeypatch.setattr(
+        ProductAdapter,
+        "health_check",
+        lambda self: {"status": "healthy", "status_code": 200, "response_time_ms": 7},
+    )
+
+    response = await client.post(
+        f"/api/v1/products/{created['id']}/test", headers=admin_headers
+    )
+    assert response.status_code == 200
+    assert (await response.get_json())["status"] == "healthy"
+
+    async with app.app_context():
+        from app.models import get_product_connection_by_id
+
+        conn = await get_product_connection_by_id(created["id"])
+
+    assert conn is not None
+    assert conn["health_status"] == "healthy"
+    assert conn["last_health_check"] is not None, "health check time not recorded"
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_reports_recorded_check(
+    client: Any,
+    admin_headers: dict[str, str],
+    tenant_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /products/<id>/health surfaces what the test run recorded."""
+    created = await _register_product(client, admin_headers, tenant_id)
+
+    from app.adapters.base_adapter import ProductAdapter
+
+    monkeypatch.setattr(
+        ProductAdapter,
+        "health_check",
+        lambda self: {"status": "degraded", "status_code": 429},
+    )
+    await client.post(f"/api/v1/products/{created['id']}/test", headers=admin_headers)
+
+    response = await client.get(
+        f"/api/v1/products/{created['id']}/health", headers=admin_headers
+    )
+    assert response.status_code == 200
+
+    body = await response.get_json()
+    assert body["health_status"] == "degraded"
+    assert body["last_health_check"] is not None
+
+
+@pytest.mark.asyncio
 async def test_raw_accessor_still_returns_ciphertext(
     app: Any, client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:

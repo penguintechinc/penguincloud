@@ -68,3 +68,6 @@ id_rsa*
 */*.pyc
 *.pyc
 
+
+# Go coverage profile (build artifact)
+coverage-go.out
