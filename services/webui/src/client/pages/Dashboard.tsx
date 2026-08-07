@@ -4,11 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../hooks/useAuth";
 import { useTenantStore } from "../stores/tenantStore";
 import { dashboardApi } from "../hooks/useApi";
+import { useProductConnections } from "../hooks/useProducts";
 import { queryKeys } from "../api/keys";
 import Card from "../components/Card";
 import TabNavigation from "../components/TabNavigation";
 import HealthGrid from "../components/HealthGrid";
-import type { AuditLog, DashboardOverview, ProductConnection } from "../types";
+import type { ProductConnection } from "../types";
+
+const ACTIVITY_LIMIT = 10;
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -22,29 +25,36 @@ export default function Dashboard() {
     { id: "activity", label: "Recent Activity" },
   ];
 
+  // `tenantId` is number | undefined — never coerced to "" to satisfy a
+  // `number` parameter. Each query stays disabled until a tenant is selected.
+  const tenantId = currentTenant?.id;
+
   // Fetch dashboard overview
   const overviewQuery = useQuery({
-    queryKey: queryKeys.dashboard(),
-    queryFn: () => dashboardApi.overview(currentTenant?.id || ""),
-    enabled: !!currentTenant,
+    queryKey: queryKeys.dashboardOverview(tenantId),
+    queryFn: async () => {
+      // Runtime guard, not a cast: `enabled` already prevents this, and if that
+      // ever regresses we want a loud failure rather than a request carrying a
+      // placeholder tenant id.
+      if (tenantId === undefined) throw new Error("No tenant selected");
+      return dashboardApi.overview(tenantId);
+    },
+    enabled: tenantId !== undefined,
   });
 
   // Fetch activity
   const activityQuery = useQuery({
-    queryKey: queryKeys.auditLogs(),
-    queryFn: () => dashboardApi.activity(currentTenant?.id || "", 10),
-    enabled: !!currentTenant,
+    queryKey: queryKeys.dashboardActivity(tenantId, ACTIVITY_LIMIT),
+    queryFn: async () => {
+      if (tenantId === undefined) throw new Error("No tenant selected");
+      return dashboardApi.activity(tenantId, ACTIVITY_LIMIT);
+    },
+    enabled: tenantId !== undefined,
   });
 
-  // Fetch connections (health grid data)
-  const connectionsQuery = useQuery({
-    queryKey: queryKeys.connections(),
-    queryFn: async () => {
-      const response = await dashboardApi.connections(currentTenant?.id || "");
-      return response as ProductConnection[];
-    },
-    enabled: !!currentTenant,
-  });
+  // Connections drive the health grid. `dashboardApi.connections` never
+  // existed; the backend serves this from GET /api/v1/products?tenant_id=.
+  const connectionsQuery = useProductConnections(tenantId);
 
   const isLoading = overviewQuery.isLoading || activityQuery.isLoading;
   const overview = overviewQuery.data;

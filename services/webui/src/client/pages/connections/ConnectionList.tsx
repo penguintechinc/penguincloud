@@ -1,21 +1,16 @@
-import { useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import { useTenantStore } from "../../stores/tenantStore";
-import { useProductsStore } from "../../stores/productsStore";
+import { useProductConnections } from "../../hooks/useProducts";
 import Card from "../../components/Card";
 import ProductStatusCard from "../../components/ProductStatusCard";
 import type { ProductConnection } from "../../types";
 
 export default function ConnectionList() {
   const { currentTenant } = useTenantStore();
-  const { connections, fetchConnections, isLoading } = useProductsStore();
+  const connectionsQuery = useProductConnections(currentTenant?.id);
+  const connections = connectionsQuery.data ?? [];
+  const isLoading = connectionsQuery.isLoading;
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (currentTenant) {
-      fetchConnections(currentTenant.id);
-    }
-  }, [currentTenant, fetchConnections]);
 
   const handleClick = (product: ProductConnection) => {
     navigate(`/connections/${product.id}`);

@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useTenantStore } from "../stores/tenantStore";
-import { useProductsStore } from "../stores/productsStore";
+import { useProductConnections } from "../hooks/useProducts";
 import { dashboardApi } from "../hooks/useApi";
+import { queryKeys } from "../api/keys";
 import Card from "../components/Card";
 import HealthGrid from "../components/HealthGrid";
 import { useNavigate } from "react-router";
@@ -9,36 +10,25 @@ import type { ProductConnection } from "../types";
 
 export default function Health() {
   const { currentTenant } = useTenantStore();
-  const { connections, fetchConnections } = useProductsStore();
+  const tenantId = currentTenant?.id;
   const navigate = useNavigate();
-  const [healthData, setHealthData] = useState<Record<string, unknown> | null>(
-    null,
-  );
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    if (!currentTenant) {
-      setIsLoading(false);
-      return;
-    }
+  // The aggregate health payload is fetched but not yet rendered — the summary
+  // tiles below are derived from the per-connection health_status. Kept as a
+  // query (rather than discarded state) so it warms the cache for the health
+  // detail work and stays in one place when that lands.
+  useQuery({
+    queryKey: queryKeys.healthOverview(tenantId),
+    queryFn: async () => {
+      if (tenantId === undefined) throw new Error("No tenant selected");
+      return dashboardApi.health(tenantId);
+    },
+    enabled: tenantId !== undefined,
+  });
 
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const [health] = await Promise.all([
-          dashboardApi.health(currentTenant.id),
-          fetchConnections(currentTenant.id),
-        ]);
-        setHealthData(health);
-      } catch (err) {
-        console.error("Failed to fetch health data:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [currentTenant, fetchConnections]);
+  const connectionsQuery = useProductConnections(tenantId);
+  const connections = connectionsQuery.data ?? [];
+  const isLoading = connectionsQuery.isLoading;
 
   const handleProductClick = (product: ProductConnection) => {
     navigate(`/products/${product.id}`);

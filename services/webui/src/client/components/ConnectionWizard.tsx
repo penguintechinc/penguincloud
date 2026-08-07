@@ -1,19 +1,22 @@
 import { useState } from "react";
-import { useProductsStore } from "../stores/productsStore";
-import { useTenantStore } from "../stores/tenantStore";
-import type { ProductType } from "../types";
+import { useProductTypes, useRegisterProduct } from "../hooks/useProducts";
+import type { ProductConnection, ProductType } from "../types";
 
 interface ConnectionWizardProps {
-  onComplete: () => void;
+  /** Tenant the new connection is registered under. */
+  tenantId: number;
+  /** Receives the newly created connection so callers can route to it. */
+  onComplete: (product: ProductConnection) => void;
   onCancel: () => void;
 }
 
 export default function ConnectionWizard({
+  tenantId,
   onComplete,
   onCancel,
 }: ConnectionWizardProps) {
-  const { productTypes, registerProduct } = useProductsStore();
-  const { currentTenant } = useTenantStore();
+  const productTypes = useProductTypes().data ?? [];
+  const registerProduct = useRegisterProduct().mutateAsync;
   const [step, setStep] = useState(1);
   const [selectedType, setSelectedType] = useState<ProductType | null>(null);
   const [formData, setFormData] = useState({
@@ -29,17 +32,17 @@ export default function ConnectionWizard({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
-    if (!selectedType || !currentTenant) return;
+    if (!selectedType) return;
     setIsSubmitting(true);
     setError("");
 
     try {
-      await registerProduct({
-        tenant_id: currentTenant.id,
+      const product = await registerProduct({
+        tenant_id: tenantId,
         product_type: selectedType.product_type,
         ...formData,
       });
-      onComplete();
+      onComplete(product);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to register product",

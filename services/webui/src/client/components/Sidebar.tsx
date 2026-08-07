@@ -1,7 +1,7 @@
 import { Link, useLocation } from "react-router";
 import { useAuth } from "../hooks/useAuth";
 import { useTenantStore } from "../stores/tenantStore";
-import { useProductsStore } from "../stores/productsStore";
+import { useProductConnections } from "../hooks/useProducts";
 import TenantSwitcher from "./TenantSwitcher";
 import type { NavCategory, UserRole } from "../types";
 
@@ -73,7 +73,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation();
   const { user, logout, hasRole } = useAuth();
   const { currentTenant } = useTenantStore();
-  const { connections } = useProductsStore();
+  const connections = useProductConnections(currentTenant?.id).data ?? [];
 
   // Build dynamic product navigation from connected products
   const productNav: NavCategory[] = [];
