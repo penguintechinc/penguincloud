@@ -1,6 +1,7 @@
 """Authentication Endpoints (async Quart)."""
 
 import asyncio
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -16,9 +17,14 @@ from .middleware import auth_required, get_current_user
 from .models import (
     create_user,
     get_mfa_secret,
+    get_refresh_token_by_hash,
     get_user_by_email,
+    get_user_by_id,
     is_mfa_enabled,
+    is_refresh_token_valid,
     revoke_all_user_tokens,
+    revoke_refresh_token,
+    store_refresh_token,
 )
 
 auth_bp = Blueprint("auth", __name__)
@@ -120,6 +126,42 @@ async def create_token_set_async(
     }
 
 
+def hash_refresh_token(token: str) -> str:
+    """Hash an opaque refresh token for storage.
+
+    penguin-aaa's refresh tokens are opaque random strings, not JWTs, so
+    the only way to recognise one later is by digest. Only the digest is
+    persisted — a database read cannot recover a usable token.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def issue_and_store_token_set(
+    user_id: int,
+    tenant_id: str,
+    role: str,
+    teams: list[str] | None = None,
+) -> dict[str, Any]:
+    """Issue a token set and persist its refresh token's hash.
+
+    Issuance alone is not enough: /auth/refresh, /auth/logout and
+    /auth/sessions all read the refresh_tokens table, so a token set that
+    is never stored is unusable for refresh and invisible to session
+    listing and revocation.
+    """
+    token_set = await create_token_set_async(user_id, tenant_id, role, teams)
+
+    refresh_ttl: timedelta = current_app.config.get(
+        "JWT_REFRESH_TOKEN_EXPIRES", timedelta(days=7)
+    )
+    await store_refresh_token(
+        user_id=user_id,
+        token_hash=hash_refresh_token(token_set["refresh_token"]),
+        expires_at=datetime.now(UTC) + refresh_ttl,
+    )
+    return token_set
+
+
 @auth_bp.route("/login", methods=["POST"])
 async def login() -> tuple[dict[str, Any], int]:
     """Login endpoint - returns access and refresh tokens."""
@@ -164,8 +206,9 @@ async def login() -> tuple[dict[str, Any], int]:
         if not totp.verify(totp_code, valid_window=1):
             return {"error": "Invalid MFA code"}, 401
 
-    # Generate tokens using penguin-aaa
-    token_set = await create_token_set_async(
+    # Generate tokens using penguin-aaa and record the refresh token so it
+    # can later be rotated, listed as a session, and revoked on logout.
+    token_set = await issue_and_store_token_set(
         user["id"],
         tenant_id="",  # TODO: get from user's current tenant
         role=user["role"],
@@ -188,9 +231,20 @@ async def login() -> tuple[dict[str, Any], int]:
     )
 
 
+#: Single response for every refresh failure — unknown, revoked, expired,
+#: or belonging to a deactivated user. Distinguishing them would tell an
+#: attacker holding a stolen token which of those states it is in.
+_REFRESH_REJECTED = "Invalid or expired refresh token"
+
+
 @auth_bp.route("/refresh", methods=["POST"])
 async def refresh() -> tuple[dict[str, Any], int]:
-    """Refresh access token using refresh token (token rotation)."""
+    """Exchange a refresh token for a new token pair, rotating the old one.
+
+    Rotation is one-use: the presented token is revoked before its
+    replacement is issued, so replaying it afterwards fails even if
+    issuance errors partway through.
+    """
     data = await request.get_json()
 
     if not data:
@@ -201,9 +255,45 @@ async def refresh() -> tuple[dict[str, Any], int]:
     if not refresh_token:
         return {"error": "Refresh token required"}, 400
 
-    # TODO: Implement token refresh with penguin-aaa token store
-    # Need to: 1. Look up token in store, 2. Extract user_id, 3. Issue new token
-    return {"error": "Refresh endpoint not yet implemented with penguin-aaa"}, 501
+    token_hash = hash_refresh_token(refresh_token)
+
+    # Identify the presenting user, then authorise separately: the lookup
+    # deliberately matches revoked/expired rows so a replay is a rejection
+    # rather than an indistinguishable "unknown token".
+    record = await get_refresh_token_by_hash(token_hash)
+    if not record:
+        return {"error": _REFRESH_REJECTED}, 401
+
+    user_id = int(record["user_id"])
+    if not await is_refresh_token_valid(user_id, token_hash):
+        return {"error": _REFRESH_REJECTED}, 401
+
+    user = await get_user_by_id(user_id)
+    if not user or not user.get("is_active"):
+        return {"error": _REFRESH_REJECTED}, 401
+
+    # Revoke before issuing: a failure after this point costs the client a
+    # re-login, whereas revoking afterwards would leave the presented token
+    # replayable if issuance raised.
+    await revoke_refresh_token(token_hash)
+
+    token_set = await issue_and_store_token_set(
+        user_id,
+        # Refresh re-issues an unscoped token, exactly as login does; tenant
+        # selection is a separate step (see the tenant switch endpoint).
+        tenant_id="",
+        role=user["role"],
+    )
+
+    return (
+        {
+            "access_token": token_set["access_token"],
+            "refresh_token": token_set["refresh_token"],
+            "token_type": "Bearer",
+            "expires_in": token_set["expires_in"],
+        },
+        200,
+    )
 
 
 @auth_bp.route("/logout", methods=["POST"])

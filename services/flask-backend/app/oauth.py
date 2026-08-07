@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 import requests
 from quart import Blueprint, current_app, redirect, request, session
 
-from .auth import create_token_set_async
+from .auth import issue_and_store_token_set
 from .config import Config
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -237,8 +237,9 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
             expires_at=expires_at,
         )
 
-        # Generate JWT tokens using penguin-aaa
-        token_set = await create_token_set_async(
+        # Generate JWT tokens using penguin-aaa. Stored, like a password
+        # login, so an OAuth session is refreshable, listable and revocable.
+        token_set = await issue_and_store_token_set(
             user_id=user_id,
             # OAuth users have no active tenant until they switch to one;
             # create_token_set_async maps "" onto the UNSCOPED_TENANT sentinel.

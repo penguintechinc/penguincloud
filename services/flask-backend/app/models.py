@@ -63,6 +63,9 @@ __all__ = [
     "store_oauth_connection",
     "is_refresh_token_valid",
     "store_refresh_token",
+    "get_refresh_token_by_hash",
+    "revoke_refresh_token",
+    "revoke_all_user_tokens",
     "VALID_ROLES",
     "VALID_PLANS",
     "VALID_TENANT_ROLES",
@@ -186,6 +189,19 @@ async def store_refresh_token(
         created_at=datetime.now(UTC),
     )
     return new_id
+
+
+async def get_refresh_token_by_hash(token_hash: str) -> dict[str, Any] | None:
+    """Look up a stored refresh token by its hash, ignoring validity (async).
+
+    Identifies which user presented the token so the caller can then
+    authorise it with is_refresh_token_valid(). Deliberately unfiltered:
+    a revoked or expired row must still be findable, otherwise a replayed
+    token is indistinguishable from an unknown one for auditing.
+    """
+    db = get_db()
+    rows = await db(db.refresh_tokens.token_hash == token_hash).select()
+    return dict(rows[0]) if rows else None
 
 
 async def is_refresh_token_valid(user_id: int, token_hash: str) -> bool:
