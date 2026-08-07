@@ -88,11 +88,12 @@ async def create_user(
 ) -> dict[str, Any] | None:
     """Create a new user (async)."""
     db = get_db()
-    user_id = await db.users.insert(
+    user_id = await db.users.async_insert(
         email=email,
         password_hash=password_hash,
         full_name=full_name,
         role=role,
+        is_active=True,
     )
     if user_id:
         row = await db(db.users.id == user_id).select()
@@ -119,7 +120,7 @@ async def store_refresh_token(
 ) -> int | None:
     """Store refresh token (async)."""
     db = get_db()
-    return await db.refresh_tokens.insert(
+    return await db.refresh_tokens.async_insert(
         user_id=user_id,
         token_hash=token_hash,
         expires_at=expires_at,
@@ -170,7 +171,7 @@ async def create_tenant(
 ) -> int | None:
     """Create a new tenant (async)."""
     db = get_db()
-    return await db.tenants.insert(
+    return await db.tenants.async_insert(
         name=name,
         slug=slug,
         owner_id=owner_id,
@@ -188,7 +189,7 @@ async def get_tenant_by_id(tenant_id: int) -> dict[str, Any] | None:
 async def create_team(name: str, slug: str, owner_id: int) -> dict[str, Any] | None:
     """Create a new team (async)."""
     db = get_db()
-    team_id = await db.teams.insert(name=name, slug=slug, owner_id=owner_id)
+    team_id = await db.teams.async_insert(name=name, slug=slug, owner_id=owner_id)
     if team_id:
         row = await db(db.teams.id == team_id).select()
         return dict(row[0]) if row else None
@@ -214,7 +215,9 @@ async def add_team_member(
 ) -> int | None:
     """Add user to team (async)."""
     db = get_db()
-    return await db.team_members.insert(team_id=team_id, user_id=user_id, role=role)
+    return await db.team_members.async_insert(
+        team_id=team_id, user_id=user_id, role=role
+    )
 
 
 async def get_user_teams(user_id: int) -> list[dict[str, Any]]:
@@ -242,7 +245,7 @@ async def create_oauth_connection(
 ) -> int | None:
     """Create OAuth connection (async)."""
     db = get_db()
-    return await db.oauth_connections.insert(
+    return await db.oauth_connections.async_insert(
         user_id=user_id,
         provider=provider,
         provider_user_id=provider_user_id,
@@ -294,7 +297,7 @@ async def create_mfa_secret(
 ) -> dict[str, Any] | None:
     """Store MFA secret for user (async)."""
     db = get_db()
-    await db.mfa_secrets.insert(
+    await db.mfa_secrets.async_insert(
         user_id=user_id,
         secret=secret,
         backup_codes=backup_codes,
@@ -374,7 +377,7 @@ async def add_tenant_member(
 ) -> dict[str, Any] | None:
     """Add a member to a tenant (async)."""
     db = get_db()
-    member_id = await db.tenant_members.insert(
+    member_id = await db.tenant_members.async_insert(
         tenant_id=tenant_id,
         user_id=user_id,
         role=role,
@@ -408,7 +411,7 @@ async def create_product_connection(
     """Create a new product connection (async)."""
     from .encryption import encrypt_value
     db = get_db()
-    return await db.product_connections.insert(
+    return await db.product_connections.async_insert(
         tenant_id=tenant_id,
         product_type=product_type,
         display_name=display_name,
@@ -477,7 +480,7 @@ async def create_audit_log(
 ) -> int | None:
     """Create audit log entry (async)."""
     db = get_db()
-    return await db.audit_logs.insert(
+    return await db.audit_logs.async_insert(
         user_id=user_id,
         tenant_id=tenant_id,
         action=action,
@@ -535,7 +538,7 @@ async def store_oauth_connection(
         return existing.get("id")
     else:
         # Create new connection
-        return await db.oauth_connections.insert(
+        return await db.oauth_connections.async_insert(
             user_id=user_id,
             provider=provider,
             provider_user_id=provider_user_id,

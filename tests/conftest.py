@@ -44,20 +44,30 @@ async def app() -> AsyncGenerator[Quart, None]:
     """Create and configure a test Quart app (async)."""
     from app.config import TestingConfig
     from app import create_app
+    from app.models_sqlalchemy import Base
+    from penguin_dal.quart_ext import get_db
+    from sqlalchemy import create_engine
 
     test_app = create_app(config_class=TestingConfig)
+
+    # Create all tables from SQLAlchemy models for testing
+    # (real production uses Alembic migrations)
+    db_path = TestingConfig.DB_NAME
+    db_uri = f"sqlite:///{db_path}"
+    engine = create_engine(db_uri)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+    # Reflect tables into penguin-dal's metadata
+    # (normally happens in @app.before_serving async hook, but tests don't trigger it)
+    async with test_app.app_context():
+        db = get_db()
+        await db.reflect()
+
     yield test_app
 
-    # Every test gets a fresh create_app() -> init_db() call, which opens a
-    # brand new penguin-dal connection against the SAME shared file-based
-    # sqlite DB (TestingConfig.DB_NAME is resolved once per pytest process).
-    # Without an explicit close here, each test's connection is left open and
-    # relies on GC timing to release its SQLite lock — under a full-file run
-    # this reliably produces `sqlite3.OperationalError: database is locked` on
-    # a later test's write. Close deterministically at teardown instead.
-    db = test_app.config.get("db")
-    if db is not None:
-        db.close()
+    # Cleanup: penguin-dal manages connections via app.extensions, no explicit
+    # close needed in test fixtures (the after_serving hook handles shutdown)
 
 
 @pytest_asyncio.fixture

@@ -86,10 +86,10 @@ class Config:
 
     @classmethod
     def get_db_uri(cls) -> str:
-        """Build PyDAL-compatible database URI."""
+        """Build penguin-dal compatible database URI."""
         db_type = cls.DB_TYPE
 
-        # Map common aliases to PyDAL format
+        # Map common aliases to penguin-dal format
         type_map = {
             "postgresql": "postgres",
             "mysql": "mysql",
@@ -99,7 +99,11 @@ class Config:
         db_type = type_map.get(db_type, db_type)
 
         if db_type == "sqlite":
-            return f"sqlite://{cls.DB_NAME}.db"
+            # Handle both bare names (app_db) and full paths (/tmp/test.db)
+            db_path = cls.DB_NAME
+            if not db_path.endswith(".db"):
+                db_path = f"{db_path}.db"
+            return f"sqlite:///{db_path}"
 
         return (
             f"{db_type}://{cls.DB_USER}:{cls.DB_PASS}@"

@@ -42,21 +42,19 @@ def create_app(config_class: type = Config) -> Quart:
         allow_credentials=True,
     )
 
-    # Initialize database (penguin-dal AsyncDB) at startup
-    @app.before_serving
-    async def _init_db() -> None:
-        """Initialize database on application startup."""
-        try:
-            init_dal(
-                app,
-                uri=app.config.get("DATABASE_URI") or app.config.get("DATABASE_URL"),
-                pool_size=app.config.get("DB_POOL_SIZE", 10),
-                echo=app.config.get("DB_ECHO", False),
-            )
-            log.info("Database initialized successfully")
-        except ValueError as e:
-            log.error(f"Database initialization failed: {e}")
-            raise
+    # Initialize database (penguin-dal AsyncDB) for immediate test availability
+    try:
+        db_uri = config_class.get_db_uri()
+        init_dal(
+            app,
+            uri=db_uri,
+            pool_size=app.config.get("DB_POOL_SIZE", 10),
+            echo=app.config.get("DB_ECHO", False),
+        )
+        log.info(f"Database initialized: {db_uri}")
+    except ValueError as e:
+        log.error(f"Database initialization failed: {e}")
+        raise
 
     # Validate license at startup
     @app.before_serving
