@@ -1,5 +1,7 @@
 """MarchProxy Adapter — API Gateway management."""
 
+from typing import Any
+
 from .base_adapter import ProductAdapter
 
 
@@ -16,7 +18,7 @@ class MarchProxyAdapter(ProductAdapter):
     def get_capabilities(self) -> list[str]:
         return ["health_check", "proxy", "services", "clusters", "certificates"]
 
-    def get_management_schema(self) -> dict:
+    def get_management_schema(self) -> dict[str, Any]:
         return {
             "product_type": self.PRODUCT_TYPE,
             "display_name": self.DISPLAY_NAME,
@@ -24,6 +26,10 @@ class MarchProxyAdapter(ProductAdapter):
                 {"id": "overview", "label": "Overview", "type": "dashboard"},
                 {"id": "services", "label": "Services", "endpoint": "/services"},
                 {"id": "clusters", "label": "Clusters", "endpoint": "/clusters"},
-                {"id": "certificates", "label": "Certificates", "endpoint": "/certificates"},
+                {
+                    "id": "certificates",
+                    "label": "Certificates",
+                    "endpoint": "/certificates",
+                },
             ],
         }

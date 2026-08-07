@@ -85,7 +85,7 @@ class RESTSubmitter:
             logger.warning("rest_health_check_failed", url=self.api_url, error=str(e))
             return False
 
-    async def submit_logs(self, logs: List[dict]) -> bool:
+    async def submit_logs(self, logs: List[dict[str, Any]]) -> bool:
         """
         Submit logs via REST API.
 
@@ -120,7 +120,7 @@ class RESTSubmitter:
             logger.error("rest_log_submission_failed", error=str(e))
             raise SubmissionError(f"REST log submission failed: {str(e)}")
 
-    async def submit_metrics(self, metrics: List[dict]) -> bool:
+    async def submit_metrics(self, metrics: List[dict[str, Any]]) -> bool:
         """
         Submit metrics via REST API.
 

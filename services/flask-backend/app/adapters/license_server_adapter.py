@@ -1,5 +1,7 @@
 """License Server Adapter — License management."""
 
+from typing import Any
+
 from .base_adapter import ProductAdapter
 
 
@@ -16,7 +18,7 @@ class LicenseServerAdapter(ProductAdapter):
     def get_capabilities(self) -> list[str]:
         return ["health_check", "proxy", "licenses", "products", "organizations"]
 
-    def get_management_schema(self) -> dict:
+    def get_management_schema(self) -> dict[str, Any]:
         return {
             "product_type": self.PRODUCT_TYPE,
             "display_name": self.DISPLAY_NAME,
@@ -24,6 +26,10 @@ class LicenseServerAdapter(ProductAdapter):
                 {"id": "overview", "label": "Overview", "type": "dashboard"},
                 {"id": "licenses", "label": "Licenses", "endpoint": "/validate"},
                 {"id": "products", "label": "Products", "endpoint": "/products"},
-                {"id": "organizations", "label": "Organizations", "endpoint": "/organizations"},
+                {
+                    "id": "organizations",
+                    "label": "Organizations",
+                    "endpoint": "/organizations",
+                },
             ],
         }

@@ -247,7 +247,9 @@ class ReceiverClient:
         for attempt in range(self.max_retries):
             try:
                 await self._ensure_authenticated()
-                result = await func(*args)
+                # func is an untyped Any callable, so pin the result to the
+                # declared bool return rather than leaking Any to callers.
+                result: bool = await func(*args)
                 return result
 
             except SubmissionError as e:
@@ -273,7 +275,7 @@ class ReceiverClient:
         )
         raise SubmissionError(f"{operation} failed after {self.max_retries} retries")
 
-    async def submit_logs(self, logs: List[dict]) -> bool:
+    async def submit_logs(self, logs: List[dict[str, Any]]) -> bool:
         """
         Submit logs via gRPC or REST fallback.
 
@@ -297,7 +299,7 @@ class ReceiverClient:
 
         return await self._retry_with_backoff("submit_logs", _submit)
 
-    async def submit_metrics(self, metrics: List[dict]) -> bool:
+    async def submit_metrics(self, metrics: List[dict[str, Any]]) -> bool:
         """
         Submit metrics via gRPC or REST fallback.
 
