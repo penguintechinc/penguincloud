@@ -70,6 +70,23 @@ async def app() -> AsyncGenerator[Quart, None]:
     # close needed in test fixtures (the after_serving hook handles shutdown)
 
 
+@pytest_asyncio.fixture(autouse=True)
+def _clear_tenancy_cache() -> Any:
+    """Empty the resolver's in-process subtree cache around every test.
+
+    The cache is a module-level dict with a 60s TTL, so without this a
+    subtree set memoised by one test stays live for the rest of the pytest
+    process. Tests would then pass or fail depending on execution order —
+    and, worse, a cache-invalidation test could pass purely because no
+    earlier test had populated the key it expects to see cleared.
+    """
+    from app.tenancy import clear_local_cache
+
+    clear_local_cache()
+    yield
+    clear_local_cache()
+
+
 @pytest_asyncio.fixture
 async def app_context(app: Quart) -> AsyncGenerator[None, None]:
     """Provide active app context for tests calling model functions directly."""
