@@ -72,6 +72,47 @@ class TestEncryptionKeyRequirement:
 
             encryption._fernet_instance = None
 
+    def test_encryption_key_testing_mode_is_deterministic(self) -> None:
+        """Test TESTING=true derives the same key across module reloads.
+
+        Regression coverage for the brief's requirement that the TESTING-mode
+        key be a fixed derived constant, not Fernet.generate_key() (which is
+        random per call and would make ciphertext undecryptable across
+        separate _get_fernet() re-initializations within the same process).
+        """
+        import importlib
+
+        saved_encryption_key = os.environ.pop("ENCRYPTION_KEY", None)
+        os.environ["TESTING"] = "true"
+
+        try:
+            from app import encryption
+
+            # First initialization
+            encryption._fernet_instance = None
+            key_bytes_first = encryption._derive_testing_key()
+            fernet_first = encryption._get_fernet()
+            ciphertext = fernet_first.encrypt(b"deterministic-check")
+
+            # Simulate a fresh module load (new process would re-run the
+            # module body from scratch) and re-initialize the instance.
+            importlib.reload(encryption)
+            encryption._fernet_instance = None
+            key_bytes_second = encryption._derive_testing_key()
+            fernet_second = encryption._get_fernet()
+
+            assert key_bytes_first == key_bytes_second
+            # A Fernet instance derived from the same key can decrypt
+            # ciphertext produced by the "prior" instantiation.
+            assert fernet_second.decrypt(ciphertext) == b"deterministic-check"
+        finally:
+            if saved_encryption_key:
+                os.environ["ENCRYPTION_KEY"] = saved_encryption_key
+            os.environ.pop("TESTING", None)
+            from app import encryption
+
+            encryption._fernet_instance = None
+
     def test_encryption_key_set_works(self) -> None:
         """Test that encryption works when ENCRYPTION_KEY is set."""
         from cryptography.fernet import Fernet
