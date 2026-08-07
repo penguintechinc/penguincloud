@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
+import { useEffect } from "react";
+import { Navigate, useLocation } from "react-router";
+import { useAuth } from "../hooks/useAuth";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -16,8 +16,8 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-dark-950">
-        <div className="text-gold-400 text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="text-amber-400 text-xl">Loading...</div>
       </div>
     );
   }

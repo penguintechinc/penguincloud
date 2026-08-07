@@ -1,0 +1,46 @@
+/**
+ * Query key factory for TanStack Query
+ * Provides type-safe, hierarchical query keys for all data-fetching operations
+ *
+ * Anything fetched per-tenant carries the tenant id IN the key. Without it, a
+ * tenant switch reuses the previous tenant's cached rows under an identical
+ * key — a cross-tenant data leak in the UI, not just a staleness bug.
+ */
+
+export const queryKeys = {
+  all: () => ["api"] as const,
+
+  // Dashboard
+  // Tenant-scoped keys accept `undefined` (no tenant selected yet) rather than
+  // forcing callers to invent a sentinel id at the call site.
+  dashboard: () => [...queryKeys.all(), "dashboard"] as const,
+  dashboardOverview: (tenantId: number | undefined) =>
+    [...queryKeys.dashboard(), "overview", tenantId] as const,
+  dashboardActivity: (tenantId: number | undefined, limit: number) =>
+    [...queryKeys.dashboard(), "activity", tenantId, limit] as const,
+
+  // Health checks
+  health: () => [...queryKeys.all(), "health"] as const,
+  healthOverview: (tenantId: number | undefined) =>
+    [...queryKeys.health(), "overview", tenantId] as const,
+
+  // Tenants
+  tenants: () => [...queryKeys.all(), "tenants"] as const,
+  tenant: (id: string) => [...queryKeys.tenants(), id] as const,
+
+  // Connections (product connections registered to a tenant)
+  connections: () => [...queryKeys.all(), "connections"] as const,
+  connectionsByTenant: (tenantId: number | undefined) =>
+    [...queryKeys.connections(), "tenant", tenantId] as const,
+  connection: (id: string) => [...queryKeys.connections(), id] as const,
+
+  // Product type catalogue (global, not tenant-scoped)
+  productTypes: () => [...queryKeys.all(), "product-types"] as const,
+
+  // Users
+  users: () => [...queryKeys.all(), "users"] as const,
+  user: (id: string) => [...queryKeys.users(), id] as const,
+
+  // Audit logs
+  auditLogs: () => [...queryKeys.all(), "audit"] as const,
+};

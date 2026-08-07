@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import api from '../lib/api';
-import type { AuditLog } from '../types';
+import { useState, useEffect } from "react";
+import api from "../lib/api";
+import type { AuditLog } from "../types";
 
 interface AuditTableProps {
   tenantId: number;
@@ -17,13 +17,13 @@ export default function AuditTable({ tenantId, limit = 50 }: AuditTableProps) {
     const fetchLogs = async () => {
       setIsLoading(true);
       try {
-        const response = await api.get('/audit/logs', {
+        const response = await api.get("/audit/logs", {
           params: { tenant_id: tenantId, page, per_page: limit },
         });
         setLogs(response.data.logs);
         setTotal(response.data.total);
       } catch (err) {
-        console.error('Failed to fetch audit logs:', err);
+        console.error("Failed to fetch audit logs:", err);
       } finally {
         setIsLoading(false);
       }
@@ -38,7 +38,7 @@ export default function AuditTable({ tenantId, limit = 50 }: AuditTableProps) {
       {isLoading ? (
         <div className="animate-pulse space-y-2">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-10 bg-dark-700 rounded" />
+            <div key={i} className="h-10 bg-slate-700 rounded" />
           ))}
         </div>
       ) : (
@@ -56,22 +56,23 @@ export default function AuditTable({ tenantId, limit = 50 }: AuditTableProps) {
             <tbody>
               {logs.map((log) => (
                 <tr key={log.id}>
-                  <td className="text-xs text-dark-400">
+                  <td className="text-xs text-slate-400">
                     {new Date(log.created_at).toLocaleString()}
                   </td>
                   <td>
                     <span className="badge badge-viewer">{log.action}</span>
                   </td>
-                  <td className="text-sm text-dark-300">
-                    {log.resource_type}{log.resource_id ? ` #${log.resource_id}` : ''}
+                  <td className="text-sm text-slate-300">
+                    {log.resource_type}
+                    {log.resource_id ? ` #${log.resource_id}` : ""}
                   </td>
-                  <td className="text-sm text-dark-400">{log.user_id}</td>
-                  <td className="text-xs text-dark-500">{log.ip_address}</td>
+                  <td className="text-sm text-slate-400">{log.user_id}</td>
+                  <td className="text-xs text-slate-500">{log.ip_address}</td>
                 </tr>
               ))}
               {logs.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="text-center text-dark-400 py-8">
+                  <td colSpan={5} className="text-center text-slate-400 py-8">
                     No audit logs found
                   </td>
                 </tr>
@@ -83,7 +84,7 @@ export default function AuditTable({ tenantId, limit = 50 }: AuditTableProps) {
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
-          <span className="text-sm text-dark-400">
+          <span className="text-sm text-slate-400">
             Page {page} of {totalPages} ({total} total)
           </span>
           <div className="flex gap-2">

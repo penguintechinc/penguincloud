@@ -1,5 +1,5 @@
 // User types
-export type UserRole = 'admin' | 'maintainer' | 'viewer';
+export type UserRole = "admin" | "maintainer" | "viewer";
 
 export interface User {
   id: number;
@@ -83,9 +83,9 @@ export interface Tab {
 }
 
 // Tenant types
-export type TenantPlan = 'free' | 'starter' | 'business' | 'enterprise';
-export type TenantRole = 'owner' | 'admin' | 'member' | 'viewer';
-export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+export type TenantPlan = "free" | "starter" | "business" | "enterprise";
+export type TenantRole = "owner" | "admin" | "member" | "viewer";
+export type HealthStatus = "healthy" | "degraded" | "unhealthy" | "unknown";
 
 export interface Tenant {
   id: number;

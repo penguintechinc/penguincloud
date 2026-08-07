@@ -1,46 +1,47 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { usersApi } from '../hooks/useApi';
-import Card from '../components/Card';
-import Button from '../components/Button';
-import { FormBuilder, FieldConfig } from '@penguintechinc/react-libs';
-import type { User } from '../types';
+import { useState, useEffect } from "react";
+import { Link } from "react-router";
+import { usersApi } from "../hooks/useApi";
+import Card from "../components/Card";
+import Button from "../components/Button";
+import { FormBuilder, FieldConfig } from "@penguintechinc/react-libs";
+import type { User } from "../types";
+import { formString, formUserRole } from "../lib/formValues";
 
 // User form field configuration
 const userFields: FieldConfig[] = [
   {
-    name: 'full_name',
-    label: 'Full Name',
-    type: 'text',
+    name: "full_name",
+    label: "Full Name",
+    type: "text",
     required: true,
-    placeholder: 'John Doe',
+    placeholder: "John Doe",
     autoFocus: true,
   },
   {
-    name: 'email',
-    label: 'Email',
-    type: 'email',
+    name: "email",
+    label: "Email",
+    type: "email",
     required: true,
-    placeholder: 'user@example.com',
+    placeholder: "user@example.com",
   },
   {
-    name: 'password',
-    label: 'Password',
-    type: 'password',
+    name: "password",
+    label: "Password",
+    type: "password",
     required: true,
     minLength: 8,
-    helperText: 'Minimum 8 characters required',
+    helperText: "Minimum 8 characters required",
   },
   {
-    name: 'role',
-    label: 'Role',
-    type: 'select',
+    name: "role",
+    label: "Role",
+    type: "select",
     required: true,
-    defaultValue: 'viewer',
+    defaultValue: "viewer",
     options: [
-      { value: 'viewer', label: 'Viewer' },
-      { value: 'maintainer', label: 'Maintainer' },
-      { value: 'admin', label: 'Admin' },
+      { value: "viewer", label: "Viewer" },
+      { value: "maintainer", label: "Maintainer" },
+      { value: "admin", label: "Admin" },
     ],
   },
 ];
@@ -57,8 +58,8 @@ export default function Users() {
       const response = await usersApi.list();
       setUsers(response.items);
       setError(null);
-    } catch (err) {
-      setError('Failed to load users');
+    } catch {
+      setError("Failed to load users");
     } finally {
       setIsLoading(false);
     }
@@ -68,25 +69,30 @@ export default function Users() {
     fetchUsers();
   }, []);
 
-  const handleCreateUser = async (data: Record<string, any>) => {
+  const handleCreateUser = async (data: Record<string, unknown>) => {
     try {
-      await usersApi.create(data as any);
+      await usersApi.create({
+        email: formString(data, "email"),
+        password: formString(data, "password"),
+        full_name: formString(data, "full_name"),
+        role: formUserRole(data, "role"),
+      });
       setShowCreateModal(false);
       fetchUsers();
       setError(null);
     } catch (err) {
-      setError('Failed to create user');
+      setError("Failed to create user");
       throw err; // Re-throw to keep FormBuilder in submitting state
     }
   };
 
   const handleDeleteUser = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
+    if (!confirm("Are you sure you want to delete this user?")) return;
     try {
       await usersApi.delete(id);
       fetchUsers();
-    } catch (err) {
-      setError('Failed to delete user');
+    } catch {
+      setError("Failed to delete user");
     }
   };
 
@@ -95,8 +101,10 @@ export default function Users() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gold-400">User Management</h1>
-          <p className="text-dark-400 mt-1">Manage system users and permissions</p>
+          <h1 className="text-2xl font-bold text-amber-400">User Management</h1>
+          <p className="text-slate-400 mt-1">
+            Manage system users and permissions
+          </p>
         </div>
         <Button onClick={() => setShowCreateModal(true)}>+ Add User</Button>
       </div>
@@ -113,7 +121,7 @@ export default function Users() {
         {isLoading ? (
           <div className="animate-pulse space-y-4">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-12 bg-dark-700 rounded"></div>
+              <div key={i} className="h-12 bg-slate-700 rounded"></div>
             ))}
           </div>
         ) : (
@@ -130,21 +138,27 @@ export default function Users() {
             <tbody>
               {users.map((user) => (
                 <tr key={user.id}>
-                  <td className="text-gold-400">{user.full_name}</td>
-                  <td className="text-dark-300">{user.email}</td>
+                  <td className="text-amber-400">{user.full_name}</td>
+                  <td className="text-slate-300">{user.email}</td>
                   <td>
-                    <span className={`badge badge-${user.role}`}>{user.role}</span>
+                    <span className={`badge badge-${user.role}`}>
+                      {user.role}
+                    </span>
                   </td>
                   <td>
-                    <span className={user.is_active ? 'text-green-400' : 'text-red-400'}>
-                      {user.is_active ? '● Active' : '○ Inactive'}
+                    <span
+                      className={
+                        user.is_active ? "text-green-400" : "text-red-400"
+                      }
+                    >
+                      {user.is_active ? "● Active" : "○ Inactive"}
                     </span>
                   </td>
                   <td>
                     <div className="flex items-center gap-2">
                       <Link
                         to={`/users/${user.id}`}
-                        className="text-gold-400 hover:text-gold-300"
+                        className="text-amber-400 hover:text-amber-300"
                       >
                         Edit
                       </Link>

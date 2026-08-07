@@ -1,12 +1,12 @@
-import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
-import Sidebar from './Sidebar';
+import { useState } from "react";
+import { Outlet } from "react-router";
+import Sidebar from "./Sidebar";
 
 export default function Layout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <div className="min-h-screen bg-dark-950">
+    <div className="min-h-screen bg-slate-950">
       {/* Sidebar */}
       <Sidebar
         collapsed={sidebarCollapsed}
@@ -16,7 +16,7 @@ export default function Layout() {
       {/* Main content */}
       <main
         className={`transition-all duration-300 ${
-          sidebarCollapsed ? 'ml-16' : 'ml-64'
+          sidebarCollapsed ? "ml-16" : "ml-64"
         }`}
       >
         <div className="p-6">

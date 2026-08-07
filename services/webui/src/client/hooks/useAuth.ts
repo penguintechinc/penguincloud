@@ -1,7 +1,7 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import api, { setTokens, clearTokens, getAccessToken } from '../lib/api';
-import type { User, LoginCredentials, AuthState } from '../types';
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import api, { setTokens, clearTokens, getAccessToken } from "../lib/api";
+import type { User, LoginCredentials, AuthState } from "../types";
 
 interface AuthStore extends AuthState {
   login: (credentials: LoginCredentials) => Promise<void>;
@@ -13,7 +13,7 @@ interface AuthStore extends AuthState {
 
 export const useAuthStore = create<AuthStore>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
       accessToken: null,
       refreshToken: null,
@@ -22,7 +22,7 @@ export const useAuthStore = create<AuthStore>()(
 
       login: async (credentials: LoginCredentials) => {
         try {
-          const response = await api.post('/auth/login', credentials);
+          const response = await api.post("/auth/login", credentials);
           const { access_token, refresh_token, user } = response.data;
 
           setTokens(access_token, refresh_token);
@@ -49,7 +49,7 @@ export const useAuthStore = create<AuthStore>()(
 
       logout: async () => {
         try {
-          await api.post('/auth/logout');
+          await api.post("/auth/logout");
         } catch {
           // Ignore logout errors
         } finally {
@@ -66,7 +66,7 @@ export const useAuthStore = create<AuthStore>()(
 
       fetchUser: async () => {
         try {
-          const response = await api.get('/auth/me');
+          const response = await api.get("/auth/me");
           set({ user: response.data, isLoading: false });
         } catch {
           set({ user: null, isLoading: false });
@@ -81,7 +81,7 @@ export const useAuthStore = create<AuthStore>()(
         }
 
         try {
-          const response = await api.get('/auth/me');
+          const response = await api.get("/auth/me");
           set({
             user: response.data,
             isAuthenticated: true,
@@ -106,13 +106,13 @@ export const useAuthStore = create<AuthStore>()(
       },
     }),
     {
-      name: 'auth-storage',
+      name: "auth-storage",
       partialize: (state) => ({
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
       }),
-    }
-  )
+    },
+  ),
 );
 
 // Hook for components
@@ -130,8 +130,8 @@ export const useAuth = () => {
       if (!store.user) return false;
       return roles.includes(store.user.role);
     },
-    isAdmin: () => store.user?.role === 'admin',
-    isMaintainer: () => store.user?.role === 'maintainer',
-    isViewer: () => store.user?.role === 'viewer',
+    isAdmin: () => store.user?.role === "admin",
+    isMaintainer: () => store.user?.role === "maintainer",
+    isViewer: () => store.user?.role === "viewer",
   };
 };

@@ -1,5 +1,5 @@
-import type { TenantPlan } from '../types';
-import { useTenantStore } from '../stores/tenantStore';
+import type { TenantPlan } from "../types";
+import { useTenantStore } from "../stores/tenantStore";
 
 interface LicenseGateProps {
   requiredPlan?: TenantPlan;
@@ -8,12 +8,22 @@ interface LicenseGateProps {
   fallback?: React.ReactNode;
 }
 
-const PLAN_HIERARCHY: TenantPlan[] = ['free', 'starter', 'business', 'enterprise'];
+const PLAN_HIERARCHY: TenantPlan[] = [
+  "free",
+  "starter",
+  "business",
+  "enterprise",
+];
 
-export default function LicenseGate({ requiredPlan, requiredPlans, children, fallback }: LicenseGateProps) {
+export default function LicenseGate({
+  requiredPlan,
+  requiredPlans,
+  children,
+  fallback,
+}: LicenseGateProps) {
   const { currentTenant } = useTenantStore();
 
-  const currentPlan = currentTenant?.plan || 'free';
+  const currentPlan = currentTenant?.plan || "free";
 
   if (requiredPlans) {
     if (!requiredPlans.includes(currentPlan)) {
@@ -35,10 +45,13 @@ export default function LicenseGate({ requiredPlan, requiredPlans, children, fal
 
 function UpgradeNotice({ plans }: { plans: TenantPlan[] }) {
   return (
-    <div className="card p-6 text-center border-dashed border-dark-600">
-      <div className="text-dark-400 mb-2">This feature requires an upgraded plan.</div>
-      <div className="text-sm text-dark-500">
-        Available on: {plans.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(', ')}
+    <div className="card p-6 text-center border-dashed border-slate-600">
+      <div className="text-slate-400 mb-2">
+        This feature requires an upgraded plan.
+      </div>
+      <div className="text-sm text-slate-500">
+        Available on:{" "}
+        {plans.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(", ")}
       </div>
     </div>
   );

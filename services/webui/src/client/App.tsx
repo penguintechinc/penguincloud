@@ -1,31 +1,31 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './hooks/useAuth';
-import Layout from './components/Layout';
-import ProtectedRoute from './components/ProtectedRoute';
-import RoleGuard from './components/RoleGuard';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Health from './pages/Health';
-import Users from './pages/Users';
-import UserDetail from './pages/UserDetail';
-import Profile from './pages/Profile';
-import Settings from './pages/Settings';
-import TenantList from './pages/tenants/TenantList';
-import TenantCreate from './pages/tenants/TenantCreate';
-import TenantDetail from './pages/tenants/TenantDetail';
-import ConnectionList from './pages/connections/ConnectionList';
-import ConnectionCreate from './pages/connections/ConnectionCreate';
-import ConnectionDetail from './pages/connections/ConnectionDetail';
-import AuditLog from './pages/audit/AuditLog';
-import ProductPage from './pages/products/ProductPage';
+import { Routes, Route, Navigate } from "react-router";
+import { useAuth } from "./hooks/useAuth";
+import Layout from "./components/Layout";
+import ProtectedRoute from "./components/ProtectedRoute";
+import RoleGuard from "./components/RoleGuard";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Health from "./pages/Health";
+import Users from "./pages/Users";
+import UserDetail from "./pages/UserDetail";
+import Profile from "./pages/Profile";
+import Settings from "./pages/Settings";
+import TenantList from "./pages/tenants/TenantList";
+import TenantCreate from "./pages/tenants/TenantCreate";
+import TenantDetail from "./pages/tenants/TenantDetail";
+import ConnectionList from "./pages/connections/ConnectionList";
+import ConnectionCreate from "./pages/connections/ConnectionCreate";
+import ConnectionDetail from "./pages/connections/ConnectionDetail";
+import AuditLog from "./pages/audit/AuditLog";
+import ProductPage from "./pages/products/ProductPage";
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-dark-950">
-        <div className="text-gold-400 text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="text-amber-400 text-xl">Loading...</div>
       </div>
     );
   }
@@ -60,7 +60,7 @@ function App() {
         <Route
           path="/tenants"
           element={
-            <RoleGuard allowedRoles={['admin', 'maintainer']}>
+            <RoleGuard allowedRoles={["admin", "maintainer"]}>
               <TenantList />
             </RoleGuard>
           }
@@ -68,7 +68,7 @@ function App() {
         <Route
           path="/tenants/new"
           element={
-            <RoleGuard allowedRoles={['admin', 'maintainer']}>
+            <RoleGuard allowedRoles={["admin", "maintainer"]}>
               <TenantCreate />
             </RoleGuard>
           }
@@ -76,7 +76,7 @@ function App() {
         <Route
           path="/tenants/:id"
           element={
-            <RoleGuard allowedRoles={['admin', 'maintainer']}>
+            <RoleGuard allowedRoles={["admin", "maintainer"]}>
               <TenantDetail />
             </RoleGuard>
           }
@@ -86,7 +86,7 @@ function App() {
         <Route
           path="/connections"
           element={
-            <RoleGuard allowedRoles={['admin', 'maintainer']}>
+            <RoleGuard allowedRoles={["admin", "maintainer"]}>
               <ConnectionList />
             </RoleGuard>
           }
@@ -94,7 +94,7 @@ function App() {
         <Route
           path="/connections/new"
           element={
-            <RoleGuard allowedRoles={['admin', 'maintainer']}>
+            <RoleGuard allowedRoles={["admin", "maintainer"]}>
               <ConnectionCreate />
             </RoleGuard>
           }
@@ -102,7 +102,7 @@ function App() {
         <Route
           path="/connections/:id"
           element={
-            <RoleGuard allowedRoles={['admin', 'maintainer']}>
+            <RoleGuard allowedRoles={["admin", "maintainer"]}>
               <ConnectionDetail />
             </RoleGuard>
           }
@@ -115,7 +115,7 @@ function App() {
         <Route
           path="/settings"
           element={
-            <RoleGuard allowedRoles={['admin', 'maintainer']}>
+            <RoleGuard allowedRoles={["admin", "maintainer"]}>
               <Settings />
             </RoleGuard>
           }
@@ -125,7 +125,7 @@ function App() {
         <Route
           path="/users"
           element={
-            <RoleGuard allowedRoles={['admin']}>
+            <RoleGuard allowedRoles={["admin"]}>
               <Users />
             </RoleGuard>
           }
@@ -133,7 +133,7 @@ function App() {
         <Route
           path="/users/:id"
           element={
-            <RoleGuard allowedRoles={['admin']}>
+            <RoleGuard allowedRoles={["admin"]}>
               <UserDetail />
             </RoleGuard>
           }
@@ -143,7 +143,7 @@ function App() {
         <Route
           path="/audit"
           element={
-            <RoleGuard allowedRoles={['admin']}>
+            <RoleGuard allowedRoles={["admin"]}>
               <AuditLog />
             </RoleGuard>
           }
@@ -153,7 +153,7 @@ function App() {
       {/* Catch all - redirect to dashboard or login */}
       <Route
         path="*"
-        element={<Navigate to={isAuthenticated ? '/' : '/login'} replace />}
+        element={<Navigate to={isAuthenticated ? "/" : "/login"} replace />}
       />
     </Routes>
   );

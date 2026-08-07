@@ -1,6 +1,5 @@
-import { useEffect } from 'react';
-import { useTenantStore } from '../stores/tenantStore';
-import { useProductsStore } from '../stores/productsStore';
+import { useEffect } from "react";
+import { useTenantStore } from "../stores/tenantStore";
 
 export function useTenant() {
   const {
@@ -20,18 +19,14 @@ export function useTenant() {
     fetchUsage,
   } = useTenantStore();
 
-  const { fetchConnections, fetchOverview } = useProductsStore();
-
   useEffect(() => {
     fetchTenants();
   }, [fetchTenants]);
 
-  useEffect(() => {
-    if (currentTenant) {
-      fetchConnections(currentTenant.id);
-      fetchOverview(currentTenant.id);
-    }
-  }, [currentTenant, fetchConnections, fetchOverview]);
+  // The connection/overview prefetch that used to live here is gone: those are
+  // TanStack queries now, keyed by tenant id, so each consumer fetches what it
+  // needs and a tenant switch invalidates by key rather than by imperative
+  // refetch from this hook.
 
   return {
     tenants,
@@ -53,7 +48,7 @@ export function useTenant() {
     },
     isTenantAdmin: () => {
       const role = currentTenant?.user_role;
-      return role === 'owner' || role === 'admin';
+      return role === "owner" || role === "admin";
     },
   };
 }

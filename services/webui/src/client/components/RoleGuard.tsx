@@ -1,6 +1,6 @@
-import { Navigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-import type { UserRole } from '../types';
+import { Navigate } from "react-router";
+import { useAuth } from "../hooks/useAuth";
+import type { UserRole } from "../types";
 
 interface RoleGuardProps {
   children: React.ReactNode;
@@ -11,7 +11,7 @@ interface RoleGuardProps {
 export default function RoleGuard({
   children,
   allowedRoles,
-  fallbackPath = '/',
+  fallbackPath = "/",
 }: RoleGuardProps) {
   const { user, hasRole } = useAuth();
 

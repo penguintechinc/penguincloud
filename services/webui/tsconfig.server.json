@@ -12,7 +12,11 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,
-    "declarationMap": true
+    "declarationMap": true,
+    // Required: tsconfig.json lists this project under "references", and TS
+    // rejects a referenced project without it (TS6306), which broke
+    // `npm run typecheck` entirely.
+    "composite": true
   },
   "include": ["src/server"],
   "exclude": ["node_modules"]

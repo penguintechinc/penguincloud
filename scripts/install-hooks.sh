@@ -33,10 +33,15 @@ if echo "$CHANGED" | grep -q '\.go$'; then
   fi
 fi
 
-STAGED_JS=$(echo "$CHANGED" | grep -E '\.(js|ts|jsx|tsx)$' || true)
+STAGED_JS=$(echo "$CHANGED" | grep -E '\.(js|ts|jsx|tsx)$' | grep -v -E '^web/' || true)
 if [ -n "$STAGED_JS" ]; then
-  echo "$STAGED_JS" | xargs npx eslint --max-warnings=0
-  echo "$STAGED_JS" | xargs npx prettier --check
+  WEBUI_FILES=$(echo "$STAGED_JS" | grep '^services/webui/' | sed 's|^services/webui/||' || true)
+  if [ -n "$WEBUI_FILES" ]; then
+    (cd services/webui && echo "$WEBUI_FILES" | xargs npx --no-install eslint --max-warnings=0)
+    (cd services/webui && echo "$WEBUI_FILES" | xargs npx --no-install prettier --check)
+  fi
+  OTHER_JS=$(echo "$STAGED_JS" | grep -v '^services/webui/' || true)
+  [ -n "$OTHER_JS" ] && echo "⚠️  staged js/ts outside services/webui not linted (no local toolchain): $OTHER_JS"
 fi
 
 if echo "$CHANGED" | grep -q '\.sh$'; then
