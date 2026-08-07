@@ -11,7 +11,7 @@ interface TenantScopeMenuProps {
   currentTenantId: number | undefined;
   searchQuery: string;
   onSearchChange: (value: string) => void;
-  onSelect: (tenantId: number) => void;
+  onSelect: (tenantId: number | string) => void;
 }
 
 function optionClasses(isCurrent: boolean, indent: boolean): string {
@@ -76,6 +76,19 @@ export function TenantScopeMenu({
 
               {group.children.length > 0 && (
                 <div className="bg-slate-800/50">
+                  {/* "All customers" aggregate option — visible only to delegated admin */}
+                  {group.userRole === "admin" && (
+                    <button
+                      onClick={() => onSelect(`aggregate:${group.tenantId}`)}
+                      className={optionClasses(false, true)}
+                      data-testid={`tenant-option-aggregate-${group.tenantId}`}
+                    >
+                      <div className="truncate italic text-sky-400">
+                        All customers
+                      </div>
+                    </button>
+                  )}
+
                   {group.children.map((child) => (
                     <button
                       key={child.tenantId}

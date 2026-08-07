@@ -9,6 +9,7 @@ import type { Tenant } from "../../types";
 export interface TenantOption {
   tenantId: number;
   name: string;
+  userRole?: string;
 }
 
 export interface TenantGroup extends TenantOption {
@@ -29,11 +30,13 @@ export function groupTenants(tenants: Tenant[]): TenantGroup[] {
     .map((provider) => ({
       tenantId: provider.id,
       name: label(provider),
+      userRole: provider.user_role,
       children: tenants
         .filter((t) => t.parent_tenant_id === provider.id)
         .map((customer) => ({
           tenantId: customer.id,
           name: label(customer),
+          userRole: customer.user_role,
         })),
     }));
 }

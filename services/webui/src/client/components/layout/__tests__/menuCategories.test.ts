@@ -110,4 +110,45 @@ describe("buildMenuCategories", () => {
     // throw or suppress the standing categories either.
     expect(headers).toEqual(["Home", "Organization"]);
   });
+
+  it("all menu items have valid hrefs (regression test for dead links)", () => {
+    const categories = buildMenuCategories([], allowAll);
+
+    // These are routes that should exist in App.tsx
+    const validRoutes = new Set([
+      "/",
+      "/health",
+      "/profile",
+      "/tenants",
+      "/tenants/new",
+      "/users",
+      "/connections",
+      "/settings",
+      "/teams",
+      "/audit",
+      "/products/gough/nodes",
+      "/products/gough/biomes",
+      "/products/gough/clusters",
+      "/products/gough/agents",
+      "/products/nest/databases",
+      "/products/nest/servers",
+      "/products/nest/workflows",
+      "/products/nest/billing",
+      "/products/nest/cloud",
+      "/products/tobogganing/sase",
+      "/products/tobogganing/sdwan",
+      "/products/tobogganing/firewall",
+      "/products/tobogganing/wireguard",
+      "/products/tobogganing/headend",
+    ]);
+
+    const allItems = categories.flatMap((c) => c.items);
+    const deadLinks = allItems.filter((item) => !validRoutes.has(item.href));
+
+    if (deadLinks.length > 0) {
+      const deadLinksList = deadLinks.map((d) => d.href).join(", ");
+      throw new Error(`Dead links found: ${deadLinksList}`);
+    }
+    expect(deadLinks).toHaveLength(0);
+  });
 });

@@ -13,9 +13,11 @@ import { useTenants } from "../../../hooks/useTenants";
 import type { Tenant } from "../../../types";
 
 const setSearchParams = jest.fn();
+const navigate = jest.fn();
 
 jest.mock("react-router", () => ({
   useSearchParams: () => [new URLSearchParams(), setSearchParams],
+  useNavigate: () => navigate,
 }));
 
 jest.mock("../../../stores/tenantStore");
@@ -28,6 +30,7 @@ const mockTenants = [
     display_name: "Provider A",
     slug: "provider-a",
     parent_tenant_id: null,
+    user_role: "admin",
   },
   {
     id: 2,
@@ -35,6 +38,7 @@ const mockTenants = [
     display_name: "Customer 1",
     slug: "customer-1",
     parent_tenant_id: 1,
+    user_role: "member",
   },
   {
     id: 3,
@@ -42,6 +46,26 @@ const mockTenants = [
     display_name: "Customer 2",
     slug: "customer-2",
     parent_tenant_id: 1,
+    user_role: "member",
+  },
+] as unknown as Tenant[];
+
+const mockTenantsPlainMember = [
+  {
+    id: 1,
+    name: "Provider A",
+    display_name: "Provider A",
+    slug: "provider-a",
+    parent_tenant_id: null,
+    user_role: "member",
+  },
+  {
+    id: 2,
+    name: "Customer 1",
+    display_name: "Customer 1",
+    slug: "customer-1",
+    parent_tenant_id: 1,
+    user_role: "member",
   },
 ] as unknown as Tenant[];
 
@@ -287,5 +311,38 @@ describe("TenantScopeSwitcher", () => {
 
     addSpy.mockRestore();
     removeSpy.mockRestore();
+  });
+
+  it("shows 'All customers' aggregate option for delegated admin", async () => {
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+
+    expect(screen.getByTestId("tenant-option-aggregate-1")).toBeInTheDocument();
+    expect(screen.getByText("All customers")).toBeInTheDocument();
+  });
+
+  it("hides 'All customers' for plain member role", async () => {
+    setTenants(mockTenantsPlainMember);
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+
+    expect(
+      screen.queryByTestId("tenant-option-aggregate-1"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("selects aggregate option and navigates to dashboard with customers tab", async () => {
+    const user = userEvent.setup();
+    render(<TenantScopeSwitcher />);
+
+    await user.click(screen.getByTestId("tenant-switcher-button"));
+    await user.click(screen.getByTestId("tenant-option-aggregate-1"));
+
+    await waitFor(() => expect(switchTenant).toHaveBeenCalledWith(1));
+    expect(navigate).toHaveBeenCalledWith("/?tab=customers");
   });
 });

@@ -19,6 +19,7 @@ import ConnectionCreate from "./pages/connections/ConnectionCreate";
 import ConnectionDetail from "./pages/connections/ConnectionDetail";
 import AuditLog from "./pages/audit/AuditLog";
 import ProductPage from "./pages/products/ProductPage";
+import Teams from "./pages/Teams";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -143,6 +144,16 @@ function App() {
           element={
             <RoleGuard allowedRoles={["admin"]}>
               <UserDetail />
+            </RoleGuard>
+          }
+        />
+
+        {/* Teams - Admin and Maintainer */}
+        <Route
+          path="/teams"
+          element={
+            <RoleGuard allowedRoles={["admin", "maintainer"]}>
+              <Teams />
             </RoleGuard>
           }
         />

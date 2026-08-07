@@ -7,7 +7,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { useSearchParams } from "react-router";
+import { useSearchParams, useNavigate } from "react-router";
 import { useTenantStore } from "../../stores/tenantStore";
 import { useTenants } from "../../hooks/useTenants";
 import { groupTenants, filterGroups } from "./tenantGrouping";
@@ -15,6 +15,7 @@ import { TenantScopeMenu } from "./TenantScopeMenu";
 
 export function TenantScopeSwitcher() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const currentTenant = useTenantStore((state) => state.currentTenant);
   const switchTenant = useTenantStore((state) => state.switchTenant);
   const tenantsQuery = useTenants();
@@ -51,18 +52,34 @@ export function TenantScopeSwitcher() {
 
   const filteredGroups = filterGroups(groupTenants(tenants), searchQuery);
 
-  async function handleSelect(tenantId: number) {
-    const switched = await switchTenant(tenantId);
+  async function handleSelect(tenantId: number | string) {
+    // Handle "All customers" aggregate option (tenantId is "aggregate:providerId")
+    const isAggregate =
+      typeof tenantId === "string" && tenantId.startsWith("aggregate:");
+    const actualTenantId = isAggregate
+      ? parseInt(tenantId.split(":")[1], 10)
+      : (tenantId as number);
+
+    const switched = await switchTenant(actualTenantId);
     if (!switched) {
       // Scope did not change — leave the menu open so the operator can retry
       // rather than silently appearing to have switched.
-      console.log("[TenantScopeSwitcher] Switch rejected { id:", tenantId, "}");
+      console.log(
+        "[TenantScopeSwitcher] Switch rejected { id:",
+        actualTenantId,
+        "}",
+      );
       return;
     }
 
     const newParams = new URLSearchParams(searchParams);
-    newParams.set("tenant", String(tenantId));
+    newParams.set("tenant", String(actualTenantId));
     setSearchParams(newParams);
+
+    // If aggregate, navigate to dashboard with customers tab
+    if (isAggregate) {
+      navigate("/?tab=customers");
+    }
 
     setIsOpen(false);
     setSearchQuery("");
