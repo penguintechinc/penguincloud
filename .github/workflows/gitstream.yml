@@ -6,7 +6,7 @@ permissions:
   contents: read
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # checkov:skip=CKV_GHA_7: gitStream app dispatch contract requires these inputs
     inputs:
       client_payload:
         description: The Client payload

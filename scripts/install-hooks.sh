@@ -11,7 +11,11 @@ cat > "${HOOKS_DIR}/pre-commit" << 'HOOK_PRE_COMMIT'
 #!/usr/bin/env bash
 set -euo pipefail
 
-CHANGED=$(git diff --cached --name-only)
+# --diff-filter=d excludes deleted paths: a deleted file still appears in
+# plain `git diff --cached --name-only`, and every linter below happily
+# accepts the path then fails with "No such file or directory" once it
+# tries to open it — deletions have nothing left to lint.
+CHANGED=$(git diff --cached --name-only --diff-filter=d)
 
 gitleaks protect --staged --exit-code 1
 
