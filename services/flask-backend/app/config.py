@@ -1,6 +1,7 @@
 """Flask Backend Configuration."""
 
 import os
+import tempfile
 from datetime import timedelta
 
 
@@ -45,7 +46,9 @@ class Config:
         "microsoft": {
             "client_id": os.getenv("OAUTH_MICROSOFT_CLIENT_ID", ""),
             "client_secret": os.getenv("OAUTH_MICROSOFT_CLIENT_SECRET", ""),
-            "authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+            "authorization_url": (
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+            ),
             "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
             "userinfo_url": "https://graph.microsoft.com/v1.0/me",
         },
@@ -121,5 +124,13 @@ class TestingConfig(Config):
 
     TESTING = True
     DB_TYPE = "sqlite"
-    # Use a file-based database for testing to avoid in-memory SQLite connection pool issues
-    DB_NAME = "/tmp/test.db"  # nosec B108 - temp file OK for testing, CI only
+    # File-based DB avoids the in-memory-per-connection pooling issue (see
+    # models.init_db). The path is resolved once per process: TEST_DB_PATH
+    # (set by tests/conftest.py at collection time, before any test module
+    # is imported) takes precedence; otherwise a fresh tempfile.mkdtemp()
+    # directory is used. Either way the path is unique per process, so
+    # concurrent/repeated test runs never collide on or reuse a stale
+    # shared path — unlike a hardcoded literal.
+    DB_NAME = os.environ.get("TEST_DB_PATH") or os.path.join(
+        tempfile.mkdtemp(prefix="penguincloud-test-"), "test.db"
+    )

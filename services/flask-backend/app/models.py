@@ -564,9 +564,9 @@ def init_db(app: Flask) -> DAL:
     # Commit table definitions
     db.commit()
 
-    # Create tables using SQLAlchemy - this ensures all tables exist in the database file
-    # We use SQLAlchemy for schema creation (all tables are now defined as SQLAlchemy models)
-    # and PyDAL for runtime operations
+    # Create tables using SQLAlchemy - this ensures all tables exist in the
+    # database file. We use SQLAlchemy for schema creation (all tables are
+    # now defined as SQLAlchemy models) and PyDAL for runtime operations
     try:
         from sqlalchemy import create_engine
 
@@ -990,7 +990,7 @@ def create_audit_log(
     return log_id
 
 
-def get_oauth_connection(provider: str, provider_user_id: str) -> dict:
+def get_oauth_connection(provider: str, provider_user_id: str) -> Optional[dict]:
     """Get OAuth connection by provider and provider user ID."""
     db = get_db()
     row = db(
@@ -1000,13 +1000,19 @@ def get_oauth_connection(provider: str, provider_user_id: str) -> dict:
     return row[0].as_dict() if row else None
 
 
-def get_oauth_connection_by_provider_id(provider: str, provider_user_id: str) -> dict:
+def get_oauth_connection_by_provider_id(
+    provider: str, provider_user_id: str
+) -> Optional[dict]:
     """Alias for get_oauth_connection for backward compatibility."""
     return get_oauth_connection(provider, provider_user_id)
 
 
 def store_oauth_connection(
-    user_id: int, provider: str, provider_user_id: str, access_token: str, refresh_token: str
+    user_id: int,
+    provider: str,
+    provider_user_id: str,
+    access_token: str,
+    refresh_token: str,
 ) -> int:
     """Store OAuth connection for a user."""
     db = get_db()
@@ -1026,7 +1032,7 @@ def create_team(name: str, slug: str, owner_id: int) -> dict:
     return db.teams(team_id).as_dict() if team_id else {}
 
 
-def get_team_by_id(team_id: int) -> dict:
+def get_team_by_id(team_id: int) -> Optional[dict]:
     """Get team by ID."""
     db = get_db()
     row = db(db.teams.id == team_id).select()
@@ -1053,7 +1059,7 @@ def get_user_teams(user_id: int) -> list:
     return [row.as_dict() for row in rows]
 
 
-def get_user_team_role(user_id: int, team_id: int) -> str:
+def get_user_team_role(user_id: int, team_id: int) -> Optional[str]:
     """Get user's role in a team."""
     db = get_db()
     row = db(

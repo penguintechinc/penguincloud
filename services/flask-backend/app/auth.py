@@ -61,7 +61,7 @@ def create_access_token(
     Returns:
         Encoded JWT token string
     """
-    from .models import get_user_teams  # type: ignore[attr-defined]
+    from .models import get_user_teams
 
     if team_ids is None:
         teams = get_user_teams(user_id)

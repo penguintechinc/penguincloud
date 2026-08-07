@@ -106,7 +106,10 @@ class TestEmailConfirmation:
 class TestProfileManagement:
     """Test user profile management"""
 
-    @pytest.mark.xfail(reason="User profile endpoints not implemented — Phase 1B", strict=False)  # noqa: E501
+    @pytest.mark.xfail(
+        reason="User profile endpoints not implemented — Phase 1B",
+        strict=False,
+    )
     def test_get_own_profile(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
         """Test getting own profile"""
         response = client.get("/api/v1/users/me", headers=auth_headers)
@@ -117,7 +120,10 @@ class TestProfileManagement:
         assert "email" in data
         assert "name" in data
 
-    @pytest.mark.xfail(reason="User profile endpoints not implemented — Phase 1B", strict=False)  # noqa: E501
+    @pytest.mark.xfail(
+        reason="User profile endpoints not implemented — Phase 1B",
+        strict=False,
+    )
     def test_update_profile(self, client, auth_headers):  # type: ignore[no-untyped-def]
         """Test updating own profile"""
         response = client.put(
@@ -184,7 +190,10 @@ class TestSessionManagement:
 
         assert response.status_code in [204, 404]
 
-    @pytest.mark.xfail(reason="Session endpoints not implemented — Phase 1B", strict=False)  # noqa: E501
+    @pytest.mark.xfail(
+        reason="Session endpoints not implemented — Phase 1B",
+        strict=False,
+    )
     def test_revoke_all_sessions(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
         """Test revoking all sessions"""
         response = client.post("/api/v1/auth/sessions/revoke-all", headers=auth_headers)

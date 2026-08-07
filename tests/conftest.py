@@ -1,8 +1,11 @@
 """Pytest configuration and shared fixtures for API tests."""
 
 from typing import Any, Generator
+import atexit
 import os
+import shutil
 import sys
+import tempfile
 import uuid
 import jwt
 import pytest
@@ -15,6 +18,22 @@ if backend_path not in sys.path:
 
 # Set TESTING mode early
 os.environ["TESTING"] = "true"
+
+# Give this pytest process a private, unique SQLite path for TestingConfig
+# (see app.config.TestingConfig) before any test module is collected. Some
+# test modules import `app.config` at module scope, which runs the
+# TestingConfig class body — and thus resolves TEST_DB_PATH — during
+# collection, before any fixture would get a chance to run. conftest.py is
+# always imported ahead of test module collection, so setting the env var
+# here (rather than in a fixture) guarantees it wins the class body's
+# `os.environ.get("TEST_DB_PATH") or ...` fallback every time.
+#
+# tempfile.mkdtemp() (not a bare literal) keeps this collision-free across
+# concurrent/parallel pytest invocations; registering cleanup at process
+# exit avoids leaving stale directories behind in /tmp between runs.
+_test_db_dir = tempfile.mkdtemp(prefix="penguincloud-pytest-")
+os.environ.setdefault("TEST_DB_PATH", os.path.join(_test_db_dir, "test.db"))
+atexit.register(shutil.rmtree, _test_db_dir, ignore_errors=True)
 
 
 @pytest.fixture
