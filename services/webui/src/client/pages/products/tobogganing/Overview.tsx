@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface TobogganingProps {
   productId: number;
@@ -48,17 +49,17 @@ export default function TobogganingOverview({ productId }: TobogganingProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card title="Active Rollouts">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_rollouts ?? "—"}
+                {metric(data, "active_rollouts")}
               </div>
             </Card>
             <Card title="Pipelines">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_pipelines ?? "—"}
+                {metric(data, "total_pipelines")}
               </div>
             </Card>
             <Card title="Deployments (24h)">
               <div className="text-3xl font-bold text-green-400">
-                {(data as any)?.deployments_24h ?? "—"}
+                {metric(data, "deployments_24h")}
               </div>
             </Card>
           </div>

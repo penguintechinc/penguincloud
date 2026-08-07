@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface KillKrillProps {
   productId: number;
@@ -48,17 +49,17 @@ export default function KillKrillOverview({ productId }: KillKrillProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card title="Resources Managed">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_resources ?? "—"}
+                {metric(data, "total_resources")}
               </div>
             </Card>
             <Card title="Active Schedules">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_schedules ?? "—"}
+                {metric(data, "active_schedules")}
               </div>
             </Card>
             <Card title="Cleaned (24h)">
               <div className="text-3xl font-bold text-green-400">
-                {(data as any)?.cleaned_24h ?? "—"}
+                {metric(data, "cleaned_24h")}
               </div>
             </Card>
           </div>

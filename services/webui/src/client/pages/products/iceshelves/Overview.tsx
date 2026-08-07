@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface IceShelvesProps {
   productId: number;
@@ -48,17 +49,17 @@ export default function IceShelvesOverview({ productId }: IceShelvesProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card title="Buckets">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_buckets ?? "—"}
+                {metric(data, "total_buckets")}
               </div>
             </Card>
             <Card title="Volumes">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_volumes ?? "—"}
+                {metric(data, "total_volumes")}
               </div>
             </Card>
             <Card title="Storage Used">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.storage_used ?? "—"}
+                {metric(data, "storage_used")}
               </div>
             </Card>
           </div>

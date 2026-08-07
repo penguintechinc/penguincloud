@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface MarchProxyProps {
   productId: number;
@@ -19,19 +20,22 @@ export default function MarchProxyOverview({ productId }: MarchProxyProps) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetchData = async (path: string) => {
-    setIsLoading(true);
-    try {
-      const result = await proxyApi.request(productId, "GET", path);
-      setData(result as Record<string, unknown>);
-    } catch (err) {
-      setData({
-        error: err instanceof Error ? err.message : "Failed to fetch",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const fetchData = useCallback(
+    async (path: string) => {
+      setIsLoading(true);
+      try {
+        const result = await proxyApi.request(productId, "GET", path);
+        setData(result as Record<string, unknown>);
+      } catch (err) {
+        setData({
+          error: err instanceof Error ? err.message : "Failed to fetch",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [productId],
+  );
 
   useEffect(() => {
     const paths: Record<string, string> = {
@@ -41,7 +45,7 @@ export default function MarchProxyOverview({ productId }: MarchProxyProps) {
       certs: "api/v1/certificates",
     };
     fetchData(paths[activeTab] || "api/v1/status");
-  }, [activeTab, productId]);
+  }, [activeTab, fetchData]);
 
   return (
     <div>
@@ -58,17 +62,17 @@ export default function MarchProxyOverview({ productId }: MarchProxyProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card title="Active Services">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_services ?? "—"}
+                {metric(data, "active_services")}
               </div>
             </Card>
             <Card title="Active Clusters">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_clusters ?? "—"}
+                {metric(data, "active_clusters")}
               </div>
             </Card>
             <Card title="Certificates">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.certificates ?? "—"}
+                {metric(data, "certificates")}
               </div>
             </Card>
           </div>

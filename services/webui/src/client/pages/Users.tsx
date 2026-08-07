@@ -5,6 +5,7 @@ import Card from "../components/Card";
 import Button from "../components/Button";
 import { FormBuilder, FieldConfig } from "@penguintechinc/react-libs";
 import type { User } from "../types";
+import { formString, formUserRole } from "../lib/formValues";
 
 // User form field configuration
 const userFields: FieldConfig[] = [
@@ -57,7 +58,7 @@ export default function Users() {
       const response = await usersApi.list();
       setUsers(response.items);
       setError(null);
-    } catch (err) {
+    } catch {
       setError("Failed to load users");
     } finally {
       setIsLoading(false);
@@ -68,9 +69,14 @@ export default function Users() {
     fetchUsers();
   }, []);
 
-  const handleCreateUser = async (data: Record<string, any>) => {
+  const handleCreateUser = async (data: Record<string, unknown>) => {
     try {
-      await usersApi.create(data as any);
+      await usersApi.create({
+        email: formString(data, "email"),
+        password: formString(data, "password"),
+        full_name: formString(data, "full_name"),
+        role: formUserRole(data, "role"),
+      });
       setShowCreateModal(false);
       fetchUsers();
       setError(null);
@@ -85,7 +91,7 @@ export default function Users() {
     try {
       await usersApi.delete(id);
       fetchUsers();
-    } catch (err) {
+    } catch {
       setError("Failed to delete user");
     }
   };

@@ -3,7 +3,13 @@ import { useParams, useNavigate } from "react-router";
 import { tenantsApi } from "../../hooks/useApi";
 import Card from "../../components/Card";
 import TabNavigation from "../../components/TabNavigation";
-import type { Tenant, TenantMember } from "../../types";
+import type {
+  Tenant,
+  TenantMember,
+  TenantPlan,
+  TenantUsage,
+} from "../../types";
+import { toTenantPlan } from "../../lib/formValues";
 
 const tabs = [
   { id: "settings", label: "Settings" },
@@ -17,9 +23,12 @@ export default function TenantDetail() {
   const [activeTab, setActiveTab] = useState("settings");
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [members, setMembers] = useState<TenantMember[]>([]);
-  const [usage, setUsage] = useState<Record<string, unknown> | null>(null);
+  const [usage, setUsage] = useState<TenantUsage | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [editForm, setEditForm] = useState({ display_name: "", plan: "" });
+  const [editForm, setEditForm] = useState<{
+    display_name: string;
+    plan: TenantPlan;
+  }>({ display_name: "", plan: "free" });
 
   const tenantId = Number(id);
 
@@ -133,7 +142,10 @@ export default function TenantDetail() {
                 <select
                   value={editForm.plan}
                   onChange={(e) =>
-                    setEditForm((prev) => ({ ...prev, plan: e.target.value }))
+                    setEditForm((prev) => ({
+                      ...prev,
+                      plan: toTenantPlan(e.target.value),
+                    }))
                   }
                   className="input w-full"
                 >
@@ -190,14 +202,18 @@ export default function TenantDetail() {
         {activeTab === "usage" && (
           <Card title="Resource Usage">
             {usage ? (
+              // Iterates the nested `usage` map rather than the top-level
+              // response: the response also carries tenant_id and plan, and its
+              // `usage` value is an object that previously rendered as
+              // "[object Object]".
               <div className="grid grid-cols-2 gap-4">
-                {Object.entries(usage).map(([key, value]) => (
+                {Object.entries(usage.usage).map(([key, quota]) => (
                   <div key={key} className="p-3 bg-slate-800 rounded">
                     <div className="text-sm text-slate-400">
                       {key.replace(/_/g, " ")}
                     </div>
                     <div className="text-lg font-bold text-amber-400">
-                      {String(value)}
+                      {quota.current} / {quota.max}
                     </div>
                   </div>
                 ))}

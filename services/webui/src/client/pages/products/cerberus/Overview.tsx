@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface CerberusProps {
   productId: number;
@@ -19,19 +20,22 @@ export default function CerberusOverview({ productId }: CerberusProps) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetchData = async (path: string) => {
-    setIsLoading(true);
-    try {
-      const result = await proxyApi.request(productId, "GET", path);
-      setData(result as Record<string, unknown>);
-    } catch (err) {
-      setData({
-        error: err instanceof Error ? err.message : "Failed to fetch",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const fetchData = useCallback(
+    async (path: string) => {
+      setIsLoading(true);
+      try {
+        const result = await proxyApi.request(productId, "GET", path);
+        setData(result as Record<string, unknown>);
+      } catch (err) {
+        setData({
+          error: err instanceof Error ? err.message : "Failed to fetch",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [productId],
+  );
 
   useEffect(() => {
     const paths: Record<string, string> = {
@@ -41,7 +45,7 @@ export default function CerberusOverview({ productId }: CerberusProps) {
       audit: "api/v1/audit",
     };
     fetchData(paths[activeTab] || "api/v1/status");
-  }, [activeTab, productId]);
+  }, [activeTab, fetchData]);
 
   return (
     <div>
@@ -58,22 +62,22 @@ export default function CerberusOverview({ productId }: CerberusProps) {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card title="Active Policies">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_policies ?? "—"}
+                {metric(data, "active_policies")}
               </div>
             </Card>
             <Card title="Active Sessions">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_sessions ?? "—"}
+                {metric(data, "active_sessions")}
               </div>
             </Card>
             <Card title="Auth Failures (24h)">
               <div className="text-3xl font-bold text-red-400">
-                {(data as any)?.auth_failures_24h ?? "—"}
+                {metric(data, "auth_failures_24h")}
               </div>
             </Card>
             <Card title="MFA Enabled">
               <div className="text-3xl font-bold text-green-400">
-                {(data as any)?.mfa_enabled_users ?? "—"}
+                {metric(data, "mfa_enabled_users")}
               </div>
             </Card>
           </div>

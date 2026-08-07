@@ -102,7 +102,7 @@ api.interceptors.response.use(
 
         originalRequest.headers.Authorization = `Bearer ${access_token}`;
         return api(originalRequest);
-      } catch (err) {
+      } catch {
         console.log("[ApiClient] TokenRefresh { error: true }");
         clearTokens();
         window.location.href = "/login";

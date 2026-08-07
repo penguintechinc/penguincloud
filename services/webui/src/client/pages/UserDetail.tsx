@@ -2,9 +2,14 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { usersApi } from "../hooks/useApi";
 import Card from "../components/Card";
-import Button from "../components/Button";
 import { FormBuilder, FieldConfig } from "@penguintechinc/react-libs";
-import type { User } from "../types";
+import type { User, UpdateUserData } from "../types";
+import {
+  formBoolean,
+  formString,
+  formUserRole,
+  optionalFormString,
+} from "../lib/formValues";
 
 // User edit form field configuration
 const getUserEditFields = (showPasswordField: boolean): FieldConfig[] => [
@@ -74,7 +79,7 @@ export default function UserDetail() {
         const userData = await usersApi.get(parseInt(id, 10));
         setUser(userData);
         setError(null);
-      } catch (err) {
+      } catch {
         setError("Failed to load user");
       } finally {
         setIsLoading(false);
@@ -84,15 +89,19 @@ export default function UserDetail() {
     fetchUser();
   }, [id]);
 
-  const handleSubmit = async (data: Record<string, any>) => {
+  const handleSubmit = async (data: Record<string, unknown>) => {
     if (!id) return;
 
     try {
-      // Convert is_active from string to boolean
-      const updateData = {
-        ...data,
-        is_active: data.is_active === "true",
-        password: data.password || undefined, // Don't send empty password
+      // Built field-by-field rather than spreading the raw form record: the
+      // select yields is_active as a string, and an empty password must be
+      // omitted rather than sent as "".
+      const updateData: UpdateUserData = {
+        email: formString(data, "email"),
+        full_name: formString(data, "full_name"),
+        role: formUserRole(data, "role"),
+        is_active: formBoolean(data, "is_active"),
+        password: optionalFormString(data, "password"),
       };
 
       await usersApi.update(parseInt(id, 10), updateData);

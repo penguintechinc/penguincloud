@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface WaddlePerfProps {
   productId: number;
@@ -48,17 +49,17 @@ export default function WaddlePerfOverview({ productId }: WaddlePerfProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card title="Benchmarks Run">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_benchmarks ?? "—"}
+                {metric(data, "total_benchmarks")}
               </div>
             </Card>
             <Card title="Reports">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_reports ?? "—"}
+                {metric(data, "total_reports")}
               </div>
             </Card>
             <Card title="Avg Score">
               <div className="text-3xl font-bold text-green-400">
-                {(data as any)?.avg_score ?? "—"}
+                {metric(data, "avg_score")}
               </div>
             </Card>
           </div>

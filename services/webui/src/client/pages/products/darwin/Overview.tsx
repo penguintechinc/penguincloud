@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface DarwinProps {
   productId: number;
@@ -46,12 +47,12 @@ export default function DarwinOverview({ productId }: DarwinProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card title="Active Deployments">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_deployments ?? "—"}
+                {metric(data, "active_deployments")}
               </div>
             </Card>
             <Card title="Evolutions">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_evolutions ?? "—"}
+                {metric(data, "total_evolutions")}
               </div>
             </Card>
           </div>

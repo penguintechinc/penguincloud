@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface NestProps {
   productId: number;
@@ -48,12 +49,12 @@ export default function NestOverview({ productId }: NestProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card title="Active Environments">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_environments ?? "—"}
+                {metric(data, "active_environments")}
               </div>
             </Card>
             <Card title="Templates">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_templates ?? "—"}
+                {metric(data, "total_templates")}
               </div>
             </Card>
           </div>

@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface SkausWatchProps {
   productId: number;
@@ -19,19 +20,22 @@ export default function SkausWatchOverview({ productId }: SkausWatchProps) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetchData = async (path: string) => {
-    setIsLoading(true);
-    try {
-      const result = await proxyApi.request(productId, "GET", path);
-      setData(result as Record<string, unknown>);
-    } catch (err) {
-      setData({
-        error: err instanceof Error ? err.message : "Failed to fetch",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const fetchData = useCallback(
+    async (path: string) => {
+      setIsLoading(true);
+      try {
+        const result = await proxyApi.request(productId, "GET", path);
+        setData(result as Record<string, unknown>);
+      } catch (err) {
+        setData({
+          error: err instanceof Error ? err.message : "Failed to fetch",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [productId],
+  );
 
   useEffect(() => {
     const paths: Record<string, string> = {
@@ -41,7 +45,7 @@ export default function SkausWatchOverview({ productId }: SkausWatchProps) {
       edr: "api/v1/edr",
     };
     fetchData(paths[activeTab] || "api/v1/status");
-  }, [activeTab, productId]);
+  }, [activeTab, fetchData]);
 
   return (
     <div>
@@ -58,22 +62,22 @@ export default function SkausWatchOverview({ productId }: SkausWatchProps) {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card title="Active Alerts">
               <div className="text-3xl font-bold text-red-400">
-                {(data as any)?.active_alerts ?? "—"}
+                {metric(data, "active_alerts")}
               </div>
             </Card>
             <Card title="Threats Detected">
               <div className="text-3xl font-bold text-yellow-400">
-                {(data as any)?.threats_detected ?? "—"}
+                {metric(data, "threats_detected")}
               </div>
             </Card>
             <Card title="Endpoints Monitored">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.endpoints_monitored ?? "—"}
+                {metric(data, "endpoints_monitored")}
               </div>
             </Card>
             <Card title="Events (24h)">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.events_24h ?? "—"}
+                {metric(data, "events_24h")}
               </div>
             </Card>
           </div>

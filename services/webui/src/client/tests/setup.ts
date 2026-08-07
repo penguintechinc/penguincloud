@@ -18,7 +18,7 @@ Object.defineProperty(window, "matchMedia", {
 // Suppress console errors during tests (optional)
 const originalError = console.error;
 beforeAll(() => {
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     if (
       typeof args[0] === "string" &&
       args[0].includes("Warning: ReactDOM.render")

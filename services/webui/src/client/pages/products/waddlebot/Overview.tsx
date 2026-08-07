@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface WaddleBotProps {
   productId: number;
@@ -50,17 +51,17 @@ export default function WaddleBotOverview({ productId }: WaddleBotProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card title="Active Bots">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_bots ?? "—"}
+                {metric(data, "active_bots")}
               </div>
             </Card>
             <Card title="Messages (24h)">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.messages_24h ?? "—"}
+                {metric(data, "messages_24h")}
               </div>
             </Card>
             <Card title="Connected Channels">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.connected_channels ?? "—"}
+                {metric(data, "connected_channels")}
               </div>
             </Card>
           </div>

@@ -116,15 +116,22 @@ export default function ProductPage() {
               </dl>
             </Card>
 
-            {schema && (
+            {/*
+              Renders the sections the adapter actually advertises. This block
+              previously read `schema.capabilities`, which no adapter has ever
+              returned (see get_management_schema: product_type, display_name,
+              sections only) — it would have thrown on the first schema that
+              loaded successfully.
+            */}
+            {schema && schema.sections.length > 0 && (
               <Card title="Capabilities">
                 <div className="flex flex-wrap gap-2">
-                  {schema.capabilities.map((cap) => (
+                  {schema.sections.map((section) => (
                     <span
-                      key={cap}
+                      key={section.id}
                       className="px-2 py-1 bg-slate-800 rounded text-sm text-slate-300"
                     >
-                      {cap}
+                      {section.label}
                     </span>
                   ))}
                 </div>
@@ -136,29 +143,37 @@ export default function ProductPage() {
         {/* Dynamic schema-driven sections */}
         {schema?.sections
           ?.filter((s) => s.id === activeTab)
-          .map((section) => (
-            <Card key={section.id} title={section.label}>
-              <p className="text-slate-400 mb-4">
-                {section.description || `Manage ${section.label}`}
-              </p>
-              {section.endpoints?.map((endpoint) => (
-                <button
-                  key={endpoint.path}
-                  onClick={() =>
-                    handleProxyFetch(endpoint.method, endpoint.path)
-                  }
-                  className="btn btn-secondary btn-sm mr-2 mb-2"
-                >
-                  {endpoint.label || `${endpoint.method} ${endpoint.path}`}
-                </button>
-              ))}
-              {proxyData && (
-                <pre className="mt-4 p-3 bg-slate-800 rounded text-sm text-slate-300 overflow-auto max-h-96">
-                  {JSON.stringify(proxyData, null, 2)}
-                </pre>
-              )}
-            </Card>
-          ))}
+          .map((section) => {
+            // Bound to a local so the truthiness check below narrows it to
+            // `string` inside the click handler — no non-null assertion.
+            const { endpoint } = section;
+
+            return (
+              <Card key={section.id} title={section.label}>
+                <p className="text-slate-400 mb-4">{`Manage ${section.label}`}</p>
+                {/*
+                  A section carries at most ONE endpoint (`endpoint?: string`).
+                  The previous code mapped over `section.endpoints` reading
+                  `.method`/`.path`/`.label` — a shape no adapter returns, so no
+                  action button ever rendered. GET: every section endpoint is a
+                  read.
+                */}
+                {endpoint && (
+                  <button
+                    onClick={() => handleProxyFetch("GET", endpoint)}
+                    className="btn btn-secondary btn-sm mr-2 mb-2"
+                  >
+                    {`Fetch ${section.label}`}
+                  </button>
+                )}
+                {proxyData && (
+                  <pre className="mt-4 p-3 bg-slate-800 rounded text-sm text-slate-300 overflow-auto max-h-96">
+                    {JSON.stringify(proxyData, null, 2)}
+                  </pre>
+                )}
+              </Card>
+            );
+          })}
       </div>
     </div>
   );

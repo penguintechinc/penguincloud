@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface ArticDBMProps {
   productId: number;
@@ -19,19 +20,22 @@ export default function ArticDBMOverview({ productId }: ArticDBMProps) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetchData = async (path: string) => {
-    setIsLoading(true);
-    try {
-      const result = await proxyApi.request(productId, "GET", path);
-      setData(result as Record<string, unknown>);
-    } catch (err) {
-      setData({
-        error: err instanceof Error ? err.message : "Failed to fetch",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const fetchData = useCallback(
+    async (path: string) => {
+      setIsLoading(true);
+      try {
+        const result = await proxyApi.request(productId, "GET", path);
+        setData(result as Record<string, unknown>);
+      } catch (err) {
+        setData({
+          error: err instanceof Error ? err.message : "Failed to fetch",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [productId],
+  );
 
   useEffect(() => {
     const paths: Record<string, string> = {
@@ -41,7 +45,7 @@ export default function ArticDBMOverview({ productId }: ArticDBMProps) {
       backups: "api/v1/backups",
     };
     fetchData(paths[activeTab] || "api/v1/status");
-  }, [activeTab, productId]);
+  }, [activeTab, fetchData]);
 
   return (
     <div>
@@ -58,17 +62,17 @@ export default function ArticDBMOverview({ productId }: ArticDBMProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card title="Databases">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_databases ?? "—"}
+                {metric(data, "total_databases")}
               </div>
             </Card>
             <Card title="Clusters">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.total_clusters ?? "—"}
+                {metric(data, "total_clusters")}
               </div>
             </Card>
             <Card title="Last Backup">
               <div className="text-lg text-slate-300">
-                {(data as any)?.last_backup ?? "Never"}
+                {metric(data, "last_backup", "Never")}
               </div>
             </Card>
           </div>

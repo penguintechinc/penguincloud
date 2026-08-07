@@ -4,6 +4,7 @@ import Card from "../components/Card";
 import Button from "../components/Button";
 import { FormBuilder, FieldConfig } from "@penguintechinc/react-libs";
 import api from "../lib/api";
+import { formString, optionalFormString } from "../lib/formValues";
 
 // Profile edit form fields
 const profileFields: FieldConfig[] = [
@@ -47,21 +48,23 @@ export default function Profile() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const handleSave = async (data: Record<string, any>) => {
+  const handleSave = async (data: Record<string, unknown>) => {
     setError(null);
     setSuccess(null);
 
+    const newPassword = optionalFormString(data, "new_password");
+
     // Validate password match if changing password
-    if (data.new_password && data.new_password !== data.confirm_password) {
+    if (newPassword && newPassword !== formString(data, "confirm_password")) {
       setError("New passwords do not match");
       throw new Error("Passwords do not match");
     }
 
     try {
       await api.put("/auth/me", {
-        full_name: data.full_name,
-        current_password: data.current_password || undefined,
-        new_password: data.new_password || undefined,
+        full_name: formString(data, "full_name"),
+        current_password: optionalFormString(data, "current_password"),
+        new_password: newPassword,
       });
 
       setSuccess("Profile updated successfully");

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { proxyApi } from "../../../hooks/useApi";
 import Card from "../../../components/Card";
 import TabNavigation from "../../../components/TabNavigation";
+import { metric } from "../metric";
 
 interface GoughProps {
   productId: number;
@@ -48,17 +49,17 @@ export default function GoughOverview({ productId }: GoughProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card title="Active Workflows">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.active_workflows ?? "—"}
+                {metric(data, "active_workflows")}
               </div>
             </Card>
             <Card title="Running Jobs">
               <div className="text-3xl font-bold text-amber-400">
-                {(data as any)?.running_jobs ?? "—"}
+                {metric(data, "running_jobs")}
               </div>
             </Card>
             <Card title="Completed (24h)">
               <div className="text-3xl font-bold text-green-400">
-                {(data as any)?.completed_24h ?? "—"}
+                {metric(data, "completed_24h")}
               </div>
             </Card>
           </div>
