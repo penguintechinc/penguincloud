@@ -28,9 +28,29 @@ describe("StatusBadge", () => {
     expect(screen.getByTestId("status-badge")).toHaveClass("bg-slate-500/10");
   });
 
-  it("supports size prop", () => {
-    render(<StatusBadge status="healthy" size="lg" />);
+  it("supports all size variants", () => {
+    const { rerender } = render(<StatusBadge status="healthy" size="sm" />);
+    expect(screen.getByTestId("status-badge")).toHaveClass("px-2", "py-1");
+
+    rerender(<StatusBadge status="healthy" size="md" />);
+    expect(screen.getByTestId("status-badge")).toHaveClass("px-3", "py-1.5");
+
+    rerender(<StatusBadge status="healthy" size="lg" />);
     expect(screen.getByTestId("status-badge")).toHaveClass("px-4", "py-2");
+  });
+
+  it("applies correct text colors", () => {
+    const { rerender } = render(<StatusBadge status="healthy" size="sm" />);
+    expect(screen.getByText("Healthy")).toHaveClass("text-emerald-400");
+
+    rerender(<StatusBadge status="degraded" size="sm" />);
+    expect(screen.getByText("Degraded")).toHaveClass("text-amber-400");
+
+    rerender(<StatusBadge status="down" size="sm" />);
+    expect(screen.getByText("Down")).toHaveClass("text-red-400");
+
+    rerender(<StatusBadge status="unknown" size="sm" />);
+    expect(screen.getByText("Unknown")).toHaveClass("text-slate-400");
   });
 
   it("has proper accessibility attributes", () => {
@@ -38,5 +58,10 @@ describe("StatusBadge", () => {
     const badge = screen.getByTestId("status-badge");
     expect(badge).toHaveAttribute("role", "status");
     expect(badge).toHaveAttribute("aria-label", "Healthy");
+  });
+
+  it("renders with default size", () => {
+    render(<StatusBadge status="healthy" />);
+    expect(screen.getByTestId("status-badge")).toHaveClass("px-3", "py-1.5");
   });
 });
