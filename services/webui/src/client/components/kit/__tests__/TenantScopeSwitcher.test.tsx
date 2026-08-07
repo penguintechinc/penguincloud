@@ -61,7 +61,7 @@ describe("TenantScopeSwitcher", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[0],
       setCurrentTenant: mockSetCurrentTenant,
@@ -77,7 +77,7 @@ describe("TenantScopeSwitcher", () => {
   });
 
   it("shows empty state when no tenants available", () => {
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: [],
       currentTenant: null,
       setCurrentTenant: mockSetCurrentTenant,
@@ -127,7 +127,7 @@ describe("TenantScopeSwitcher", () => {
         tenant: mockTenants[1],
       },
     };
-    (api.post as jest.Mock).mockResolvedValue(mockResponse);
+    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
 
     const user = userEvent.setup();
 
@@ -151,7 +151,7 @@ describe("TenantScopeSwitcher", () => {
         tenant: mockTenants[1],
       },
     };
-    (api.post as jest.Mock).mockResolvedValue(mockResponse);
+    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
 
     const user = userEvent.setup();
 

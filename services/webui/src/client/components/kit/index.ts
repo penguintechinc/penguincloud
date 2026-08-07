@@ -18,6 +18,6 @@ export {
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog";
 
-// Note: TenantScopeSwitcher and ActingAsBanner are exported from their own files
+// Note: Breadcrumbs, TenantScopeSwitcher, and ActingAsBanner are exported from their own files
 // directly, not through this barrel, since they have router/store dependencies
 // that make them unsuitable for all kit consumers.

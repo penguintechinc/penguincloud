@@ -50,18 +50,18 @@ describe("ActingAsBanner", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[0],
       setCurrentTenant: mockSetCurrentTenant,
     });
-    (useAuth as jest.Mock).mockReturnValue({
+    (useAuth as unknown as jest.Mock).mockReturnValue({
       user: mockUser,
     });
   });
 
   it("does not render when acting as home tenant", () => {
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[0], // Same as home_tenant_id
       setCurrentTenant: mockSetCurrentTenant,
@@ -72,7 +72,7 @@ describe("ActingAsBanner", () => {
   });
 
   it("renders banner when acting as different tenant", () => {
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[1], // Acting as customer, but home is provider
       setCurrentTenant: mockSetCurrentTenant,
@@ -86,7 +86,7 @@ describe("ActingAsBanner", () => {
   });
 
   it("displays customer name in banner", () => {
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[1],
       setCurrentTenant: mockSetCurrentTenant,
@@ -98,7 +98,7 @@ describe("ActingAsBanner", () => {
   });
 
   it("has proper ARIA role and label", () => {
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[1],
       setCurrentTenant: mockSetCurrentTenant,
@@ -112,7 +112,7 @@ describe("ActingAsBanner", () => {
   });
 
   it("shows exit button", () => {
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[1],
       setCurrentTenant: mockSetCurrentTenant,
@@ -134,7 +134,7 @@ describe("ActingAsBanner", () => {
     };
     (api.post as jest.Mock).mockResolvedValue(mockResponse);
 
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[1],
       setCurrentTenant: mockSetCurrentTenant,
@@ -161,7 +161,7 @@ describe("ActingAsBanner", () => {
     };
     (api.post as jest.Mock).mockResolvedValue(mockResponse);
 
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[1],
       setCurrentTenant: mockSetCurrentTenant,
@@ -180,12 +180,12 @@ describe("ActingAsBanner", () => {
   });
 
   it("does not render when home tenant is not found", () => {
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[1],
       setCurrentTenant: mockSetCurrentTenant,
     });
-    (useAuth as jest.Mock).mockReturnValue({
+    (useAuth as unknown as jest.Mock).mockReturnValue({
       user: { ...mockUser, home_tenant_id: 999 }, // Non-existent tenant
     });
 
@@ -194,7 +194,7 @@ describe("ActingAsBanner", () => {
   });
 
   it("does not render when user is not logged in", () => {
-    (useAuth as jest.Mock).mockReturnValue({
+    (useAuth as unknown as jest.Mock).mockReturnValue({
       user: null,
     });
 
@@ -208,7 +208,7 @@ describe("ActingAsBanner", () => {
 
     const consoleSpy = jest.spyOn(console, "error").mockImplementation();
 
-    (useTenantStore as jest.Mock).mockReturnValue({
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
       tenants: mockTenants,
       currentTenant: mockTenants[1],
       setCurrentTenant: mockSetCurrentTenant,
