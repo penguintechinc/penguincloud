@@ -230,6 +230,210 @@ class TestHierarchyConstruction:
 
 
 @pytest.mark.usefixtures("app_context")
+class TestReparentOriginAuthority:
+    """A move must be authorized at the ORIGIN, not only the destination."""
+
+    @pytest.mark.asyncio
+    async def test_mid_tier_admin_cannot_detach_subtree_from_provider(
+        self, client: Any
+    ) -> None:
+        """Admin on the moved node alone cannot sever the provider above it.
+
+        Detaching to a root passes `parent_tenant_id: null`, which has no
+        destination to validate — so with only the destination checked, this
+        was entirely ungated and a mid-tier admin could cut the provider out
+        of their own customer tree.
+        """
+        provider_headers, _ = await _new_user(client)
+        mid_admin_headers, mid_admin_id = await _new_user(client)
+
+        provider_id = await _create_tenant(
+            client, provider_headers, "Prov", kind="provider"
+        )
+        mid_id = await _create_tenant(
+            client, provider_headers, "Mid", parent_tenant_id=provider_id
+        )
+        await _create_tenant(client, provider_headers, "Leaf", parent_tenant_id=mid_id)
+
+        # Admin on the mid tier ONLY.
+        await _add_member(client, provider_headers, mid_id, mid_admin_id, "admin")
+
+        detach = await client.put(
+            f"/api/v1/tenants/{mid_id}/parent",
+            headers=mid_admin_headers,
+            json={"parent_tenant_id": None},
+        )
+        assert detach.status_code == 403, await detach.get_json()
+
+        # The tree is unchanged.
+        still = await client.get(
+            f"/api/v1/tenants/{mid_id}", headers=provider_headers
+        )
+        assert (await still.get_json())["parent_tenant_id"] == provider_id
+
+    @pytest.mark.asyncio
+    async def test_provider_owner_can_detach_subtree(self, client: Any) -> None:
+        """Authority in the current parent is what makes a detach legitimate."""
+        provider_headers, _ = await _new_user(client)
+
+        provider_id = await _create_tenant(
+            client, provider_headers, "Prov", kind="provider"
+        )
+        mid_id = await _create_tenant(
+            client, provider_headers, "Mid", parent_tenant_id=provider_id
+        )
+
+        detach = await client.put(
+            f"/api/v1/tenants/{mid_id}/parent",
+            headers=provider_headers,
+            json={"parent_tenant_id": None},
+        )
+        assert detach.status_code == 200, await detach.get_json()
+
+        body = await detach.get_json()
+        assert body["parent_tenant_id"] is None
+        assert body["depth"] == 0
+
+    @pytest.mark.asyncio
+    async def test_move_between_providers_requires_authority_in_both(
+        self, client: Any
+    ) -> None:
+        """Origin authority and destination authority are both mandatory."""
+        alice_headers, alice_id = await _new_user(client)
+        bob_headers, bob_id = await _new_user(client)
+
+        provider_a = await _create_tenant(
+            client, alice_headers, "ProvA", kind="provider"
+        )
+        provider_b = await _create_tenant(
+            client, bob_headers, "ProvB", kind="provider"
+        )
+        child = await _create_tenant(
+            client, alice_headers, "Child", parent_tenant_id=provider_a
+        )
+
+        # Alice owns the origin but has no authority in the destination.
+        alice_move = await client.put(
+            f"/api/v1/tenants/{child}/parent",
+            headers=alice_headers,
+            json={"parent_tenant_id": provider_b},
+        )
+        assert alice_move.status_code == 403
+
+        # Bob owns the destination but has no authority over the child or
+        # its current parent.
+        bob_move = await client.put(
+            f"/api/v1/tenants/{child}/parent",
+            headers=bob_headers,
+            json={"parent_tenant_id": provider_b},
+        )
+        assert bob_move.status_code == 403
+
+        # Grant Alice admin in the destination: now she holds both sides.
+        await _add_member(client, bob_headers, provider_b, alice_id, "admin")
+        both = await client.put(
+            f"/api/v1/tenants/{child}/parent",
+            headers=alice_headers,
+            json={"parent_tenant_id": provider_b},
+        )
+        assert both.status_code == 200, await both.get_json()
+        assert (await both.get_json())["parent_tenant_id"] == provider_b
+
+    @pytest.mark.asyncio
+    async def test_root_tenant_has_no_origin_to_guard(self, client: Any) -> None:
+        """A tenant with no parent can be parented without an origin check."""
+        owner_headers, _ = await _new_user(client)
+        root = await _create_tenant(client, owner_headers, "Root")
+        destination = await _create_tenant(
+            client, owner_headers, "Dest", kind="provider"
+        )
+
+        response = await client.put(
+            f"/api/v1/tenants/{root}/parent",
+            headers=owner_headers,
+            json={"parent_tenant_id": destination},
+        )
+        assert response.status_code == 200, await response.get_json()
+
+
+@pytest.mark.usefixtures("app_context")
+class TestEffectiveRoleResolution:
+    """Pin resolve_effective_role's precedence so it stays deliberate."""
+
+    @pytest.mark.asyncio
+    async def test_direct_role_wins_even_when_weaker_than_delegated(
+        self, client: Any, app: Quart
+    ) -> None:
+        """A direct membership beats inherited admin, even a weaker one.
+
+        Someone who administers a provider AND is enrolled as a plain
+        `viewer` in one of its customers resolves to `viewer` there, not
+        admin. Current, intended behaviour: the explicit local grant is a
+        deliberate statement about that tenant and overrides what the
+        hierarchy would otherwise confer. Pinned so a future change to the
+        precedence order has to be a decision rather than an accident.
+        """
+        from app.tenancy import resolve_effective_role
+
+        owner_headers, _ = await _new_user(client)
+        delegate_headers, delegate_id = await _new_user(client)
+
+        provider_id = await _create_tenant(
+            client, owner_headers, "Prov", kind="provider"
+        )
+        customer_id = await _create_tenant(
+            client, owner_headers, "Cust", parent_tenant_id=provider_id
+        )
+
+        await _add_member(client, owner_headers, provider_id, delegate_id, "admin")
+
+        async with app.app_context():
+            # With no local row, the hierarchy confers admin.
+            assert (
+                await resolve_effective_role(delegate_id, customer_id)
+                == "delegated_admin"
+            )
+
+        await _add_member(client, owner_headers, customer_id, delegate_id, "viewer")
+
+        async with app.app_context():
+            assert await resolve_effective_role(delegate_id, customer_id) == "viewer"
+
+        # And the endpoint honours it: a viewer cannot manage the tenant.
+        blocked = await client.put(
+            f"/api/v1/tenants/{customer_id}",
+            headers=delegate_headers,
+            json={"display_name": "nope"},
+        )
+        assert blocked.status_code == 403
+
+
+@pytest.mark.usefixtures("app_context")
+class TestDeleteDoesNotLeakTenantExistence:
+    """Cheap adjacent: align DELETE with switch/GET authz-before-existence."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_and_unowned_tenants_are_indistinguishable(
+        self, client: Any
+    ) -> None:
+        caller_headers, _ = await _new_user(client)
+        other_headers, _ = await _new_user(client)
+
+        real_but_unowned = await _create_tenant(client, other_headers, "Theirs")
+
+        unknown = await client.delete(
+            "/api/v1/tenants/987654", headers=caller_headers
+        )
+        existing = await client.delete(
+            f"/api/v1/tenants/{real_but_unowned}", headers=caller_headers
+        )
+
+        assert unknown.status_code == 403
+        assert existing.status_code == 403
+        assert await unknown.get_json() == await existing.get_json()
+
+
+@pytest.mark.usefixtures("app_context")
 class TestCacheInvalidation:
     """C1/I9: a structural change must not leave a stale subtree set."""
 
@@ -597,8 +801,27 @@ class TestResponseFieldSets:
         )
         assert set(await response.get_json()) == self.TENANT_DETAIL_FIELDS
 
+    TENANT_MEMBER_FIELDS = {
+        "id",
+        "tenant_id",
+        "user_id",
+        "role",
+        "invited_by_id",
+        "joined_at",
+        "user_email",
+        "user_full_name",
+    }
+
     @pytest.mark.asyncio
     async def test_switch_response_has_exact_field_set(self, client: Any) -> None:
+        """The switch payload must carry everything currentTenant needs.
+
+        Cross-branch contract: webui tenantStore.ts populates the entire
+        currentTenant from this one object, and LicenseGate.tsx reads
+        `plan` off it — defaulting to "free" when absent, which hides every
+        licensed feature from every user without erroring. TenantSwitcher.tsx
+        additionally renders `slug` and `display_name`.
+        """
         headers, _ = await _new_user(client)
         tenant_id = await _create_tenant(client, headers, "T")
 
@@ -608,7 +831,116 @@ class TestResponseFieldSets:
         body = await response.get_json()
 
         assert set(body) == {"access_token", "tenant", "tenant_role", "scope"}
-        assert set(body["tenant"]) == self.TENANT_SUMMARY_FIELDS
+        assert set(body["tenant"]) == self.TENANT_DETAIL_FIELDS
+
+        # The three fields the webui reads, asserted by name and value so a
+        # future reshuffle of TenantDetail cannot silently drop them.
+        assert body["tenant"]["plan"] == "free"
+        assert body["tenant"]["slug"]
+        assert body["tenant"]["display_name"] == "T"
+        assert "settings" not in body["tenant"]
+
+    @pytest.mark.asyncio
+    async def test_switch_carries_non_default_plan(self, client: Any) -> None:
+        """A paid plan survives the switch payload rather than reading free.
+
+        The LicenseGate failure mode was silent: `plan` simply being absent
+        produced a valid response and a wrongly-gated UI. Asserting a
+        non-default value is what distinguishes "carries the plan" from
+        "happens to match the fallback".
+        """
+        headers, _ = await _new_user(client)
+        tenant_id = await _create_tenant(client, headers, "T")
+
+        upgraded = await client.put(
+            f"/api/v1/tenants/{tenant_id}",
+            headers=headers,
+            json={"plan": "enterprise"},
+        )
+        assert upgraded.status_code == 200
+        assert (await upgraded.get_json())["plan"] == "enterprise"
+
+        response = await client.post(
+            f"/api/v1/tenants/{tenant_id}/switch", headers=headers
+        )
+        assert (await response.get_json())["tenant"]["plan"] == "enterprise"
+
+    @pytest.mark.asyncio
+    async def test_member_endpoints_share_one_exact_field_set(
+        self, client: Any
+    ) -> None:
+        """List, add and update all return the same explicit member shape.
+
+        add_tenant_member previously returned a raw dict(row) and the role
+        update returned only three of the fields the webui's TenantMember
+        interface declares.
+        """
+        owner_headers, _ = await _new_user(client)
+        _, member_id = await _new_user(client)
+
+        tenant_id = await _create_tenant(client, owner_headers, "T")
+
+        added = await client.post(
+            f"/api/v1/tenants/{tenant_id}/members",
+            headers=owner_headers,
+            json={"user_id": member_id, "role": "member"},
+        )
+        assert added.status_code == 201
+        assert set(await added.get_json()) == self.TENANT_MEMBER_FIELDS
+
+        updated = await client.put(
+            f"/api/v1/tenants/{tenant_id}/members/{member_id}",
+            headers=owner_headers,
+            json={"role": "admin"},
+        )
+        assert updated.status_code == 200
+        updated_body = await updated.get_json()
+        assert set(updated_body) == self.TENANT_MEMBER_FIELDS
+        assert updated_body["role"] == "admin"
+        assert updated_body["id"] is not None
+        assert updated_body["joined_at"] is not None
+
+        listed = await client.get(
+            f"/api/v1/tenants/{tenant_id}/members", headers=owner_headers
+        )
+        assert listed.status_code == 200
+        list_body = await listed.get_json()
+        assert set(list_body) == {"members", "count"}
+        for row in list_body["members"]:
+            assert set(row) == self.TENANT_MEMBER_FIELDS
+
+    @pytest.mark.asyncio
+    async def test_member_list_exposes_contact_identity_and_nothing_more(
+        self, client: Any
+    ) -> None:
+        """Email and full name are in; every other users column is out.
+
+        Deliberate policy: administering a tenant means administering its
+        member accounts, so an MSP admin needs contact identity. It does NOT
+        extend to the rest of the users row.
+        """
+        owner_headers, _ = await _new_user(client)
+        _, member_id = await _new_user(client)
+        tenant_id = await _create_tenant(client, owner_headers, "T")
+        await _add_member(client, owner_headers, tenant_id, member_id, "member")
+
+        listed = await client.get(
+            f"/api/v1/tenants/{tenant_id}/members", headers=owner_headers
+        )
+        rows = (await listed.get_json())["members"]
+        subject = next(r for r in rows if r["user_id"] == member_id)
+
+        assert subject["user_email"].endswith("@example.com")
+        assert subject["user_full_name"] == "H User"
+        for forbidden in (
+            "password_hash",
+            "is_active",
+            "created_at",
+            "updated_at",
+            "email",
+            "full_name",
+        ):
+            assert forbidden not in subject
 
     @pytest.mark.asyncio
     async def test_include_children_exposes_only_summary_for_non_members(

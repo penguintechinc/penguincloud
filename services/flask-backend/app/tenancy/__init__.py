@@ -16,6 +16,7 @@ from .hierarchy import (
     ParentValidation,
     recompute_subtree_depth,
     set_parent,
+    validate_origin_authority,
     validate_parent,
 )
 from .middleware import TenancyContext, get_tenancy_context, tenancy_aware
@@ -57,5 +58,6 @@ __all__ = [
     "resolve_scopes",
     "set_parent",
     "tenancy_aware",
+    "validate_origin_authority",
     "validate_parent",
 ]

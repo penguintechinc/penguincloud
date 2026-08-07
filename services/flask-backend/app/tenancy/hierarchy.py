@@ -21,7 +21,7 @@ from typing import Any
 
 from app.models import get_db, get_tenant_by_id
 
-from .authz import ADMIN_ROLES, resolve_effective_role
+from .authz import EFFECTIVE_ADMIN_ROLES, resolve_effective_role
 from .resolver import MAX_HIERARCHY_DEPTH, get_ancestors, invalidate_tenant
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ async def validate_parent(
     # Delegated authority counts: an MSP admin two levels up may parent a new
     # customer under one of their existing customers.
     parent_role = await resolve_effective_role(user_id, parent_tenant_id)
-    if parent_role not in ADMIN_ROLES and parent_role != "delegated_admin":
+    if parent_role not in EFFECTIVE_ADMIN_ROLES:
         return ParentValidation(
             ok=False,
             error="Admin access required in the parent tenant",
@@ -85,6 +85,43 @@ async def validate_parent(
         )
 
     return ParentValidation(ok=True, parent_depth=parent_depth)
+
+
+async def validate_origin_authority(
+    user_id: int, tenant: dict[str, Any]
+) -> ParentValidation:
+    """Check that a user may detach a tenant from where it currently sits.
+
+    Validating only the DESTINATION is not enough. Moving a subtree out from
+    under a provider — or detaching it to a root with ``parent_tenant_id:
+    null``, which has no destination to validate at all — SEVERS that
+    provider's authority over everything in the subtree. A mid-tier admin
+    holding admin only on the node being moved could otherwise cut the
+    provider out of their own customer tree.
+
+    So the origin side requires the same authority the destination side
+    does: owner/admin in the current parent, or in one of its ancestors.
+    This is the same reasoning that keeps tenant deletion owner-only —
+    delegated authority confers management, not the power to dismantle
+    somebody else's tree.
+
+    A tenant that is already a root has no origin authority to check: there
+    is no parent whose authority could be severed.
+    """
+    current_parent_raw = tenant.get("parent_tenant_id")
+    if current_parent_raw is None:
+        return ParentValidation(ok=True)
+
+    current_parent_id = int(current_parent_raw)
+    origin_role = await resolve_effective_role(user_id, current_parent_id)
+    if origin_role not in EFFECTIVE_ADMIN_ROLES:
+        return ParentValidation(
+            ok=False,
+            error="Admin access required in the current parent tenant",
+            status=403,
+        )
+
+    return ParentValidation(ok=True)
 
 
 async def _child_ids(tenant_id: int) -> list[int]:

@@ -50,6 +50,7 @@ from .tenancy import (
     resolve_scopes,
     set_parent,
     tenancy_aware,
+    validate_origin_authority,
     validate_parent,
 )
 
@@ -107,12 +108,55 @@ class TenantListResponse:
 
 @dataclass(slots=True, frozen=True)
 class TenantSwitchResponse:
-    """Token re-issue result for a tenant switch."""
+    """Token re-issue result for a tenant switch.
+
+    ``tenant`` is a full TenantDetail, not a TenantSummary. The caller has
+    just been authorized into this tenant, so they are entitled to exactly
+    what GET /tenants/<id> would hand them — and the webui populates its
+    entire ``currentTenant`` from this one object (tenantStore.ts), so a
+    summary here starves every consumer that reads it. LicenseGate.tsx falls
+    back to "free" on a missing ``plan``, which silently hides every licensed
+    feature from every user rather than failing visibly.
+    """
 
     access_token: str
-    tenant: TenantSummary
+    tenant: TenantDetail
     tenant_role: str
     scope: list[str]
+
+
+@dataclass(slots=True, frozen=True)
+class TenantMemberResponse:
+    """A tenant membership row plus the member's contact identity.
+
+    PII policy (deliberate, not incidental): ``user_email`` and
+    ``user_full_name`` ARE included, because administering a tenant means
+    administering its member accounts and an MSP admin cannot do that
+    against opaque user ids. NO other column from the users table is
+    exposed here — not role, not is_active, not timestamps, not
+    password_hash — and this DTO is the only path membership data takes to a
+    response body. Adding a column to `users` must not widen this.
+
+    Field set is reconciled with the webui's TenantMember interface
+    (services/webui/src/client/types/index.ts).
+    """
+
+    id: int
+    tenant_id: int
+    user_id: int
+    role: str
+    invited_by_id: int | None
+    joined_at: str | None
+    user_email: str | None
+    user_full_name: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class TenantMemberListResponse:
+    """Envelope for a tenant's membership list."""
+
+    members: list[TenantMemberResponse]
+    count: int
 
 
 @dataclass(slots=True, frozen=True)
@@ -181,6 +225,56 @@ def to_detail(tenant: dict[str, Any], user_role: str | None) -> TenantDetail:
         max_products=tenant_quota(tenant, "max_products", DEFAULT_MAX_PRODUCTS),
         user_role=user_role,
     )
+
+
+def _isoformat(value: Any) -> str | None:
+    """Render a datetime column as ISO-8601, tolerating NULL or a string."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    isoformat = getattr(value, "isoformat", None)
+    return isoformat() if callable(isoformat) else str(value)
+
+
+def to_member(row: dict[str, Any]) -> TenantMemberResponse:
+    """Project a tenant_members row (optionally user-joined) to its DTO.
+
+    Reads only the whitelisted keys. A row carrying extra user columns —
+    which get_tenant_members' join could grow at any time — cannot leak them
+    through here.
+    """
+    invited_by = row.get("invited_by_id")
+    return TenantMemberResponse(
+        id=int(row["id"]),
+        tenant_id=int(row["tenant_id"]),
+        user_id=int(row["user_id"]),
+        role=str(row.get("role") or "member"),
+        invited_by_id=int(invited_by) if invited_by is not None else None,
+        joined_at=_isoformat(row.get("joined_at")),
+        user_email=row.get("user_email"),
+        user_full_name=row.get("user_full_name"),
+    )
+
+
+async def _member_with_identity(
+    tenant_id: int, member_user_id: int
+) -> TenantMemberResponse | None:
+    """Load one membership row joined to its user's contact identity."""
+    db = get_db()
+    rows: Any = await db(
+        (db.tenant_members.tenant_id == tenant_id)
+        & (db.tenant_members.user_id == member_user_id)
+    ).select()
+    if not rows:
+        return None
+
+    row = dict(rows[0])
+    member_user = await get_user_by_id(member_user_id)
+    if member_user:
+        row["user_email"] = member_user.get("email")
+        row["user_full_name"] = member_user.get("full_name")
+    return to_member(row)
 
 
 def validate_tenant_slug(slug: str) -> bool:
@@ -438,6 +532,14 @@ async def reparent_tenant_endpoint(
     if not tenant:
         return {"error": "Tenant not found"}, 404
 
+    # Origin side first, and unconditionally: a detach (parent_tenant_id
+    # null) has no destination to validate, so checking only the destination
+    # left the "sever a provider's authority over a whole subtree" case
+    # completely ungated.
+    origin = await validate_origin_authority(user["id"], tenant)
+    if not origin.ok:
+        return {"error": origin.error}, origin.status
+
     new_parent_id = data.parent_tenant_id
     if new_parent_id is not None:
         validation = await validate_parent(user["id"], new_parent_id, tenant_id)
@@ -476,10 +578,10 @@ async def delete_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
         return {"error": "User not authenticated"}, 401
     tenant = await get_tenant_by_id(tenant_id)
 
-    if not tenant:
-        return {"error": "Tenant not found"}, 404
-
-    if tenant.get("owner_id") != user["id"]:
+    # Authorize before disclosing existence, matching switch and GET: a
+    # missing tenant and a real one the caller does not own must be
+    # indistinguishable, or the path parameter enumerates the id space.
+    if not tenant or tenant.get("owner_id") != user["id"]:
         return {"error": "Only owner can delete tenant"}, 403
 
     db = get_db()
@@ -558,7 +660,7 @@ async def switch_tenant(tenant_id: int) -> tuple[Any, int]:
     return (
         TenantSwitchResponse(
             access_token=token_set["access_token"],
-            tenant=to_summary(tenant),
+            tenant=to_detail(tenant, role),
             tenant_role=role,
             scope=scopes,
         ),
@@ -569,8 +671,15 @@ async def switch_tenant(tenant_id: int) -> tuple[Any, int]:
 @tenants_bp.route("/<int:tenant_id>/members", methods=["GET"])
 @auth_required
 @tenancy_aware
-async def list_tenant_members(tenant_id: int) -> tuple[dict[str, Any], int]:
-    """List tenant members."""
+@validate_response(TenantMemberListResponse)
+async def list_tenant_members(tenant_id: int) -> tuple[Any, int]:
+    """List tenant members.
+
+    Now reachable by delegated admins as well as direct members, which is
+    precisely why the rows go through TenantMemberResponse: get_tenant_members
+    returns raw joined rows, so a wider audience on the endpoint would have
+    meant a wider audience for every column that join happens to carry.
+    """
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
@@ -579,14 +688,15 @@ async def list_tenant_members(tenant_id: int) -> tuple[dict[str, Any], int]:
     if not role:
         return {"error": "Not a member of this tenant"}, 403
 
-    members = await get_tenant_members(tenant_id)
-    return {"members": members, "count": len(members)}, 200
+    members = [to_member(row) for row in await get_tenant_members(tenant_id)]
+    return TenantMemberListResponse(members=members, count=len(members)), 200
 
 
 @tenants_bp.route("/<int:tenant_id>/members", methods=["POST"])
 @auth_required
 @tenancy_aware
-async def add_tenant_member_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
+@validate_response(TenantMemberResponse, status_code=201)
+async def add_tenant_member_endpoint(tenant_id: int) -> tuple[Any, int]:
     """Add member to tenant (admin/owner, directly or by delegation)."""
     user = get_current_user()
     if not user:  # pragma: no cover
@@ -644,15 +754,19 @@ async def add_tenant_member_endpoint(tenant_id: int) -> tuple[dict[str, Any], in
         ip_address=request.remote_addr or "unknown",
     )
 
-    return member, 201
+    created = await _member_with_identity(tenant_id, user_id)
+    if created is None:  # pragma: no cover - row inserted moments ago
+        return {"error": "Failed to retrieve created member"}, 500
+    return created, 201
 
 
 @tenants_bp.route("/<int:tenant_id>/members/<int:member_user_id>", methods=["PUT"])
 @auth_required
 @tenancy_aware
+@validate_response(TenantMemberResponse)
 async def update_tenant_member_role(
     tenant_id: int, member_user_id: int
-) -> tuple[dict[str, Any], int]:
+) -> tuple[Any, int]:
     """Update member role (admin/owner, directly or by delegation)."""
     user = get_current_user()
     if not user:  # pragma: no cover
@@ -676,19 +790,10 @@ async def update_tenant_member_role(
 
     await invalidate_tenant(tenant_id)
 
-    members = await db(
-        (db.tenant_members.tenant_id == tenant_id)
-        & (db.tenant_members.user_id == member_user_id)
-    ).select()
-
-    if members:
-        row = members[0]
-        return {
-            "tenant_id": tenant_id,
-            "user_id": member_user_id,
-            "role": str(row.role),
-        }, 200
-    return {}, 200
+    updated = await _member_with_identity(tenant_id, member_user_id)
+    if updated is None:
+        return {"error": "Member not found"}, 404
+    return updated, 200
 
 
 @tenants_bp.route("/<int:tenant_id>/members/<int:member_user_id>", methods=["DELETE"])
