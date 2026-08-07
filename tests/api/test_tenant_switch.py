@@ -46,7 +46,14 @@ class TestTenantSwitch:
         assert payload["tenant"] == "456"
         assert payload["roles"] == ["admin"]
         assert payload["teams"] == ["1", "2", "3"]
-        assert payload["scope"] == ["read", "write"]
+        # `scope` is now a RESOLVED authorization list, not the placeholder
+        # ["read", "write"] pair. Omitting `scopes=` means "no resolved
+        # authority", which yields the unscoped bundle: enumerate your
+        # tenants and switch into one, nothing further. The full bundle for
+        # an active tenant is asserted in test_hierarchical_tenancy.py.
+        from app.tenancy import UNSCOPED_SCOPES
+
+        assert payload["scope"] == list(UNSCOPED_SCOPES)
         assert "iat" in payload and "exp" in payload
 
         # The superseded claim names must not reappear.
