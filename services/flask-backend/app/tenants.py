@@ -105,15 +105,21 @@ async def list_user_tenants() -> tuple[dict[str, Any], int]:
     include_children = request.args.get("include_children", "false").lower() == "true"
 
     if include_children:
-        # Delegated admin listing: needs admin/owner in at least one tenant
+        # Delegated admin listing: user's direct tenants + subtrees where they're admin
         from .tenancy import get_hierarchy
 
         user_tenants = await get_user_tenants(user["id"])
         if not user_tenants:
             return {"tenants": [], "count": 0}, 200
 
-        # Collect all subtree tenants from tenants where user is admin/owner
+        # Start with direct tenants (always included)
         all_tenant_ids: set[int] = set()
+        for tenant in user_tenants:
+            tenant_id_val = tenant.get("id")
+            if isinstance(tenant_id_val, int):
+                all_tenant_ids.add(tenant_id_val)
+
+        # Then add subtree descendants from tenants where user is admin/owner
         for tenant in user_tenants:
             tenant_id_val = tenant.get("id")
             if not isinstance(tenant_id_val, int):
@@ -123,7 +129,6 @@ async def list_user_tenants() -> tuple[dict[str, Any], int]:
                 # User has delegated admin here
                 try:
                     hierarchy = await get_hierarchy(tenant_id_val)
-                    all_tenant_ids.add(tenant_id_val)
                     all_tenant_ids.update(hierarchy.descendants)
                 except ValueError:
                     pass

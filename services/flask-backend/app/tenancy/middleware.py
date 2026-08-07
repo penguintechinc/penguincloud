@@ -51,10 +51,11 @@ async def load_tenancy_context(tenant_id: int) -> TenancyContext:
 
     db = get_db()
 
-    # Load tenant row (penguin-dal untyped API)
-    tenant_row = await db.tenants.select(id=tenant_id)  # type: ignore[operator]
-    if not tenant_row:
+    # Load tenant row via penguin-dal query builder API
+    rows: Any = await db(db.tenants.id == tenant_id).select()
+    if not rows:
         raise ValueError(f"Tenant {tenant_id} not found")
+    tenant_row = rows[0]
 
     tenant_name = getattr(tenant_row, "name", f"Tenant {tenant_id}")
     tenant_kind = getattr(tenant_row, "kind", "customer")

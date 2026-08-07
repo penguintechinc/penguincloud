@@ -87,11 +87,11 @@ async def get_hierarchy(tenant_id: int) -> TenantHierarchy:
     """
     db = get_db()
 
-    # Fetch tenant row
-    # penguin-dal's untyped API: db.tenants.select()
-    tenant_row = await db.tenants.select(id=tenant_id)  # type: ignore[operator]
-    if not tenant_row:
+    # Fetch tenant row via penguin-dal query builder API
+    rows: Any = await db(db.tenants.id == tenant_id).select()
+    if not rows:
         raise ValueError(f"Tenant {tenant_id} not found")
+    tenant_row = rows[0]
 
     depth = getattr(tenant_row, "depth", 0)
 
@@ -256,7 +256,7 @@ async def _query_descendants_cte(db: Any, tenant_id: int) -> Set[int]:
 
     # Execute via penguin-dal executesql
     # Returns list[tuple] by default
-    rows: Any = db.executesql(cte_sql, (tenant_id,))
+    rows: Any = await db.executesql(cte_sql, (tenant_id,))
     descendants = {int(row[0]) for row in (rows or [])}
     return descendants
 
@@ -288,6 +288,6 @@ async def _query_ancestors_cte(db: Any, tenant_id: int) -> Set[int]:
     """
 
     # Execute via penguin-dal executesql
-    rows: Any = db.executesql(cte_sql, (tenant_id,))
+    rows: Any = await db.executesql(cte_sql, (tenant_id,))
     ancestors = {int(row[0]) for row in (rows or []) if row[0] is not None}
     return ancestors
