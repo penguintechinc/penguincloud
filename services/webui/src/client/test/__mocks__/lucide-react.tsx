@@ -14,6 +14,9 @@ export const ChevronUp = (props: IconProps) => (
 export const ChevronDown = (props: IconProps) => (
   <svg data-testid="icon-chevrondown" {...props} />
 );
+export const ChevronRight = (props: IconProps) => (
+  <svg data-testid="icon-chevronright" {...props} />
+);
 export const AlertCircle = (props: IconProps) => (
   <svg data-testid="icon-alertcircle" {...props} />
 );

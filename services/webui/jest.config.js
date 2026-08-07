@@ -7,6 +7,9 @@ export default {
   moduleNameMapper: {
     "\\.(css|less|scss|sass)$": "identity-obj-proxy",
     "^lucide-react$": "<rootDir>/src/client/test/__mocks__/lucide-react.tsx",
+    "^react-router$": "<rootDir>/src/client/test/__mocks__/react-router.tsx",
+    "^react-router-dom$":
+      "<rootDir>/src/client/test/__mocks__/react-router.tsx",
   },
   setupFilesAfterEnv: ["<rootDir>/src/client/tests/setup.ts"],
   // Scope deliberately matches coverageThreshold below. Collecting from all of
