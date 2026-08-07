@@ -53,7 +53,7 @@ EXPOSE 8000
 
 # Health check (native Python, no curl needed)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import http.client; c = http.client.HTTPConnection('localhost', 8000); c.request('GET', '/healthz'); exit(0 if c.getresponse().status == 200 else 1)" || exit 1
+    CMD python3 -c "import http.client; c = http.client.HTTPConnection('localhost', 8000); c.request('GET', '/healthz'); exit(0 if c.getresponse().status == 200 else 1)" || exit 1
 
 # Run with hypercorn (async ASGI server for Quart)
 CMD ["hypercorn", "--bind", "0.0.0.0:8000", "--workers", "1", \

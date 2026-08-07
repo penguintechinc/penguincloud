@@ -24,8 +24,8 @@ class Base(DeclarativeBase):
     """Declarative base for every schema model in this module.
 
     SQLAlchemy 2.0's typed DeclarativeBase, not the legacy untyped
-    declarative_base() factory — the latter forced a
-    `type: ignore[valid-type,misc]` on every subclass below.
+    declarative_base() factory — the latter forced a per-class typing
+    suppression on every subclass below.
     """
 
 

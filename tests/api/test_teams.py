@@ -104,7 +104,7 @@ class TestTeamCreation:
         """Test team creation without authentication"""
         response = await client.post(
             "/api/v1/teams", json={"name": "Team", "slug": "team"}
-        )  # noqa: E501
+        )
 
         assert response.status_code == 401
 
@@ -250,7 +250,7 @@ class TestTeamMembers:
         # List members
         response = await client.get(
             f"/api/v1/teams/{team_id}/members", headers=auth_headers
-        )  # noqa: E501
+        )
 
         assert response.status_code == 200
         data = await response.get_json()

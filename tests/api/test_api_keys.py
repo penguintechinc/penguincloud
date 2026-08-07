@@ -153,7 +153,7 @@ class TestAPIKeyRevocation:
         # Revoke it
         response = await client.delete(
             f"/api/v1/api-keys/{key_id}", headers=auth_headers
-        )  # noqa: E501
+        )
 
         assert response.status_code == 204
 

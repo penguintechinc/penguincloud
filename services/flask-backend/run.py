@@ -1,105 +1,130 @@
 #!/usr/bin/env python3
-"""Flask Backend Entry Point."""
+"""Quart backend entry point: wait for the database, seed, serve via hypercorn.
 
+The container's CMD invokes hypercorn directly against `app:create_app()`;
+this script is the local/dev equivalent that additionally waits for the
+database and can seed the first admin user.
+"""
+
+import asyncio
 import os
 import sys
-import time
+
+from hypercorn.asyncio import serve
+from hypercorn.config import Config as HypercornConfig
+from penguin_dal.quart_ext import get_db
+from quart import Quart
 
 from app import create_app
-from app.auth import hash_password
 from app.config import Config
 
+#: A seeded admin is a real credential; refuse anything short enough to be a
+#: placeholder. There is deliberately no default password — an unset
+#: DEFAULT_ADMIN_PASSWORD skips seeding rather than inventing one.
+MIN_ADMIN_PASSWORD_LENGTH = 12
 
-def wait_for_database(max_retries: int = 30, retry_delay: int = 2) -> bool:
-    """Wait for database to be available."""
-    from pydal import DAL
 
-    db_uri = Config.get_db_uri()
-    print(
-        f"Waiting for database connection: {Config.DB_HOST}:{Config.DB_PORT}"
-    )
+async def wait_for_database(
+    app: Quart, max_retries: int = 30, retry_delay: float = 2.0
+) -> bool:
+    """Poll the database until it answers a trivial query, or give up.
+
+    Uses penguin-dal through the app context — the same path the running
+    service uses — rather than opening a second, differently-configured
+    connection.
+    """
+    print(f"Waiting for database: {Config.DB_HOST}:{Config.DB_PORT}", flush=True)
 
     for attempt in range(1, max_retries + 1):
         try:
-            db = DAL(db_uri, pool_size=1, migrate=False)
-            db.executesql("SELECT 1")
-            db.close()
-            print(f"Database connection successful after {attempt} attempt(s)")
+            async with app.app_context():
+                await get_db().executesql("SELECT 1")
+            print(f"Database ready after {attempt} attempt(s)", flush=True)
             return True
         except Exception as e:
             print(
-                f"Database connection attempt {attempt}/{max_retries} "
-                f"failed: {e}"
+                f"Database attempt {attempt}/{max_retries} failed: {e}",
+                file=sys.stderr,
+                flush=True,
             )
             if attempt < max_retries:
-                time.sleep(retry_delay)
+                await asyncio.sleep(retry_delay)
 
     return False
 
 
-def create_default_admin() -> None:
-    """Create default admin user if no users exist."""
-    from app.models import create_user, get_db, get_user_by_email
+async def create_default_admin(app: Quart) -> None:
+    """Seed an initial admin user, but only when explicitly configured.
 
-    db = get_db()
-    user_count = db(db.users).count()
+    Skipped unless DEFAULT_ADMIN_PASSWORD is set, so no deployment ever comes
+    up with a well-known password baked in.
+    """
+    from app.auth import hash_password_async
+    from app.models import create_user, get_user_by_email
 
-    if user_count == 0:
-        admin_email = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@example.com")
-        admin_password = os.getenv("DEFAULT_ADMIN_PASSWORD", "changeme123")
-
-        # Check if admin already exists (shouldn't, but safety check)
-        existing = get_user_by_email(admin_email)
-        if not existing:
-            print(f"Creating default admin user: {admin_email}")
-            create_user(
-                email=admin_email,
-                password_hash=hash_password(admin_password),
-                full_name="System Administrator",
-                role="admin",
-            )
-            print("Default admin user created successfully")
-            print("WARNING: Change the default password immediately!")
-        else:
-            print("Admin user already exists")
-    else:
+    admin_password = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
+    if not admin_password:
         print(
-            f"Database has {user_count} existing user(s), skipping "
-            "default admin creation"
+            "DEFAULT_ADMIN_PASSWORD not set - skipping admin seeding",
+            flush=True,
+        )
+        return
+
+    if len(admin_password) < MIN_ADMIN_PASSWORD_LENGTH:
+        raise SystemExit(
+            "DEFAULT_ADMIN_PASSWORD must be at least "
+            f"{MIN_ADMIN_PASSWORD_LENGTH} characters; refusing to seed a "
+            "weak administrator credential."
+        )
+
+    admin_email = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@example.com")
+
+    async with app.app_context():
+        db = get_db()
+        rows = await db(db.users.id > 0).select(limitby=(0, 1))
+        if rows:
+            print("Users already exist - skipping admin seeding", flush=True)
+            return
+
+        if await get_user_by_email(admin_email):
+            print("Admin user already exists", flush=True)
+            return
+
+        print(f"Creating default admin user: {admin_email}", flush=True)
+        await create_user(
+            email=admin_email,
+            password_hash=await hash_password_async(admin_password),
+            full_name="System Administrator",
+            role="admin",
+        )
+        print(
+            "Default admin created - change this password immediately",
+            flush=True,
         )
 
 
-def main() -> None:
-    """Main entry point."""
-    # Wait for database
-    if not wait_for_database():
-        print("ERROR: Could not connect to database after maximum retries")
-        sys.exit(1)
-
-    # Create Flask app
+async def main() -> None:
+    """Bring up the database, seed if configured, then serve under hypercorn."""
     app = create_app()
 
-    # Create default admin user
-    with app.app_context():
-        create_default_admin()
+    if not await wait_for_database(app):
+        print("ERROR: database unreachable after maximum retries", file=sys.stderr)
+        raise SystemExit(1)
 
-    # Get configuration
+    await create_default_admin(app)
+
     # Default to localhost; set HOST=0.0.0.0 explicitly (e.g. via container
     # ENV) when the process needs to accept connections on all interfaces.
     host = os.environ.get("HOST", "127.0.0.1")
-    port = int(os.getenv("FLASK_PORT", "5000"))
-    debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    port = os.getenv("PORT", "8000")
 
-    print(f"Starting Flask backend on {host}:{port}")
+    hypercorn_config = HypercornConfig()
+    hypercorn_config.bind = [f"{host}:{port}"]
+    hypercorn_config.accesslog = "-"
 
-    if debug:
-        # Development mode with auto-reload
-        app.run(host=host, port=port, debug=True)
-    else:
-        # Production mode - use gunicorn instead
-        # This is just for simple testing; use gunicorn in production
-        app.run(host=host, port=port, debug=False)
+    print(f"Starting Quart backend on {host}:{port} (hypercorn)", flush=True)
+    await serve(app, hypercorn_config)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
