@@ -83,7 +83,13 @@ trufflehog git file://. --only-verified --no-update 2>/dev/null || \
   echo "⚠️  trufflehog: could not verify (network issue?) — check manually"
 
 trivy fs --exit-code 1 --severity HIGH,CRITICAL --quiet .
-osv-scanner --recursive .
+# osv-scanner: enumerate tracked manifests explicitly — its directory walk
+# cannot parse the .git pointer file inside git worktrees
+OSV_TARGETS=$(git ls-files | grep -E '(^|/)(requirements[^/]*\.txt|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|go\.sum|Cargo\.lock|pubspec\.lock|composer\.lock|Gemfile\.lock)$' || true)
+if [ -n "$OSV_TARGETS" ]; then
+  # shellcheck disable=SC2086
+  osv-scanner $(printf -- '-L %s ' $OSV_TARGETS)
+fi
 
 semgrep scan --config=auto --error --quiet . 2>/dev/null || true
 command -v bandit      &>/dev/null && bandit -r . -q -ll
