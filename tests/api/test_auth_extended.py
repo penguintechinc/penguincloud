@@ -106,10 +106,6 @@ class TestEmailConfirmation:
 class TestProfileManagement:
     """Test user profile management"""
 
-    @pytest.mark.xfail(
-        reason="User profile endpoints not implemented — Phase 1B",
-        strict=False,
-    )
     def test_get_own_profile(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
         """Test getting own profile"""
         response = client.get("/api/v1/users/me", headers=auth_headers)
@@ -118,23 +114,20 @@ class TestProfileManagement:
         data = response.get_json()
         assert "id" in data
         assert "email" in data
-        assert "name" in data
+        # users.py get_profile()/update_user() use `full_name`, not `name`
+        assert "full_name" in data
 
-    @pytest.mark.xfail(
-        reason="User profile endpoints not implemented — Phase 1B",
-        strict=False,
-    )
     def test_update_profile(self, client, auth_headers):  # type: ignore[no-untyped-def]
         """Test updating own profile"""
         response = client.put(
             "/api/v1/users/me",
             headers=auth_headers,
-            json={"name": "Updated Name", "email": "newemail@example.com"},
+            json={"full_name": "Updated Name", "email": "newemail@example.com"},
         )
 
         assert response.status_code == 200
         data = response.get_json()
-        assert data["name"] == "Updated Name"
+        assert data["full_name"] == "Updated Name"
 
     def test_change_password_success(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
         """Test changing password successfully"""

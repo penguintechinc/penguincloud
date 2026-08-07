@@ -1,14 +1,18 @@
 """Tests for tenant switching and extra_claims handling."""
 
-from typing import Any
+import uuid
+
 import jwt
+from flask import Flask
+from flask.testing import FlaskClient
+
 from app.config import TestingConfig
 
 
 class TestTenantSwitch:
     """Test tenant switching functionality."""
 
-    def test_create_access_token_with_extra_claims(self, app: Any) -> None:
+    def test_create_access_token_with_extra_claims(self, app: Flask) -> None:
         """Test that extra_claims are merged into the token payload."""
         from app.auth import create_access_token
 
@@ -39,7 +43,7 @@ class TestTenantSwitch:
             assert payload["type"] == "access"
             assert payload["team_ids"] == [1, 2, 3]
 
-    def test_extra_claims_cannot_override_reserved_claims(self, app: Any) -> None:
+    def test_extra_claims_cannot_override_reserved_claims(self, app: Flask) -> None:
         """Test that reserved claims (sub, exp, iat, type) cannot be overridden."""
         from app.auth import create_access_token
 
@@ -69,7 +73,7 @@ class TestTenantSwitch:
             assert payload["custom_claim"] == "allowed"
 
     def test_tenant_switch_endpoint_no_longer_crashes(
-        self, client: Any, auth_headers: Any
+        self, client: FlaskClient, auth_headers: dict[str, str]
     ) -> None:
         """Test tenant switch endpoint doesn't crash with extra_claims."""
 
@@ -114,14 +118,60 @@ class TestTenantSwitch:
         assert new_payload["current_tenant_id"] == tenant_id
         assert new_payload["tenant_role"] == "owner"
 
-    def test_tenant_required_decorator_uses_correct_claim(
-        self, client: Any, auth_headers: Any
-    ) -> None:
-        """Test tenant_required decorator reads current_tenant_id claim."""
-        import jwt
-        from app.config import TestingConfig
+    def test_tenant_required_decorator_uses_correct_claim(self, app: Flask) -> None:
+        """Test tenant_required decorator reads the current_tenant_id claim.
 
-        # Create a tenant
+        No production endpoint is currently wrapped with @tenant_required —
+        grep confirms zero usages in services/flask-backend/app/*.py outside
+        the decorator's own definition in middleware.py. Attach it to an
+        ad-hoc route on this test's app instance so the decorator's actual
+        claim-reading behavior is exercised directly, instead of merely
+        asserting a JWT payload shape that no gated endpoint in the app
+        actually consumes.
+
+        Takes only the `app` fixture (not `client`/`auth_headers`) and
+        builds its own client/user locally: Flask forbids adding routes
+        once the app has handled its first request, and the shared
+        `auth_headers` fixture already fires a register+login request
+        before this test body would even start — the route below must be
+        registered before ANY request is dispatched against this app.
+        """
+        from app.middleware import tenant_required
+
+        @app.route("/api/v1/_test/tenant-gated")
+        @tenant_required
+        def _tenant_gated_route():  # type: ignore[no-untyped-def]
+            from flask import g, jsonify
+
+            return jsonify({"tenant_id": g.current_tenant_id}), 200
+
+        client = app.test_client()
+
+        unique_email = f"tenant-gate-{uuid.uuid4().hex[:8]}@example.com"
+        client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": unique_email,
+                "password": "testpass123",
+                "full_name": "Test User",
+            },
+        )
+        login_response = client.post(
+            "/api/v1/auth/login",
+            json={"email": unique_email, "password": "testpass123"},
+        )
+        auth_headers = {
+            "Authorization": f"Bearer {login_response.get_json()['access_token']}"
+        }
+
+        # A token with no current_tenant_id claim must be rejected
+        no_tenant_response = client.get(
+            "/api/v1/_test/tenant-gated", headers=auth_headers
+        )
+        assert no_tenant_response.status_code == 400
+
+        # Create a tenant and switch to it to mint a token that carries
+        # current_tenant_id
         response = client.post(
             "/api/v1/tenants",
             headers=auth_headers,
@@ -133,15 +183,15 @@ class TestTenantSwitch:
         )
         tenant_id = response.get_json()["id"]
 
-        # Switch to tenant
         switch_response = client.post(
             f"/api/v1/tenants/{tenant_id}/switch", headers=auth_headers
         )
         new_token = switch_response.get_json()["access_token"]
 
-        # Verify tenant context is available
-        new_payload = jwt.decode(
-            new_token, TestingConfig.JWT_SECRET_KEY, algorithms=["HS256"]
+        # The decorator should now grant access, reading current_tenant_id
+        gated_response = client.get(
+            "/api/v1/_test/tenant-gated",
+            headers={"Authorization": f"Bearer {new_token}"},
         )
-        assert "current_tenant_id" in new_payload
-        assert new_payload["current_tenant_id"] == tenant_id
+        assert gated_response.status_code == 200
+        assert gated_response.get_json()["tenant_id"] == tenant_id

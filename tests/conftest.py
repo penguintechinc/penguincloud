@@ -68,11 +68,17 @@ def user_id(client: Any) -> int:
     """Register and login a test user, return user ID."""
     from app.config import TestingConfig
 
+    # Unique email — see auth_headers below; the shared file-based sqlite
+    # DB persists across the whole pytest process (TestingConfig.DB_NAME is
+    # resolved once), so a fixed literal risks colliding with another
+    # test's registration in the same session.
+    unique_email = f"testuser{uuid.uuid4().hex[:8]}@example.com"
+
     # Register
     register_response = client.post(
         "/api/v1/auth/register",
         json={
-            "email": "testuser@example.com",
+            "email": unique_email,
             "password": "testpass123",
             "full_name": "Test User",
         },
@@ -85,7 +91,7 @@ def user_id(client: Any) -> int:
     # Login to get token
     login_response = client.post(
         "/api/v1/auth/login",
-        json={"email": "testuser@example.com", "password": "testpass123"},
+        json={"email": unique_email, "password": "testpass123"},
     )
     assert (
         login_response.status_code == 200
