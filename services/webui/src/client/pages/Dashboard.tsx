@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../hooks/useAuth";
 import { useTenantStore } from "../stores/tenantStore";
-import { useProductsStore } from "../stores/productsStore";
 import { dashboardApi } from "../hooks/useApi";
+import { queryKeys } from "../api/keys";
 import Card from "../components/Card";
 import TabNavigation from "../components/TabNavigation";
 import HealthGrid from "../components/HealthGrid";
@@ -12,12 +13,8 @@ import type { AuditLog, DashboardOverview, ProductConnection } from "../types";
 export default function Dashboard() {
   const { user } = useAuth();
   const { currentTenant } = useTenantStore();
-  const { connections, fetchConnections } = useProductsStore();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("overview");
-  const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [activity, setActivity] = useState<AuditLog[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
   const tabs = [
     { id: "overview", label: "Overview" },
@@ -25,31 +22,34 @@ export default function Dashboard() {
     { id: "activity", label: "Recent Activity" },
   ];
 
-  useEffect(() => {
-    if (!currentTenant) {
-      setIsLoading(false);
-      return;
-    }
+  // Fetch dashboard overview
+  const overviewQuery = useQuery({
+    queryKey: queryKeys.dashboard(),
+    queryFn: () => dashboardApi.overview(currentTenant?.id || ""),
+    enabled: !!currentTenant,
+  });
 
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const [ov, act] = await Promise.all([
-          dashboardApi.overview(currentTenant.id),
-          dashboardApi.activity(currentTenant.id, 10),
-        ]);
-        setOverview(ov);
-        setActivity(act.activity);
-        fetchConnections(currentTenant.id);
-      } catch (err) {
-        console.error("Failed to fetch dashboard data:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  // Fetch activity
+  const activityQuery = useQuery({
+    queryKey: queryKeys.auditLogs(),
+    queryFn: () => dashboardApi.activity(currentTenant?.id || "", 10),
+    enabled: !!currentTenant,
+  });
 
-    fetchData();
-  }, [currentTenant, fetchConnections]);
+  // Fetch connections (health grid data)
+  const connectionsQuery = useQuery({
+    queryKey: queryKeys.connections(),
+    queryFn: async () => {
+      const response = await dashboardApi.connections(currentTenant?.id || "");
+      return response as ProductConnection[];
+    },
+    enabled: !!currentTenant,
+  });
+
+  const isLoading = overviewQuery.isLoading || activityQuery.isLoading;
+  const overview = overviewQuery.data;
+  const activity = activityQuery.data?.activity || [];
+  const connections = connectionsQuery.data || [];
 
   const handleProductClick = (product: ProductConnection) => {
     navigate(`/products/${product.id}`);
