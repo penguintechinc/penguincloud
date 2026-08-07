@@ -424,7 +424,7 @@ async def test_product_tenant_mapping_rejects_unsupported_product_type(
     )
     assert response.status_code == 400
     body = await response.get_json()
-    assert "does not support tenant mapping" in body["error"]
+    assert "unsupported for mapping" in body["error"]
 
 
 @pytest.mark.asyncio
