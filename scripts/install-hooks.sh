@@ -15,18 +15,20 @@ CHANGED=$(git diff --cached --name-only)
 
 gitleaks protect --staged --exit-code 1
 
-if echo "$CHANGED" | grep -q '\.py$'; then
-  flake8 .
-  mypy . --strict --ignore-missing-imports
+STAGED_PY=$(echo "$CHANGED" | grep '\.py$' || true)
+if [ -n "$STAGED_PY" ]; then
+  echo "$STAGED_PY" | xargs flake8
+  echo "$STAGED_PY" | xargs mypy --strict --ignore-missing-imports
 fi
 
 if echo "$CHANGED" | grep -q '\.go$'; then
   golangci-lint run ./...
 fi
 
-if echo "$CHANGED" | grep -qE '\.(js|ts|jsx|tsx)$'; then
-  npx eslint . --max-warnings=0
-  npx prettier --check .
+STAGED_JS=$(echo "$CHANGED" | grep -E '\.(js|ts|jsx|tsx)$' || true)
+if [ -n "$STAGED_JS" ]; then
+  echo "$STAGED_JS" | xargs npx eslint --max-warnings=0
+  echo "$STAGED_JS" | xargs npx prettier --check
 fi
 
 if echo "$CHANGED" | grep -q '\.sh$'; then
