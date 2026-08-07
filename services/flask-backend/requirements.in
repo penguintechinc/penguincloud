@@ -34,6 +34,10 @@ pydantic>=2.10.0
 # HTTP clients
 aiohttp>=3.11.0              # async probing in app/discovery.py
 requests>=2.32.0             # sync adapters + license server (async rewrite: Task 3)
+httpx>=0.28.0                # KillKrill REST fallback client (app/killkrill_client/rest_client.py)
+
+# gRPC (KillKrill submission only — no gRPC service surface in this app; see app/grpc/__init__.py)
+grpcio>=1.82.0                # KillKrill gRPC client (app/killkrill_client/grpc_client.py)
 
 # Monitoring & Metrics
 prometheus-client>=0.21.0
