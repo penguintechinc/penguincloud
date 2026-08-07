@@ -329,7 +329,8 @@ async def send_invitation(team_id: int) -> tuple[dict[str, Any], int]:
     token = generate_invitation_token()
     expires_at = datetime.now(UTC) + timedelta(days=7)
 
-    invite_id = await db.team_invitations.insert(
+    # async_insert, not the sync insert (see auth_features.create_api_key).
+    invite_id = await db.team_invitations.async_insert(
         team_id=team_id,
         email=email,
         role=invite_role,

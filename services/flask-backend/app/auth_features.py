@@ -26,7 +26,10 @@ async def create_password_reset_token(user_id: int) -> tuple[str, datetime]:
     token = secrets.token_hex(16)
     expires = datetime.now(UTC) + timedelta(hours=1)
     db = get_db()
-    await db.password_reset_tokens.insert(
+    # async_insert, not insert: insert() is the sync API and opens a session
+    # via `with`, so awaiting it raises "'AsyncSession' object does not
+    # support the context manager protocol".
+    await db.password_reset_tokens.async_insert(
         user_id=user_id,
         token=token,
         expires_at=expires,
@@ -57,7 +60,7 @@ async def create_email_confirmation_token(user_id: int) -> tuple[str, datetime]:
     token = secrets.token_hex(16)
     expires = datetime.now(UTC) + timedelta(hours=24)
     db = get_db()
-    await db.email_confirmation_tokens.insert(
+    await db.email_confirmation_tokens.async_insert(
         user_id=user_id,
         token=token,
         expires_at=expires,
@@ -93,13 +96,17 @@ async def create_api_key(user_id: int, name: str, scopes: str = "") -> tuple[str
     key_hash = hashlib.sha256(key.encode()).hexdigest()
 
     db = get_db()
-    key_id = await db.api_keys.insert(
+    # key_prefix is the schema's column name (models_sqlalchemy.APIKey);
+    # inserting `prefix` raises "Unconsumed column names", and it is what
+    # get_user_api_keys reads back.
+    key_id = await db.api_keys.async_insert(
         user_id=user_id,
         name=name,
         key_hash=key_hash,
-        prefix=prefix,
+        key_prefix=prefix,
         scopes=scopes or "",
         is_active=True,
+        created_at=datetime.now(UTC),
     )
     return key, str(key_id)
 

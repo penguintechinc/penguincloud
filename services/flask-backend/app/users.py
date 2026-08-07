@@ -1,6 +1,5 @@
 """User Management Endpoints (Admin Only - async Quart)."""
 
-import asyncio
 from typing import Any
 
 from quart import Blueprint, request
@@ -309,7 +308,10 @@ async def list_api_keys() -> tuple[dict[str, Any], int]:
     if not user:
         return {"error": "User not authenticated"}, 401
 
-    keys = await asyncio.to_thread(get_user_api_keys, user["id"])
+    # get_user_api_keys is async; to_thread would build the coroutine in a
+    # worker thread and hand it back un-awaited, so the endpoint returned a
+    # coroutine object instead of the key list.
+    keys = await get_user_api_keys(user["id"])
     return {"api_keys": keys}, 200
 
 
@@ -353,7 +355,12 @@ async def delete_api_key(key_id: int) -> tuple[dict[str, Any], int]:
     if not user:
         return {"error": "User not authenticated"}, 401
 
-    success = await asyncio.to_thread(revoke_api_key, key_id, user["id"])
+    # revoke_api_key is async. Wrapped in to_thread it produced an un-awaited
+    # coroutine — always truthy — so this endpoint reported success without
+    # revoking anything, and the ownership predicate in its WHERE clause
+    # (user_id == caller) could never fail. Direct await restores both the
+    # revocation and the 404 on a key the caller does not own.
+    success = await revoke_api_key(key_id, user["id"])
     if success:
         return {"message": "API key revoked"}, 200
     return {"error": "API key not found"}, 404
@@ -367,5 +374,6 @@ async def get_audit_logs_endpoint() -> tuple[dict[str, Any], int]:
     from .auth_features import get_audit_logs
 
     limit = request.args.get("limit", 100, type=int)
-    logs = await asyncio.to_thread(get_audit_logs, min(limit, 1000))
+    # get_audit_logs is async — see list_api_keys above.
+    logs = await get_audit_logs(min(limit, 1000))
     return {"logs": logs}, 200
