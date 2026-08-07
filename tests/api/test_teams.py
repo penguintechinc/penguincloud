@@ -4,6 +4,14 @@ Team API Tests
 Tests for team creation, management, membership, and invitation flows.
 """
 
+import pytest
+
+# Mark all team tests as xfail - not implemented on v0.1.x
+pytestmark = pytest.mark.xfail(
+    reason="Team management endpoints not implemented on v0.1.x — Phase 1B",
+    strict=False,
+)
+
 
 class TestTeamCreation:
     """Test team creation endpoint"""

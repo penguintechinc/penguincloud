@@ -67,7 +67,7 @@ def dashboard_overview():
         "tenant": {
             "id": tenant_id,
             "name": tenant.get("name") if tenant else "",
-            "plan": tenant.get("plan") if tenant else "free",
+            "plan": tenant.get("plan_tier") if tenant else "free",
         },
         "stats": {
             "total_products": product_count,

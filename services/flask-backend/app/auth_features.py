@@ -184,7 +184,7 @@ def get_audit_logs(limit: int = 100) -> list:
         {
             "id": log.id,
             "user_id": log.user_id,
-            "action": log.action,
+            "action": log.action_type,
             "resource_type": log.resource_type,
             "resource_id": log.resource_id,
             "ip_address": log.ip_address,

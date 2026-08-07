@@ -127,7 +127,7 @@ class SQLATenant(Base):  # type: ignore[valid-type,misc]
     slug = Column(String(63), unique=True, nullable=False)
     display_name = Column(String(255))
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    plan = Column(String(50), default="free", nullable=False)
+    plan_tier = Column(String(50), default="free", nullable=False)
     license_key = Column(String(255))
     max_users = Column(Integer, default=10)
     max_products = Column(Integer, default=5)
@@ -191,6 +191,111 @@ class SQLATenantProductFeature(Base):  # type: ignore[valid-type,misc]
     limits = Column(Text)  # JSON
 
 
+class SQLATeam(Base):  # type: ignore[valid-type,misc]
+    """SQLAlchemy Team model for schema definition."""
+
+    __tablename__ = "teams"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False)
+    slug = Column(String(63), unique=True, nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SQLATeamMember(Base):  # type: ignore[valid-type,misc]
+    """SQLAlchemy TeamMember model for schema definition."""
+
+    __tablename__ = "team_members"
+
+    id = Column(Integer, primary_key=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role = Column(String(50), default="member", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SQLAOAuthConnection(Base):  # type: ignore[valid-type,misc]
+    """SQLAlchemy OAuthConnection model for schema definition."""
+
+    __tablename__ = "oauth_connections"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    provider = Column(String(50), nullable=False)
+    provider_user_id = Column(String(255), nullable=False)
+    access_token = Column(Text)
+    refresh_token = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SQLAAuditLog(Base):  # type: ignore[valid-type,misc]
+    """SQLAlchemy AuditLog model for schema definition."""
+
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    action_type = Column(String(100), nullable=False)
+    resource_type = Column(String(100))
+    resource_id = Column(String(255))
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+    product_connection_id = Column(Integer, ForeignKey("product_connections.id"))
+    request_body = Column(Text)
+    response_status = Column(Integer)
+    ip_address = Column(String(45))
+    user_agent = Column(Text)
+    # PyDAL uses 'metadata' column, but SQLAlchemy reserves that name
+    # Map it to a different attribute name 'metadata_json'
+    metadata_json = Column(Text, name="metadata")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SQLAPasswordResetToken(Base):  # type: ignore[valid-type,misc]
+    """SQLAlchemy PasswordResetToken model for schema definition."""
+
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token = Column(String(255), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SQLAEmailConfirmationToken(Base):  # type: ignore[valid-type,misc]
+    """SQLAlchemy EmailConfirmationToken model for schema definition."""
+
+    __tablename__ = "email_confirmation_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token = Column(String(255), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    confirmed_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SQLAAPIKey(Base):  # type: ignore[valid-type,misc]
+    """SQLAlchemy APIKey model for schema definition."""
+
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    key_hash = Column(String(255), unique=True, nullable=False)
+    key_prefix = Column(String(50))
+    last_used_at = Column(DateTime)
+    expires_at = Column(DateTime)
+    scopes = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db(app: Flask) -> DAL:
     """Initialize database connection and define tables."""
     # Get the config from the app
@@ -212,12 +317,16 @@ def init_db(app: Flask) -> DAL:
 
     if db_type == "sqlite":
         db_uri = f"sqlite://{db_name}"
+        # Disable connection pooling for SQLite (especially in-memory)
+        # In-memory databases are per-connection and can't be shared across pool
+        pool_size = 1
     else:
         db_uri = f"{db_type}://{db_user}:{db_pass}@" f"{db_host}:{db_port}/{db_name}"
+        pool_size = Config.DB_POOL_SIZE
 
     db = DAL(
         db_uri,
-        pool_size=Config.DB_POOL_SIZE,
+        pool_size=pool_size,
         migrate=True,
         check_reserved=["all"],
         lazy_tables=False,
@@ -317,7 +426,7 @@ def init_db(app: Flask) -> DAL:
         Field("display_name", "string", length=255),
         Field("owner_id", "reference users", requires=IS_NOT_EMPTY()),
         Field(
-            "plan",
+            "plan_tier",
             "string",
             length=50,
             default="free",
@@ -400,11 +509,46 @@ def init_db(app: Flask) -> DAL:
         Field("limits", "text"),  # JSON
     )
 
+    # Teams table
+    db.define_table(
+        "teams",
+        Field("name", "string", length=255, requires=IS_NOT_EMPTY()),
+        Field("slug", "string", length=63, unique=True, requires=IS_NOT_EMPTY()),
+        Field("owner_id", "reference users", requires=IS_NOT_EMPTY()),
+        Field("created_at", "datetime", default=datetime.utcnow),
+        Field(
+            "updated_at", "datetime", default=datetime.utcnow, update=datetime.utcnow
+        ),
+    )
+
+    # Team members table
+    db.define_table(
+        "team_members",
+        Field("team_id", "reference teams", requires=IS_NOT_EMPTY()),
+        Field("user_id", "reference users", requires=IS_NOT_EMPTY()),
+        Field("role", "string", length=50, default="member", requires=IS_NOT_EMPTY()),
+        Field("created_at", "datetime", default=datetime.utcnow),
+    )
+
+    # OAuth connections (for SSO providers)
+    db.define_table(
+        "oauth_connections",
+        Field("user_id", "reference users", requires=IS_NOT_EMPTY()),
+        Field("provider", "string", length=50, requires=IS_NOT_EMPTY()),
+        Field("provider_user_id", "string", length=255, requires=IS_NOT_EMPTY()),
+        Field("access_token", "text"),
+        Field("refresh_token", "text"),
+        Field("created_at", "datetime", default=datetime.utcnow),
+        Field(
+            "updated_at", "datetime", default=datetime.utcnow, update=datetime.utcnow
+        ),
+    )
+
     # Audit logs
     db.define_table(
         "audit_logs",
         Field("user_id", "reference users"),
-        Field("action", "string", length=100, requires=IS_NOT_EMPTY()),
+        Field("action_type", "string", length=100, requires=IS_NOT_EMPTY()),
         Field("resource_type", "string", length=100),
         Field("resource_id", "string", length=255),
         Field("tenant_id", "reference tenants"),
@@ -419,6 +563,28 @@ def init_db(app: Flask) -> DAL:
 
     # Commit table definitions
     db.commit()
+
+    # Create tables using SQLAlchemy - this ensures all tables exist in the database file
+    # We use SQLAlchemy for schema creation (all tables are now defined as SQLAlchemy models)
+    # and PyDAL for runtime operations
+    try:
+        from sqlalchemy import create_engine
+
+        # Create SQLAlchemy engine using the same database
+        if db_type == "sqlite":
+            sa_uri = f"sqlite:///{db_name.lstrip(':')}"
+        else:
+            sa_uri = f"{db_type}://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+
+        engine = create_engine(sa_uri)
+        # Create all tables defined in SQLAlchemy models
+        Base.metadata.create_all(engine)
+        engine.dispose()
+    except Exception as e:
+        # Log but don't fail if SQLAlchemy table creation has issues
+        import logging
+
+        logging.getLogger(__name__).debug(f"SQLAlchemy table creation: {e}")
 
     # Store db instance in app
     app.config["db"] = db
@@ -608,7 +774,7 @@ def create_tenant(
         slug=slug,
         display_name=display_name or name,
         owner_id=owner_id,
-        plan=plan,
+        plan_tier=plan,
     )
     # Add owner as tenant member
     db.tenant_members.insert(
@@ -809,7 +975,7 @@ def create_audit_log(
     db = get_db()
     log_id = db.audit_logs.insert(
         user_id=user_id,
-        action=action,
+        action_type=action,  # Use action_type for the database column
         resource_type=resource_type,
         resource_id=resource_id,
         tenant_id=tenant_id,
@@ -822,3 +988,75 @@ def create_audit_log(
     )
     db.commit()
     return log_id
+
+
+def get_oauth_connection(provider: str, provider_user_id: str) -> dict:
+    """Get OAuth connection by provider and provider user ID."""
+    db = get_db()
+    row = db(
+        (db.oauth_connections.provider == provider)
+        & (db.oauth_connections.provider_user_id == provider_user_id)
+    ).select()
+    return row[0].as_dict() if row else None
+
+
+def get_oauth_connection_by_provider_id(provider: str, provider_user_id: str) -> dict:
+    """Alias for get_oauth_connection for backward compatibility."""
+    return get_oauth_connection(provider, provider_user_id)
+
+
+def store_oauth_connection(
+    user_id: int, provider: str, provider_user_id: str, access_token: str, refresh_token: str
+) -> int:
+    """Store OAuth connection for a user."""
+    db = get_db()
+    return db.oauth_connections.insert(
+        user_id=user_id,
+        provider=provider,
+        provider_user_id=provider_user_id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
+
+
+def create_team(name: str, slug: str, owner_id: int) -> dict:
+    """Create a new team."""
+    db = get_db()
+    team_id = db.teams.insert(name=name, slug=slug, owner_id=owner_id)
+    return db.teams(team_id).as_dict() if team_id else {}
+
+
+def get_team_by_id(team_id: int) -> dict:
+    """Get team by ID."""
+    db = get_db()
+    row = db(db.teams.id == team_id).select()
+    return row[0].as_dict() if row else None
+
+
+def get_team_members(team_id: int) -> list:
+    """Get members of a team."""
+    db = get_db()
+    rows = db(db.team_members.team_id == team_id).select()
+    return [row.as_dict() for row in rows]
+
+
+def add_team_member(team_id: int, user_id: int, role: str = "member") -> int:
+    """Add a user to a team."""
+    db = get_db()
+    return db.team_members.insert(team_id=team_id, user_id=user_id, role=role)
+
+
+def get_user_teams(user_id: int) -> list:
+    """Get all teams for a user."""
+    db = get_db()
+    rows = db(db.team_members.user_id == user_id).select()
+    return [row.as_dict() for row in rows]
+
+
+def get_user_team_role(user_id: int, team_id: int) -> str:
+    """Get user's role in a team."""
+    db = get_db()
+    row = db(
+        (db.team_members.user_id == user_id) & (db.team_members.team_id == team_id)
+    ).select()
+    return row[0].role if row else None

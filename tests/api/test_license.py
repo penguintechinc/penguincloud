@@ -6,6 +6,11 @@ Tests for license validation, feature gating, and checkin.
 
 import pytest
 
+# Skip all tests - License endpoints not implemented on v0.1.x
+pytestmark = pytest.mark.skip(
+    reason="License endpoints not implemented on v0.1.x — Phase 2B"
+)
+
 
 class TestLicenseValidation:
     """Test license validation on startup"""

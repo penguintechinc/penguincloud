@@ -121,4 +121,5 @@ class TestingConfig(Config):
 
     TESTING = True
     DB_TYPE = "sqlite"
-    DB_NAME = ":memory:"
+    # Use a file-based database for testing to avoid in-memory SQLite connection pool issues
+    DB_NAME = "/tmp/test.db"  # nosec B108 - temp file OK for testing, CI only

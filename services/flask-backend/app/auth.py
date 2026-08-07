@@ -330,7 +330,6 @@ def register():
         name=f"{user_name}'s Team",
         slug=team_slug,
         owner_id=user["id"],
-        description="Personal team",
     )
 
     return (
