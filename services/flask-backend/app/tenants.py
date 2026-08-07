@@ -17,6 +17,7 @@ from .models import (
     get_tenant_member_count,
     get_tenant_members,
     get_tenant_product_count,
+    get_tenant_product_connections,
     get_user_by_id,
     get_user_tenant_role,
     get_user_tenants,
@@ -92,12 +93,53 @@ async def create_tenant_endpoint() -> tuple[dict[str, Any], int]:
 @tenants_bp.route("", methods=["GET"])
 @auth_required
 async def list_user_tenants() -> tuple[dict[str, Any], int]:
-    """List user's tenants."""
+    """List user's tenants (with optional subtree expansion).
+
+    Query params:
+      - include_children=true: List tenants in subtree (requires delegated admin)
+    """
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-    tenants = await get_user_tenants(user["id"])
-    return {"tenants": tenants, "count": len(tenants)}, 200
+
+    include_children = request.args.get("include_children", "false").lower() == "true"
+
+    if include_children:
+        # Delegated admin listing: needs admin/owner in at least one tenant
+        from .tenancy import get_hierarchy
+
+        user_tenants = await get_user_tenants(user["id"])
+        if not user_tenants:
+            return {"tenants": [], "count": 0}, 200
+
+        # Collect all subtree tenants from tenants where user is admin/owner
+        all_tenant_ids: set[int] = set()
+        for tenant in user_tenants:
+            tenant_id_val = tenant.get("id")
+            if not isinstance(tenant_id_val, int):
+                continue
+            role = await get_user_tenant_role(user["id"], tenant_id_val)
+            if role in ["owner", "admin"]:
+                # User has delegated admin here
+                try:
+                    hierarchy = await get_hierarchy(tenant_id_val)
+                    all_tenant_ids.add(tenant_id_val)
+                    all_tenant_ids.update(hierarchy.descendants)
+                except ValueError:
+                    pass
+
+        # Load all tenant details
+        result_tenants = []
+        for tenant_id in sorted(all_tenant_ids):
+            t = await get_tenant_by_id(tenant_id)
+            if t:
+                result_tenants.append(t)
+
+        return {"tenants": result_tenants, "count": len(result_tenants)}, 200
+    else:
+        # Standard listing: just user's direct tenants
+        tenants = await get_user_tenants(user["id"])
+        return {"tenants": tenants, "count": len(tenants)}, 200
 
 
 @tenants_bp.route("/<int:tenant_id>", methods=["GET"])
@@ -461,3 +503,64 @@ async def get_tenant_usage(tenant_id: int) -> tuple[dict[str, Any], int]:
             },
         },
     }, 200
+
+
+@tenants_bp.route("/<int:tenant_id>/dashboard/rollup", methods=["GET"])
+@auth_required
+async def get_dashboard_rollup(tenant_id: int) -> tuple[dict[str, Any], int]:
+    """Get per-child-tenant × per-product rollup for provider dashboard.
+
+    Only available to delegated admin (owner/admin in this tenant).
+    Returns stub product status until Phase 4 adapters are in place.
+    """
+    user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
+
+    # Check admin access
+    role = await get_user_tenant_role(user["id"], tenant_id)
+    if role not in ["owner", "admin"]:
+        return {"error": "Admin access required"}, 403
+
+    tenant = await get_tenant_by_id(tenant_id)
+    if not tenant:
+        return {"error": "Tenant not found"}, 404
+
+    # Get subtree
+    from .tenancy import get_hierarchy
+
+    try:
+        hierarchy = await get_hierarchy(tenant_id)
+    except ValueError:
+        return {"error": "Tenant not found"}, 404
+
+    # Include the parent tenant itself
+    all_tenant_ids: set[int] = {tenant_id}
+    all_tenant_ids.update(hierarchy.descendants)
+
+    # Build rollup: per tenant, list connections and stub status
+    rollup = []
+    for child_id in sorted(all_tenant_ids):
+        child_tenant = await get_tenant_by_id(child_id)
+        if not child_tenant:
+            continue
+
+        connections = await get_tenant_product_connections(child_id)
+        products = [
+            {
+                "connection_id": conn.get("id"),
+                "product": conn.get("external_id", "unknown"),
+                "status": "unknown",  # Stubbed until Phase 4
+            }
+            for conn in connections
+        ]
+
+        rollup.append(
+            {
+                "tenant_id": child_id,
+                "tenant_name": child_tenant.get("name", f"Tenant {child_id}"),
+                "products": products,
+            }
+        )
+
+    return {"rollup": rollup, "count": len(rollup)}, 200
