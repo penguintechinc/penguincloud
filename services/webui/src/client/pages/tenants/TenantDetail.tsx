@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router";
 import { tenantsApi } from "../../hooks/useApi";
 import Card from "../../components/Card";
 import TabNavigation from "../../components/TabNavigation";

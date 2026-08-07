@@ -30,11 +30,11 @@ Phase 0 repository hygiene in progress on `chore/phase0-repo-hygiene`. Current s
 - Health endpoint: `/health` (TCP + HTTP GET)
 
 **WebUI** (`services/webui`): React management dashboard
-- React 18, TypeScript strict
-- Routing: react-router-dom **7.18.2** (exact pin) — deviates from frontend-react standard v6.x due to widespread CVE issues across lower versions. 7.18.2 has RSC-mode CSRF advisory (GHSA-qwww-vcr4-c8h2) which is not applicable to our client-side-only routing architecture (no Server Components, no Server Actions). Reassess when newer 7.x or 8.x releases become stable
+- React **19.2.8**, TypeScript strict — deviates from org standard React 18 to resolve GHSA-qwww-vcr4-c8h2 (RSC-mode CSRF advisory affecting react-router 7.12.0–8.2.x, fixed in 8.3.0; no React-18-compatible fix available)
+- Routing: react-router **8.3.0** (exact pin) — org standard is react-router v6; upgraded to 8.3.0 for security advisory remediation (user-approved, Phase 1F)
 - Styling: TailwindCSS v4 with @theme tokens (slate dark + gold)
 - Data fetching: TanStack Query 5
-- Components: @penguintechinc/react-libs (shared components, auth, forms)
+- Components: @penguintechinc/react-libs (shared components, auth, forms) — tested compatible with React 19.2.8
 - Deployment: Node.js/Express serving static files + `/api` proxy to portal-api
 
 ### Product Adapters

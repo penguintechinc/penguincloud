@@ -4,7 +4,7 @@ import { useProductsStore } from "../stores/productsStore";
 import { dashboardApi } from "../hooks/useApi";
 import Card from "../components/Card";
 import HealthGrid from "../components/HealthGrid";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import type { ProductConnection } from "../types";
 
 export default function Health() {

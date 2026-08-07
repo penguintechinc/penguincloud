@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { useTenantStore } from "../../stores/tenantStore";
 import Card from "../../components/Card";
 

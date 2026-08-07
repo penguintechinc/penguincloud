@@ -1,6 +1,0 @@
-# GHSA-qwww-vcr4-c8h2: React Router RSC Mode CSRF
-# This is RSC (React Server Components) / Server Actions specific.
-# PenguinCloud WebUI is purely client-side routing with no Server Components.
-# No fix available in 7.x series; 8.x not yet released (as of 2026-08-07).
-# Reassess when 8.x becomes available.
-GHSA-qwww-vcr4-c8h2
