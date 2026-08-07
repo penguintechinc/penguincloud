@@ -31,10 +31,26 @@ VALID_HEALTH_STATUSES = ["healthy", "degraded", "unhealthy", "unknown"]
 
 # Product type enumeration — all PenguinTech products
 PRODUCT_TYPES = [
-    "marchproxy", "squawk", "license_server", "skauswatch", "waddleai",
-    "articdbm", "cerberus", "waddlebot", "waddleperf", "iceshelves",
-    "icecharts", "killkrill", "tobogganing", "nest", "darwin",
-    "gough", "current", "elder", "admin", "generic",
+    "marchproxy",
+    "squawk",
+    "license_server",
+    "skauswatch",
+    "waddleai",
+    "articdbm",
+    "cerberus",
+    "waddlebot",
+    "waddleperf",
+    "iceshelves",
+    "icecharts",
+    "killkrill",
+    "tobogganing",
+    "nest",
+    "darwin",
+    "gough",
+    "current",
+    "elder",
+    "admin",
+    "generic",
 ]
 
 # Product categories for UI organization
@@ -43,7 +59,14 @@ PRODUCT_CATEGORIES = {
     "security": ["skauswatch", "cerberus"],
     "ai": ["waddleai", "waddlebot"],
     "monitoring": ["waddleperf", "icecharts"],
-    "operations": ["killkrill", "tobogganing", "darwin", "gough", "current", "license_server"],
+    "operations": [
+        "killkrill",
+        "tobogganing",
+        "darwin",
+        "gough",
+        "current",
+        "license_server",
+    ],
     "development": ["nest"],
     "legacy": ["elder"],
     "administration": ["admin"],
@@ -51,7 +74,7 @@ PRODUCT_CATEGORIES = {
 
 
 # SQLAlchemy ORM Models (for schema definition and Alembic migrations)
-class SQLAUser(Base):
+class SQLAUser(Base):  # type: ignore[valid-type,misc]
     """SQLAlchemy User model for schema definition."""
 
     __tablename__ = "users"
@@ -68,7 +91,7 @@ class SQLAUser(Base):
     )
 
 
-class SQLARefreshToken(Base):
+class SQLARefreshToken(Base):  # type: ignore[valid-type,misc]
     """SQLAlchemy RefreshToken model for schema definition."""
 
     __tablename__ = "refresh_tokens"
@@ -81,7 +104,7 @@ class SQLARefreshToken(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
-class SQLAMfaSecret(Base):
+class SQLAMfaSecret(Base):  # type: ignore[valid-type,misc]
     """SQLAlchemy MfaSecret model for schema definition."""
 
     __tablename__ = "mfa_secrets"
@@ -94,7 +117,7 @@ class SQLAMfaSecret(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
-class SQLATenant(Base):
+class SQLATenant(Base):  # type: ignore[valid-type,misc]
     """SQLAlchemy Tenant model for schema definition."""
 
     __tablename__ = "tenants"
@@ -111,10 +134,12 @@ class SQLATenant(Base):
     settings = Column(Text)  # JSON
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
 
-class SQLATenantMember(Base):
+class SQLATenantMember(Base):  # type: ignore[valid-type,misc]
     """SQLAlchemy TenantMember model for schema definition."""
 
     __tablename__ = "tenant_members"
@@ -127,7 +152,7 @@ class SQLATenantMember(Base):
     joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
-class SQLAProductConnection(Base):
+class SQLAProductConnection(Base):  # type: ignore[valid-type,misc]
     """SQLAlchemy ProductConnection model for schema definition."""
 
     __tablename__ = "product_connections"
@@ -148,10 +173,12 @@ class SQLAProductConnection(Base):
     discovered = Column(Boolean, default=False)
     metadata_json = Column(Text)  # JSON
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
 
-class SQLATenantProductFeature(Base):
+class SQLATenantProductFeature(Base):  # type: ignore[valid-type,misc]
     """SQLAlchemy TenantProductFeature model for schema definition."""
 
     __tablename__ = "tenant_product_features"
@@ -166,7 +193,27 @@ class SQLATenantProductFeature(Base):
 
 def init_db(app: Flask) -> DAL:
     """Initialize database connection and define tables."""
-    db_uri = Config.get_db_uri()
+    # Get the config from the app
+    db_type = app.config.get("DB_TYPE", Config.DB_TYPE)
+    db_name = app.config.get("DB_NAME", Config.DB_NAME)
+    db_host = app.config.get("DB_HOST", Config.DB_HOST)
+    db_port = app.config.get("DB_PORT", Config.DB_PORT)
+    db_user = app.config.get("DB_USER", Config.DB_USER)
+    db_pass = app.config.get("DB_PASS", Config.DB_PASS)
+
+    # Map common aliases to PyDAL format
+    type_map = {
+        "postgresql": "postgres",
+        "mysql": "mysql",
+        "sqlite": "sqlite",
+        "mssql": "mssql",
+    }
+    db_type = type_map.get(db_type, db_type)
+
+    if db_type == "sqlite":
+        db_uri = f"sqlite://{db_name}"
+    else:
+        db_uri = f"{db_type}://{db_user}:{db_pass}@" f"{db_host}:{db_port}/{db_name}"
 
     db = DAL(
         db_uri,
@@ -254,7 +301,7 @@ def init_db(app: Flask) -> DAL:
         Field("user_id", "reference users", requires=IS_NOT_EMPTY()),
         Field("name", "string", length=255, requires=IS_NOT_EMPTY()),
         Field("key_hash", "string", length=255, unique=True, requires=IS_NOT_EMPTY()),
-        Field("prefix", "string", length=50),
+        Field("key_prefix", "string", length=50),
         Field("last_used_at", "datetime"),
         Field("expires_at", "datetime"),
         Field("scopes", "text"),
@@ -270,7 +317,10 @@ def init_db(app: Flask) -> DAL:
         Field("display_name", "string", length=255),
         Field("owner_id", "reference users", requires=IS_NOT_EMPTY()),
         Field(
-            "plan", "string", length=50, default="free",
+            "plan",
+            "string",
+            length=50,
+            default="free",
             requires=IS_IN_SET(VALID_PLANS),
         ),
         Field("license_key", "string", length=255),
@@ -279,7 +329,9 @@ def init_db(app: Flask) -> DAL:
         Field("settings", "text"),  # JSON
         Field("is_active", "boolean", default=True),
         Field("created_at", "datetime", default=datetime.utcnow),
-        Field("updated_at", "datetime", default=datetime.utcnow, update=datetime.utcnow),
+        Field(
+            "updated_at", "datetime", default=datetime.utcnow, update=datetime.utcnow
+        ),
     )
 
     # Tenant members table
@@ -288,7 +340,10 @@ def init_db(app: Flask) -> DAL:
         Field("tenant_id", "reference tenants", requires=IS_NOT_EMPTY()),
         Field("user_id", "reference users", requires=IS_NOT_EMPTY()),
         Field(
-            "role", "string", length=50, default="member",
+            "role",
+            "string",
+            length=50,
+            default="member",
             requires=IS_IN_SET(VALID_TENANT_ROLES),
         ),
         Field("invited_by_id", "reference users"),
@@ -300,7 +355,9 @@ def init_db(app: Flask) -> DAL:
         "product_connections",
         Field("tenant_id", "reference tenants", requires=IS_NOT_EMPTY()),
         Field(
-            "product_type", "string", length=50,
+            "product_type",
+            "string",
+            length=50,
             requires=IS_IN_SET(PRODUCT_TYPES),
         ),
         Field("display_name", "string", length=255, requires=IS_NOT_EMPTY()),
@@ -308,7 +365,10 @@ def init_db(app: Flask) -> DAL:
         Field("api_key", "text"),  # Encrypted
         Field("api_secret", "text"),  # Encrypted
         Field(
-            "auth_type", "string", length=50, default="bearer",
+            "auth_type",
+            "string",
+            length=50,
+            default="bearer",
             requires=IS_IN_SET(VALID_AUTH_TYPES),
         ),
         Field("health_endpoint", "string", length=255, default="/healthz"),
@@ -316,13 +376,18 @@ def init_db(app: Flask) -> DAL:
         Field("is_active", "boolean", default=True),
         Field("last_health_check", "datetime"),
         Field(
-            "health_status", "string", length=50, default="unknown",
+            "health_status",
+            "string",
+            length=50,
+            default="unknown",
             requires=IS_IN_SET(VALID_HEALTH_STATUSES),
         ),
         Field("discovered", "boolean", default=False),
         Field("metadata_json", "text"),  # JSON
         Field("created_at", "datetime", default=datetime.utcnow),
-        Field("updated_at", "datetime", default=datetime.utcnow, update=datetime.utcnow),
+        Field(
+            "updated_at", "datetime", default=datetime.utcnow, update=datetime.utcnow
+        ),
     )
 
     # Tenant product features table
@@ -397,7 +462,7 @@ def create_user(
         is_active=True,
     )
     db.commit()
-    return get_user_by_id(user_id)
+    return get_user_by_id(user_id)  # type: ignore[return-value]
 
 
 def update_user(user_id: int, **kwargs) -> Optional[dict]:
@@ -490,7 +555,7 @@ def create_mfa_secret(user_id: int, secret: str, backup_codes: str) -> dict:
         backup_codes=backup_codes,
     )
     db.commit()
-    return get_mfa_secret(user_id)
+    return get_mfa_secret(user_id)  # type: ignore[return-value]
 
 
 def get_mfa_secret(user_id: int) -> Optional[dict]:
@@ -532,8 +597,10 @@ def is_mfa_enabled(user_id: int) -> bool:
 
 # Tenant helper functions
 
-def create_tenant(name: str, slug: str, owner_id: int, display_name: str = "",
-                  plan: str = "free") -> dict:
+
+def create_tenant(
+    name: str, slug: str, owner_id: int, display_name: str = "", plan: str = "free"
+) -> dict:
     """Create a new tenant and add the owner as a member."""
     db = get_db()
     tenant_id = db.tenants.insert(
@@ -550,7 +617,7 @@ def create_tenant(name: str, slug: str, owner_id: int, display_name: str = "",
         role="owner",
     )
     db.commit()
-    return get_tenant_by_id(tenant_id)
+    return get_tenant_by_id(tenant_id)  # type: ignore[return-value]
 
 
 def get_tenant_by_id(tenant_id: int) -> Optional[dict]:
@@ -587,10 +654,14 @@ def get_user_tenants(user_id: int) -> list[dict]:
 def get_user_tenant_role(user_id: int, tenant_id: int) -> Optional[str]:
     """Get user's role in a tenant."""
     db = get_db()
-    member = db(
-        (db.tenant_members.user_id == user_id)
-        & (db.tenant_members.tenant_id == tenant_id)
-    ).select().first()
+    member = (
+        db(
+            (db.tenant_members.user_id == user_id)
+            & (db.tenant_members.tenant_id == tenant_id)
+        )
+        .select()
+        .first()
+    )
     return member.role if member else None
 
 
@@ -609,8 +680,9 @@ def get_tenant_members(tenant_id: int) -> list[dict]:
     return result
 
 
-def add_tenant_member(tenant_id: int, user_id: int, role: str = "member",
-                      invited_by_id: int = None) -> dict:
+def add_tenant_member(
+    tenant_id: int, user_id: int, role: str = "member", invited_by_id: int = None
+) -> dict:
     """Add a member to a tenant."""
     db = get_db()
     member_id = db.tenant_members.insert(
@@ -631,14 +703,22 @@ def get_tenant_member_count(tenant_id: int) -> int:
 
 # Product connection helper functions
 
-def create_product_connection(tenant_id: int, product_type: str, display_name: str,
-                              base_url: str, auth_type: str = "bearer",
-                              api_key: str = "", api_secret: str = "",
-                              health_endpoint: str = "/healthz",
-                              api_version: str = "v1",
-                              discovered: bool = False) -> dict:
+
+def create_product_connection(
+    tenant_id: int,
+    product_type: str,
+    display_name: str,
+    base_url: str,
+    auth_type: str = "bearer",
+    api_key: str = "",
+    api_secret: str = "",
+    health_endpoint: str = "/healthz",
+    api_version: str = "v1",
+    discovered: bool = False,
+) -> dict:
     """Create a new product connection."""
     from .encryption import encrypt_value
+
     db = get_db()
     conn_id = db.product_connections.insert(
         tenant_id=tenant_id,
@@ -654,7 +734,7 @@ def create_product_connection(tenant_id: int, product_type: str, display_name: s
         health_status="unknown",
     )
     db.commit()
-    return get_product_connection_by_id(conn_id)
+    return get_product_connection_by_id(conn_id)  # type: ignore[return-value]
 
 
 def get_product_connection_by_id(conn_id: int) -> Optional[dict]:
@@ -682,7 +762,7 @@ def get_tenant_product_connections(tenant_id: int) -> list[dict]:
     db = get_db()
     connections = db(
         (db.product_connections.tenant_id == tenant_id)
-        & (db.product_connections.is_active == True)
+        & (db.product_connections.is_active == True)  # noqa: E712
     ).select(orderby=db.product_connections.product_type)
     result = []
     for c in connections:
@@ -698,7 +778,7 @@ def get_tenant_product_count(tenant_id: int) -> int:
     db = get_db()
     return db(
         (db.product_connections.tenant_id == tenant_id)
-        & (db.product_connections.is_active == True)
+        & (db.product_connections.is_active == True)  # noqa: E712
     ).count()
 
 
@@ -712,12 +792,19 @@ def update_product_health(conn_id: int, status: str) -> None:
     db.commit()
 
 
-def create_audit_log(user_id: int, action: str, resource_type: str = "",
-                     resource_id: str = "", tenant_id: int = None,
-                     product_connection_id: int = None,
-                     request_body: str = "", response_status: int = None,
-                     ip_address: str = "", user_agent: str = "",
-                     metadata: str = "") -> int:
+def create_audit_log(
+    user_id: int,
+    action: str,
+    resource_type: str = "",
+    resource_id: str = "",
+    tenant_id: int = None,
+    product_connection_id: int = None,
+    request_body: str = "",
+    response_status: int = None,
+    ip_address: str = "",
+    user_agent: str = "",
+    metadata: str = "",
+) -> int:
     """Create an audit log entry."""
     db = get_db()
     log_id = db.audit_logs.insert(

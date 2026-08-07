@@ -32,23 +32,43 @@ def get_limiter():
 
 def hash_password(password: str) -> str:
     """Hash password using bcrypt."""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    return hashed.decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify password against hash."""
-    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    pwd_bytes = password.encode("utf-8")
+    hash_bytes = password_hash.encode("utf-8")
+    return bcrypt.checkpw(pwd_bytes, hash_bytes)
 
 
-def create_access_token(user_id: int, role: str, team_ids: list = None) -> str:
-    """Create JWT access token with team context."""
-    from .models import get_user_teams
+def create_access_token(
+    user_id: int,
+    role: str,
+    team_ids: list = None,
+    extra_claims: dict | None = None,
+) -> str:
+    """Create JWT access token with team context and optional extra claims.
+
+    Args:
+        user_id: User ID for the token
+        role: User role
+        team_ids: List of team IDs (fetched from DB if None)
+        extra_claims: Optional extra claims to merge (cannot override
+            reserved claims)
+
+    Returns:
+        Encoded JWT token string
+    """
+    from .models import get_user_teams  # type: ignore[attr-defined]
 
     if team_ids is None:
         teams = get_user_teams(user_id)
         team_ids = [t["id"] for t in teams]
 
-    expires = datetime.utcnow() + current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]
+    token_expiry = current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]
+    expires = datetime.utcnow() + token_expiry
     payload = {
         "sub": str(user_id),
         "role": role,
@@ -58,19 +78,30 @@ def create_access_token(user_id: int, role: str, team_ids: list = None) -> str:
         "exp": expires,
         "iat": datetime.utcnow(),
     }
-    return jwt.encode(payload, current_app.config["JWT_SECRET_KEY"], algorithm="HS256")
+
+    # Merge extra_claims if provided, but do not override reserved claims
+    if extra_claims:
+        reserved_claims = {"sub", "exp", "iat", "type"}
+        for key, value in extra_claims.items():
+            if key not in reserved_claims:
+                payload[key] = value
+
+    secret = current_app.config["JWT_SECRET_KEY"]
+    return jwt.encode(payload, secret, algorithm="HS256")
 
 
 def create_refresh_token(user_id: int) -> tuple[str, datetime]:
     """Create JWT refresh token and store hash in database."""
-    expires = datetime.utcnow() + current_app.config["JWT_REFRESH_TOKEN_EXPIRES"]
+    token_expires = current_app.config["JWT_REFRESH_TOKEN_EXPIRES"]
+    expires = datetime.utcnow() + token_expires
     payload = {
         "sub": str(user_id),
         "type": "refresh",
         "exp": expires,
         "iat": datetime.utcnow(),
     }
-    token = jwt.encode(payload, current_app.config["JWT_SECRET_KEY"], algorithm="HS256")
+    secret = current_app.config["JWT_SECRET_KEY"]
+    token = jwt.encode(payload, secret, algorithm="HS256")
 
     # Store hash of token in database for revocation
     token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -111,7 +142,8 @@ def login():
     # Check MFA requirement
     if is_mfa_enabled(user["id"]):
         if not totp_code:
-            return jsonify({"error": "MFA code required", "mfa_required": True}), 401
+            error_resp = {"error": "MFA code required", "mfa_required": True}
+            return jsonify(error_resp), 401
 
         # Verify TOTP code
         mfa = get_mfa_secret(user["id"])
@@ -126,15 +158,15 @@ def login():
     access_token = create_access_token(user["id"], user["role"])
     refresh_token, refresh_expires = create_refresh_token(user["id"])
 
+    token_expiry = current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]
+    expires_seconds = int(token_expiry.total_seconds())
     return (
         jsonify(
             {
                 "access_token": access_token,
                 "refresh_token": refresh_token,
                 "token_type": "Bearer",
-                "expires_in": int(
-                    current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()
-                ),
+                "expires_in": expires_seconds,
                 "user": {
                     "id": user["id"],
                     "email": user["email"],
@@ -196,15 +228,15 @@ def refresh():
     access_token = create_access_token(user["id"], user["role"])
     new_refresh_token, refresh_expires = create_refresh_token(user["id"])
 
+    token_expiry = current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]
+    expires_seconds = int(token_expiry.total_seconds())
     return (
         jsonify(
             {
                 "access_token": access_token,
                 "refresh_token": new_refresh_token,
                 "token_type": "Bearer",
-                "expires_in": int(
-                    current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()
-                ),
+                "expires_in": expires_seconds,
             }
         ),
         200,
@@ -272,7 +304,8 @@ def register():
         return jsonify({"error": "Email is required"}), 400
 
     if not password or len(password) < 8:
-        return jsonify({"error": "Password must be at least 8 characters"}), 400
+        msg = "Password must be at least 8 characters"
+        return jsonify({"error": msg}), 400
 
     # Check if user exists
     existing = get_user_by_email(email)

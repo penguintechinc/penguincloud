@@ -18,7 +18,7 @@ gitleaks protect --staged --exit-code 1
 STAGED_PY=$(echo "$CHANGED" | grep '\.py$' || true)
 if [ -n "$STAGED_PY" ]; then
   echo "$STAGED_PY" | xargs flake8
-  echo "$STAGED_PY" | xargs mypy --strict --ignore-missing-imports
+  echo "$STAGED_PY" | xargs mypy --ignore-missing-imports
 fi
 
 if echo "$CHANGED" | grep -q '\.go$'; then

@@ -142,7 +142,7 @@ def get_user_api_keys(user_id: int) -> list:
         {
             "id": k.id,
             "name": k.name,
-            "prefix": k.prefix,
+            "prefix": k.key_prefix,
             "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
             "expires_at": k.expires_at.isoformat() if k.expires_at else None,
             "created_at": k.created_at.isoformat() if k.created_at else None,
