@@ -30,8 +30,8 @@ class Config:
     DB_PASS = os.getenv("DB_PASS", "app_pass")
     DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
 
-    # CORS
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+    # CORS - comma-separated allowlist (parsed in app factory)
+    CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 
     # OAuth2/SSO Configuration
     OAUTH_ENABLED = os.getenv("OAUTH_ENABLED", "false").lower() == "true"
