@@ -1,6 +1,6 @@
 """Add hierarchical tenancy schema
 
-Revision ID: 20260807210447
+Revision ID: e94b513398d4
 Revises: f1bbaa47eed6
 Create Date: 2026-08-07 21:04:47.000000
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = "20260807210447"
+revision: str = "e94b513398d4"
 down_revision: Union[str, None] = "f1bbaa47eed6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
