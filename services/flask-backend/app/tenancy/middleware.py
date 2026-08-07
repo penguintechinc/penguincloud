@@ -34,6 +34,13 @@ class TenancyContext:
     tenant_kind: str  # 'provider' or 'customer'
     hierarchy: TenantHierarchy
 
+    def covers(self, candidate_tenant_id: int) -> bool:
+        """True when a tenant is the active one or sits beneath it."""
+        return (
+            candidate_tenant_id == self.tenant_id
+            or candidate_tenant_id in self.hierarchy.descendants
+        )
+
 
 async def load_tenancy_context(tenant_id: int) -> TenancyContext:
     """Load tenant row and hierarchy from the database.
@@ -74,26 +81,41 @@ async def load_tenancy_context(tenant_id: int) -> TenancyContext:
 def tenancy_aware(
     f: Callable[P, Awaitable[R]],
 ) -> Callable[P, Awaitable[Any]]:
-    """Attach tenancy context to request after auth validation.
+    """Resolve the active tenant into ``g.tenancy_context`` before the view.
 
-    Expects auth_required to have already run (verified JWT, set g.current_claims).
-    Loads tenant row and hierarchy, attaches TenancyContext to g.
+    Sits between ``auth_required`` (which verifies the JWT and populates
+    ``g.current_claims``) and the view's own scope/role logic, so tenancy is
+    established before any authorization decision is taken — never after.
 
-    Returns 403 if:
-    - No tenant claim in the token
-    - Tenant not found in the database
+    Outcomes:
+
+    * **Tenant claim missing or blank → 403, view never runs.** penguin-aaa
+      requires a non-empty tenant claim, so this state means a token was
+      minted outside the sanctioned path; it is rejected here rather than
+      being allowed to reach a route that would then read tenancy off ``g``
+      and find nothing.
+    * **Claim names a tenant that does not exist → 403, view never runs.**
+    * **Claim is the UNSCOPED_TENANT sentinel → context is None, view runs.**
+      Login and refresh deliberately issue unscoped tokens; the bootstrap
+      routes (create your first tenant, list your tenants, switch into one)
+      have no active tenant by definition. Those routes authorize against an
+      explicit tenant id instead, so an absent context is a legitimate state
+      rather than a bypass.
 
     Usage:
         @app.route("/api/v1/protected")
         @auth_required
         @tenancy_aware
         async def protected_route():
-            context = g.tenancy_context
-            print(context.tenant_id, context.hierarchy.descendants)
+            context = get_tenancy_context()
+            if context is not None:
+                print(context.tenant_id, context.hierarchy.descendants)
     """
 
     @wraps(f)
     async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
+        from app.config import UNSCOPED_TENANT
+
         # Get tenant from already-validated JWT claims
         claims: Optional[dict[str, Any]] = g.get("current_claims", None)
         if not claims:
@@ -102,6 +124,10 @@ def tenancy_aware(
         tenant_id_claim = claims.get("tenant")
         if not tenant_id_claim:
             return {"error": "No active tenant in token"}, 403
+
+        if tenant_id_claim == UNSCOPED_TENANT:
+            g.tenancy_context = None
+            return await f(*args, **kwargs)
 
         # Normalize claim to int
         try:
