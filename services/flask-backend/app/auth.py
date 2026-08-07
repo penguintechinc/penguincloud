@@ -1,12 +1,15 @@
-"""Authentication Endpoints."""
+"""Authentication Endpoints (async Quart)."""
 
-import hashlib
-from datetime import datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import bcrypt
-import jwt
 import pyotp
-from flask import Blueprint, current_app, jsonify, request
+from quart import Blueprint, current_app, request
+
+from penguin_aaa.authn.oidc_provider import OIDCProvider
+from penguin_aaa.authn.types import Claims
 
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -14,286 +17,227 @@ from .models import (
     get_mfa_secret,
     get_user_by_email,
     is_mfa_enabled,
-    is_refresh_token_valid,
     revoke_all_user_tokens,
-    revoke_refresh_token,
-    store_refresh_token,
 )
 
 auth_bp = Blueprint("auth", __name__)
 
 
-def get_limiter():
-    """Get the rate limiter instance."""
-    from . import limiter
+def get_oidc_provider() -> OIDCProvider | None:
+    """Get OIDC provider from app context (None if not initialized)."""
+    oidc = current_app.extensions.get("oidc_provider")
+    if oidc is None:
+        return None
+    return oidc
 
-    return limiter
 
-
-def hash_password(password: str) -> str:
-    """Hash password using bcrypt."""
-    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+async def hash_password_async(password: str) -> str:
+    """Hash password using bcrypt (async-wrapped)."""
+    loop = asyncio.get_event_loop()
+    hashed = await loop.run_in_executor(
+        None,
+        lambda: bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    )
     return hashed.decode("utf-8")
 
 
-def verify_password(password: str, password_hash: str) -> bool:
-    """Verify password against hash."""
+async def verify_password_async(password: str, password_hash: str) -> bool:
+    """Verify password against hash (async-wrapped)."""
+    loop = asyncio.get_event_loop()
     pwd_bytes = password.encode("utf-8")
     hash_bytes = password_hash.encode("utf-8")
-    return bcrypt.checkpw(pwd_bytes, hash_bytes)
+    return await loop.run_in_executor(
+        None,
+        lambda: bcrypt.checkpw(pwd_bytes, hash_bytes)
+    )
 
 
-def create_access_token(
+async def create_token_set_async(
     user_id: int,
+    tenant_id: str,
     role: str,
-    team_ids: list = None,
-    extra_claims: dict | None = None,
-) -> str:
-    """Create JWT access token with team context and optional extra claims.
+    teams: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create JWT token set using penguin-aaa.
 
     Args:
-        user_id: User ID for the token
+        user_id: User ID
+        tenant_id: Tenant ID (required in claims)
         role: User role
-        team_ids: List of team IDs (fetched from DB if None)
-        extra_claims: Optional extra claims to merge (cannot override
-            reserved claims)
+        teams: List of team IDs (user is a member of)
 
     Returns:
-        Encoded JWT token string
+        Dict with access_token, id_token, refresh_token, expires_in
     """
     from .models import get_user_teams
 
-    if team_ids is None:
-        teams = get_user_teams(user_id)
-        team_ids = [t["id"] for t in teams]
+    if teams is None:
+        user_teams = await get_user_teams(user_id)
+        teams = [str(t["id"]) for t in user_teams]
 
-    token_expiry = current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]
-    expires = datetime.utcnow() + token_expiry
-    payload = {
-        "sub": str(user_id),
-        "role": role,
-        "team_ids": team_ids,
-        "current_team_id": team_ids[0] if team_ids else None,
-        "type": "access",
-        "exp": expires,
-        "iat": datetime.utcnow(),
+    oidc = get_oidc_provider()
+    now = datetime.now(UTC)
+    ttl = current_app.config.get("JWT_ACCESS_TOKEN_EXPIRES", timedelta(hours=1))
+    exp = now + ttl
+
+    claims = Claims(
+        sub=str(user_id),
+        iss=current_app.config["JWT_ISSUER"],
+        aud=current_app.config["JWT_AUDIENCE"],
+        iat=now,
+        exp=exp,
+        scope=["read", "write"],
+        roles=[role],
+        tenant=tenant_id,
+        teams=teams,
+    )
+
+    token_set = oidc.issue_token_set(claims)
+    return {
+        "access_token": token_set.access_token,
+        "id_token": token_set.id_token,
+        "refresh_token": token_set.refresh_token,
+        "token_type": token_set.token_type,
+        "expires_in": token_set.expires_in,
     }
-
-    # Merge extra_claims if provided, but do not override reserved claims
-    if extra_claims:
-        reserved_claims = {"sub", "exp", "iat", "type"}
-        for key, value in extra_claims.items():
-            if key not in reserved_claims:
-                payload[key] = value
-
-    secret = current_app.config["JWT_SECRET_KEY"]
-    return jwt.encode(payload, secret, algorithm="HS256")
-
-
-def create_refresh_token(user_id: int) -> tuple[str, datetime]:
-    """Create JWT refresh token and store hash in database."""
-    token_expires = current_app.config["JWT_REFRESH_TOKEN_EXPIRES"]
-    expires = datetime.utcnow() + token_expires
-    payload = {
-        "sub": str(user_id),
-        "type": "refresh",
-        "exp": expires,
-        "iat": datetime.utcnow(),
-    }
-    secret = current_app.config["JWT_SECRET_KEY"]
-    token = jwt.encode(payload, secret, algorithm="HS256")
-
-    # Store hash of token in database for revocation
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    store_refresh_token(user_id, token_hash, expires)
-
-    return token, expires
 
 
 @auth_bp.route("/login", methods=["POST"])
-@get_limiter().limit("10 per minute")
-def login():
+async def login() -> tuple[dict[str, Any], int]:
     """Login endpoint - returns access and refresh tokens."""
-    data = request.get_json()
+    data = await request.get_json()
 
     if not data:
-        return jsonify({"error": "Request body required"}), 400
+        return {"error": "Request body required"}, 400
 
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
     totp_code = data.get("mfa_code", "")
 
     if not email or not password:
-        return jsonify({"error": "Email and password required"}), 400
+        return {"error": "Email and password required"}, 400
 
     # Find user
-    user = get_user_by_email(email)
+    user = await get_user_by_email(email)
     if not user:
-        return jsonify({"error": "Invalid email or password"}), 401
+        return {"error": "Invalid email or password"}, 401
 
     # Verify password
-    if not verify_password(password, user["password_hash"]):
-        return jsonify({"error": "Invalid email or password"}), 401
+    pwd_valid = await verify_password_async(password, user["password_hash"])
+    if not pwd_valid:
+        return {"error": "Invalid email or password"}, 401
 
     # Check if user is active
     if not user.get("is_active"):
-        return jsonify({"error": "Account is deactivated"}), 401
+        return {"error": "Account is deactivated"}, 401
 
     # Check MFA requirement
-    if is_mfa_enabled(user["id"]):
+    mfa_enabled = await is_mfa_enabled(user["id"])
+    if mfa_enabled:
         if not totp_code:
-            error_resp = {"error": "MFA code required", "mfa_required": True}
-            return jsonify(error_resp), 401
+            return {"error": "MFA code required", "mfa_required": True}, 401
 
         # Verify TOTP code
-        mfa = get_mfa_secret(user["id"])
+        mfa = await get_mfa_secret(user["id"])
         if not mfa:
-            return jsonify({"error": "MFA configuration error"}), 500
+            return {"error": "MFA configuration error"}, 500
 
         totp = pyotp.TOTP(mfa["secret"])
         if not totp.verify(totp_code, valid_window=1):
-            return jsonify({"error": "Invalid MFA code"}), 401
+            return {"error": "Invalid MFA code"}, 401
 
-    # Generate tokens
-    access_token = create_access_token(user["id"], user["role"])
-    refresh_token, refresh_expires = create_refresh_token(user["id"])
+    # Generate tokens using penguin-aaa
+    token_set = await create_token_set_async(
+        user["id"],
+        tenant_id="",  # TODO: get from user's current tenant
+        role=user["role"],
+    )
 
-    token_expiry = current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]
-    expires_seconds = int(token_expiry.total_seconds())
     return (
-        jsonify(
-            {
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "token_type": "Bearer",
-                "expires_in": expires_seconds,
-                "user": {
-                    "id": user["id"],
-                    "email": user["email"],
-                    "full_name": user.get("full_name", ""),
-                    "role": user["role"],
-                },
-            }
-        ),
+        {
+            "access_token": token_set["access_token"],
+            "refresh_token": token_set["refresh_token"],
+            "token_type": "Bearer",
+            "expires_in": token_set["expires_in"],
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "full_name": user.get("full_name", ""),
+                "role": user["role"],
+            },
+        },
         200,
     )
 
 
 @auth_bp.route("/refresh", methods=["POST"])
-def refresh():
-    """Refresh access token using refresh token."""
-    data = request.get_json()
+async def refresh() -> tuple[dict[str, Any], int]:
+    """Refresh access token using refresh token (token rotation)."""
+    data = await request.get_json()
 
     if not data:
-        return jsonify({"error": "Request body required"}), 400
+        return {"error": "Request body required"}, 400
 
     refresh_token = data.get("refresh_token", "")
 
     if not refresh_token:
-        return jsonify({"error": "Refresh token required"}), 400
+        return {"error": "Refresh token required"}, 400
 
-    # Decode token
-    try:
-        payload = jwt.decode(
-            refresh_token,
-            current_app.config["JWT_SECRET_KEY"],
-            algorithms=["HS256"],
-        )
-    except jwt.ExpiredSignatureError:
-        return jsonify({"error": "Refresh token expired"}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({"error": "Invalid refresh token"}), 401
-
-    # Verify token type
-    if payload.get("type") != "refresh":
-        return jsonify({"error": "Invalid token type"}), 401
-
-    # Check if token is revoked
-    token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
-    if not is_refresh_token_valid(token_hash):
-        return jsonify({"error": "Refresh token has been revoked"}), 401
-
-    # Get user
-    user_id = int(payload["sub"])
-    from .models import get_user_by_id
-
-    user = get_user_by_id(user_id)
-    if not user or not user.get("is_active"):
-        return jsonify({"error": "User not found or deactivated"}), 401
-
-    # Revoke old refresh token
-    revoke_refresh_token(token_hash)
-
-    # Generate new tokens
-    access_token = create_access_token(user["id"], user["role"])
-    new_refresh_token, refresh_expires = create_refresh_token(user["id"])
-
-    token_expiry = current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]
-    expires_seconds = int(token_expiry.total_seconds())
-    return (
-        jsonify(
-            {
-                "access_token": access_token,
-                "refresh_token": new_refresh_token,
-                "token_type": "Bearer",
-                "expires_in": expires_seconds,
-            }
-        ),
-        200,
-    )
+    # TODO: Implement token refresh with penguin-aaa token store
+    # Need to: 1. Look up token in store, 2. Extract user_id, 3. Issue new token
+    return {"error": "Refresh endpoint not yet implemented with penguin-aaa"}, 501
 
 
 @auth_bp.route("/logout", methods=["POST"])
 @auth_required
-def logout():
+async def logout() -> tuple[dict[str, Any], int]:
     """Logout endpoint - revokes all refresh tokens for user."""
     user = get_current_user()
+    if not user:
+        return {"error": "User not authenticated"}, 401
 
     # Revoke all user's refresh tokens
-    revoked_count = revoke_all_user_tokens(user["id"])
+    revoked_count = await revoke_all_user_tokens(user["id"])
 
     return (
-        jsonify(
-            {
-                "message": "Successfully logged out",
-                "tokens_revoked": revoked_count,
-            }
-        ),
+        {
+            "message": "Successfully logged out",
+            "tokens_revoked": revoked_count,
+        },
         200,
     )
 
 
 @auth_bp.route("/me", methods=["GET"])
 @auth_required
-def get_me():
+async def get_me() -> tuple[dict[str, Any], int]:
     """Get current user profile."""
     user = get_current_user()
+    if not user:
+        return {"error": "User not authenticated"}, 401
 
     return (
-        jsonify(
-            {
-                "id": user["id"],
-                "email": user["email"],
-                "full_name": user.get("full_name", ""),
-                "role": user["role"],
-                "is_active": user["is_active"],
-                "created_at": (
-                    user["created_at"].isoformat() if user.get("created_at") else None
-                ),
-            }
-        ),
+        {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user.get("full_name", ""),
+            "role": user["role"],
+            "is_active": user["is_active"],
+            "created_at": (
+                user["created_at"].isoformat() if user.get("created_at") else None
+            ),
+        },
         200,
     )
 
 
 @auth_bp.route("/register", methods=["POST"])
-@get_limiter().limit("5 per minute")
-def register():
+async def register() -> tuple[dict[str, Any], int]:
     """Register new user (creates viewer role by default + personal team)."""
-    data = request.get_json()
+    data = await request.get_json()
 
     if not data:
-        return jsonify({"error": "Request body required"}), 400
+        return {"error": "Request body required"}, 400
 
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
@@ -301,24 +245,24 @@ def register():
 
     # Validation
     if not email:
-        return jsonify({"error": "Email is required"}), 400
+        return {"error": "Email is required"}, 400
 
     if not password or len(password) < 8:
         msg = "Password must be at least 8 characters"
-        return jsonify({"error": msg}), 400
+        return {"error": msg}, 400
 
     # Check if user exists
-    existing = get_user_by_email(email)
+    existing = await get_user_by_email(email)
     if existing:
-        return jsonify({"error": "Email already registered"}), 409
+        return {"error": "Email already registered"}, 409
 
     # Create user
-    password_hash = hash_password(password)
-    user = create_user(
+    password_hash = await hash_password_async(password)
+    user = await create_user(
         email=email,
         password_hash=password_hash,
         full_name=full_name,
-        role="viewer",  # Default role for self-registration
+        role="viewer",
     )
 
     # Create personal team
@@ -326,107 +270,116 @@ def register():
 
     user_name = full_name or email.split("@")[0]
     team_slug = email.split("@")[0].lower().replace(".", "-")
-    personal_team = create_team(
+    personal_team = await create_team(
         name=f"{user_name}'s Team",
         slug=team_slug,
         owner_id=user["id"],
     )
 
+    personal_team_info: dict[str, Any] | None = None
+    if personal_team:
+        personal_team_info = {
+            "id": personal_team["id"],
+            "name": personal_team["name"],
+            "slug": personal_team["slug"],
+        }
+
     return (
-        jsonify(
-            {
-                "message": "Registration successful",
-                "user": {
-                    "id": user["id"],
-                    "email": user["email"],
-                    "full_name": user.get("full_name", ""),
-                    "role": user["role"],
-                },
-                "personal_team": {
-                    "id": personal_team["id"],
-                    "name": personal_team["name"],
-                    "slug": personal_team["slug"],
-                },
-            }
-        ),
+        {
+            "message": "Registration successful",
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "full_name": user.get("full_name", ""),
+                "role": user["role"],
+            },
+            "personal_team": personal_team_info,
+        },
         201,
     )
 
 
 @auth_bp.route("/forgot-password", methods=["POST"])
-def forgot_password():
+async def forgot_password() -> tuple[dict[str, Any], int]:
     """Request password reset token."""
-    data = request.get_json()
+    data = await request.get_json()
     if not data or not data.get("email"):
-        return jsonify({"error": "Email required"}), 400
+        return {"error": "Email required"}, 400
 
     email = data.get("email", "").strip().lower()
-    user = get_user_by_email(email)
+    user = await get_user_by_email(email)
     if not user:
-        return jsonify({"message": "If email exists, reset link sent"}), 200
+        return {"message": "If email exists, reset link sent"}, 200
 
     from .auth_features import create_password_reset_token
 
-    token, expires = create_password_reset_token(user["id"])
-    return jsonify({"message": "Reset link sent", "token": token}), 200
+    token = await create_password_reset_token(user["id"])
+    return {"message": "Reset link sent", "token": token}, 200
 
 
 @auth_bp.route("/reset-password", methods=["POST"])
-def reset_password():
+async def reset_password() -> tuple[dict[str, Any], int]:
     """Reset password with token."""
-    data = request.get_json()
+    data = await request.get_json()
     if not data or not data.get("token") or not data.get("password"):
-        return jsonify({"error": "Token and password required"}), 400
+        return {"error": "Token and password required"}, 400
 
     from .auth_features import mark_token_used, validate_password_reset_token
 
-    user_id = validate_password_reset_token(data["token"])
+    user_id = await validate_password_reset_token(data["token"])
     if not user_id:
-        return jsonify({"error": "Invalid or expired token"}), 401
+        return {"error": "Invalid or expired token"}, 401
 
     password = data.get("password", "")
     if len(password) < 8:
-        return jsonify({"error": "Password must be 8+ characters"}), 400
+        return {"error": "Password must be 8+ characters"}, 400
 
     from .models import update_user
 
-    password_hash = hash_password(password)
-    update_user(user_id, password_hash=password_hash)
-    mark_token_used(data["token"])
-    return jsonify({"message": "Password reset successful"}), 200
+    password_hash = await hash_password_async(password)
+    await update_user(user_id, password_hash=password_hash)
+    await mark_token_used(data["token"])
+    return {"message": "Password reset successful"}, 200
 
 
 @auth_bp.route("/confirm-email/<token>", methods=["POST"])
-def confirm_email(token):
+async def confirm_email(token: str) -> tuple[dict[str, Any], int]:
     """Confirm email with token."""
     from .auth_features import confirm_email, validate_email_token
 
-    user_id = validate_email_token(token)
+    user_id = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: validate_email_token(token)
+    )
     if not user_id:
-        return jsonify({"error": "Invalid or expired token"}), 401
+        return {"error": "Invalid or expired token"}, 401
 
-    confirm_email(token)
-    return jsonify({"message": "Email confirmed"}), 200
+    await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: confirm_email(token)
+    )
+    return {"message": "Email confirmed"}, 200
 
 
 @auth_bp.route("/sessions", methods=["GET"])
 @auth_required
-def list_sessions():
+async def list_sessions() -> tuple[dict[str, Any], int]:
     """List active sessions."""
     user = get_current_user()
     from .auth_features import get_user_sessions
 
-    sessions = get_user_sessions(user["id"])
-    return jsonify({"sessions": sessions}), 200
+    sessions = await get_user_sessions(user["id"])
+    return {"sessions": sessions}, 200
 
 
 @auth_bp.route("/sessions/<int:session_id>", methods=["DELETE"])
 @auth_required
-def revoke_session_endpoint(session_id):
+async def revoke_session_endpoint(session_id: int) -> tuple[dict[str, Any], int]:
     """Revoke a session."""
     user = get_current_user()
     from .auth_features import revoke_session
 
-    if revoke_session(session_id, user["id"]):
-        return jsonify({"message": "Session revoked"}), 200
-    return jsonify({"error": "Session not found"}), 404
+    revoked = await revoke_session(session_id, user["id"])
+    if revoked:
+        return {"message": "Session revoked"}, 200
+    return {"error": "Session not found"}, 404

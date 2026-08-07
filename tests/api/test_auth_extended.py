@@ -1,10 +1,111 @@
 """
 Extended Authentication Tests
 
-Tests for password reset, email confirmation, profile management, and session management.  # noqa: E501
+Tests for password reset, email confirmation, profile management, and
+session management. Includes regression tests for security fix.
 """
 
+import hashlib
+from datetime import UTC, datetime, timedelta
+
 import pytest
+
+from app.models import (
+    create_user,
+    is_refresh_token_valid,
+    revoke_refresh_token,
+    store_refresh_token,
+)
+
+
+class TestRefreshTokenSecurity:
+    """Regression tests for security fix: refresh token expiration + revocation.
+
+    Security fix (commit 6e739dda):
+    - is_refresh_token_valid() now checks expires_at > datetime.utcnow()
+    - is_refresh_token_valid() uses '== False' instead of 'is False' (E712)
+    """
+
+    @pytest.mark.asyncio
+    async def test_expired_refresh_token_rejected(self) -> None:  # type: ignore[no-untyped-def]  # noqa: E501
+        """Regression: expired-but-unrevoked token must be rejected.
+
+        Previously: is_refresh_token_valid() lacked expiration check,
+        allowing expired tokens to pass validation.
+        """
+        user = await create_user(
+            email="expired@example.com",
+            password_hash="hashedpwd",
+            role="viewer",
+        )
+        user_id: int = user["id"]  # type: ignore[index]
+
+        refresh_token = "test-refresh-token-expired"
+        token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+        now = datetime.now(UTC)
+        expired_at = now - timedelta(hours=1)
+
+        await store_refresh_token(
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=expired_at,
+        )
+
+        is_valid = await is_refresh_token_valid(user_id, token_hash)
+        assert not is_valid
+
+    @pytest.mark.asyncio
+    async def test_revoked_refresh_token_rejected(self) -> None:  # type: ignore[no-untyped-def]  # noqa: E501
+        """Regression: revoked token must be rejected (E712 fix)."""
+        user = await create_user(
+            email="revoked@example.com",
+            password_hash="hashedpwd",
+            role="viewer",
+        )
+        user_id: int = user["id"]
+
+        refresh_token = "test-refresh-token-revoked"
+        token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+        now = datetime.now(UTC)
+        future_at = now + timedelta(hours=24)
+
+        await store_refresh_token(
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=future_at,
+        )
+
+        is_valid_before = await is_refresh_token_valid(user_id, token_hash)
+        assert is_valid_before
+
+        await revoke_refresh_token(token_hash)
+
+        is_valid_after = await is_refresh_token_valid(user_id, token_hash)
+        assert not is_valid_after
+
+    @pytest.mark.asyncio
+    async def test_valid_refresh_token_accepted(self) -> None:  # type: ignore[no-untyped-def]  # noqa: E501
+        """Valid token should be accepted."""
+        user = await create_user(
+            email="valid@example.com",
+            password_hash="hashedpwd",
+            role="viewer",
+        )
+        user_id: int = user["id"]
+
+        refresh_token = "test-refresh-token-valid"
+        token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+        now = datetime.now(UTC)
+        future_at = now + timedelta(hours=24)
+
+        await store_refresh_token(
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=future_at,
+        )
+
+        is_valid = await is_refresh_token_valid(user_id, token_hash)
+        assert is_valid
 
 
 class TestPasswordReset:

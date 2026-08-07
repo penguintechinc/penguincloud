@@ -44,7 +44,7 @@ async def create_user(
     password_hash: str,
     full_name: str = "",
     role: str = "viewer",
-) -> int | None:
+) -> dict[str, Any] | None:
     """Create a new user (async)."""
     db = get_db()
     user_id = await db.users.insert(
@@ -53,7 +53,10 @@ async def create_user(
         full_name=full_name,
         role=role,
     )
-    return user_id
+    if user_id:
+        row = await db(db.users.id == user_id).select()
+        return dict(row[0]) if row else None
+    return None
 
 
 async def get_user_by_email(email: str) -> dict[str, Any] | None:
