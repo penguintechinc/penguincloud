@@ -227,4 +227,64 @@ describe("ActingAsBanner", () => {
 
     consoleSpy.mockRestore();
   });
+
+  it("does not render when currentTenant is null", () => {
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
+      tenants: mockTenants,
+      currentTenant: null,
+      setCurrentTenant: mockSetCurrentTenant,
+    });
+
+    const { container } = render(<ActingAsBanner />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("exit button has proper aria-label", () => {
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
+      tenants: mockTenants,
+      currentTenant: mockTenants[1],
+      setCurrentTenant: mockSetCurrentTenant,
+    });
+
+    render(<ActingAsBanner />);
+
+    const exitButton = screen.getByTestId("exit-acting-as-button");
+    expect(exitButton).toHaveAttribute("aria-label", "Exit acting as tenant");
+  });
+
+  it("displays correct banner text when customer name not available", () => {
+    const tenantNoDisplay = {
+      ...mockTenants[1],
+      display_name: undefined,
+    };
+
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
+      tenants: [mockTenants[0], tenantNoDisplay],
+      currentTenant: tenantNoDisplay,
+      setCurrentTenant: mockSetCurrentTenant,
+    });
+
+    render(<ActingAsBanner />);
+
+    // Should fall back to name property
+    expect(screen.getByText(tenantNoDisplay.name)).toBeInTheDocument();
+  });
+
+  it("does not render when isActingAs is false but has currentTenant", () => {
+    (useAuth as unknown as jest.Mock).mockReturnValue({
+      user: {
+        ...mockUser,
+        home_tenant_id: 2, // Set home to the current tenant
+      },
+    });
+
+    (useTenantStore as unknown as jest.Mock).mockReturnValue({
+      tenants: mockTenants,
+      currentTenant: mockTenants[1], // Same ID as home_tenant_id
+      setCurrentTenant: mockSetCurrentTenant,
+    });
+
+    const { container } = render(<ActingAsBanner />);
+    expect(container.firstChild).toBeNull();
+  });
 });

@@ -182,4 +182,140 @@ describe("TenantScopeSwitcher", () => {
     expect(currentOption).toHaveClass("text-amber-400");
     expect(currentOption).toHaveTextContent("✓ Current");
   });
+
+  it("handles API errors gracefully", async () => {
+    const mockError = new Error("API Error");
+    (api.post as unknown as jest.Mock).mockRejectedValue(mockError);
+
+    const consoleSpy = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const user = userEvent.setup();
+
+    render(<TenantScopeSwitcher />);
+
+    const button = screen.getByTestId("tenant-switcher-button");
+    await user.click(button);
+
+    const customerButton = screen.getByTestId("tenant-option-2");
+    await user.click(customerButton);
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "[TenantScopeSwitcher] Failed to switch tenant:",
+        mockError,
+      );
+    });
+
+    consoleSpy.mockRestore();
+  });
+
+  it("handles no results from search", async () => {
+    const user = userEvent.setup();
+
+    render(<TenantScopeSwitcher />);
+
+    const button = screen.getByTestId("tenant-switcher-button");
+    await user.click(button);
+
+    const searchInput = screen.getByTestId("tenant-switcher-search");
+    await user.type(searchInput, "NonexistentTenant");
+
+    // Should show no results message
+    expect(screen.getByText("No tenants found")).toBeInTheDocument();
+  });
+
+  it("shows provider header with children when expanded", async () => {
+    const user = userEvent.setup();
+
+    render(<TenantScopeSwitcher />);
+
+    const button = screen.getByTestId("tenant-switcher-button");
+    await user.click(button);
+
+    // Provider should show with children
+    const providerOption = screen.getByTestId("tenant-option-1");
+    expect(providerOption).toBeInTheDocument();
+
+    // Children should also be visible
+    expect(screen.getByTestId("tenant-option-2")).toBeInTheDocument();
+    expect(screen.getByTestId("tenant-option-3")).toBeInTheDocument();
+  });
+
+  it("clears search after selection", async () => {
+    const mockResponse = {
+      data: {
+        access_token: "new-token",
+        tenant: mockTenants[1],
+      },
+    };
+    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
+
+    const user = userEvent.setup();
+
+    render(<TenantScopeSwitcher />);
+
+    const button = screen.getByTestId("tenant-switcher-button");
+    await user.click(button);
+
+    const searchInput = screen.getByTestId("tenant-switcher-search");
+    await user.type(searchInput, "Customer");
+
+    const customerButton = screen.getByTestId("tenant-option-2");
+    await user.click(customerButton);
+
+    await waitFor(() => {
+      // After selection, dropdown closes and search is cleared
+      expect(
+        screen.queryByTestId("tenant-switcher-search"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("calls setCurrentTenant after successful switch", async () => {
+    const mockResponse = {
+      data: {
+        access_token: "new-token",
+        tenant: mockTenants[1],
+      },
+    };
+    (api.post as unknown as jest.Mock).mockResolvedValue(mockResponse);
+
+    const user = userEvent.setup();
+
+    render(<TenantScopeSwitcher />);
+
+    const button = screen.getByTestId("tenant-switcher-button");
+    await user.click(button);
+
+    const customerButton = screen.getByTestId("tenant-option-2");
+    await user.click(customerButton);
+
+    await waitFor(() => {
+      expect(mockSetCurrentTenant).toHaveBeenCalledWith(mockTenants[1]);
+    });
+  });
+
+  it("toggles dropdown state on repeated clicks", async () => {
+    const user = userEvent.setup();
+
+    render(<TenantScopeSwitcher />);
+
+    const button = screen.getByTestId("tenant-switcher-button");
+
+    // First click opens
+    await user.click(button);
+    expect(screen.getByTestId("tenant-switcher-search")).toBeInTheDocument();
+
+    // Second click closes
+    await user.click(button);
+    expect(
+      screen.queryByTestId("tenant-switcher-search"),
+    ).not.toBeInTheDocument();
+
+    // Third click opens again
+    await user.click(button);
+    expect(screen.getByTestId("tenant-switcher-search")).toBeInTheDocument();
+  });
 });

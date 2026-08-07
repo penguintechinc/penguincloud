@@ -1,3 +1,9 @@
+/**
+ * Login page — Simple authentication UI.
+ * Integrates with AuthContext for login flow and redirects to dashboard on success.
+ * TODO: Replace with LoginPageBuilder from react-libs once API is clarified.
+ */
+
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router";
 import { useAuth } from "../hooks/useAuth";
@@ -40,7 +46,7 @@ export default function Login() {
         {/* Logo/Title */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-amber-gradient mb-2">
-            WebUI Shell
+            PenguinCloud
           </h1>
           <p className="text-slate-400">Sign in to your account</p>
         </div>
