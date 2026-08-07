@@ -76,6 +76,7 @@ async def create_token_set_async(
     tenant_id: str,
     role: str,
     teams: list[str] | None = None,
+    home_tenant: str | None = None,
 ) -> dict[str, Any]:
     """Create a JWT token set using penguin-aaa.
 
@@ -85,6 +86,7 @@ async def create_token_set_async(
             sentinel, since penguin-aaa rejects an empty tenant claim.
         role: User role
         teams: Team IDs the user belongs to; looked up when omitted.
+        home_tenant: The user's "home" tenant (for tenant switching context).
 
     Returns:
         Dict with access_token, id_token, refresh_token, expires_in
@@ -102,6 +104,11 @@ async def create_token_set_async(
     )
     exp = now + ttl
 
+    # Build extra claims dict
+    ext_claims: dict[str, Any] = {}
+    if home_tenant:
+        ext_claims["home_tenant"] = home_tenant
+
     claims = Claims(
         sub=str(user_id),
         iss=current_app.config["JWT_ISSUER"],
@@ -114,6 +121,7 @@ async def create_token_set_async(
         roles=[role],
         tenant=tenant_id or UNSCOPED_TENANT,
         teams=teams,
+        ext=ext_claims,
     )
 
     token_set = oidc.issue_token_set(claims)

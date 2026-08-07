@@ -215,26 +215,59 @@ async def delete_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
 @tenants_bp.route("/<int:tenant_id>/switch", methods=["POST"])
 @auth_required
 async def switch_tenant(tenant_id: int) -> tuple[dict[str, Any], int]:
-    """Switch active tenant — returns new JWT with tenant claim."""
+    """Switch active tenant — returns new JWT with tenant+home_tenant claims.
+
+    Allowed if caller is:
+    - Direct member of tenant_id, OR
+    - Admin/owner in an ancestor tenant (delegated admin)
+    """
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-    role = await get_user_tenant_role(user["id"], tenant_id)
-
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
 
     tenant = await get_tenant_by_id(tenant_id)
     if not tenant or not tenant.get("is_active"):
         return {"error": "Tenant not available"}, 404
 
-    # Generate new access token with tenant_id claim
+    # Check direct membership
+    role = await get_user_tenant_role(user["id"], tenant_id)
+    if role:
+        # Direct member — always allowed
+        pass
+    else:
+        # Check delegated admin: admin/owner in an ancestor
+        from .tenancy import get_hierarchy
+
+        try:
+            hierarchy = await get_hierarchy(tenant_id)
+            # Check if user is admin/owner in any ancestor
+            has_delegated_admin = False
+            for ancestor_id in hierarchy.ancestors:
+                ancestor_role = await get_user_tenant_role(user["id"], ancestor_id)
+                if ancestor_role in ["owner", "admin"]:
+                    has_delegated_admin = True
+                    role = "delegated_admin"
+                    break
+
+            if not has_delegated_admin:
+                return {"error": "Not authorized to access this tenant"}, 403
+        except ValueError:
+            return {"error": "Tenant not found"}, 404
+
+    # Generate new access token with tenant and home_tenant claims
+    from quart import g
     from .auth import create_token_set_async
+
+    # Home tenant is the original scoped tenant from the login session
+    # If the user is switching within their hierarchy, home_tenant stays the same
+    claims = g.get("current_claims", {})
+    home_tenant = claims.get("ext", {}).get("home_tenant", str(tenant_id))
 
     token_set = await create_token_set_async(
         user_id=user["id"],
         tenant_id=str(tenant_id),
         role=user["role"],
+        home_tenant=home_tenant,
     )
 
     return {
