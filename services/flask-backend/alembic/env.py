@@ -1,10 +1,21 @@
 import os
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+
+# Import app/models_sqlalchemy.py directly as a top-level module (by adding
+# its containing directory to sys.path) rather than `import app.models_sqlalchemy`
+# — the latter would execute app/__init__.py's Quart application factory
+# imports (penguin_aaa, quart_cors, etc.) just to reach schema metadata.
+# app/models_sqlalchemy.py is the single authoritative schema source for
+# Alembic; do not reintroduce a second copy of the models under alembic/.
+sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
+from models_sqlalchemy import Base  # noqa: E402 — must follow the sys.path.insert above
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -17,12 +28,6 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent))
-from models import Base
-
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
