@@ -232,3 +232,249 @@ async def test_raw_accessor_still_returns_ciphertext(
     # Stored encrypted, so neither the mask nor the plaintext appears.
     assert raw["api_key"] != PLAINTEXT_KEY
     assert raw["api_secret"] != PLAINTEXT_SECRET
+
+
+# Product Tenant Mapping Tests
+
+
+@pytest.mark.asyncio
+async def test_set_product_tenant_mapping_creates_new_mapping(
+    client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """POST /products/<id>/tenants/<id>/map creates a new mapping."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="gough"
+    )
+    product_id = created["id"]
+
+    response = await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "my-gough-tenant-123"},
+    )
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["connection_id"] == product_id
+    assert body["tenant_id"] == tenant_id
+    assert body["external_kind"] == "tenant_id"
+    assert body["external_id"] == "my-gough-tenant-123"
+
+
+@pytest.mark.asyncio
+async def test_get_product_tenant_mapping_returns_existing(
+    client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """GET /products/<id>/tenants/<id>/map returns existing mapping."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="gough"
+    )
+    product_id = created["id"]
+
+    # Create mapping first
+    await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "my-gough-tenant-123"},
+    )
+
+    # Retrieve it
+    response = await client.get(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    body = await response.get_json()
+    assert body["external_id"] == "my-gough-tenant-123"
+
+
+@pytest.mark.asyncio
+async def test_update_product_tenant_mapping_updates_external_id(
+    client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """PUT /products/<id>/tenants/<id>/map updates external_id."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="gough"
+    )
+    product_id = created["id"]
+
+    # Create mapping
+    await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "old-id"},
+    )
+
+    # Update it
+    response = await client.put(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "new-id"},
+    )
+    assert response.status_code == 200
+    body = await response.get_json()
+    assert body["external_id"] == "new-id"
+
+
+@pytest.mark.asyncio
+async def test_delete_product_tenant_mapping_removes_mapping(
+    client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """DELETE /products/<id>/tenants/<id>/map removes the mapping."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="gough"
+    )
+    product_id = created["id"]
+
+    # Create mapping
+    await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "my-id"},
+    )
+
+    # Delete it
+    response = await client.delete(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+
+    # Verify it's gone
+    response = await client.get(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_product_tenant_mapping_validates_external_kind_for_gough(
+    client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """Gough product type requires tenant_id external_kind."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="gough"
+    )
+    product_id = created["id"]
+
+    response = await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "test-id"},
+    )
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["external_kind"] == "tenant_id"
+
+
+@pytest.mark.asyncio
+async def test_product_tenant_mapping_validates_external_kind_for_waddleai(
+    client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """WaddleAI product type requires organization_id external_kind."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="waddleai"
+    )
+    product_id = created["id"]
+
+    response = await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "org-123"},
+    )
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["external_kind"] == "organization_id"
+
+
+@pytest.mark.asyncio
+async def test_product_tenant_mapping_validates_external_kind_for_waddlebot(
+    client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """WaddleBot product type requires namespace external_kind."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="waddlebot"
+    )
+    product_id = created["id"]
+
+    response = await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "my-namespace"},
+    )
+    assert response.status_code == 201
+    body = await response.get_json()
+    assert body["external_kind"] == "namespace"
+
+
+@pytest.mark.asyncio
+async def test_product_tenant_mapping_rejects_unsupported_product_type(
+    client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """Product types without mapping support return 400."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="squawk"
+    )
+    product_id = created["id"]
+
+    response = await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "test-id"},
+    )
+    assert response.status_code == 400
+    body = await response.get_json()
+    assert "does not support tenant mapping" in body["error"]
+
+
+@pytest.mark.asyncio
+async def test_product_tenant_mapping_requires_admin_for_write(
+    client: Any,
+    admin_headers: dict[str, str],
+    auth_headers: dict[str, str],
+    tenant_id: int,
+) -> None:
+    """Non-admin users cannot create/update/delete mappings."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="gough"
+    )
+    product_id = created["id"]
+
+    # Non-admin cannot create
+    response = await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=auth_headers,
+        json={"external_id": "test-id"},
+    )
+    assert response.status_code == 403
+
+    # Create as admin for delete test
+    await client.post(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+        json={"external_id": "test-id"},
+    )
+
+    # Non-admin cannot delete
+    response = await client.delete(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=auth_headers,
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_product_tenant_mapping_get_not_found_returns_404(
+    client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """GET nonexistent mapping returns 404."""
+    created = await _register_product(
+        client, admin_headers, tenant_id, product_type="gough"
+    )
+    product_id = created["id"]
+
+    response = await client.get(
+        f"/api/v1/products/{product_id}/tenants/{tenant_id}/map",
+        headers=admin_headers,
+    )
+    assert response.status_code == 404

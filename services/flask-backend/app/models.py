@@ -66,6 +66,9 @@ __all__ = [
     "get_refresh_token_by_hash",
     "revoke_refresh_token",
     "revoke_all_user_tokens",
+    "get_product_tenant_map",
+    "set_product_tenant_map",
+    "delete_product_tenant_map",
     "VALID_ROLES",
     "VALID_PLANS",
     "VALID_TENANT_ROLES",
@@ -683,3 +686,58 @@ async def store_oauth_connection(
             expires_at=expires_at,
         )
         return new_id
+
+
+async def get_product_tenant_map(
+    connection_id: int, tenant_id: int
+) -> dict[str, Any] | None:
+    """Get product tenant mapping by connection and tenant (async)."""
+    db = get_db()
+    row = await db(
+        (db.product_tenant_map.connection_id == connection_id)
+        & (db.product_tenant_map.tenant_id == tenant_id)
+    ).select()
+    return dict(row[0]) if row else None
+
+
+async def set_product_tenant_map(
+    connection_id: int, tenant_id: int, external_kind: str, external_id: str
+) -> int | None:
+    """Set or update product tenant mapping (async).
+
+    Returns the mapping ID (inserted or existing).
+    """
+    db = get_db()
+    existing = await get_product_tenant_map(connection_id, tenant_id)
+    if existing:
+        # Update existing mapping
+        await db(
+            (db.product_tenant_map.connection_id == connection_id)
+            & (db.product_tenant_map.tenant_id == tenant_id)
+        ).update(
+            external_kind=external_kind,
+            external_id=external_id,
+            updated_at=datetime.now(UTC),
+        )
+        return existing.get("id")
+    else:
+        # Create new mapping
+        new_id: int | None = await db.product_tenant_map.async_insert(
+            connection_id=connection_id,
+            tenant_id=tenant_id,
+            external_kind=external_kind,
+            external_id=external_id,
+        )
+        return new_id
+
+
+async def delete_product_tenant_map(
+    connection_id: int, tenant_id: int
+) -> bool:
+    """Delete product tenant mapping (async)."""
+    db = get_db()
+    rows = await db(
+        (db.product_tenant_map.connection_id == connection_id)
+        & (db.product_tenant_map.tenant_id == tenant_id)
+    ).delete()
+    return bool(rows)
