@@ -1,10 +1,9 @@
 """Base Product Adapter — all adapters inherit from this."""
 
 import logging
-from typing import Any
 
 import requests
-from flask import Response, make_response
+from quart import Response, make_response
 
 from ..encryption import decrypt_value
 

@@ -8,7 +8,7 @@ from functools import wraps
 from typing import Any, Dict, Optional
 
 import requests
-from flask import jsonify
+from quart import jsonify
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +202,10 @@ def require_feature(feature_name: str):
                     jsonify(
                         {
                             "error": "feature_not_entitled",
-                            "message": f"Feature '{feature_name}' is not available in your license tier",
+                            "message": (
+                                f"Feature '{feature_name}' "
+                                "is not available in your license tier"
+                            ),
                         }
                     ),
                     403,
