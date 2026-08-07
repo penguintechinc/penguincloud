@@ -6,6 +6,11 @@ export default {
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
   moduleNameMapper: {
     "\\.(css|less|scss|sass)$": "identity-obj-proxy",
+    // react-libs publishes an exports map with only an "import" condition, so
+    // jest's resolver cannot find an entry point. Point it straight at the ESM
+    // build and let the transform below convert it.
+    "^@penguintechinc/react-libs$":
+      "<rootDir>/node_modules/@penguintechinc/react-libs/dist/index.js",
     "^lucide-react$": "<rootDir>/src/client/test/__mocks__/lucide-react.tsx",
     "^react-router$": "<rootDir>/src/client/test/__mocks__/react-router.tsx",
     "^react-router-dom$":
@@ -40,7 +45,7 @@ export default {
     },
   },
   transform: {
-    "^.+\\.tsx?$": [
+    "^.+\\.[jt]sx?$": [
       "ts-jest",
       {
         useESM: true,
@@ -48,6 +53,7 @@ export default {
           jsx: "react-jsx",
           esModuleInterop: true,
           allowSyntheticDefaultImports: true,
+          allowJs: true,
           module: "esnext",
         },
       },
@@ -55,6 +61,6 @@ export default {
   },
   extensionsToTreatAsEsm: [".ts", ".tsx"],
   transformIgnorePatterns: [
-    "node_modules/(?!(react-router|react-router-dom)/)",
+    "node_modules/(?!(react-router|react-router-dom|@penguintechinc)/)",
   ],
 };

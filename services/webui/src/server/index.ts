@@ -1,7 +1,12 @@
 import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createProxyMiddleware, Options } from "http-proxy-middleware";
+import {
+  createProxyMiddleware,
+  fixRequestBody,
+  Options,
+} from "http-proxy-middleware";
+import { adaptLogin } from "./authAdapter.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,13 +34,30 @@ app.get("/readyz", (_req: Request, res: Response) => {
   res.json({ status: "ready", timestamp: new Date().toISOString() });
 });
 
+// BFF login adapter. Registered before the /api proxy so it is not forwarded:
+// the shared-library login page speaks a different response dialect than the
+// portal API, and this endpoint is the translation seam. See authAdapter.ts.
+app.post("/api/ui/login", async (req: Request, res: Response) => {
+  const result = await adaptLogin(
+    req.body ?? {},
+    `${config.flaskApiUrl}/api/v1/auth/login`,
+    fetch,
+  );
+  res.status(result.status).json(result.body);
+});
+
 // Proxy configuration for Flask API (auth, users, hello)
 const flaskProxyOptions: Options = {
   target: config.flaskApiUrl,
   changeOrigin: true,
   pathRewrite: undefined, // Keep original path
   on: {
+    // `express.json()` above has already drained the request stream, so the
+    // proxy would forward a POST/PUT with no body and the upstream would hang
+    // until timeout. fixRequestBody re-serialises the parsed body onto the
+    // proxied request.
     proxyReq: (proxyReq, req) => {
+      fixRequestBody(proxyReq, req);
       console.log(
         `[Flask Proxy] ${req.method} ${req.url} -> ${config.flaskApiUrl}`,
       );
@@ -58,6 +80,7 @@ const goProxyOptions: Options = {
   },
   on: {
     proxyReq: (proxyReq, req) => {
+      fixRequestBody(proxyReq, req);
       console.log(`[Go Proxy] ${req.method} ${req.url} -> ${config.goApiUrl}`);
     },
     error: (err, _req, res) => {

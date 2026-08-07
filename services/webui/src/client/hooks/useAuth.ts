@@ -5,6 +5,7 @@ import type { User, LoginCredentials, AuthState } from "../types";
 
 interface AuthStore extends AuthState {
   login: (credentials: LoginCredentials) => Promise<void>;
+  establishSession: (access: string, refresh: string) => Promise<void>;
   logout: () => Promise<void>;
   fetchUser: () => Promise<void>;
   checkAuth: () => Promise<boolean>;
@@ -44,6 +45,32 @@ export const useAuthStore = create<AuthStore>()(
             isLoading: false,
           });
           throw error;
+        }
+      },
+
+      /**
+       * Adopts a token pair obtained outside this store — the shared-library
+       * login page performs its own request, so it hands back tokens rather
+       * than credentials. The user record is then loaded from /auth/me so the
+       * identity shape has exactly one source.
+       */
+      establishSession: async (access: string, refresh: string) => {
+        setTokens(access, refresh);
+        set({
+          accessToken: access,
+          refreshToken: refresh,
+          isAuthenticated: true,
+        });
+
+        try {
+          const response = await api.get("/auth/me");
+          set({ user: response.data, isLoading: false });
+          console.log("[AuthStore] SessionEstablished { hydrated: true }");
+        } catch {
+          // The session is valid — only the profile lookup failed. Keep the
+          // user authenticated; ProtectedRoute re-runs checkAuth on mount.
+          set({ isLoading: false });
+          console.log("[AuthStore] SessionEstablished { hydrated: false }");
         }
       },
 
@@ -124,6 +151,7 @@ export const useAuth = () => {
     isAuthenticated: store.isAuthenticated,
     isLoading: store.isLoading,
     login: store.login,
+    establishSession: store.establishSession,
     logout: store.logout,
     checkAuth: store.checkAuth,
     hasRole: (roles: string[]) => {

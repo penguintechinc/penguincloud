@@ -109,6 +109,31 @@ Alpha: local K8s (MicroK8s or Docker Desktop), `localhost:32000` registry
 Beta/Gamma: `dal2.penguintech.cloud`, `ghcr.io/penguintechinc/penguincloud/{service}:{tag}`
 Prod: Custom domain or `penguincloud.penguintech.cloud`, SHA256 image digests required
 
+## Login contract adapter (documented exception)
+
+The portal login page is `LoginPageBuilder` from `@penguintechinc/react-libs` —
+no bespoke login UI exists. The component issues its own `fetch`, and its
+request/response dialect differs from `POST /api/v1/auth/login` in three ways
+that cannot be reconciled from the client:
+
+| Component expects | Portal API sends |
+|---|---|
+| `data.success === true` on the response, else the attempt is rendered as failed | no `success` field at all |
+| `mfaCode` (camelCase) in the request body | reads `mfa_code` |
+| MFA challenge as **2xx** + `mfaRequired` (the MFA prompt is unreachable from a non-2xx response) | **401** + `mfa_required: true` |
+
+Rather than fork the public API contract (mobile client + OpenAPI spec consume
+it) or reimplement the login UI, the webui Express server exposes a BFF
+translation endpoint, `POST /api/ui/login`
+(`services/webui/src/server/authAdapter.ts`). It is registered ahead of the
+`/api` proxy, forwards to the API unchanged, and maps only the response shape.
+`src/server/__tests__/authAdapter.test.ts` pins each of the three mappings.
+
+Consequence: `LOGIN_ENDPOINT` in `src/client/pages/Login.tsx` points at
+`/api/ui/login`, not `/api/v1/auth/login`. If the shared library ever accepts a
+response transform (or the API adopts the `success` envelope), delete the
+adapter and repoint the constant.
+
 ## Known Limitations
 
 - Single auth provider fallback (local accounts) during OIDC outage

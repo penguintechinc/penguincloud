@@ -34,4 +34,9 @@ export const Routes = ({ children }: { children: ReactNode }) => (
 
 export const Route = ({ element }: { element?: ReactNode }) => <>{element}</>;
 
-export const Navigate = ({ _to }: { _to?: string }) => <></>;
+// Renders a marker instead of nothing so tests can assert on the redirect
+// target. The previous `{ _to }` destructure was also an unused-binding
+// typecheck error (TS6133).
+export const Navigate = ({ to }: { to?: string }) => (
+  <div data-testid="navigate" data-to={to} />
+);

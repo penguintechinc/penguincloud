@@ -129,6 +129,78 @@ export const handlers = [
   }),
 
   /**
+   * POST /api/ui/login
+   * BFF adapter endpoint consumed by the shared-library login page. Mirrors
+   * the translation performed by src/server/authAdapter.ts.
+   */
+  http.post("/api/ui/login", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      email?: string;
+      password?: string;
+      mfaCode?: string;
+    };
+
+    if (!body.email || !body.password) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: "Email and password are required",
+          errorCode: "VALIDATION_ERROR",
+        },
+        { status: 400 },
+      );
+    }
+
+    // Any password but "wrong" authenticates, so the smoke test can exercise
+    // the failure path without a second fixture user.
+    if (body.password === "wrong") {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: "Invalid email or password",
+          errorCode: "AUTH_FAILED",
+        },
+        { status: 401 },
+      );
+    }
+
+    return HttpResponse.json({
+      success: true,
+      token: generateMockToken({
+        sub: "user-1",
+        tenant: "provider-1",
+        home_tenant: "provider-1",
+        roles: ["Admin"],
+        scope: ["tenants:read", "products:read", "tenants:manage"],
+      }),
+      refreshToken: generateMockToken({ sub: "user-1", tenant: "provider-1" }),
+      user: {
+        id: "1",
+        email: body.email,
+        name: "Test User",
+        roles: ["admin"],
+      },
+    });
+  }),
+
+  /**
+   * GET /api/v1/auth/me
+   * Current user profile; hydrates the auth store after login and on reload.
+   */
+  http.get(`${API_BASE}/auth/me`, () =>
+    HttpResponse.json({
+      id: 1,
+      email: "admin@penguincloud.test",
+      full_name: "Test User",
+      role: "admin",
+      is_active: true,
+      created_at: "2025-01-01T00:00:00Z",
+      updated_at: null,
+      home_tenant_id: 1,
+    }),
+  ),
+
+  /**
    * POST /api/v1/auth/refresh
    * Refreshes access token using refresh token.
    */
