@@ -76,7 +76,6 @@ run_check() {
 
 # Main execution
 main() {
-    local target_service="$1"
     local all_passed=true
 
     echo "Step 1: Linting"
@@ -88,7 +87,7 @@ main() {
     fi
 
     # Check for Go services
-    if [ -d "$PROJECT_ROOT/services/go-backend" ] || find "$PROJECT_ROOT" -name "go.mod" -type f 2>/dev/null | head -1 | grep -q .; then
+    if find "$PROJECT_ROOT" -name "go.mod" -type f 2>/dev/null | head -1 | grep -q .; then
         run_check "go-lint" "$SCRIPT_DIR/check-go.sh" "$PROJECT_ROOT" || all_passed=false
     fi
 

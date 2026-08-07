@@ -7,8 +7,8 @@ WORKDIR /app
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
+    build-essential=12.9 \
+    libpq-dev=15.18-0+deb12u1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for layer caching
@@ -17,7 +17,7 @@ COPY requirements.txt .
 # Create virtual environment and install dependencies
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip==25.3 && \
     pip install --no-cache-dir -r requirements.txt
 
 # Production stage
@@ -27,7 +27,7 @@ WORKDIR /app
 
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
+    libpq5=15.18-0+deb12u1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --shell /bin/bash appuser
 

@@ -8,8 +8,10 @@ This guide covers deploying the project template to Kubernetes using three deplo
 
 Helm charts are located in `k8s/helm/` with pre-configured templates for each service:
 - `k8s/helm/flask-backend/` - Flask backend service
-- `k8s/helm/go-backend/` - Go backend service
 - `k8s/helm/webui/` - WebUI frontend service
+
+> Note: the `go-backend` service (and its `k8s/helm/go-backend/` chart) has been
+> retired — unused dead weight, never called by flask-backend.
 
 **Install a service:**
 ```bash
@@ -35,13 +37,11 @@ helm uninstall my-release --namespace production
 
 Raw Kubernetes manifests are in `k8s/manifests/` for direct kubectl application:
 - `k8s/manifests/flask-backend/` - Flask deployment files
-- `k8s/manifests/go-backend/` - Go deployment files
 - `k8s/manifests/webui/` - WebUI deployment files
 
 **Apply manifests:**
 ```bash
 kubectl apply -f k8s/manifests/flask-backend/
-kubectl apply -f k8s/manifests/go-backend/
 kubectl apply -f k8s/manifests/webui/
 ```
 
@@ -89,7 +89,6 @@ kubectl apply -k k8s/kustomize/overlays/prod/ --dry-run=client -o yaml
 ```bash
 # Install all services
 helm install app-release k8s/helm/flask-backend -n default --create-namespace
-helm install app-release k8s/helm/go-backend -n default --create-namespace
 helm install app-release k8s/helm/webui -n default --create-namespace
 
 # Check status
@@ -137,12 +136,6 @@ flask-backend:
     limits:
       memory: "512Mi"
       cpu: "500m"
-go-backend:
-  replicaCount: 2
-  resources:
-    limits:
-      memory: "256Mi"
-      cpu: "250m"
 webui:
   replicaCount: 2
   resources:

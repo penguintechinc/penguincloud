@@ -53,7 +53,8 @@ start_port_forward() {
     log_info "Starting port-forward for $service: localhost:$local_port -> $service:$service_port"
 
     # Find pod for service
-    local pod=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=$service" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    local pod
+    pod=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=$service" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
     if [[ -z "$pod" ]]; then
         # Try alternative label
@@ -111,7 +112,7 @@ test_endpoint() {
         else
             log_fail "$name: HTTP $response_code (expected $expected_code)"
             if [[ -f /tmp/response.txt ]]; then
-                log_info "Response body: $(cat /tmp/response.txt | head -c 200)"
+                log_info "Response body: $(head -c 200 /tmp/response.txt)"
             fi
             return 1
         fi
@@ -183,29 +184,6 @@ test_flask_backend() {
     return $failed
 }
 
-test_go_backend() {
-    log_info "Testing go-backend API endpoints..."
-
-    if ! start_port_forward "go-backend" 28080 8080; then
-        log_warn "Skipping go-backend API tests (service not found)"
-        return 0
-    fi
-
-    local failed=0
-
-    # Test health endpoint
-    if ! test_endpoint "Go health check" "GET" "http://localhost:28080/healthz" 200; then
-        ((failed++))
-    fi
-
-    # Test status endpoint
-    if ! test_endpoint "Go status endpoint" "GET" "http://localhost:28080/api/v2/status" 200; then
-        ((failed++))
-    fi
-
-    return $failed
-}
-
 main() {
     log_info "Running API integration tests for namespace: $NAMESPACE"
 
@@ -213,11 +191,6 @@ main() {
 
     # Test flask-backend
     if ! test_flask_backend; then
-        ((failed++))
-    fi
-
-    # Test go-backend
-    if ! test_go_backend; then
         ((failed++))
     fi
 

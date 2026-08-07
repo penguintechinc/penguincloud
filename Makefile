@@ -477,11 +477,6 @@ proto-compile: ## Build - Compile proto files to Go and Python
 		--python_out=./services/flask-backend/app/grpc \
 		--grpc_python_out=./services/flask-backend/app/grpc \
 		./services/flask-backend/app/grpc/protos/template.proto || echo "Note: Python proto tools may need installation"
-	@# Compile Go backend protos
-	@protoc -I./services/go-backend/internal/grpc/protos \
-		--go_out=./services/go-backend/internal/grpc/protos \
-		--go-grpc_out=./services/go-backend/internal/grpc/protos \
-		./services/go-backend/internal/grpc/protos/template.proto || echo "Note: protoc may need installation"
 	@echo "$(GREEN)Proto compilation complete$(RESET)"
 
 env: ## Info - Show environment variables

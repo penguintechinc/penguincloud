@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package template.v1;
 
-option go_package = "github.com/penguintechinc/project-template/services/go-backend/internal/grpc/protos;protos";
+option go_package = "github.com/penguintechinc/project-template/proto/template/v1;protos";
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";

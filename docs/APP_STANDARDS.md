@@ -22,9 +22,12 @@
 
 **Example:**
 - **flask-backend**: User management, order processing, API
-- **go-backend**: Real-time notifications, high-performance data processing
 - **webui**: Admin dashboard, customer portal
 - **connector**: Third-party integrations (payment processing, shipping, etc.)
+
+> Note: the `go-backend` service has been retired (unused dead weight — never called
+> by flask-backend, no replacement scheduled). Its Go build lineage triggered a
+> permanent osv-scanner advisory (GO-2026-5932) with no fix available.
 
 ### Technology Choices
 [Document specific tech stack decisions and rationale]

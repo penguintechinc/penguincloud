@@ -183,7 +183,6 @@ Before committing changes to container services:
 - **Testing scope**: All new endpoints and modified functionality
 - **Test files location**: `tests/api/` directory with service-specific subdirectories
   - `tests/api/flask-backend/` - Flask backend API tests
-  - `tests/api/go-backend/` - Go backend API tests
   - `tests/api/webui/` - WebUI container tests
 - **Run before commit**: Each test script should be executable and pass completely
 - **Test coverage**: Health checks, authentication, CRUD operations, error cases

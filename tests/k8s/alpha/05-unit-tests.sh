@@ -48,7 +48,8 @@ get_pod_for_service() {
 run_flask_tests() {
     log_info "Running Python unit tests for flask-backend..."
 
-    local pod=$(get_pod_for_service "flask-backend")
+    local pod
+    pod=$(get_pod_for_service "flask-backend")
     if [[ -z "$pod" ]]; then
         log_warn "No pod found for flask-backend, skipping tests"
         return 0
@@ -78,43 +79,11 @@ run_flask_tests() {
     fi
 }
 
-run_go_tests() {
-    log_info "Running Go unit tests for go-backend..."
-
-    local pod=$(get_pod_for_service "go-backend")
-    if [[ -z "$pod" ]]; then
-        log_warn "No pod found for go-backend, skipping tests"
-        return 0
-    fi
-
-    log_info "Found pod: $pod"
-
-    # Check if Go is available
-    if ! kubectl exec -n "$NAMESPACE" "$pod" -- which go &>/dev/null; then
-        log_warn "Go not found in go-backend pod, skipping tests"
-        return 0
-    fi
-
-    # Check if any test files exist
-    if ! kubectl exec -n "$NAMESPACE" "$pod" -- sh -c 'find . -name "*_test.go" | head -1' 2>/dev/null | grep -q "_test.go"; then
-        log_warn "No Go test files found in go-backend, skipping"
-        return 0
-    fi
-
-    # Run go test
-    if kubectl exec -n "$NAMESPACE" "$pod" -- go test ./... -short; then
-        log_pass "Go-backend unit tests passed"
-        return 0
-    else
-        log_fail "Go-backend unit tests failed"
-        return 1
-    fi
-}
-
 run_node_tests() {
     log_info "Running Node.js unit tests for webui..."
 
-    local pod=$(get_pod_for_service "webui")
+    local pod
+    pod=$(get_pod_for_service "webui")
     if [[ -z "$pod" ]]; then
         log_warn "No pod found for webui, skipping tests"
         return 0
@@ -151,10 +120,6 @@ main() {
 
     # Run tests for each service
     if ! run_flask_tests; then
-        ((failed++))
-    fi
-
-    if ! run_go_tests; then
         ((failed++))
     fi
 

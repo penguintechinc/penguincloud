@@ -119,34 +119,7 @@ else
     TEST_FAILURES=$((TEST_FAILURES + 1))
 fi
 
-# 2. Test Go Backend
-log_info "=== Testing Go Backend ==="
-if start_port_forward "go-backend" 18080 8080; then
-    sleep 2
-
-    # Test health endpoint
-    if test_http_endpoint "http://localhost:18080/healthz" 200 "Go health endpoint"; then
-        log_pass "Go backend health check passed"
-    else
-        log_fail "Go backend health check failed"
-        TEST_FAILURES=$((TEST_FAILURES + 1))
-    fi
-
-    # Test API endpoint
-    log_info "Testing Go backend API..."
-    API_RESPONSE=$(curl -s "http://localhost:18080/healthz" 2>/dev/null || echo "")
-    if [[ -n "$API_RESPONSE" ]]; then
-        log_pass "Go backend API responding"
-    else
-        log_fail "Go backend API not responding"
-        TEST_FAILURES=$((TEST_FAILURES + 1))
-    fi
-else
-    log_fail "Failed to set up port-forward for go-backend"
-    TEST_FAILURES=$((TEST_FAILURES + 1))
-fi
-
-# 3. Test WebUI
+# 2. Test WebUI
 log_info "=== Testing WebUI ==="
 if start_port_forward "webui" 13000 3000; then
     sleep 2
@@ -163,7 +136,7 @@ else
     TEST_FAILURES=$((TEST_FAILURES + 1))
 fi
 
-# 4. Test Database Connectivity
+# 3. Test Database Connectivity
 log_info "=== Testing PostgreSQL Connectivity ==="
 POSTGRES_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
@@ -189,7 +162,7 @@ else
     TEST_FAILURES=$((TEST_FAILURES + 1))
 fi
 
-# 5. Test Redis Connectivity
+# 4. Test Redis Connectivity
 log_info "=== Testing Redis Connectivity ==="
 REDIS_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
@@ -215,21 +188,12 @@ else
     TEST_FAILURES=$((TEST_FAILURES + 1))
 fi
 
-# 6. Test Inter-Service Communication
+# 5. Test Inter-Service Communication
 log_info "=== Testing Inter-Service Communication ==="
 FLASK_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=flask-backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
 if [[ -n "$FLASK_POD" ]]; then
     log_info "Testing service-to-service communication from Flask pod"
-
-    # Test Flask -> Go Backend
-    log_info "Testing Flask -> Go Backend communication..."
-    if kubectl exec "$FLASK_POD" -n "$NAMESPACE" -- curl -s -f -m 5 "http://go-backend:8080/healthz" > /dev/null 2>&1; then
-        log_pass "Flask can reach Go Backend via DNS"
-    else
-        log_fail "Flask cannot reach Go Backend via DNS"
-        TEST_FAILURES=$((TEST_FAILURES + 1))
-    fi
 
     # Test Flask -> PostgreSQL
     log_info "Testing Flask -> PostgreSQL DNS resolution..."

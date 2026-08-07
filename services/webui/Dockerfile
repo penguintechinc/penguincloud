@@ -47,8 +47,7 @@ USER webui
 # Environment defaults
 ENV NODE_ENV=production \
     PORT=3000 \
-    FLASK_API_URL=http://flask-backend:5000 \
-    GO_API_URL=http://go-backend:8080
+    FLASK_API_URL=http://flask-backend:5000
 
 # Expose port
 EXPOSE 3000

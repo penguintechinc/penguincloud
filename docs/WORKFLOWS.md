@@ -92,12 +92,12 @@ A build package is a single, independently deployable service or application. Fo
 
 ### Project Services
 
-**Project Template** includes three services:
+**Project Template** includes two services (the `go-backend` service was retired —
+unused dead weight, never called by flask-backend):
 
 | Service | Directory | Dockerfile | Architectures | Notes |
 |---------|-----------|-----------|---------------|-------|
 | flask-backend | `services/flask-backend/` | `services/flask-backend/Dockerfile` | amd64, arm64 | Python 3.13, Flask, PyDAL |
-| go-backend | `services/go-backend/` | `services/go-backend/Dockerfile` | amd64, arm64 | Go 1.24, high-performance networking |
 | webui | `services/webui/` | `services/webui/Dockerfile` | amd64, arm64 | Node.js 18+, React frontend |
 
 ### Workflow Files
@@ -107,7 +107,6 @@ Each service has a corresponding workflow file:
 ```
 .github/workflows/
 ├── build-flask-backend.yml    # Flask backend build pipeline
-├── build-go-backend.yml       # Go backend build pipeline
 ├── build-webui.yml            # WebUI build pipeline
 └── version-release.yml        # Version-based pre-release creation
 ```
@@ -687,8 +686,12 @@ docker build -t my-service:test .
 
 #### Go Service Testing
 
+> No Go service currently exists in this repo (`go-backend` was retired). Kept as
+> reference for any future Go service — see `go.md` before adding a new one; Go is
+> phased out in favor of Rust for new services.
+
 ```bash
-cd services/go-backend
+cd services/<go-service>
 
 # Download dependencies
 go mod download
@@ -1138,7 +1141,6 @@ docker build -t test . || docker run -it [image-id] /bin/bash
 | Service | Language | Path | Tests | Security | Notes |
 |---------|----------|------|-------|----------|-------|
 | flask-backend | Python | `services/flask-backend/` | pytest | bandit, safety check | Python 3.13, Flask, PyDAL |
-| go-backend | Go | `services/go-backend/` | go test | gosec, go mod audit | Go 1.24, high-performance networking |
 | webui | Node.js | `services/webui/` | jest | npm audit | React frontend, Node.js 18+ |
 
 ### Custom Variables
@@ -1169,7 +1171,6 @@ env:
 ```
 .github/workflows/
 ├── build-flask-backend.yml
-├── build-go-backend.yml
 ├── build-webui.yml
 ├── [project-name]-special-ci.yml    # Project-specific
 └── version-release.yml
@@ -1205,7 +1206,6 @@ Customization should be minimal and follow the patterns established in this temp
 | Workflow | Avg Time | With Cache | Notes |
 |----------|----------|-----------|-------|
 | flask-backend | [time] | [time] | [Notes] |
-| go-backend | [time] | [time] | [Notes] |
 | webui | [time] | [time] | [Notes] |
 
 ### Support & Documentation

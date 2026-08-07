@@ -111,13 +111,6 @@ docker-compose exec webui npm cache clean --force
 make clean && make build
 ```
 
-**Go**:
-```bash
-docker-compose exec go-backend go version
-docker-compose exec go-backend go mod verify
-docker-compose exec go-backend go build -v ./...
-```
-
 ### 5. Test Failures
 
 **Symptoms**: Tests fail locally, pass in CI/CD, inconsistent results
@@ -146,7 +139,6 @@ docker-compose logs | grep -i test
 
 ```bash
 docker-compose logs flask-backend
-docker-compose logs -f go-backend          # Follow logs
 docker-compose logs --tail=100 webui       # Last 100 lines
 docker-compose logs -f --timestamps flask-backend
 
@@ -224,7 +216,6 @@ docker-compose exec webui ls -la build/
 
 ```bash
 docker-compose exec flask-backend curl http://webui:3000
-docker-compose exec flask-backend curl http://go-backend:8080
 docker-compose exec webui curl http://flask-backend:5000/api/v1/health
 
 docker-compose exec flask-backend ping webui
@@ -259,7 +250,6 @@ ss -tlnp | grep LISTEN
 
 ```bash
 docker stats flask-backend
-docker stats go-backend
 docker-compose exec flask-backend python3 -m cProfile app.py
 docker-compose exec flask-backend top -n 1
 ```
@@ -285,7 +275,7 @@ docker-compose exec postgres psql -U postgres -d your_db \
 ### Bottleneck Analysis
 
 ```bash
-docker stats --no-stream flask-backend go-backend
+docker stats --no-stream flask-backend
 curl -w "@curl-format.txt" -o /dev/null -s http://localhost:5000/api/v1/users
 ```
 
@@ -299,7 +289,6 @@ curl -w "@curl-format.txt" -o /dev/null -s http://localhost:5000/api/v1/users
 docker-compose logs | grep -i error
 docker-compose logs | grep -B2 -A2 "error"
 docker-compose logs flask-backend | grep ERROR
-docker-compose logs go-backend | grep WARN
 docker-compose logs | grep -i error | wc -l
 ```
 

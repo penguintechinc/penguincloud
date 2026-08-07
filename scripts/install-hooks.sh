@@ -22,7 +22,11 @@ if [ -n "$STAGED_PY" ]; then
 fi
 
 if echo "$CHANGED" | grep -q '\.go$'; then
-  golangci-lint run ./...
+  if find . -name "go.mod" -not -path "*/node_modules/*" 2>/dev/null | grep -q .; then
+    golangci-lint run ./...
+  else
+    echo "No go.mod in repo (no Go module to lint), skipping golangci-lint"
+  fi
 fi
 
 STAGED_JS=$(echo "$CHANGED" | grep -E '\.(js|ts|jsx|tsx)$' || true)

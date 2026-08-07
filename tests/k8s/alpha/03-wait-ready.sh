@@ -57,7 +57,7 @@ main() {
 
     # Check that expected pods exist
     log_info "Checking for expected service pods..."
-    local expected_pods=("flask-backend" "go-backend" "webui")
+    local expected_pods=("flask-backend" "webui")
     local missing_pods=()
 
     for pod in "${expected_pods[@]}"; do
@@ -90,8 +90,9 @@ main() {
     kubectl get pods -n "$NAMESPACE"
 
     # Count running pods
-    local total_pods=$(kubectl get pods -n "$NAMESPACE" --no-headers | wc -l)
-    local running_pods=$(kubectl get pods -n "$NAMESPACE" --field-selector=status.phase=Running --no-headers | wc -l)
+    local total_pods running_pods
+    total_pods=$(kubectl get pods -n "$NAMESPACE" --no-headers | wc -l)
+    running_pods=$(kubectl get pods -n "$NAMESPACE" --field-selector=status.phase=Running --no-headers | wc -l)
 
     log_info "Running pods: $running_pods/$total_pods"
 

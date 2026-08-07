@@ -36,7 +36,6 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 # Patterns to detect
 LOCALHOST_PATTERN='(localhost|127\.0\.0\.1)'
 PRIVATE_IP_PATTERN='192\.168\.[0-9]+\.[0-9]+'
-ZERO_IP_PATTERN='0\.0\.0\.0'
 HARDCODED_PORT_PATTERN=':(5000|8080|3000|5432|6379)[^0-9]'
 
 VIOLATIONS_FOUND=0
@@ -47,7 +46,6 @@ log_info "Namespace: ${NAMESPACE}"
 
 # Function to check for violations
 check_violations() {
-    local resource_type=$1
     local output=$2
     local description=$3
 
@@ -209,7 +207,7 @@ if [[ $VIOLATIONS_FOUND -gt 0 ]]; then
     log_info "Beta environment must use DNS-based service discovery"
     log_info "Examples of correct patterns:"
     log_info "  - http://flask-backend:5000"
-    log_info "  - http://go-backend.${NAMESPACE}.svc.cluster.local:8080"
+    log_info "  - http://webui.${NAMESPACE}.svc.cluster.local:3000"
     log_info "  - postgresql:5432"
     exit 1
 else
