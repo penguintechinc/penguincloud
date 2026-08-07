@@ -139,7 +139,7 @@ def update_tenant_endpoint(tenant_id: int):
 
     if "plan" in data and role == "owner":
         if data["plan"] in VALID_PLANS:
-            update_data["plan"] = data["plan"]
+            update_data["plan_tier"] = data["plan"]
 
     if "is_active" in data and role == "owner":
         update_data["is_active"] = bool(data["is_active"])
@@ -375,7 +375,7 @@ def get_tenant_usage(tenant_id: int):
 
     return jsonify({
         "tenant_id": tenant_id,
-        "plan": tenant.get("plan", "free"),
+        "plan": tenant.get("plan_tier", "free"),
         "usage": {
             "members": {"current": member_count, "max": tenant.get("max_users", 10)},
             "products": {"current": product_count, "max": tenant.get("max_products", 5)},

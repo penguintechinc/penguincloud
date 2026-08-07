@@ -36,7 +36,8 @@ cleanup_port_forwards() {
     log_info "Cleaning up any remaining port-forward processes..."
 
     # Kill any kubectl port-forward processes for this namespace
-    local pids=$(pgrep -f "kubectl port-forward.*$NAMESPACE" || echo "")
+    local pids
+    pids=$(pgrep -f "kubectl port-forward.*$NAMESPACE" || echo "")
 
     if [[ -n "$pids" ]]; then
         echo "$pids" | xargs -r kill 2>/dev/null || true
@@ -102,12 +103,13 @@ cleanup_docker_images() {
     log_info "Optionally cleaning up Docker images..."
 
     # List images (but don't delete them automatically)
-    local images=$(docker images | grep "${PROJECT_NAME}.*alpha" || echo "")
+    local images
+    images=$(docker images | grep "${PROJECT_NAME}.*alpha" || echo "")
 
     if [[ -n "$images" ]]; then
         log_info "Found alpha images (not deleting automatically):"
         echo "$images"
-        log_info "To clean up images manually, run: docker rmi ${PROJECT_NAME}/flask-backend:alpha ${PROJECT_NAME}/go-backend:alpha ${PROJECT_NAME}/webui:alpha"
+        log_info "To clean up images manually, run: docker rmi ${PROJECT_NAME}/flask-backend:alpha ${PROJECT_NAME}/webui:alpha"
     else
         log_info "No alpha Docker images found"
     fi

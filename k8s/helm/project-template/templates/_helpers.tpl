@@ -83,29 +83,6 @@ app.kubernetes.io/component: flask-backend
 {{- end }}
 
 {{/*
-Go Backend fullname
-*/}}
-{{- define "project-template.goBackend.fullname" -}}
-{{- printf "%s-go-backend" (include "project-template.fullname" .) | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
-Go Backend labels
-*/}}
-{{- define "project-template.goBackend.labels" -}}
-{{ include "project-template.labels" . }}
-app.kubernetes.io/component: go-backend
-{{- end }}
-
-{{/*
-Go Backend selector labels
-*/}}
-{{- define "project-template.goBackend.selectorLabels" -}}
-{{ include "project-template.selectorLabels" . }}
-app.kubernetes.io/component: go-backend
-{{- end }}
-
-{{/*
 WebUI fullname
 */}}
 {{- define "project-template.webui.fullname" -}}

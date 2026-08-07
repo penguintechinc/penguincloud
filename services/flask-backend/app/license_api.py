@@ -1,16 +1,17 @@
 """License Server API endpoints."""
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, Response, jsonify
 
 from .license import license_manager
-from .middleware import admin_required
+from .middleware import admin_required, auth_required
 
 license_bp = Blueprint("license", __name__)
 
 
 @license_bp.route("/status", methods=["GET"])
+@auth_required
 @admin_required
-def get_license_status():
+def get_license_status() -> tuple[Response, int]:
     """
     Get license status.
 

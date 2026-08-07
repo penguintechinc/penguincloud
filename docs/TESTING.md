@@ -345,10 +345,6 @@ tests/unit/
 │   ├── test_auth.py
 │   ├── test_models.py
 │   └── test_api.py
-├── go-backend/
-│   ├── auth_test.go
-│   ├── models_test.go
-│   └── api_test.go
 └── webui/
     ├── components/
     │   └── Button.test.tsx
@@ -514,7 +510,7 @@ Create `scripts/build/test-multiarch.sh`:
 
 set -e
 
-SERVICES=("flask-backend" "go-backend" "webui")
+SERVICES=("flask-backend" "webui")
 ARCHITECTURES=("linux/amd64" "linux/arm64")
 
 for service in "${SERVICES[@]}"; do

@@ -49,7 +49,6 @@ kubectl get networkpolicies -n "$NAMESPACE"
 
 # Get test pods
 FLASK_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=flask-backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-GO_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=go-backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 WEBUI_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=webui -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
 # 1. Test DNS resolution works with network policies
@@ -78,16 +77,6 @@ if [[ -n "$WEBUI_POD" ]]; then
     fi
 fi
 
-# WebUI -> Go Backend (should be allowed)
-if [[ -n "$WEBUI_POD" ]]; then
-    log_info "Testing WebUI -> Go Backend (should be allowed)..."
-    if kubectl exec "$WEBUI_POD" -n "$NAMESPACE" -- timeout 5 curl -s -f "http://go-backend:8080/healthz" > /dev/null 2>&1; then
-        log_pass "WebUI can reach Go Backend"
-    else
-        log_fail "WebUI cannot reach Go Backend (should be allowed)"
-        TEST_FAILURES=$((TEST_FAILURES + 1))
-    fi
-fi
 
 # Flask Backend -> PostgreSQL (should be allowed)
 if [[ -n "$FLASK_POD" ]]; then
@@ -129,16 +118,6 @@ if [[ -n "$FLASK_POD" ]]; then
     fi
 fi
 
-# Go Backend -> PostgreSQL (should be allowed)
-if [[ -n "$GO_POD" ]]; then
-    log_info "Testing Go Backend -> PostgreSQL (should be allowed)..."
-    if kubectl exec "$GO_POD" -n "$NAMESPACE" -- timeout 5 nslookup postgresql > /dev/null 2>&1; then
-        log_pass "Go Backend can resolve PostgreSQL"
-    else
-        log_fail "Go Backend cannot resolve PostgreSQL"
-        TEST_FAILURES=$((TEST_FAILURES + 1))
-    fi
-fi
 
 # 3. Test blocked traffic (if strict policies are enforced)
 log_info "=== Testing Network Isolation ==="

@@ -449,6 +449,11 @@ git-hooks-test: ## Git - Test Git hooks
 	@.git/hooks/pre-commit
 	@echo "$(GREEN)Git hooks test completed$(RESET)"
 
+install-hooks: ## Git - Install Git pre-commit and pre-push hooks
+	@echo "$(BLUE)Installing Git hooks...$(RESET)"
+	@./scripts/install-hooks.sh
+	@echo "$(GREEN)Git hooks installed successfully$(RESET)"
+
 # Info Commands
 info: ## Info - Show project information
 	@echo "$(BLUE)Project Information:$(RESET)"
@@ -472,11 +477,6 @@ proto-compile: ## Build - Compile proto files to Go and Python
 		--python_out=./services/flask-backend/app/grpc \
 		--grpc_python_out=./services/flask-backend/app/grpc \
 		./services/flask-backend/app/grpc/protos/template.proto || echo "Note: Python proto tools may need installation"
-	@# Compile Go backend protos
-	@protoc -I./services/go-backend/internal/grpc/protos \
-		--go_out=./services/go-backend/internal/grpc/protos \
-		--go-grpc_out=./services/go-backend/internal/grpc/protos \
-		./services/go-backend/internal/grpc/protos/template.proto || echo "Note: protoc may need installation"
 	@echo "$(GREEN)Proto compilation complete$(RESET)"
 
 env: ## Info - Show environment variables

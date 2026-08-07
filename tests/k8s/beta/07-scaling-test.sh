@@ -35,7 +35,6 @@ PORT_FORWARDS=()
 # Services to scale test
 DEPLOYMENTS=(
     "flask-backend"
-    "go-backend"
     "webui"
 )
 
@@ -140,10 +139,6 @@ for deployment in "${DEPLOYMENTS[@]}"; do
             SERVICE_PORT=5000
             HEALTH_PATH="/healthz"
             ;;
-        go-backend)
-            SERVICE_PORT=8080
-            HEALTH_PATH="/healthz"
-            ;;
         webui)
             SERVICE_PORT=3000
             HEALTH_PATH="/healthz"
@@ -163,15 +158,11 @@ for deployment in "${DEPLOYMENTS[@]}"; do
     sleep 2
 
     if kill -0 "$PF_PID" 2>/dev/null; then
-        # Make multiple requests and check if we hit different pods
-        declare -A RESPONSE_PODS
+        # Make multiple requests to confirm the service responds while scaled
         TOTAL_REQUESTS=10
 
         for ((i=1; i<=TOTAL_REQUESTS; i++)); do
-            RESPONSE=$(curl -s "http://localhost:${LOCAL_PORT}${HEALTH_PATH}" 2>/dev/null || echo "")
-            # Try to extract pod name or identifier from response
-            # This is a basic check - actual implementation may vary
-            RESPONSE_PODS["$i"]="$RESPONSE"
+            curl -s "http://localhost:${LOCAL_PORT}${HEALTH_PATH}" > /dev/null 2>&1 || true
             sleep 0.5
         done
 

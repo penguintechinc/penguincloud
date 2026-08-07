@@ -48,7 +48,6 @@ Before importing, update the following in all JSON files:
 | Service | Protocol | Port | Auth | Description |
 |---------|----------|------|------|-------------|
 | flask-api | HTTP | 8080 | JWT | External REST API |
-| go-backend | gRPC | 50051 | None | Internal high-performance backend |
 | webui | HTTP | 80 | None | Frontend web interface |
 
 ### Mapping Configuration

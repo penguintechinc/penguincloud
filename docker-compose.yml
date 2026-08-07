@@ -14,7 +14,7 @@
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:16-bookworm@sha256:7858a1a43bb2e3decc07650c8989ba526e0a8164f212c9bb88b622cdbd71c4be@sha256:7858a1a43bb2e3decc07650c8989ba526e0a8164f212c9bb88b622cdbd71c4be
+    image: postgres:16-bookworm@sha256:7858a1a43bb2e3decc07650c8989ba526e0a8164f212c9bb88b622cdbd71c4be
     container_name: project-template-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-app_db}
@@ -36,7 +36,7 @@ services:
 
   # Redis Cache
   redis:
-    image: redis:7-bookworm@sha256:a5995dfdf108997f8a7c9587f54fad5e94ed5848de5236a6b28119e99efd67e0@sha256:a5995dfdf108997f8a7c9587f54fad5e94ed5848de5236a6b28119e99efd67e0
+    image: redis:7-bookworm@sha256:a5995dfdf108997f8a7c9587f54fad5e94ed5848de5236a6b28119e99efd67e0
     container_name: project-template-redis
     command: redis-server --requirepass ${REDIS_PASSWORD:-password} --appendonly yes
     expose:
@@ -74,7 +74,6 @@ services:
       - GRPC_ENABLED=${GRPC_ENABLED:-true}
       - GRPC_PORT=50051
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
-      - GO_HEALTH_GRPC_URL=go-backend:50052
       - DISCOVERY_RANGES=${DISCOVERY_RANGES:-}
     ports:
       - "${FLASK_PORT:-5000}:5000"
@@ -93,43 +92,6 @@ services:
     networks:
       - app-network
 
-  # Go Backend (High-Performance, XDP/AF_XDP, NUMA)
-  go-backend:
-    build:
-      context: ./services/go-backend
-      dockerfile: Dockerfile
-    container_name: project-template-go
-    privileged: true
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-      - IPC_LOCK
-    environment:
-      - GO_ENV=${GO_ENV:-production}
-      - HOST=0.0.0.0
-      - PORT=8080
-      - NUMA_ENABLED=${NUMA_ENABLED:-false}
-      - XDP_ENABLED=${XDP_ENABLED:-false}
-      - XDP_MODE=${XDP_MODE:-skb}
-      - XDP_INTERFACE=${XDP_INTERFACE:-eth0}
-      - MEMORY_POOL_SLOTS=${MEMORY_POOL_SLOTS:-1024}
-      - MEMORY_POOL_SLOT_SIZE=${MEMORY_POOL_SLOT_SIZE:-2048}
-      - GRPC_ENABLED=${GRPC_ENABLED:-true}
-      - GRPC_PORT=50052
-    ports:
-      - "${GO_PORT:-8080}:8080"
-      - "50052:50052"
-    volumes:
-      - /sys/fs/bpf:/sys/fs/bpf
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
-    networks:
-      - app-network
-
   # WebUI (Node.js + React Frontend Shell)
   webui:
     build:
@@ -140,7 +102,6 @@ services:
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=3000
       - FLASK_API_URL=http://flask-backend:5000
-      - GO_API_URL=http://go-backend:8080
     ports:
       - "${WEBUI_PORT:-3000}:3000"
     depends_on:
@@ -213,7 +174,6 @@ services:
       - nginx_logs:/var/log/nginx
     depends_on:
       - flask-backend
-      - go-backend
       - webui
     networks:
       - app-network

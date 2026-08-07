@@ -64,7 +64,6 @@ main() {
 
     # Build each service
     build_and_import "flask-backend"
-    build_and_import "go-backend"
     build_and_import "webui"
 
     log_pass "All images built and imported successfully"

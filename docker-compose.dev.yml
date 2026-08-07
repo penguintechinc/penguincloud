@@ -40,14 +40,6 @@ services:
       - ./services/flask-backend/app:/app/app:ro
     command: python -m flask run --host=0.0.0.0 --port=5000 --reload
 
-  # Go Backend - development mode
-  go-backend:
-    environment:
-      - GO_ENV=development
-    # For development, you might want to mount source and use air for hot reload
-    # volumes:
-    #   - ./services/go-backend:/app
-
   # WebUI - development mode with Vite dev server
   webui:
     build:

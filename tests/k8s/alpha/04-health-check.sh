@@ -53,7 +53,8 @@ start_port_forward() {
     log_info "Starting port-forward for $service: localhost:$local_port -> $service:$service_port"
 
     # Find pod for service
-    local pod=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=$service" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    local pod
+    pod=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=$service" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
     if [[ -z "$pod" ]]; then
         # Try alternative label
@@ -122,15 +123,6 @@ main() {
         fi
     else
         log_warn "Skipping flask-backend health check (service not found)"
-    fi
-
-    # Health check: go-backend
-    if start_port_forward "go-backend" 18080 8080; then
-        if ! health_check "go-backend" 18080 "/healthz"; then
-            ((failed++))
-        fi
-    else
-        log_warn "Skipping go-backend health check (service not found)"
     fi
 
     # Health check: webui

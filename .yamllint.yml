@@ -1,0 +1,14 @@
+---
+# yamllint config for penguincloud.
+# Defaults are tuned for hand-written app config; SHA256-pinned image
+# references (mandatory per dependency-pinning policy) routinely exceed the
+# stock 80-char line-length limit, so it's raised rather than wrapped in a
+# way that would risk corrupting a digest across a line break.
+extends: default
+
+rules:
+  line-length:
+    max: 130
+    level: error
+  document-start: disable
+  comments-indentation: disable

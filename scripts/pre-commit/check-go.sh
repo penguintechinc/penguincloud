@@ -17,14 +17,6 @@ while IFS= read -r -d '' gomod; do
     GO_DIRS+=("$(dirname "$gomod")")
 done < <(find "$PROJECT_ROOT" -name "go.mod" -type f -print0 2>/dev/null)
 
-# Also check services/go-backend specifically
-if [ -d "$PROJECT_ROOT/services/go-backend" ] && [ -f "$PROJECT_ROOT/services/go-backend/go.mod" ]; then
-    # Already found via find, skip
-    :
-elif [ -d "$PROJECT_ROOT/services/go-backend" ]; then
-    GO_DIRS+=("$PROJECT_ROOT/services/go-backend")
-fi
-
 if [ ${#GO_DIRS[@]} -eq 0 ]; then
     echo "No Go modules found. Skipping."
     exit 0

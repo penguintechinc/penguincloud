@@ -222,7 +222,6 @@ Edit files in your favorite editor. Services auto-reload:
 
 - **Python (Flask)**: Reload on file save (FLASK_DEBUG=1)
 - **Node.js (React)**: Hot reload (Webpack dev server)
-- **Go**: Requires restart (`docker-compose restart go-backend`)
 
 ### 3. Verify Changes
 
@@ -444,9 +443,6 @@ docker-compose exec flask-backend bash
 
 # Node.js service
 docker-compose exec webui bash
-
-# Go service
-docker-compose exec go-backend sh
 ```
 
 **Execute commands in container**:

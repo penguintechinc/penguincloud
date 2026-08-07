@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	pb "github.com/penguintechinc/project-template/services/go-backend/internal/grpc/protos"
+	pb "github.com/penguintechinc/project-template/proto/template/v1"
 )
 
 // GRPCClient wraps gRPC service clients

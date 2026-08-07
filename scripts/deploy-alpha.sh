@@ -31,8 +31,10 @@ set -euo pipefail
 # Configuration
 # =============================================================================
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
+readonly PROJECT_ROOT
 
 readonly APP_NAME="${APP_NAME:-penguincloud}"
 readonly KUBE_CONTEXT="${KUBE_CONTEXT:-local-alpha}"
@@ -41,7 +43,7 @@ readonly APP_HOST="${APP_HOST:-penguincloud.localhost.local}"
 readonly OVERLAY_PATH="${OVERLAY_PATH:-k8s/kustomize/overlays/alpha}"
 
 # Services with Dockerfiles (customize per repo)
-declare -a SERVICES=("flask-backend" "go-backend" "webui")
+declare -a SERVICES=("flask-backend" "webui")
 
 # Image name prefix (used for docker build tags)
 readonly IMAGE_PREFIX="${APP_NAME}"

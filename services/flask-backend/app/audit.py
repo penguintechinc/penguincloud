@@ -38,7 +38,7 @@ def get_audit_logs():
 
     action_filter = request.args.get("action")
     if action_filter:
-        query &= db.audit_logs.action.contains(action_filter)
+        query &= db.audit_logs.action_type.contains(action_filter)
 
     resource_type_filter = request.args.get("resource_type")
     if resource_type_filter:
