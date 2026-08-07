@@ -31,6 +31,7 @@ Phase 0 repository hygiene in progress on `chore/phase0-repo-hygiene`. Current s
 
 **WebUI** (`services/webui`): React management dashboard
 - React 18, TypeScript strict
+- Routing: react-router-dom **7.18.2** (exact pin) — deviates from frontend-react standard v6.x due to widespread CVE issues across lower versions. 7.18.2 has RSC-mode CSRF advisory (GHSA-qwww-vcr4-c8h2) which is not applicable to our client-side-only routing architecture (no Server Components, no Server Actions). Reassess when newer 7.x or 8.x releases become stable
 - Styling: TailwindCSS v4 with @theme tokens (slate dark + gold)
 - Data fetching: TanStack Query 5
 - Components: @penguintechinc/react-libs (shared components, auth, forms)
