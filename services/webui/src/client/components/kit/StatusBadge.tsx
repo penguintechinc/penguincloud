@@ -1,11 +1,14 @@
 /**
  * StatusBadge component
- * Maps health status to visual indicator: healthy/degraded/down/unknown
- * Used in health checks, dashboards, and status displays
+ * Maps health status to a visual indicator. The vocabulary is the app-wide
+ * HealthStatus (healthy/degraded/unhealthy/unknown) — the same words the API
+ * uses — so a status can be passed straight through from any product payload.
  */
 
+import type { HealthStatus } from "../../types";
+
 interface StatusBadgeProps {
-  status: "healthy" | "degraded" | "down" | "unknown";
+  status: HealthStatus;
   size?: "sm" | "md" | "lg";
 }
 
@@ -23,7 +26,7 @@ const statusColorMap: Record<
     text: "text-amber-400",
     dot: "bg-amber-500",
   },
-  down: {
+  unhealthy: {
     bg: "bg-red-500/10",
     text: "text-red-400",
     dot: "bg-red-500",
@@ -38,7 +41,7 @@ const statusColorMap: Record<
 const statusLabelMap: Record<string, string> = {
   healthy: "Healthy",
   degraded: "Degraded",
-  down: "Down",
+  unhealthy: "Unhealthy",
   unknown: "Unknown",
 };
 

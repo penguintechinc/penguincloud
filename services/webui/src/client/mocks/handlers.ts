@@ -71,13 +71,27 @@ export const handlers = [
   }),
 
   /**
-   * GET /api/v1/dashboard/rollup
-   * Returns per-tenant × per-product health status matrix for provider scope.
+   * GET /api/v1/dashboard/rollup?tenant_id=
+   * Per-customer × per-product status for the requesting provider org. Row
+   * shape matches task-2B-brief: {tenant_id, tenant_name, products: [{
+   * connection_id, product, status}]}.
    */
-  http.get(`${API_BASE}/dashboard/rollup`, () => {
-    return HttpResponse.json({
-      rollup: MOCK_DASHBOARD_ROLLUP,
-    });
+  http.get(`${API_BASE}/dashboard/rollup`, ({ request }) => {
+    const tenantId = new URL(request.url).searchParams.get("tenant_id");
+
+    // Scoped to the provider's own customers; an unknown scope rolls up
+    // nothing rather than leaking another provider's customers.
+    const customerIds = MOCK_TENANTS.filter(
+      (t) => t.parent_tenant_id === tenantId,
+    ).map((t) => t.id);
+
+    const rollup = tenantId
+      ? MOCK_DASHBOARD_ROLLUP.filter((row) =>
+          customerIds.includes(row.tenant_id),
+        )
+      : MOCK_DASHBOARD_ROLLUP;
+
+    return HttpResponse.json({ rollup });
   }),
 
   /**
