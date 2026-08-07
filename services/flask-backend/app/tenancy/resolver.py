@@ -1,18 +1,24 @@
-"""Hierarchical tenancy resolver with tree traversal.
+"""Hierarchical tenancy resolver with CTE-based tree traversal.
 
-Resolves tenant relationships (ancestors/descendants) by recursively
-traversing the tenant hierarchy tree via database queries.
+Resolves tenant relationships (ancestors/descendants) via SQL
+WITH RECURSIVE CTEs through penguin-dal executesql.
+Cache via in-process dict or Redis/Valkey when configured.
 """
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Optional, Set
-import logging
 
 from app.models import get_db
 
 logger = logging.getLogger(__name__)
+
+# In-process cache fallback (used in tests or when Redis unavailable)
+_LOCAL_CACHE: dict[str, str] = {}
 
 
 @dataclass(slots=True, frozen=True)
@@ -26,9 +32,9 @@ class TenantHierarchy:
 
 
 async def get_descendants(tenant_id: int) -> Set[int]:
-    """Get all descendant tenant IDs.
+    """Get all descendant tenant IDs via SQL WITH RECURSIVE CTE.
 
-    Recursively traverses the tenant hierarchy to find all descendants.
+    Executes a single recursive query that finds all descendants efficiently.
 
     Args:
         tenant_id: The root tenant ID.
@@ -36,15 +42,22 @@ async def get_descendants(tenant_id: int) -> Set[int]:
     Returns:
         Set of descendant tenant IDs (excluding the root).
     """
+    cache_key = f"tenancy:subtree:{tenant_id}"
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        return set(json.loads(cached))
+
     db = get_db()
-    descendants = await _query_descendants(db, tenant_id)
+    descendants = await _query_descendants_cte(db, tenant_id)
+
+    await _cache_set(cache_key, json.dumps(sorted(list(descendants))))
     return descendants
 
 
 async def get_ancestors(tenant_id: int) -> Set[int]:
-    """Get all ancestor tenant IDs.
+    """Get all ancestor tenant IDs via SQL WITH RECURSIVE CTE.
 
-    Recursively traverses up the tenant hierarchy to find all ancestors.
+    Executes a single recursive query that finds all ancestors efficiently.
 
     Args:
         tenant_id: The leaf tenant ID.
@@ -53,7 +66,7 @@ async def get_ancestors(tenant_id: int) -> Set[int]:
         Set of ancestor tenant IDs (excluding the leaf itself).
     """
     db = get_db()
-    ancestors = await _query_ancestors(db, tenant_id)
+    ancestors = await _query_ancestors_cte(db, tenant_id)
     return ancestors
 
 
@@ -101,6 +114,8 @@ async def invalidate_subtree(tenant_id: int) -> None:
     Args:
         tenant_id: The root tenant whose subtree was modified.
     """
+    # Invalidate subtree cache
+    await _cache_delete(f"tenancy:subtree:{tenant_id}")
     logger.info("Invalidated cache for tenant %d and descendants", tenant_id)
 
 
@@ -112,17 +127,111 @@ async def invalidate_ancestors(tenant_id: int) -> None:
     Args:
         tenant_id: The tenant whose ancestors were modified.
     """
+    # Get ancestors and invalidate their subtree caches
+    db = get_db()
+    ancestors = await _query_ancestors_cte(db, tenant_id)
+    for ancestor_id in ancestors:
+        await _cache_delete(f"tenancy:subtree:{ancestor_id}")
     logger.info("Invalidated cache for ancestors of tenant %d", tenant_id)
 
 
-# Private query helpers
+# Cache layer
 
 
-async def _query_descendants(db: Any, tenant_id: int) -> Set[int]:
-    """Query all descendants by traversing the tenant hierarchy.
+async def _cache_get(key: str) -> Optional[str]:
+    """Get value from cache (Redis/Valkey or local fallback)."""
+    try:
+        # Try Redis/Valkey if configured
+        redis_url = os.environ.get("CACHE_URL")
+        if redis_url and _has_redis():
+            return await _redis_get(redis_url, key)
+    except Exception as e:
+        logger.debug("Redis cache get failed: %s", e)
 
-    Fetches the tenant row and recursively finds all children.
-    Works with both PostgreSQL and SQLite via Python-level traversal.
+    # Fallback to local cache
+    return _LOCAL_CACHE.get(key)
+
+
+async def _cache_set(key: str, value: str, ttl: int = 3600) -> None:
+    """Set value in cache (Redis/Valkey or local fallback)."""
+    try:
+        # Try Redis/Valkey if configured
+        redis_url = os.environ.get("CACHE_URL")
+        if redis_url and _has_redis():
+            return await _redis_set(redis_url, key, value, ttl)
+    except Exception as e:
+        logger.debug("Redis cache set failed: %s", e)
+
+    # Fallback to local cache
+    _LOCAL_CACHE[key] = value
+
+
+async def _cache_delete(key: str) -> None:
+    """Delete value from cache (Redis/Valkey or local fallback)."""
+    try:
+        # Try Redis/Valkey if configured
+        redis_url = os.environ.get("CACHE_URL")
+        if redis_url and _has_redis():
+            return await _redis_delete(redis_url, key)
+    except Exception as e:
+        logger.debug("Redis cache delete failed: %s", e)
+
+    # Fallback to local cache
+    _LOCAL_CACHE.pop(key, None)
+
+
+def _has_redis() -> bool:
+    """Check if Redis/Valkey is available."""
+    try:
+        import redis  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+async def _redis_get(url: str, key: str) -> Optional[str]:
+    """Get from Redis/Valkey."""
+    # Simplified Redis client usage - in production, use a connection pool
+    import redis
+
+    r = redis.from_url(url)  # type: ignore[no-untyped-call]
+    try:
+        val = r.get(key)
+        return val.decode() if val else None
+    finally:
+        r.close()
+
+
+async def _redis_set(url: str, key: str, value: str, ttl: int) -> None:
+    """Set in Redis/Valkey."""
+    import redis
+
+    r = redis.from_url(url)  # type: ignore[no-untyped-call]
+    try:
+        r.setex(key, ttl, value)
+    finally:
+        r.close()
+
+
+async def _redis_delete(url: str, key: str) -> None:
+    """Delete from Redis/Valkey."""
+    import redis
+
+    r = redis.from_url(url)  # type: ignore[no-untyped-call]
+    try:
+        r.delete(key)
+    finally:
+        r.close()
+
+
+# CTE-based query helpers
+
+
+async def _query_descendants_cte(db: Any, tenant_id: int) -> Set[int]:
+    """Query all descendants via SQL WITH RECURSIVE CTE.
+
+    Works on PostgreSQL and SQLite.
 
     Args:
         db: penguin-dal database connection.
@@ -131,26 +240,28 @@ async def _query_descendants(db: Any, tenant_id: int) -> Set[int]:
     Returns:
         Set of descendant tenant IDs (excluding the root).
     """
-    descendants: Set[int] = set()
+    # WITH RECURSIVE CTE that works on both PostgreSQL and SQLite
+    cte_sql = """
+        WITH RECURSIVE tenant_tree AS (
+            SELECT id FROM tenants WHERE parent_tenant_id = ?
+            UNION ALL
+            SELECT t.id FROM tenants t
+            INNER JOIN tenant_tree tt ON t.parent_tenant_id = tt.id
+        )
+        SELECT id FROM tenant_tree
+    """
 
-    async def collect_descendants(parent_id: int) -> None:
-        """Recursively collect all descendants of a tenant."""
-        # Fetch direct children via penguin-dal query builder
-        children = await _db_select_by_parent(db, parent_id)
-        for child_id in children:
-            descendants.add(child_id)
-            # Recurse to get grandchildren
-            await collect_descendants(child_id)
-
-    await collect_descendants(tenant_id)
+    # Execute via penguin-dal executesql
+    # Returns list[tuple] by default
+    rows: Any = db.executesql(cte_sql, (tenant_id,))
+    descendants = {int(row[0]) for row in (rows or [])}
     return descendants
 
 
-async def _query_ancestors(db: Any, tenant_id: int) -> Set[int]:
-    """Query all ancestors by traversing up the tenant hierarchy.
+async def _query_ancestors_cte(db: Any, tenant_id: int) -> Set[int]:
+    """Query all ancestors via SQL WITH RECURSIVE CTE.
 
-    Fetches the tenant row and recursively finds all parents.
-    Works with both PostgreSQL and SQLite via Python-level traversal.
+    Works on PostgreSQL and SQLite.
 
     Args:
         db: penguin-dal database connection.
@@ -159,63 +270,21 @@ async def _query_ancestors(db: Any, tenant_id: int) -> Set[int]:
     Returns:
         Set of ancestor tenant IDs (excluding the leaf itself).
     """
-    ancestors: Set[int] = set()
+    # WITH RECURSIVE CTE that traverses upward
+    cte_sql = """
+        WITH RECURSIVE tenant_tree AS (
+            SELECT parent_tenant_id FROM tenants
+            WHERE id = ? AND parent_tenant_id IS NOT NULL
+            UNION ALL
+            SELECT t.parent_tenant_id FROM tenants t
+            INNER JOIN tenant_tree tt ON t.id = tt.parent_tenant_id
+            WHERE t.parent_tenant_id IS NOT NULL
+        )
+        SELECT parent_tenant_id FROM tenant_tree
+        WHERE parent_tenant_id IS NOT NULL
+    """
 
-    async def collect_ancestors(child_id: int) -> None:
-        """Recursively collect all ancestors of a tenant."""
-        # Fetch the tenant to get parent_id
-        parent_id = await _db_get_parent_id(db, child_id)
-        if parent_id is None:
-            return
-
-        ancestors.add(parent_id)
-        # Recurse to get grandparents
-        await collect_ancestors(parent_id)
-
-    await collect_ancestors(tenant_id)
+    # Execute via penguin-dal executesql
+    rows: Any = db.executesql(cte_sql, (tenant_id,))
+    ancestors = {int(row[0]) for row in (rows or []) if row[0] is not None}
     return ancestors
-
-
-async def _db_select_by_parent(db: Any, parent_id: int) -> list[int]:
-    """Query tenants by parent_id using penguin-dal.
-
-    Args:
-        db: penguin-dal database connection.
-        parent_id: Parent tenant ID.
-
-    Returns:
-        List of child tenant IDs.
-    """
-    # penguin-dal's query builder - db(condition).select()
-    # penguin-dal uses untyped FieldProxy, so mypy can't infer db(condition)
-    condition: Any = db.tenants.parent_tenant_id == parent_id
-    rows: Any = await db(condition).select()
-    result: list[int] = []
-    for row in rows:
-        child_id: int = int(getattr(row, "id", 0))
-        result.append(child_id)
-    return result
-
-
-async def _db_get_parent_id(db: Any, tenant_id: int) -> Optional[int]:
-    """Query parent tenant ID using penguin-dal.
-
-    Args:
-        db: penguin-dal database connection.
-        tenant_id: Tenant ID to get parent for.
-
-    Returns:
-        Parent tenant ID if it exists, None otherwise.
-    """
-    # penguin-dal's query builder - db(condition).select()
-    # penguin-dal uses untyped FieldProxy, so mypy can't infer db(condition)
-    condition: Any = db.tenants.id == tenant_id
-    row: Any = await db(condition).select()
-    if not row:
-        return None
-
-    parent_id_value: Any = getattr(row[0], "parent_tenant_id", None)
-    if parent_id_value is None:
-        return None
-
-    return int(parent_id_value)
