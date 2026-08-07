@@ -94,9 +94,29 @@ def require_feature(
             if not tenant_id:
                 return {"error": "Tenant context required"}, 400
 
-            # TODO: Implement feature checking with penguin-dal
-            # For now, allow all features
-            return await f(*args, **kwargs)
+            # TODO(phase-1b): resolve per-tenant entitlements through
+            # penguin-dal (tenant_product_features) and grant when the
+            # tenant holds `feature_name`.
+            #
+            # Until that lookup exists there is no way to establish that
+            # the tenant is entitled, so this DENIES. A gate that cannot
+            # check anything must not grant: an unverifiable entitlement is
+            # exactly the case flags are required to default OFF for. The
+            # previous body fell through to the view, making the decorator
+            # documentation rather than enforcement.
+            log.warning(
+                "feature_gate_denied_unresolvable",
+                extra={"feature": feature_name, "tenant": tenant_id},
+            )
+            return (
+                {
+                    "error": "feature_not_entitled",
+                    "message": (
+                        f"Feature '{feature_name}' is not enabled for this tenant"
+                    ),
+                },
+                403,
+            )
 
         return decorated
 

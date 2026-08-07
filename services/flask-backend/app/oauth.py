@@ -3,8 +3,7 @@
 import asyncio
 import secrets
 from datetime import datetime, timedelta, UTC
-from functools import wraps
-from typing import Any, Awaitable, Callable, Optional, ParamSpec, TypeVar
+from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
@@ -12,6 +11,15 @@ from quart import Blueprint, current_app, redirect, request, session
 
 from .auth import issue_and_store_token_set
 from .config import Config
+# The local stub this replaces returned the view unconditionally in BOTH
+# branches — a gate that never gated. license.require_feature is the real
+# entitlement check (LicenseManager.is_feature_enabled) and 403s when the
+# tier does not include the feature. SSO is Professional+ per general.md.
+#
+# Redundant-looking alias is the explicit re-export form: it tells mypy
+# (and the reader) that require_feature is deliberately part of this
+# module's namespace, not an incidental import.
+from .license import require_feature as require_feature
 from .middleware import auth_required, get_current_user
 from .models import (
     create_user,
@@ -24,46 +32,29 @@ from .models import (
 
 oauth_bp = Blueprint("oauth", __name__)
 
-P = ParamSpec("P")
-R = TypeVar("R")
-
-
-def require_feature(
-    feature_name: str,
-) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[Any]]]:
-    """Build a decorator gating an async view behind a license feature."""
-
-    def decorator(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
-        @wraps(f)
-        async def decorated_function(*args: P.args, **kwargs: P.kwargs) -> Any:
-            # In development mode, skip feature gating
-            if not Config.RELEASE_MODE:
-                return await f(*args, **kwargs)
-
-            # Check if feature is enabled (would integrate with license server)
-            # For now, always allow in non-release mode
-            return await f(*args, **kwargs)
-
-        return decorated_function
-
-    return decorator
-
 
 def get_state_token() -> str:
     """Generate secure CSRF state token."""
     return secrets.token_urlsafe(32)
 
 
-async def validate_state_token(state: str) -> bool:
-    """Validate CSRF state token from session."""
-    sess = await session.get_json() if hasattr(session, "get_json") else {}
-    if "oauth_state" not in sess:
+def validate_state_token(state: str) -> bool:
+    """Validate and CONSUME the CSRF state token held in the session.
+
+    Single-use by construction: the stored value is popped, so a replayed
+    callback (an attacker re-sending a captured redirect) finds nothing to
+    compare against and fails. Reusable state defeats the point of the
+    parameter.
+
+    Previously read the session via `session.get_json()`, which does not
+    exist on Quart's session object — the hasattr guard fell through to an
+    empty dict, so this returned False unconditionally and every OAuth
+    callback 401'd regardless of the state presented.
+    """
+    stored = session.pop("oauth_state", None)
+    if not stored or not state:
         return False
-    # In Quart, session is not async but we access it via g
-    oauth_state = session.get("oauth_state")
-    if not oauth_state:
-        return False
-    return secrets.compare_digest(oauth_state, state)
+    return secrets.compare_digest(str(stored), state)
 
 
 def get_provider_config(provider: str) -> Optional[dict[str, Any]]:
@@ -130,9 +121,9 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
     if not config:
         return {"error": "OAuth provider not configured"}, 400
 
-    # Validate state token
+    # Validate state token (consumes it — single use)
     state = request.args.get("state")
-    if not state or not await validate_state_token(state):
+    if not state or not validate_state_token(state):
         return {"error": "Invalid state parameter"}, 401
 
     # Check for authorization errors
