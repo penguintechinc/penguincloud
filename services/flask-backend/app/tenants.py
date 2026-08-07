@@ -102,6 +102,8 @@ async def list_user_tenants() -> tuple[dict[str, Any], int]:
 async def get_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
     """Get tenant details (members only)."""
     user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
     tenant = await get_tenant_by_id(tenant_id)
 
     if not tenant:
@@ -120,6 +122,8 @@ async def get_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
 async def update_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
     """Update tenant (admin/owner only)."""
     user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
     role = await get_user_tenant_role(user["id"], tenant_id)
 
     if role not in ["owner", "admin"]:
@@ -176,6 +180,8 @@ async def update_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
 async def delete_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
     """Delete tenant (owner only)."""
     user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
     tenant = await get_tenant_by_id(tenant_id)
 
     if not tenant:
@@ -208,6 +214,8 @@ async def delete_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
 async def switch_tenant(tenant_id: int) -> tuple[dict[str, Any], int]:
     """Switch active tenant — returns new JWT with tenant claim."""
     user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
     role = await get_user_tenant_role(user["id"], tenant_id)
 
     if not role:
@@ -238,6 +246,8 @@ async def switch_tenant(tenant_id: int) -> tuple[dict[str, Any], int]:
 async def list_tenant_members(tenant_id: int) -> tuple[dict[str, Any], int]:
     """List tenant members."""
     user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
     role = await get_user_tenant_role(user["id"], tenant_id)
 
     if not role:
@@ -252,6 +262,8 @@ async def list_tenant_members(tenant_id: int) -> tuple[dict[str, Any], int]:
 async def add_tenant_member_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
     """Add member to tenant (admin/owner only)."""
     user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
     role = await get_user_tenant_role(user["id"], tenant_id)
 
     if role not in ["owner", "admin"]:
@@ -289,6 +301,8 @@ async def add_tenant_member_endpoint(tenant_id: int) -> tuple[dict[str, Any], in
         return {"error": "User already a member"}, 409
 
     member = await add_tenant_member(tenant_id, user_id, member_role, user["id"])
+    if not member:
+        return {"error": "Failed to add tenant member"}, 500
 
     await create_audit_log(
         user_id=user["id"],
@@ -309,6 +323,8 @@ async def update_tenant_member_role(
 ) -> tuple[dict[str, Any], int]:
     """Update member role (admin/owner only)."""
     user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
     role = await get_user_tenant_role(user["id"], tenant_id)
 
     if role not in ["owner", "admin"]:
@@ -343,6 +359,8 @@ async def remove_tenant_member(
 ) -> tuple[dict[str, Any], int]:
     """Remove member from tenant (admin/owner only)."""
     user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
     role = await get_user_tenant_role(user["id"], tenant_id)
 
     if role not in ["owner", "admin"]:
@@ -379,6 +397,8 @@ async def remove_tenant_member(
 async def get_tenant_usage(tenant_id: int) -> tuple[dict[str, Any], int]:
     """Get tenant resource usage and quotas."""
     user = get_current_user()
+    if not user:  # pragma: no cover
+        return {"error": "User not authenticated"}, 401
     role = await get_user_tenant_role(user["id"], tenant_id)
 
     if not role:

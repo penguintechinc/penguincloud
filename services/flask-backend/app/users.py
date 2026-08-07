@@ -1,5 +1,6 @@
 """User Management Endpoints (Admin Only - async Quart)."""
 
+import asyncio
 from typing import Any
 
 from quart import Blueprint, request
@@ -314,7 +315,7 @@ async def list_api_keys() -> tuple[dict[str, Any], int]:
     if not user:
         return {"error": "User not authenticated"}, 401
 
-    keys = await get_user_api_keys(user["id"])
+    keys = await asyncio.to_thread(get_user_api_keys, user["id"])
     return {"api_keys": keys}, 200
 
 
@@ -333,7 +334,8 @@ async def create_api_key_endpoint() -> tuple[dict[str, Any], int]:
     if not data or not data.get("name"):
         return {"error": "API key name required"}, 400
 
-    key, key_id = await create_api_key(
+    key, key_id = await asyncio.to_thread(
+        create_api_key,
         user["id"],
         data.get("name"),
         data.get("scopes", ""),
@@ -356,7 +358,7 @@ async def delete_api_key(key_id: int) -> tuple[dict[str, Any], int]:
     if not user:
         return {"error": "User not authenticated"}, 401
 
-    success = await revoke_api_key(key_id, user["id"])
+    success = await asyncio.to_thread(revoke_api_key, key_id, user["id"])
     if success:
         return {"message": "API key revoked"}, 200
     return {"error": "API key not found"}, 404
@@ -365,10 +367,10 @@ async def delete_api_key(key_id: int) -> tuple[dict[str, Any], int]:
 @users_bp.route("/audit-logs", methods=["GET"])
 @auth_required
 @admin_required
-async def get_audit_logs() -> tuple[dict[str, Any], int]:
+async def get_audit_logs_endpoint() -> tuple[dict[str, Any], int]:
     """Get audit logs (Admin only)."""
     from .auth_features import get_audit_logs
 
     limit = request.args.get("limit", 100, type=int)
-    logs = await get_audit_logs(min(limit, 1000))
+    logs = await asyncio.to_thread(get_audit_logs, min(limit, 1000))
     return {"logs": logs}, 200

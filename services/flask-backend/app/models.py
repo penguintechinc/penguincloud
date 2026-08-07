@@ -11,6 +11,47 @@ from typing import Any
 
 from penguin_dal.quart_ext import get_db
 
+__all__ = [
+    "get_db",
+    "create_user",
+    "get_user_by_email",
+    "get_user_by_id",
+    "get_user_teams",
+    "update_user",
+    "delete_user",
+    "list_users",
+    "create_mfa_secret",
+    "enable_mfa",
+    "disable_mfa",
+    "get_tenant_by_slug",
+    "get_tenant_by_id",
+    "get_user_tenants",
+    "get_user_tenant_role",
+    "get_tenant_members",
+    "add_tenant_member",
+    "get_tenant_member_count",
+    "create_tenant",
+    "get_tenant_product_count",
+    "create_product_connection",
+    "get_product_connection_by_id",
+    "get_product_connection_raw",
+    "get_tenant_product_connections",
+    "update_product_health",
+    "create_audit_log",
+    "get_oauth_connection",
+    "get_oauth_connection_by_provider_id",
+    "store_oauth_connection",
+    "is_refresh_token_valid",
+    "store_refresh_token",
+    "VALID_ROLES",
+    "VALID_PLANS",
+    "VALID_TENANT_ROLES",
+    "VALID_AUTH_TYPES",
+    "VALID_HEALTH_STATUSES",
+    "PRODUCT_TYPES",
+    "PRODUCT_CATEGORIES",
+]
+
 # Constants (from old models.py)
 VALID_ROLES = ["admin", "maintainer", "viewer"]
 VALID_PLANS = ["free", "starter", "business", "enterprise"]
