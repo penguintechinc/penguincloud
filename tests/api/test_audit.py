@@ -23,7 +23,8 @@ REASON_OWNER_NOT_AUTO_MEMBER = (
 class TestAuditLogCreation:
     """Test audit log creation"""
 
-    def test_login_creates_audit_log(self, client):
+    @pytest.mark.asyncio
+    async def test_login_creates_audit_log(self, client):
         """Test that login creates audit entry"""
         # A uuid-based unique email avoids colliding with a same-literal
         # registration from another test in this session (the shared
@@ -40,7 +41,7 @@ class TestAuditLogCreation:
             },
         )
 
-        response = client.post(
+        response = await client.post(
             "/api/v1/auth/login",
             json={"email": unique_email, "password": "testpass123"},
         )
@@ -48,9 +49,10 @@ class TestAuditLogCreation:
         assert response.status_code == 200
         # Login should be logged
 
-    def test_team_creation_audit_log(self, client, auth_headers):
+    @pytest.mark.asyncio
+    async def test_team_creation_audit_log(self, client, auth_headers):
         """Test that team creation creates audit entry"""
-        response = client.post(
+        response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "ta-team-creation"},
@@ -59,9 +61,10 @@ class TestAuditLogCreation:
         assert response.status_code == 201
         # Team creation should be audited
 
-    def test_user_creation_audit_log(self, client, admin_headers):
+    @pytest.mark.asyncio
+    async def test_user_creation_audit_log(self, client, admin_headers):
         """Test that user management creates audit entries"""
-        response = client.get("/api/v1/users", headers=admin_headers)
+        response = await client.get("/api/v1/users", headers=admin_headers)
 
         assert response.status_code == 200
 
@@ -69,9 +72,10 @@ class TestAuditLogCreation:
 class TestAuditLogRetrieval:
     """Test retrieving audit logs"""
 
-    def test_list_audit_logs_admin(self, client, admin_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_list_audit_logs_admin(self, client, admin_headers, tenant_id):
         """Test admin can view all audit logs"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
         )
 
@@ -80,7 +84,8 @@ class TestAuditLogRetrieval:
             data = response.get_json()
             assert "logs" in data
 
-    def test_list_audit_logs_team_admin(self, client, auth_headers):
+    @pytest.mark.asyncio
+    async def test_list_audit_logs_team_admin(self, client, auth_headers):
         """Test team admin can view team audit logs"""
         # No team-scoped audit log endpoint exists — audit_bp is mounted
         # at /api/v1/audit with only /logs and /export (both tenant_id-
@@ -90,25 +95,26 @@ class TestAuditLogRetrieval:
         # The request below hits Flask's own unmatched-route 404, which
         # the test's [200, 402, 404] accepts — this genuinely passes, it
         # just isn't exercising any team-scoped audit functionality.
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "ta-team-admin-audit"},
         )
         team_id = create_response.get_json()["id"]
 
-        response = client.get(
+        response = await client.get(
             f"/api/v1/teams/{team_id}/audit-logs", headers=auth_headers
         )
 
         assert response.status_code in [200, 402, 404]
 
-    def test_list_audit_logs_non_admin(self, client, auth_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_list_audit_logs_non_admin(self, client, auth_headers, tenant_id):
         """Test non-admin cannot view all audit logs"""
         # `tenant_id` is owned by the (unrelated) admin_headers user —
         # auth_headers's user has no membership in it at all, so the
         # get_user_tenant_role() check correctly 403s.
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=auth_headers
         )
 
@@ -119,9 +125,10 @@ class TestAuditLogRetrieval:
 class TestAuditLogFiltering:
     """Test filtering audit logs"""
 
-    def test_filter_by_action(self, client, admin_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_filter_by_action(self, client, admin_headers, tenant_id):
         """Test filtering audit logs by action"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}&action=login",
             headers=admin_headers,
         )
@@ -134,18 +141,20 @@ class TestAuditLogFiltering:
                 # audit_logs table)
                 assert log.get("action_type") == "login"
 
-    def test_filter_by_resource(self, client, admin_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_filter_by_resource(self, client, admin_headers, tenant_id):
         """Test filtering by resource type"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}&resource_type=team",
             headers=admin_headers,
         )
 
         assert response.status_code in [200, 402]
 
-    def test_filter_by_date_range(self, client, admin_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_filter_by_date_range(self, client, admin_headers, tenant_id):
         """Test filtering by date range"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}"
             "&start_date=2024-01-01&end_date=2024-01-31",
             headers=admin_headers,
@@ -153,9 +162,10 @@ class TestAuditLogFiltering:
 
         assert response.status_code in [200, 402]
 
-    def test_filter_by_user(self, client, admin_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_filter_by_user(self, client, admin_headers, tenant_id):
         """Test filtering by user"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}&user_id=user_123",
             headers=admin_headers,
         )
@@ -166,9 +176,10 @@ class TestAuditLogFiltering:
 class TestAuditLogDetails:
     """Test audit log data structure"""
 
-    def test_audit_log_structure(self, client, admin_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_audit_log_structure(self, client, admin_headers, tenant_id):
         """Test that audit logs contain required fields"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
         )
 
@@ -183,9 +194,10 @@ class TestAuditLogDetails:
                 assert "action_type" in log
                 assert "user_id" in log
 
-    def test_audit_log_contains_metadata(self, client, admin_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_audit_log_contains_metadata(self, client, admin_headers, tenant_id):
         """Test audit logs contain metadata"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
         )
 
@@ -196,9 +208,10 @@ class TestAuditLogDetails:
                 if "metadata" in log:
                     assert isinstance(log["metadata"], (dict, str, type(None)))
 
-    def test_audit_log_contains_ip(self, client, admin_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_audit_log_contains_ip(self, client, admin_headers, tenant_id):
         """Test audit logs capture IP address"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
         )
 
@@ -213,9 +226,10 @@ class TestAuditLogDetails:
 class TestAuditLogEvents:
     """Test various audit log events"""
 
-    def test_audit_log_user_login(self, client):
+    @pytest.mark.asyncio
+    async def test_audit_log_user_login(self, client):
         """Test login is audited"""
-        response = client.post(
+        response = await client.post(
             "/api/v1/auth/login",
             json={"email": "nonexistent-audit@example.com", "password": "testpass123"},
         )
@@ -223,16 +237,18 @@ class TestAuditLogEvents:
         # Login should be audited
         assert response.status_code in [200, 401]
 
-    def test_audit_log_user_logout(self, client, auth_headers):
+    @pytest.mark.asyncio
+    async def test_audit_log_user_logout(self, client, auth_headers):
         """Test logout is audited"""
-        response = client.post("/api/v1/auth/logout", headers=auth_headers)
+        response = await client.post("/api/v1/auth/logout", headers=auth_headers)
 
         # Logout should be audited
         assert response.status_code in [200, 401]
 
-    def test_audit_log_password_change(self, client, auth_headers):
+    @pytest.mark.asyncio
+    async def test_audit_log_password_change(self, client, auth_headers):
         """Test password change is audited"""
-        response = client.put(
+        response = await client.put(
             "/api/v1/users/me/password",
             headers=auth_headers,
             json={"current_password": "testpass123", "new_password": "newpass123"},
@@ -242,10 +258,11 @@ class TestAuditLogEvents:
         assert response.status_code in [200, 401]
 
     @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
-    def test_audit_log_team_member_added(self, client, auth_headers):
+    @pytest.mark.asyncio
+    async def test_audit_log_team_member_added(self, client, auth_headers):
         """Test team member addition is audited"""
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "ta-member-added"},
@@ -253,7 +270,7 @@ class TestAuditLogEvents:
         team_id = create_response.get_json()["id"]
 
         # Add member
-        response = client.post(
+        response = await client.post(
             f"/api/v1/teams/{team_id}/members",
             headers=auth_headers,
             json={"user_id": "other_user", "role": "member"},
@@ -266,9 +283,10 @@ class TestAuditLogEvents:
 class TestAuditLogPagination:
     """Test audit log pagination"""
 
-    def test_audit_log_pagination(self, client, admin_headers, tenant_id):
+    @pytest.mark.asyncio
+    async def test_audit_log_pagination(self, client, admin_headers, tenant_id):
         """Test pagination of audit logs"""
-        response = client.get(
+        response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}&page=1&per_page=10",
             headers=admin_headers,
         )
@@ -279,68 +297,3 @@ class TestAuditLogPagination:
             assert "page" in data
             assert "per_page" in data
             assert "total" in data
-
-
-@pytest.fixture
-def admin_headers(client):
-    """Create a genuine admin-role authenticated user.
-
-    Registration always defaults to role="viewer" (see auth.py:register) —
-    there is no self-service way to become admin. Elevate the role via the
-    DB layer inside an app context, then log in again so the fresh JWT's
-    `role` claim (baked in at token issuance, see auth.py:158) reflects it.
-    """
-    unique_email = f"admin-{uuid.uuid4().hex[:8]}@example.com"
-    register_response = client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": unique_email,
-            "password": "adminpass123",
-            "full_name": "Admin User",
-        },
-    )
-    assert register_response.status_code in [
-        200,
-        201,
-    ], f"Failed to register: {register_response.get_json()}"
-    user_id = register_response.get_json()["user"]["id"]
-
-    with client.application.app_context():
-        from app.models import update_user
-
-        update_user(user_id, role="admin")
-
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"email": unique_email, "password": "adminpass123"},
-    )
-    assert (
-        response.status_code == 200
-    ), f"Failed to login: {response.get_json()}"
-
-    token = response.get_json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
-
-
-@pytest.fixture
-def tenant_id(client, admin_headers):
-    """Create a tenant owned by the admin_headers user; return its id.
-
-    create_tenant() (unlike create_team()) does add the creator as a
-    tenant_members row with role="owner" (models.py:780) — so this fixture
-    gives audit-log tests a tenant the admin_headers user genuinely has
-    owner/admin role on, matching what /api/v1/audit/logs requires.
-    """
-    response = client.post(
-        "/api/v1/tenants",
-        headers=admin_headers,
-        json={
-            "name": "Audit Test Tenant",
-            "slug": f"audit-tenant-{uuid.uuid4().hex[:8]}",
-            "plan": "free",
-        },
-    )
-    assert (
-        response.status_code == 201
-    ), f"Failed to create tenant: {response.get_json()}"
-    return response.get_json()["id"]

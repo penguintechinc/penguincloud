@@ -127,18 +127,19 @@ async def store_refresh_token(
         user_id=user_id,
         token_hash=token_hash,
         expires_at=expires_at,
+        revoked=False,
+        created_at=datetime.now(UTC),
     )
 
 
 async def is_refresh_token_valid(user_id: int, token_hash: str) -> bool:
     """Check if refresh token is valid and not expired (async)."""
-    from datetime import datetime
     db = get_db()
     rows = await db(
         (db.refresh_tokens.user_id == user_id) &
         (db.refresh_tokens.token_hash == token_hash) &
         (db.refresh_tokens.revoked == False) &  # noqa: E712
-        (db.refresh_tokens.expires_at > datetime.utcnow())
+        (db.refresh_tokens.expires_at > datetime.now(UTC))
     ).select()
     return len(rows) > 0
 

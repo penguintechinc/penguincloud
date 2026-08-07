@@ -4,9 +4,11 @@ Database Migration Tests
 Tests for Alembic migrations, schema changes, and rollback.
 """
 
-import pytest
+import re
+
 from alembic.config import Config
-from alembic.command import upgrade, downgrade
+
+import pytest
 
 
 class TestMigrationSetup:
@@ -41,7 +43,6 @@ class TestMigrationHistory:
         """Test getting current migration revision"""
         # This would need actual DB setup
         # For now, just verify command structure
-        from alembic.config import Config
 
         cfg = Config("services/flask-backend/alembic.ini")
         assert cfg is not None
@@ -64,7 +65,6 @@ class TestMigrationUpgrade:
         """Test upgrading to head"""
         # This would require actual database connection
         # Verify command structure is correct
-        from alembic.config import Config
 
         cfg = Config("services/flask-backend/alembic.ini")
         assert cfg is not None
@@ -89,7 +89,6 @@ class TestMigrationDowngrade:
     def test_downgrade_one_revision(self, db):
         """Test downgrading by one revision"""
         # Verify command structure
-        from alembic.config import Config
 
         cfg = Config("services/flask-backend/alembic.ini")
         assert cfg is not None
@@ -121,7 +120,6 @@ class TestMigrationIntegrity:
     def test_migration_has_upgrade_downgrade(self):
         """Test migrations have upgrade and downgrade functions"""
         import os
-        import re
 
         versions_dir = "services/flask-backend/alembic/versions"
         if os.path.isdir(versions_dir):
@@ -169,7 +167,6 @@ class TestMigrationNaming:
     def test_migration_naming_convention(self):
         """Test migrations follow naming convention"""
         import os
-        import re
 
         versions_dir = "services/flask-backend/alembic/versions"
         if os.path.isdir(versions_dir):
@@ -187,7 +184,6 @@ class TestMigrationConflicts:
     def test_no_duplicate_versions(self):
         """Test no duplicate version identifiers"""
         import os
-        import re
 
         versions_dir = "services/flask-backend/alembic/versions"
         version_ids = []
@@ -209,13 +205,3 @@ def db():
     """Create test database"""
     # This would initialize test DB
     yield None
-
-
-@pytest.fixture
-def client():
-    """Create test client"""
-    from app import create_app
-
-    app = create_app(config_name="testing")
-    with app.test_client() as client:
-        yield client

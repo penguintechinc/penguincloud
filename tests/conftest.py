@@ -71,6 +71,13 @@ async def app() -> AsyncGenerator[Quart, None]:
 
 
 @pytest_asyncio.fixture
+async def app_context(app: Quart) -> AsyncGenerator[None, None]:
+    """Provide active app context for tests calling model functions directly."""
+    async with app.app_context():
+        yield
+
+
+@pytest_asyncio.fixture
 async def client(app: Quart) -> Any:
     """Create async test client for Quart app."""
     return app.test_client()

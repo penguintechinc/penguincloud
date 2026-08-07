@@ -24,9 +24,10 @@ REASON_OWNER_NOT_AUTO_MEMBER = (
 class TestTeamCreation:
     """Test team creation endpoint"""
 
-    def test_create_team_success(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_create_team_success(self, client, auth_headers):
         """Test creating team successfully"""
-        response = client.post(
+        response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={
@@ -43,9 +44,10 @@ class TestTeamCreation:
         assert "id" in data
         assert "created_at" in data
 
-    def test_create_team_invalid_slug(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_create_team_invalid_slug(self, client, auth_headers):
         """Test team creation with invalid slug"""
-        response = client.post(
+        response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={
@@ -68,7 +70,8 @@ class TestTeamCreation:
         ),
         strict=False,
     )
-    def test_create_team_duplicate_slug(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_create_team_duplicate_slug(self, client, auth_headers):
         """Test creating team with duplicate slug"""
         # Create first team
         client.post(
@@ -78,7 +81,7 @@ class TestTeamCreation:
         )
 
         # Try to create with same slug
-        response = client.post(
+        response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team 2", "slug": "dup-slug-team"},
@@ -88,9 +91,10 @@ class TestTeamCreation:
         data = response.get_json()
         assert data["error"] == "conflict"
 
-    def test_create_team_unauthenticated(self, client):  # type: ignore[no-untyped-def]
+    @pytest.mark.asyncio
+    async def test_create_team_unauthenticated(self, client):
         """Test team creation without authentication"""
-        response = client.post("/api/v1/teams", json={"name": "Team", "slug": "team"})
+        response = await client.post("/api/v1/teams", json={"name": "Team", "slug": "team"})  # noqa: E501
 
         assert response.status_code == 401
 
@@ -99,7 +103,8 @@ class TestTeamListing:
     """Test team listing endpoints"""
 
     @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
-    def test_list_user_teams(self, client, auth_headers, user_id):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_list_user_teams(self, client, auth_headers, user_id):
         """Test listing user's teams"""
         # Create multiple teams
         for i in range(3):
@@ -109,7 +114,7 @@ class TestTeamListing:
                 json={"name": f"Team {i}", "slug": f"tt-listing-team-{i}"},
             )
 
-        response = client.get("/api/v1/teams", headers=auth_headers)
+        response = await client.get("/api/v1/teams", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.get_json()
@@ -117,10 +122,11 @@ class TestTeamListing:
         assert data["count"] >= 3
 
     @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
-    def test_get_team_details(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_get_team_details(self, client, auth_headers):
         """Test getting team details"""
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "tt-get-details"},
@@ -128,7 +134,7 @@ class TestTeamListing:
         team_id = create_response.get_json()["id"]
 
         # Get details
-        response = client.get(f"/api/v1/teams/{team_id}", headers=auth_headers)
+        response = await client.get(f"/api/v1/teams/{team_id}", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.get_json()
@@ -145,9 +151,10 @@ class TestTeamListing:
         ),
         strict=False,
     )
-    def test_get_nonexistent_team(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_get_nonexistent_team(self, client, auth_headers):
         """Test getting non-existent team"""
-        response = client.get("/api/v1/teams/invalid-id", headers=auth_headers)
+        response = await client.get("/api/v1/teams/invalid-id", headers=auth_headers)
 
         assert response.status_code == 404
         data = response.get_json()
@@ -158,10 +165,11 @@ class TestTeamManagement:
     """Test team update and deletion"""
 
     @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
-    def test_update_team(self, client, auth_headers):  # type: ignore[no-untyped-def]
+    @pytest.mark.asyncio
+    async def test_update_team(self, client, auth_headers):
         """Test updating team"""
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "tt-update-team"},
@@ -169,7 +177,7 @@ class TestTeamManagement:
         team_id = create_response.get_json()["id"]
 
         # Update
-        response = client.put(
+        response = await client.put(
             f"/api/v1/teams/{team_id}",
             headers=auth_headers,
             json={"name": "Updated Team"},
@@ -187,10 +195,11 @@ class TestTeamManagement:
         ),
         strict=False,
     )
-    def test_delete_team_owner(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_delete_team_owner(self, client, auth_headers):
         """Test deleting team as owner"""
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "tt-delete-owner"},
@@ -198,7 +207,7 @@ class TestTeamManagement:
         team_id = create_response.get_json()["id"]
 
         # Delete
-        response = client.delete(f"/api/v1/teams/{team_id}", headers=auth_headers)
+        response = await client.delete(f"/api/v1/teams/{team_id}", headers=auth_headers)
 
         assert response.status_code == 204
 
@@ -207,10 +216,11 @@ class TestTeamMembers:
     """Test team member management"""
 
     @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
-    def test_list_team_members(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_list_team_members(self, client, auth_headers):
         """Test listing team members"""
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "tt-list-members"},
@@ -218,7 +228,7 @@ class TestTeamMembers:
         team_id = create_response.get_json()["id"]
 
         # List members
-        response = client.get(f"/api/v1/teams/{team_id}/members", headers=auth_headers)
+        response = await client.get(f"/api/v1/teams/{team_id}/members", headers=auth_headers)  # noqa: E501
 
         assert response.status_code == 200
         data = response.get_json()
@@ -226,10 +236,11 @@ class TestTeamMembers:
         # Owner should be in members
         assert len(data["members"]) >= 1
 
-    def test_remove_member_admin(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_remove_member_admin(self, client, auth_headers):
         """Test removing team member as admin"""
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "tt-remove-member"},
@@ -237,7 +248,7 @@ class TestTeamMembers:
         team_id = create_response.get_json()["id"]
 
         # Remove member (would need another user setup)
-        response = client.delete(
+        response = await client.delete(
             f"/api/v1/teams/{team_id}/members/other-user", headers=auth_headers
         )
 
@@ -258,10 +269,11 @@ class TestTeamInvitations:
         ),
         strict=False,
     )
-    def test_send_invitation(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_send_invitation(self, client, auth_headers):
         """Test sending team invitation"""
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "tt-send-invite"},
@@ -269,7 +281,7 @@ class TestTeamInvitations:
         team_id = create_response.get_json()["id"]
 
         # Send invitation
-        response = client.post(
+        response = await client.post(
             f"/api/v1/teams/{team_id}/invitations",
             headers=auth_headers,
             json={"email": "newmember@example.com", "role": "member"},
@@ -289,16 +301,17 @@ class TestTeamInvitations:
         ),
         strict=False,
     )
-    def test_invite_existing_member(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_invite_existing_member(self, client, auth_headers):
         """Test inviting user already in team"""
         # auth_headers registers a UUID-based unique email (see
         # tests/conftest.py), not a fixed literal — look up the owner's
         # actual email via their own profile rather than assuming a value.
-        profile_response = client.get("/api/v1/users/me", headers=auth_headers)
+        profile_response = await client.get("/api/v1/users/me", headers=auth_headers)
         owner_email = profile_response.get_json()["email"]
 
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "tt-invite-existing"},
@@ -306,7 +319,7 @@ class TestTeamInvitations:
         team_id = create_response.get_json()["id"]
 
         # Send invitation for owner (already member)
-        response = client.post(
+        response = await client.post(
             f"/api/v1/teams/{team_id}/invitations",
             headers=auth_headers,
             json={"email": owner_email, "role": "member"},
@@ -324,12 +337,13 @@ class TestTeamInvitations:
         ),
         strict=False,
     )
-    def test_accept_invitation(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_accept_invitation(self, client, auth_headers):
         """Test accepting team invitation"""
         # accept_invitation is @auth_required (the invitee must be logged in
         # for the endpoint to match invite.email against the caller) — an
         # unauthenticated call 401s before ever reaching the token lookup.
-        response = client.post(
+        response = await client.post(
             "/api/v1/teams/invitations/invalid-token/accept",
             headers=auth_headers,
             json={"email": "user@example.com"},
@@ -343,10 +357,11 @@ class TestTeamRoles:
     """Test team role management"""
 
     @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
-    def test_team_role_hierarchy(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_team_role_hierarchy(self, client, auth_headers):
         """Test team role permission hierarchy"""
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "tt-role-hierarchy"},
@@ -354,14 +369,15 @@ class TestTeamRoles:
         team_id = create_response.get_json()["id"]
 
         # Verify owner role
-        response = client.get(f"/api/v1/teams/{team_id}", headers=auth_headers)
+        response = await client.get(f"/api/v1/teams/{team_id}", headers=auth_headers)
 
         assert response.status_code == 200
 
-    def test_update_member_role(self, client, auth_headers):  # type: ignore[no-untyped-def]  # noqa: E501
+    @pytest.mark.asyncio
+    async def test_update_member_role(self, client, auth_headers):
         """Test updating member role"""
         # Create team
-        create_response = client.post(
+        create_response = await client.post(
             "/api/v1/teams",
             headers=auth_headers,
             json={"name": "Team", "slug": "tt-update-member-role"},
@@ -369,7 +385,7 @@ class TestTeamRoles:
         team_id = create_response.get_json()["id"]
 
         # Update role (requires another member)
-        response = client.put(
+        response = await client.put(
             f"/api/v1/teams/{team_id}/members/other-user",
             headers=auth_headers,
             json={"role": "admin"},
