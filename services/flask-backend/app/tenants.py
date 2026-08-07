@@ -20,6 +20,9 @@ from .models import (
     get_user_by_id,
     get_user_tenant_role,
     get_user_tenants,
+    tenant_quota,
+    DEFAULT_MAX_PRODUCTS,
+    DEFAULT_MAX_USERS,
     VALID_PLANS,
     VALID_TENANT_ROLES,
 )
@@ -275,7 +278,7 @@ async def add_tenant_member_endpoint(tenant_id: int) -> tuple[dict[str, Any], in
         return {"error": "Tenant not found"}, 404
 
     current_count = await get_tenant_member_count(tenant_id)
-    if current_count >= tenant.get("max_users", 10):
+    if current_count >= tenant_quota(tenant, "max_users", DEFAULT_MAX_USERS):
         return {"error": "Tenant member limit reached"}, 403
 
     data = await request.get_json()
@@ -417,11 +420,11 @@ async def get_tenant_usage(tenant_id: int) -> tuple[dict[str, Any], int]:
         "usage": {
             "members": {
                 "current": member_count,
-                "max": tenant.get("max_users", 10),
+                "max": tenant_quota(tenant, "max_users", DEFAULT_MAX_USERS),
             },
             "products": {
                 "current": product_count,
-                "max": tenant.get("max_products", 5),
+                "max": tenant_quota(tenant, "max_products", DEFAULT_MAX_PRODUCTS),
             },
         },
     }, 200

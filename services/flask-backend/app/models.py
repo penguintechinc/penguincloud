@@ -16,6 +16,21 @@ from penguin_dal.quart_ext import get_db
 #: flake8's E712, which targets Python identity comparisons rather than these.
 SQL_FALSE: Any = False
 
+#: Placeholder substituted for stored credentials on every read that can reach
+#: a response body. Matches the pre-migration masking value byte-for-byte.
+MASKED_SECRET = "***"
+
+#: Credential columns on product_connections. Stored encrypted at rest; even
+#: the ciphertext never leaves the service, so both are masked on egress.
+SECRET_FIELDS = ("api_key", "api_secret")
+
+#: Fallback quotas for tenant rows written before max_users/max_products
+#: gained a server default. Both columns were nullable with a Python-side
+#: SQLAlchemy default only, which penguin-dal's own INSERTs never apply.
+DEFAULT_MAX_USERS = 10
+DEFAULT_MAX_PRODUCTS = 5
+
+
 __all__ = [
     "get_db",
     "create_user",
@@ -55,6 +70,11 @@ __all__ = [
     "VALID_HEALTH_STATUSES",
     "PRODUCT_TYPES",
     "PRODUCT_CATEGORIES",
+    "MASKED_SECRET",
+    "SECRET_FIELDS",
+    "DEFAULT_MAX_USERS",
+    "DEFAULT_MAX_PRODUCTS",
+    "tenant_quota",
 ]
 
 # Constants (from old models.py)
@@ -102,6 +122,17 @@ PRODUCT_CATEGORIES = {
     "legacy": ["elder"],
     "administration": ["admin"],
 }
+
+
+def tenant_quota(tenant: dict[str, Any], field: str, fallback: int) -> int:
+    """Read an integer quota off a tenant row, tolerating a legacy NULL.
+
+    dict.get(key, default) returns None for a key that is present and
+    NULL, so quota comparisons must coalesce explicitly or they raise
+    TypeError ("'>=' not supported between 'int' and 'NoneType'").
+    """
+    value = tenant.get(field)
+    return int(value) if value is not None else fallback
 
 
 async def create_user(
@@ -477,14 +508,36 @@ async def create_product_connection(
 
 
 async def get_product_connection_by_id(conn_id: int) -> dict[str, Any] | None:
-    """Get product connection by ID (async)."""
+    """Get product connection by ID with credentials masked (async).
+
+    Every caller of this function feeds a response body, so api_key and
+    api_secret are replaced with MASKED_SECRET here rather than at each
+    call site. get_product_connection_raw is the one sanctioned path to
+    the stored ciphertext.
+    """
     db = get_db()
     row = await db(db.product_connections.id == conn_id).select()
-    return dict(row[0]) if row else None
+    return _mask_connection_secrets(dict(row[0])) if row else None
+
+
+def _mask_connection_secrets(conn: dict[str, Any]) -> dict[str, Any]:
+    """Replace stored credential values with MASKED_SECRET.
+
+    Empty/absent credentials stay an empty string so clients can tell
+    "no credential configured" from "credential set but withheld".
+    """
+    for field in SECRET_FIELDS:
+        conn[field] = MASKED_SECRET if conn.get(field) else ""
+    return conn
 
 
 async def get_product_connection_raw(conn_id: int) -> dict[str, Any] | None:
-    """Get product connection with encrypted fields (async)."""
+    """Get product connection including stored credential ciphertext (async).
+
+    INTERNAL USE ONLY — the returned dict must never reach a response
+    body. Callers are the proxy and adapter paths, which decrypt the
+    credentials to authenticate outbound calls to the connected product.
+    """
     db = get_db()
     row = await db(db.product_connections.id == conn_id).select()
     if row:
@@ -495,10 +548,10 @@ async def get_product_connection_raw(conn_id: int) -> dict[str, Any] | None:
 
 
 async def get_tenant_product_connections(tenant_id: int) -> list[dict[str, Any]]:
-    """Get all product connections for a tenant (async)."""
+    """Get all product connections for a tenant, credentials masked (async)."""
     db = get_db()
     rows = await db(db.product_connections.tenant_id == tenant_id).select()
-    return [dict(row) for row in rows]
+    return [_mask_connection_secrets(dict(row)) for row in rows]
 
 
 async def get_tenant_product_count(tenant_id: int) -> int:

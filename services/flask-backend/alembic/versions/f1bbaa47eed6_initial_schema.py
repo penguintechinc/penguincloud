@@ -157,8 +157,12 @@ def upgrade() -> None:
             "plan_tier", sa.String(length=50), server_default="free", nullable=False
         ),
         sa.Column("license_key", sa.String(length=255), nullable=True),
-        sa.Column("max_users", sa.Integer(), nullable=True),
-        sa.Column("max_products", sa.Integer(), nullable=True),
+        sa.Column(
+            "max_users", sa.Integer(), server_default=sa.text("10"), nullable=False
+        ),
+        sa.Column(
+            "max_products", sa.Integer(), server_default=sa.text("5"), nullable=False
+        ),
         sa.Column("settings", sa.Text(), nullable=True),
         sa.Column(
             "is_active", sa.Boolean(), server_default=sa.text("1"), nullable=False

@@ -18,7 +18,9 @@ from .models import (
     get_tenant_product_connections,
     get_tenant_product_count,
     get_user_tenant_role,
+    tenant_quota,
     update_product_health,
+    DEFAULT_MAX_PRODUCTS,
     PRODUCT_TYPES,
     VALID_AUTH_TYPES,
 )
@@ -73,7 +75,7 @@ async def register_product() -> tuple[dict[str, Any], int]:
         return {"error": "Tenant not found"}, 404
 
     current_count = await get_tenant_product_count(tenant_id)
-    if current_count >= tenant.get("max_products", 5):
+    if current_count >= tenant_quota(tenant, "max_products", DEFAULT_MAX_PRODUCTS):
         return {"error": "Product connection limit reached"}, 403
 
     product_type = data.get("product_type", "generic")

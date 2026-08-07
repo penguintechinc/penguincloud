@@ -92,8 +92,14 @@ class Tenant(Base):
         String(50), default="free", server_default="free", nullable=False
     )
     license_key = Column(String(255))
-    max_users = Column(Integer, default=10)
-    max_products = Column(Integer, default=5)
+    # server_default, not just a Python-side default: penguin-dal issues its
+    # own INSERTs at runtime and never applies SQLAlchemy's Python defaults,
+    # so a Python-only default leaves these NULL and every quota comparison
+    # (`count >= None`) raises TypeError.
+    max_users = Column(Integer, default=10, server_default=text("10"), nullable=False)
+    max_products = Column(
+        Integer, default=5, server_default=text("5"), nullable=False
+    )
     settings = Column(Text)
     is_active = Column(Boolean, default=True, server_default=text("1"), nullable=False)
     created_at = Column(
