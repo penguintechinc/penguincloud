@@ -71,7 +71,9 @@ __all__ = [
     "delete_product_tenant_map",
     "VALID_ROLES",
     "VALID_PLANS",
+    "VALID_TENANT_KINDS",
     "VALID_TENANT_ROLES",
+    "VALID_EXTERNAL_KINDS",
     "VALID_AUTH_TYPES",
     "VALID_HEALTH_STATUSES",
     "PRODUCT_TYPES",
@@ -246,18 +248,37 @@ async def is_mfa_enabled(user_id: int) -> bool:
     return bool(row and row[0].enabled_at)
 
 
+#: Tenant kinds. Stored as a plain string column (see models_sqlalchemy) so
+#: the ORM, the Alembic migration and penguin-dal's runtime INSERTs all agree
+#: on the same lowercase values.
+VALID_TENANT_KINDS = ["provider", "customer"]
+
+#: External identifier kinds a product connection can be mapped by.
+VALID_EXTERNAL_KINDS = ["tenant_id", "organization_id", "namespace"]
+
+
 async def create_tenant(
     name: str,
     slug: str,
     owner_id: int,
     plan_tier: str = "free",
     display_name: str = "",
+    parent_tenant_id: int | None = None,
+    kind: str = "customer",
+    depth: int = 0,
 ) -> int | None:
     """Create a new tenant and enrol the owner as a member (async).
 
     The owner row in tenant_members is what get_user_tenant_role() reads, so
     without it the creator cannot switch to, or act on, the tenant they just
     created.
+
+    ``parent_tenant_id``/``depth`` are written here rather than defaulted by
+    the schema: penguin-dal issues its own INSERTs and never applies
+    SQLAlchemy's Python-side defaults, and the brief puts depth maintenance
+    in the service layer rather than in a trigger. Callers must validate the
+    parent (existence, authority, cycles) before calling — see
+    ``app.tenancy.hierarchy.validate_parent``.
     """
     db = get_db()
     new_id: int | None = await db.tenants.async_insert(
@@ -266,6 +287,9 @@ async def create_tenant(
         display_name=display_name or name,
         owner_id=owner_id,
         plan_tier=plan_tier,
+        parent_tenant_id=parent_tenant_id,
+        kind=kind,
+        depth=depth,
     )
     if new_id is None:
         return None

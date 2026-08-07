@@ -21,7 +21,6 @@ from .models import (
     get_tenant_by_id,
     get_tenant_product_connections,
     get_tenant_product_count,
-    get_user_tenant_role,
     set_product_tenant_map,
     tenant_quota,
     update_product_health,
@@ -29,8 +28,21 @@ from .models import (
     PRODUCT_TYPES,
     VALID_AUTH_TYPES,
 )
+from .tenancy import (
+    EFFECTIVE_ADMIN_ROLES,
+    may_bind_tenant,
+    resolve_effective_role,
+    tenancy_aware,
+)
 
 products_bp = Blueprint("products", __name__)
+
+#: Returned when a caller names a tenant they hold no authority over as the
+#: target of a mapping write. Deliberately identical for "tenant does not
+#: exist", "tenant exists elsewhere in the tree" and "tenant is a descendant
+#: but you are only a member here" — distinguishing them turns the path
+#: parameter into a tenant-existence oracle for any authenticated user.
+_TENANT_NOT_IN_SCOPE = "Tenant not within this connection's authority"
 
 
 @dataclass(slots=True)
@@ -69,6 +81,7 @@ async def _get_tenant_id_from_request() -> int | None:
 
 @products_bp.route("/types", methods=["GET"])
 @auth_required
+@tenancy_aware
 async def list_product_types() -> tuple[dict[str, Any], int]:
     """List all available product types with metadata."""
     return {"product_types": get_all_product_types()}, 200
@@ -76,6 +89,7 @@ async def list_product_types() -> tuple[dict[str, Any], int]:
 
 @products_bp.route("", methods=["POST"])
 @auth_required
+@tenancy_aware
 async def register_product() -> tuple[dict[str, Any], int]:
     """Register a new product connection (manual)."""
     user = get_current_user()
@@ -90,8 +104,8 @@ async def register_product() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if role not in ["owner", "admin"]:
+    role = await resolve_effective_role(user["id"], tenant_id)
+    if role not in EFFECTIVE_ADMIN_ROLES:
         return {"error": "Admin access required"}, 403
 
     # Check quota
@@ -150,6 +164,7 @@ async def register_product() -> tuple[dict[str, Any], int]:
 
 @products_bp.route("", methods=["GET"])
 @auth_required
+@tenancy_aware
 async def list_products() -> tuple[dict[str, Any], int]:
     """List connected products for current tenant."""
     user = get_current_user()
@@ -160,7 +175,7 @@ async def list_products() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
+    role = await resolve_effective_role(user["id"], tenant_id)
     if not role:
         return {"error": "Not a member of this tenant"}, 403
 
@@ -170,6 +185,7 @@ async def list_products() -> tuple[dict[str, Any], int]:
 
 @products_bp.route("/<int:product_id>", methods=["GET"])
 @auth_required
+@tenancy_aware
 async def get_product(product_id: int) -> tuple[dict[str, Any], int]:
     """Get product connection details."""
     user = get_current_user()
@@ -180,7 +196,7 @@ async def get_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await get_user_tenant_role(user["id"], conn["tenant_id"])
+    role = await resolve_effective_role(user["id"], conn["tenant_id"])
     if not role:
         return {"error": "Not a member of this tenant"}, 403
 
@@ -189,6 +205,7 @@ async def get_product(product_id: int) -> tuple[dict[str, Any], int]:
 
 @products_bp.route("/<int:product_id>", methods=["PUT"])
 @auth_required
+@tenancy_aware
 async def update_product(product_id: int) -> tuple[dict[str, Any], int]:
     """Update product connection config."""
     user = get_current_user()
@@ -199,8 +216,8 @@ async def update_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await get_user_tenant_role(user["id"], conn["tenant_id"])
-    if role not in ["owner", "admin"]:
+    role = await resolve_effective_role(user["id"], conn["tenant_id"])
+    if role not in EFFECTIVE_ADMIN_ROLES:
         return {"error": "Admin access required"}, 403
 
     data = await request.get_json()
@@ -242,6 +259,7 @@ async def update_product(product_id: int) -> tuple[dict[str, Any], int]:
 
 @products_bp.route("/<int:product_id>", methods=["DELETE"])
 @auth_required
+@tenancy_aware
 async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
     """Remove product connection."""
     user = get_current_user()
@@ -252,8 +270,8 @@ async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await get_user_tenant_role(user["id"], conn["tenant_id"])
-    if role not in ["owner", "admin"]:
+    role = await resolve_effective_role(user["id"], conn["tenant_id"])
+    if role not in EFFECTIVE_ADMIN_ROLES:
         return {"error": "Admin access required"}, 403
 
     db = get_db()
@@ -274,6 +292,7 @@ async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
 
 @products_bp.route("/<int:product_id>/test", methods=["POST"])
 @auth_required
+@tenancy_aware
 async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]:
     """Test a product connection."""
     user = get_current_user()
@@ -284,7 +303,7 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
     if not conn_masked:
         return {"error": "Product connection not found"}, 404
 
-    role = await get_user_tenant_role(user["id"], conn_masked["tenant_id"])
+    role = await resolve_effective_role(user["id"], conn_masked["tenant_id"])
     if not role:
         return {"error": "Not a member of this tenant"}, 403
 
@@ -301,6 +320,7 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
 
 @products_bp.route("/<int:product_id>/health", methods=["GET"])
 @auth_required
+@tenancy_aware
 async def get_product_health(product_id: int) -> tuple[dict[str, Any], int]:
     """Get latest health status for a product."""
     user = get_current_user()
@@ -311,7 +331,7 @@ async def get_product_health(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await get_user_tenant_role(user["id"], conn["tenant_id"])
+    role = await resolve_effective_role(user["id"], conn["tenant_id"])
     if not role:
         return {"error": "Not a member of this tenant"}, 403
 
@@ -324,6 +344,7 @@ async def get_product_health(product_id: int) -> tuple[dict[str, Any], int]:
 
 @products_bp.route("/<int:product_id>/schema", methods=["GET"])
 @auth_required
+@tenancy_aware
 async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
     """Get management schema (available actions) for a product."""
     user = get_current_user()
@@ -334,7 +355,7 @@ async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await get_user_tenant_role(user["id"], conn["tenant_id"])
+    role = await resolve_effective_role(user["id"], conn["tenant_id"])
     if not role:
         return {"error": "Not a member of this tenant"}, 403
 
@@ -364,6 +385,7 @@ def _validate_external_kind(product_type: str) -> tuple[str, bool]:
 
 @products_bp.route("/<int:product_id>/tenants/<int:tenant_id>/map", methods=["GET"])
 @auth_required
+@tenancy_aware
 @validate_response(ProductTenantMapResponse)
 async def get_product_tenant_mapping(
     product_id: int, tenant_id: int
@@ -377,9 +399,16 @@ async def get_product_tenant_mapping(
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await get_user_tenant_role(user["id"], conn["tenant_id"])
+    scope_tenant_id = int(conn["tenant_id"])
+    role = await resolve_effective_role(user["id"], scope_tenant_id)
     if not role:
         return {"error": "Not a member of this tenant"}, 403
+
+    # The connection is authorized against ITS tenant, but the mapping being
+    # read is named by a path parameter. Without this the parameter reads any
+    # tenant's external mapping through a connection the caller can reach.
+    if not await may_bind_tenant(user["id"], scope_tenant_id, tenant_id):
+        return {"error": _TENANT_NOT_IN_SCOPE}, 403
 
     mapping = await get_product_tenant_map(product_id, tenant_id)
     if not mapping:
@@ -401,6 +430,7 @@ async def get_product_tenant_mapping(
 
 @products_bp.route("/<int:product_id>/tenants/<int:tenant_id>/map", methods=["POST"])
 @auth_required
+@tenancy_aware
 @validate_request(ProductTenantMapRequest)
 @validate_response(ProductTenantMapResponse, status_code=201)
 async def set_product_tenant_mapping(
@@ -415,9 +445,17 @@ async def set_product_tenant_mapping(
     if not conn:
         return ({"error": "Product connection not found"}, 404)
 
-    role = await get_user_tenant_role(user["id"], conn["tenant_id"])
-    if role not in ["owner", "admin"]:
+    scope_tenant_id = int(conn["tenant_id"])
+    role = await resolve_effective_role(user["id"], scope_tenant_id)
+    if role not in EFFECTIVE_ADMIN_ROLES:
         return ({"error": "Admin access required"}, 403)
+
+    # Authorization above is against the CONNECTION's tenant; the row written
+    # below is keyed by the tenant_id path parameter. Binding an unchecked
+    # parameter is a cross-tenant write primitive -- gate it against the same
+    # authority the switch endpoint uses.
+    if not await may_bind_tenant(user["id"], scope_tenant_id, tenant_id):
+        return ({"error": _TENANT_NOT_IN_SCOPE}, 403)
 
     required_kind, is_valid_product = _validate_external_kind(conn["product_type"])
     if not is_valid_product:
@@ -464,6 +502,7 @@ async def set_product_tenant_mapping(
 
 @products_bp.route("/<int:product_id>/tenants/<int:tenant_id>/map", methods=["PUT"])
 @auth_required
+@tenancy_aware
 @validate_request(ProductTenantMapRequest)
 @validate_response(ProductTenantMapResponse)
 async def update_product_tenant_mapping(
@@ -478,9 +517,17 @@ async def update_product_tenant_mapping(
     if not conn:
         return ({"error": "Product connection not found"}, 404)
 
-    role = await get_user_tenant_role(user["id"], conn["tenant_id"])
-    if role not in ["owner", "admin"]:
+    scope_tenant_id = int(conn["tenant_id"])
+    role = await resolve_effective_role(user["id"], scope_tenant_id)
+    if role not in EFFECTIVE_ADMIN_ROLES:
         return ({"error": "Admin access required"}, 403)
+
+    # Authorization above is against the CONNECTION's tenant; the row written
+    # below is keyed by the tenant_id path parameter. Binding an unchecked
+    # parameter is a cross-tenant write primitive -- gate it against the same
+    # authority the switch endpoint uses.
+    if not await may_bind_tenant(user["id"], scope_tenant_id, tenant_id):
+        return ({"error": _TENANT_NOT_IN_SCOPE}, 403)
 
     required_kind, is_valid_product = _validate_external_kind(conn["product_type"])
     if not is_valid_product:
@@ -531,6 +578,7 @@ async def update_product_tenant_mapping(
 
 @products_bp.route("/<int:product_id>/tenants/<int:tenant_id>/map", methods=["DELETE"])
 @auth_required
+@tenancy_aware
 async def delete_product_tenant_mapping(
     product_id: int, tenant_id: int
 ) -> tuple[dict[str, Any], int]:
@@ -543,9 +591,13 @@ async def delete_product_tenant_mapping(
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await get_user_tenant_role(user["id"], conn["tenant_id"])
-    if role not in ["owner", "admin"]:
+    scope_tenant_id = int(conn["tenant_id"])
+    role = await resolve_effective_role(user["id"], scope_tenant_id)
+    if role not in EFFECTIVE_ADMIN_ROLES:
         return {"error": "Admin access required"}, 403
+
+    if not await may_bind_tenant(user["id"], scope_tenant_id, tenant_id):
+        return {"error": _TENANT_NOT_IN_SCOPE}, 403
 
     existing = await get_product_tenant_map(product_id, tenant_id)
     if not existing:
