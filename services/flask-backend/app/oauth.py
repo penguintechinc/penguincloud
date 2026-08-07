@@ -1,15 +1,16 @@
-"""OAuth2/SSO Integration Endpoints."""
+"""OAuth2/SSO Integration Endpoints (async Quart)."""
 
+import asyncio
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from functools import wraps
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
-from flask import Blueprint, current_app, jsonify, redirect, request, session
+import requests  # type: ignore[import-untyped]
+from quart import Blueprint, current_app, redirect, request, session
 
-from .auth import create_access_token, create_refresh_token
+from .auth import create_token_set_async
 from .config import Config
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -24,19 +25,19 @@ from .models import (
 oauth_bp = Blueprint("oauth", __name__)
 
 
-def require_feature(feature_name: str):
-    """Decorator to gate features behind license checks."""
+def require_feature(feature_name: str) -> Any:
+    """Decorator to gate features behind license checks (async)."""
 
-    def decorator(f):
+    def decorator(f: Any) -> Any:
         @wraps(f)
-        def decorated_function(*args, **kwargs):
+        async def decorated_function(*args: Any, **kwargs: Any) -> Any:
             # In development mode, skip feature gating
             if not Config.RELEASE_MODE:
-                return f(*args, **kwargs)
+                return await f(*args, **kwargs)
 
             # Check if feature is enabled (would integrate with license server)
             # For now, always allow in non-release mode
-            return f(*args, **kwargs)
+            return await f(*args, **kwargs)
 
         return decorated_function
 
@@ -48,18 +49,23 @@ def get_state_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def validate_state_token(state: str) -> bool:
+async def validate_state_token(state: str) -> bool:
     """Validate CSRF state token from session."""
-    if "oauth_state" not in session:
+    sess = await session.get_json() if hasattr(session, "get_json") else {}
+    if "oauth_state" not in sess:
         return False
-    return secrets.compare_digest(session.pop("oauth_state"), state)
+    # In Quart, session is not async but we access it via g
+    oauth_state = session.get("oauth_state")
+    if not oauth_state:
+        return False
+    return secrets.compare_digest(oauth_state, state)
 
 
-def get_provider_config(provider: str) -> Optional[dict]:
+def get_provider_config(provider: str) -> Optional[dict[str, Any]]:
     """Get provider configuration."""
     if provider not in Config.OAUTH_PROVIDERS:
         return None
-    config = Config.OAUTH_PROVIDERS[provider].copy()
+    config: dict[str, Any] = Config.OAUTH_PROVIDERS[provider].copy()
 
     # Handle Okta tenant URL substitution
     if provider == "okta" and config.get("tenant_url"):
@@ -73,29 +79,35 @@ def get_provider_config(provider: str) -> Optional[dict]:
     return config
 
 
-def get_redirect_uri(provider: str) -> str:
+async def get_redirect_uri(provider: str) -> str:
     """Get OAuth2 redirect URI."""
-    return request.url_root.rstrip("/") + f"/api/v1/auth/oauth/{provider}/callback"
+    root = (
+        request.url_root.rstrip("/")
+        if hasattr(request, "url_root")
+        else "http://localhost:8000"
+    )
+    return f"{root}/api/v1/auth/oauth/{provider}/callback"
 
 
 @oauth_bp.route("/auth/oauth/<provider>", methods=["GET"])
-@require_feature("sso_integration")
-def oauth_redirect(provider: str):
+@require_feature("sso_integration")  # type: ignore[misc]
+async def oauth_redirect(provider: str) -> Any:
     """Redirect to OAuth provider for authorization."""
     config = get_provider_config(provider)
     if not config:
-        return jsonify({"error": "OAuth provider not configured"}), 400
+        return {"error": "OAuth provider not configured"}, 400
 
     if not config.get("client_id") or not config.get("client_secret"):
-        return jsonify({"error": "Provider credentials not configured"}), 500
+        return {"error": "Provider credentials not configured"}, 500
 
     state = get_state_token()
     session["oauth_state"] = state
 
     # Build authorization URL
+    redirect_uri = await get_redirect_uri(provider)
     auth_params = {
         "client_id": config["client_id"],
-        "redirect_uri": get_redirect_uri(provider),
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
         "state": state,
@@ -106,53 +118,53 @@ def oauth_redirect(provider: str):
 
 
 @oauth_bp.route("/auth/oauth/<provider>/callback", methods=["GET"])
-@require_feature("sso_integration")
-def oauth_callback(provider: str):
+@require_feature("sso_integration")  # type: ignore[misc]
+async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
     """Handle OAuth2 callback and create/link user account."""
     config = get_provider_config(provider)
     if not config:
-        return jsonify({"error": "OAuth provider not configured"}), 400
+        return {"error": "OAuth provider not configured"}, 400
 
     # Validate state token
     state = request.args.get("state")
-    if not state or not validate_state_token(state):
-        return jsonify({"error": "Invalid state parameter"}), 401
+    if not state or not await validate_state_token(state):
+        return {"error": "Invalid state parameter"}, 401
 
     # Check for authorization errors
     error = request.args.get("error")
     if error:
-        return jsonify({"error": f"Authorization failed: {error}"}), 401
+        return {"error": f"Authorization failed: {error}"}, 401
 
     # Get authorization code
     code = request.args.get("code")
     if not code:
-        return jsonify({"error": "No authorization code received"}), 400
+        return {"error": "No authorization code received"}, 400
 
     try:
-        # Exchange code for tokens
-        token_data = {
+        # Exchange code for tokens (wrap sync requests in async)
+        token_data: dict[str, str] = {
             "client_id": config["client_id"],
             "client_secret": config["client_secret"],
             "code": code,
-            "redirect_uri": get_redirect_uri(provider),
+            "redirect_uri": await get_redirect_uri(provider),
             "grant_type": "authorization_code",
         }
 
-        token_response = requests.post(
-            config["token_url"],
-            data=token_data,
-            timeout=10,
-        )
+        def _post_token() -> Any:
+            return requests.post(config["token_url"], data=token_data, timeout=10)
+
+        token_response = await asyncio.to_thread(_post_token)
         token_response.raise_for_status()
-        tokens = token_response.json()
+        tokens: dict[str, Any] = token_response.json()
 
         # Get user info from provider
-        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
-        userinfo_response = requests.get(
-            config["userinfo_url"],
-            headers=headers,
-            timeout=10,
-        )
+        def _get_userinfo() -> Any:
+            headers: dict[str, str] = {
+                "Authorization": f"Bearer {tokens['access_token']}"
+            }
+            return requests.get(config["userinfo_url"], headers=headers, timeout=10)
+
+        userinfo_response = await asyncio.to_thread(_get_userinfo)
         userinfo_response.raise_for_status()
         userinfo = userinfo_response.json()
 
@@ -162,20 +174,20 @@ def oauth_callback(provider: str):
         full_name = _extract_provider_name(provider, userinfo)
 
         if not provider_user_id or not email:
-            return jsonify({"error": "Failed to get user info from provider"}), 400
+            return {"error": "Failed to get user info from provider"}, 400
 
         # Check if OAuth connection exists
-        existing_connection = get_oauth_connection_by_provider_id(
+        existing_connection = await get_oauth_connection_by_provider_id(
             provider, provider_user_id
         )
 
         if existing_connection:
             # Link to existing user
             user_id = existing_connection["user_id"]
-            user = get_user_by_id(user_id)
+            user = await get_user_by_id(user_id)
         else:
             # Check if user with email exists
-            user = get_user_by_email(email)
+            user = await get_user_by_email(email)
 
             if not user:
                 # Create new user with OAuth
@@ -183,62 +195,74 @@ def oauth_callback(provider: str):
 
                 # Generate random password for OAuth users
                 random_password = secrets.token_urlsafe(32)
-                password_hash = bcrypt.hashpw(
-                    random_password.encode("utf-8"), bcrypt.gensalt()
-                ).decode("utf-8")
 
-                user = create_user(
+                def _hash_password() -> str:
+                    return bcrypt.hashpw(
+                        random_password.encode("utf-8"), bcrypt.gensalt()
+                    ).decode("utf-8")
+
+                password_hash = await asyncio.to_thread(_hash_password)
+
+                user = await create_user(
                     email=email,
                     password_hash=password_hash,
                     full_name=full_name,
                     role="viewer",
                 )
-                user_id = user["id"]
+                user_id = user["id"] if user else None
             else:
                 user_id = user["id"]
 
-        # Store/update OAuth connection
-        expires_at = None
-        if "expires_in" in tokens:
-            expires_at = datetime.utcnow() + timedelta(seconds=tokens["expires_in"])
+        if not user_id or not user:
+            return {"error": "Failed to create or retrieve user"}, 500
 
-        store_oauth_connection(
+        # Store/update OAuth connection
+        expires_at: Optional[datetime] = None
+        if "expires_in" in tokens:
+            expires_at = datetime.now(UTC) + timedelta(seconds=tokens["expires_in"])
+
+        access_token = tokens.get("access_token", "")
+        refresh_token = tokens.get("refresh_token")
+        await store_oauth_connection(
             user_id=user_id,
             provider=provider,
             provider_user_id=provider_user_id,
-            access_token=tokens.get("access_token"),
-            refresh_token=tokens.get("refresh_token"),
+            access_token=access_token,
+            refresh_token=refresh_token,
             expires_at=expires_at,
         )
 
-        # Generate JWT tokens
-        access_token = create_access_token(user_id, user["role"])
-        refresh_token, refresh_expires = create_refresh_token(user_id)
+        # Generate JWT tokens using penguin-aaa
+        token_set = await create_token_set_async(
+            user_id=user_id,
+            tenant_id="",  # OAuth users may not have a default tenant yet
+            role=user["role"],
+        )
 
         # Return tokens (would redirect to frontend in production)
         return (
-            jsonify(
-                {
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
-                    "token_type": "Bearer",
-                    "user": {
-                        "id": user["id"],
-                        "email": user["email"],
-                        "full_name": user["full_name"],
-                        "role": user["role"],
-                    },
-                }
-            ),
+            {
+                "access_token": token_set.get("access_token"),
+                "refresh_token": token_set.get("refresh_token"),
+                "token_type": "Bearer",
+                "user": {
+                    "id": user["id"],
+                    "email": user["email"],
+                    "full_name": user.get("full_name", ""),
+                    "role": user["role"],
+                },
+            },
             200,
         )
 
     except requests.RequestException as e:
         current_app.logger.error(f"OAuth callback error: {e}")
-        return jsonify({"error": "Failed to complete OAuth flow"}), 500
+        return {"error": "Failed to complete OAuth flow"}, 500
 
 
-def _extract_provider_user_id(provider: str, userinfo: dict) -> Optional[str]:
+def _extract_provider_user_id(
+    provider: str, userinfo: dict[str, Any]
+) -> Optional[str]:
     """Extract provider-specific user ID."""
     if provider == "google":
         return userinfo.get("sub")
@@ -249,65 +273,72 @@ def _extract_provider_user_id(provider: str, userinfo: dict) -> Optional[str]:
     return None
 
 
-def _extract_provider_email(provider: str, userinfo: dict) -> Optional[str]:
+def _extract_provider_email(
+    provider: str, userinfo: dict[str, Any]
+) -> Optional[str]:
     """Extract provider-specific email."""
     if provider == "google":
         return userinfo.get("email")
     elif provider == "microsoft":
-        return userinfo.get("userPrincipalName") or userinfo.get("mail")
+        email = userinfo.get("userPrincipalName") or userinfo.get("mail")
+        return email
     elif provider == "okta":
         return userinfo.get("email")
     return None
 
 
-def _extract_provider_name(provider: str, userinfo: dict) -> str:
+def _extract_provider_name(
+    provider: str, userinfo: dict[str, Any]
+) -> str:
     """Extract provider-specific full name."""
     if provider == "google":
-        return userinfo.get("name", "")
+        name = userinfo.get("name", "")
+        return str(name) if name else ""
     elif provider == "microsoft":
-        return userinfo.get("displayName", "")
+        name = userinfo.get("displayName", "")
+        return str(name) if name else ""
     elif provider == "okta":
-        return userinfo.get("name", "")
+        name = userinfo.get("name", "")
+        return str(name) if name else ""
     return ""
 
 
 @oauth_bp.route("/auth/oauth/connections", methods=["GET"])
 @auth_required
-def get_oauth_connections():
+async def get_oauth_connections() -> tuple[dict[str, Any], int]:
     """Get OAuth connections for current user."""
     user = get_current_user()
     if not user:
-        return jsonify({"error": "Unauthorized"}), 401
+        return {"error": "Unauthorized"}, 401
 
     connections = []
     for provider in Config.OAUTH_PROVIDERS.keys():
-        connection = get_oauth_connection(user["id"], provider)
+        connection = await get_oauth_connection(user["id"], provider)
         if connection:
             # Don't expose tokens
             connection.pop("access_token", None)
             connection.pop("refresh_token", None)
             connections.append(connection)
 
-    return jsonify({"connections": connections}), 200
+    return {"connections": connections}, 200
 
 
 @oauth_bp.route("/auth/oauth/<provider>/disconnect", methods=["POST"])
 @auth_required
-def disconnect_oauth(provider: str):
+async def disconnect_oauth(provider: str) -> tuple[dict[str, Any], int]:
     """Disconnect OAuth connection for current user."""
     user = get_current_user()
     if not user:
-        return jsonify({"error": "Unauthorized"}), 401
+        return {"error": "Unauthorized"}, 401
 
-    connection = get_oauth_connection(user["id"], provider)
+    connection = await get_oauth_connection(user["id"], provider)
     if not connection:
-        return jsonify({"error": "OAuth connection not found"}), 404
+        return {"error": "OAuth connection not found"}, 404
 
-    # Delete connection (would use delete function, implementing inline for now)
+    # Delete connection
     from .models import get_db
 
     db = get_db()
-    db(db.oauth_connections.id == connection["id"]).delete()
-    db.commit()
+    await db(db.oauth_connections.id == connection["id"]).delete()
 
-    return jsonify({"message": "OAuth connection disconnected"}), 200
+    return {"message": "OAuth connection disconnected"}, 200

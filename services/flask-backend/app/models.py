@@ -516,6 +516,7 @@ async def store_oauth_connection(
     provider_user_id: str,
     access_token: str,
     refresh_token: str | None = None,
+    expires_at: Any = None,
 ) -> int | None:
     """Store or update OAuth connection (async)."""
     db = get_db()
@@ -529,6 +530,7 @@ async def store_oauth_connection(
             provider_user_id=provider_user_id,
             access_token=access_token,
             refresh_token=refresh_token,
+            expires_at=expires_at,
         )
         return existing.get("id")
     else:
@@ -539,4 +541,5 @@ async def store_oauth_connection(
             provider_user_id=provider_user_id,
             access_token=access_token,
             refresh_token=refresh_token,
+            expires_at=expires_at,
         )
