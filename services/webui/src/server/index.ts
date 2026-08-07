@@ -81,9 +81,17 @@ if (config.nodeEnv === "production") {
   const clientDir = path.join(__dirname, "../client");
   app.use(express.static(clientDir));
 
-  // SPA fallback - serve index.html for all non-API routes
-  app.get("*", (_req: Request, res: Response) => {
-    res.sendFile(path.join(clientDir, "index.html"));
+  // SPA fallback - serve index.html for all non-API routes.
+  // Express 5 (path-to-regexp v8) rejects a bare "*" path with
+  // "Missing parameter name"; the wildcard must be named. Scoped to GET so an
+  // unmatched POST/PUT still 404s instead of receiving the HTML shell.
+  // `root` + relative filename rather than one absolute path: express/send
+  // applies its `dotfiles: "ignore"` rule to every segment it is given, so an
+  // absolute path 404s whenever ANY ancestor directory starts with a dot
+  // (a git worktree under .worktrees/, a CI workspace, /opt/.releases/...).
+  // Scoping to `root` limits that check to the part below clientDir.
+  app.get("/*splat", (_req: Request, res: Response) => {
+    res.sendFile("index.html", { root: clientDir });
   });
 }
 
