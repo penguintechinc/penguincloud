@@ -31,17 +31,8 @@ def create_app(config_class: type = Config) -> Quart:
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-    # Initialize CORS
-    cors(
-        app,
-        resources={
-            r"/api/*": {
-                "origins": app.config.get("CORS_ORIGINS", "*"),
-                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                "allow_headers": ["Content-Type", "Authorization"],
-            }
-        },
-    )
+    # Initialize CORS (quart-cors uses simpler API: cors(app) for all routes)
+    cors(app)
 
     # Initialize database (penguin-dal AsyncDB) at startup
     @app.before_serving
