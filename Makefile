@@ -449,6 +449,11 @@ git-hooks-test: ## Git - Test Git hooks
 	@.git/hooks/pre-commit
 	@echo "$(GREEN)Git hooks test completed$(RESET)"
 
+install-hooks: ## Git - Install Git pre-commit and pre-push hooks
+	@echo "$(BLUE)Installing Git hooks...$(RESET)"
+	@./scripts/install-hooks.sh
+	@echo "$(GREEN)Git hooks installed successfully$(RESET)"
+
 # Info Commands
 info: ## Info - Show project information
 	@echo "$(BLUE)Project Information:$(RESET)"
