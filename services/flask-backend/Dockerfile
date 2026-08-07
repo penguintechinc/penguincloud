@@ -42,7 +42,9 @@ COPY --chown=appuser:appuser . .
 USER appuser
 
 # Environment variables
-ENV FLASK_HOST=0.0.0.0
+# Container binds all interfaces by design (it's the only process in its
+# network namespace); run.py defaults HOST to 127.0.0.1 when unset.
+ENV HOST=0.0.0.0
 ENV FLASK_PORT=5000
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1

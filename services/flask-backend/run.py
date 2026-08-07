@@ -15,7 +15,9 @@ def wait_for_database(max_retries: int = 30, retry_delay: int = 2) -> bool:
     from pydal import DAL
 
     db_uri = Config.get_db_uri()
-    print(f"Waiting for database connection: {Config.DB_HOST}:{Config.DB_PORT}")
+    print(
+        f"Waiting for database connection: {Config.DB_HOST}:{Config.DB_PORT}"
+    )
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -25,14 +27,17 @@ def wait_for_database(max_retries: int = 30, retry_delay: int = 2) -> bool:
             print(f"Database connection successful after {attempt} attempt(s)")
             return True
         except Exception as e:
-            print(f"Database connection attempt {attempt}/{max_retries} failed: {e}")
+            print(
+                f"Database connection attempt {attempt}/{max_retries} "
+                f"failed: {e}"
+            )
             if attempt < max_retries:
                 time.sleep(retry_delay)
 
     return False
 
 
-def create_default_admin():
+def create_default_admin() -> None:
     """Create default admin user if no users exist."""
     from app.models import create_user, get_db, get_user_by_email
 
@@ -59,11 +64,12 @@ def create_default_admin():
             print("Admin user already exists")
     else:
         print(
-            f"Database has {user_count} existing user(s), skipping default admin creation"
+            f"Database has {user_count} existing user(s), skipping "
+            "default admin creation"
         )
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     # Wait for database
     if not wait_for_database():
@@ -78,7 +84,9 @@ def main():
         create_default_admin()
 
     # Get configuration
-    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    # Default to localhost; set HOST=0.0.0.0 explicitly (e.g. via container
+    # ENV) when the process needs to accept connections on all interfaces.
+    host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.getenv("FLASK_PORT", "5000"))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
 
