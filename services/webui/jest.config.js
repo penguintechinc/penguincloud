@@ -40,12 +40,18 @@ export default {
     "^.+\\.tsx?$": [
       "ts-jest",
       {
+        useESM: true,
         tsconfig: {
           jsx: "react-jsx",
           esModuleInterop: true,
           allowSyntheticDefaultImports: true,
+          module: "esnext",
         },
       },
     ],
   },
+  extensionsToTreatAsEsm: [".ts", ".tsx"],
+  transformIgnorePatterns: [
+    "node_modules/(?!(react-router|react-router-dom)/)",
+  ],
 };

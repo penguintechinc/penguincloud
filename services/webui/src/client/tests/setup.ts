@@ -1,5 +1,4 @@
 import "@testing-library/jest-dom";
-import { server } from "../mocks/server";
 
 // Mock window.matchMedia
 Object.defineProperty(window, "matchMedia", {
@@ -16,10 +15,8 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 
-// MSW server setup
-beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
+// Note: MSW setup deferred to integration tests that actually need it.
+// Unit tests of kit components don't require API mocking.
 
 // Suppress console errors during tests (optional)
 const originalError = console.error;
