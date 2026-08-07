@@ -15,39 +15,35 @@ const REFRESH_TOKEN_KEY = "penguincloud_refresh_token";
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
-// Hydrate tokens from localStorage on module load
+// This module is browser-only — it is imported from React code and from
+// nothing the Express server loads — so localStorage is always present and the
+// former `typeof window !== "undefined"` guards were dead branches.
 function hydrateTokens(): void {
-  if (typeof window !== "undefined") {
-    accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-    refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    console.log(
-      "[ApiClient] Hydrate { hasAccess:",
-      !!accessToken,
-      "hasRefresh:",
-      !!refreshToken,
-      "}",
-    );
-  }
+  accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+  refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+  console.log(
+    "[ApiClient] Hydrate { hasAccess:",
+    !!accessToken,
+    "hasRefresh:",
+    !!refreshToken,
+    "}",
+  );
 }
 
 export function setTokens(access: string, refresh: string): void {
   accessToken = access;
   refreshToken = refresh;
-  if (typeof window !== "undefined") {
-    localStorage.setItem(ACCESS_TOKEN_KEY, access);
-    localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
-    console.log("[ApiClient] SetTokens { stored: true }");
-  }
+  localStorage.setItem(ACCESS_TOKEN_KEY, access);
+  localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+  console.log("[ApiClient] SetTokens { stored: true }");
 }
 
 export function clearTokens(): void {
   accessToken = null;
   refreshToken = null;
-  if (typeof window !== "undefined") {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-    console.log("[ApiClient] ClearTokens { cleared: true }");
-  }
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  console.log("[ApiClient] ClearTokens { cleared: true }");
 }
 
 export function getAccessToken(): string | null {
@@ -105,7 +101,10 @@ api.interceptors.response.use(
       } catch {
         console.log("[ApiClient] TokenRefresh { error: true }");
         clearTokens();
-        window.location.href = "/login";
+        // `assign` rather than setting `href`: identical behaviour, and it is
+        // a method, so it can be observed in tests (jsdom's `location.href`
+        // is non-configurable).
+        window.location.assign("/login");
         return Promise.reject(error);
       }
     }
