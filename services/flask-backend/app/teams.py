@@ -44,7 +44,6 @@ def create_team_endpoint():
 
     name = data.get("name", "").strip()
     slug = data.get("slug", "").strip().lower()
-    description = data.get("description", "").strip()
 
     if not name or len(name) > 255:
         return jsonify({"error": "Team name required (1-255 chars)"}), 400
@@ -63,7 +62,11 @@ def create_team_endpoint():
     if existing:
         return jsonify({"error": "Team slug already exists"}), 409
 
-    team = create_team(name, slug, user["id"], description)
+    # NOTE: the `teams` table has no `description` column (see models.py
+    # SQLATeam / db.define_table("teams", ...)) — any "description" sent in
+    # the request body is accepted but not persisted. Team descriptions are
+    # not yet part of the schema.
+    team = create_team(name, slug, user["id"])
     return jsonify(team), 201
 
 
@@ -119,8 +122,11 @@ def update_team_endpoint(team_id: int):
         if name and len(name) <= 255:
             update_data["name"] = name
 
-    if "description" in data:
-        update_data["description"] = data.get("description", "").strip()
+    # NOTE: no "description" column exists on the `teams` table (see
+    # create_team_endpoint above) — a prior version of this handler wrote
+    # `update_data["description"] = ...` here, which would raise at the
+    # PyDAL update() call for any request that included it. Removed rather
+    # than reintroduced silently; add back only alongside a schema migration.
 
     if update_data:
         db(db.teams.id == team_id).update(**update_data)

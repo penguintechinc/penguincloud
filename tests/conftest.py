@@ -45,6 +45,17 @@ def app() -> Generator[Flask, None, None]:
     test_app = create_app(config_class=TestingConfig)
     yield test_app
 
+    # Every test gets a fresh create_app() -> init_db() call, which opens a
+    # brand new PyDAL connection against the SAME shared file-based sqlite
+    # DB (TestingConfig.DB_NAME is resolved once per pytest process). Without
+    # an explicit close here, each test's connection is left open and relies
+    # on GC timing to release its SQLite lock — under a full-file run this
+    # reliably produces `sqlite3.OperationalError: database is locked` on a
+    # later test's write. Close deterministically at teardown instead.
+    db = test_app.config.get("db")
+    if db is not None:
+        db.close()
+
 
 @pytest.fixture
 def client(app: Flask) -> Any:
