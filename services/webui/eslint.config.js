@@ -1,7 +1,15 @@
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "build", "node_modules"] },
+  {
+    ignores: [
+      "dist",
+      "build",
+      "node_modules",
+      "jest.config.js",
+      "playwright.config.ts",
+    ],
+  },
   {
     extends: [...tseslint.configs.recommended],
     files: ["src/**/*.{ts,tsx}"],
