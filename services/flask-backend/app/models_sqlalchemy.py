@@ -5,11 +5,13 @@ See models.py for runtime operations.
 """
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Enum,
     ForeignKey,
     Integer,
     String,
@@ -17,7 +19,23 @@ from sqlalchemy import (
     func,
     text,
 )
+import enum
 from sqlalchemy.orm import DeclarativeBase
+
+
+class TenantKind(enum.Enum):
+    """Tenant kind: provider or customer."""
+
+    PROVIDER = "provider"
+    CUSTOMER = "customer"
+
+
+class ProductExternalKind(enum.Enum):
+    """Product external mapping kind."""
+
+    TENANT_ID = "tenant_id"
+    ORGANIZATION_ID = "organization_id"
+    NAMESPACE = "namespace"
 
 
 class Base(DeclarativeBase):
@@ -102,6 +120,17 @@ class Tenant(Base):
     )
     settings = Column(Text)
     is_active = Column(Boolean, default=True, server_default=text("1"), nullable=False)
+    # Hierarchical tenancy columns
+    parent_tenant_id: Any = Column(
+        Integer, ForeignKey("tenants.id"), nullable=True
+    )
+    kind: Any = Column(
+        Enum(TenantKind),
+        default=TenantKind.CUSTOMER,
+        server_default="customer",
+        nullable=False,
+    )
+    depth: Any = Column(Integer, default=0, server_default=text("0"), nullable=False)
     created_at = Column(
         DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
     )
@@ -267,3 +296,28 @@ class APIKey(Base):
     scopes = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ProductTenantMap(Base):
+    """Product tenant external mapping."""
+
+    __tablename__ = "product_tenant_map"
+    id = Column(Integer, primary_key=True)
+    connection_id = Column(
+        Integer, ForeignKey("product_connections.id"), nullable=False
+    )
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    external_kind: Any = Column(
+        Enum(ProductExternalKind), nullable=False
+    )
+    external_id = Column(String(255), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        server_default=func.now(),
+        nullable=False,
+    )
