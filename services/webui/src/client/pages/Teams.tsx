@@ -11,7 +11,7 @@ import type { Team } from "../hooks/useTeams";
 
 export default function Teams() {
   const currentTenant = useTenantStore((state) => state.currentTenant);
-  const teamsQuery = useTeams();
+  const teamsQuery = useTeams(currentTenant?.id);
 
   const teams = useMemo(() => teamsQuery.data ?? [], [teamsQuery.data]);
 

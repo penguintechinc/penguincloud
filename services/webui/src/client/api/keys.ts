@@ -55,4 +55,9 @@ export const queryKeys = {
   auditLogs: () => [...queryKeys.all(), "audit"] as const,
   auditLogPage: (tenantId: number | undefined, page: number, perPage: number) =>
     [...queryKeys.auditLogs(), tenantId, page, perPage] as const,
+
+  // Teams (tenant-scoped)
+  teams: () => [...queryKeys.all(), "teams"] as const,
+  teamList: (tenantId: number | undefined) =>
+    [...queryKeys.teams(), "list", tenantId] as const,
 };

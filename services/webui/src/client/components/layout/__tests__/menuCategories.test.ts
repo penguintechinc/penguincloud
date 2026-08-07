@@ -7,6 +7,7 @@
 
 import { buildMenuCategories } from "../menuCategories";
 import { isProductEnabled } from "../../../lib/featureGates";
+import { MENU_ITEM_ROUTES } from "../../../config/routes";
 import type { ProductConnection } from "../../../types";
 
 jest.mock("../../../lib/featureGates");
@@ -114,33 +115,8 @@ describe("buildMenuCategories", () => {
   it("all menu items have valid hrefs (regression test for dead links)", () => {
     const categories = buildMenuCategories([], allowAll);
 
-    // These are routes that should exist in App.tsx
-    const validRoutes = new Set([
-      "/",
-      "/health",
-      "/profile",
-      "/tenants",
-      "/tenants/new",
-      "/users",
-      "/connections",
-      "/settings",
-      "/teams",
-      "/audit",
-      "/products/gough/nodes",
-      "/products/gough/biomes",
-      "/products/gough/clusters",
-      "/products/gough/agents",
-      "/products/nest/databases",
-      "/products/nest/servers",
-      "/products/nest/workflows",
-      "/products/nest/billing",
-      "/products/nest/cloud",
-      "/products/tobogganing/sase",
-      "/products/tobogganing/sdwan",
-      "/products/tobogganing/firewall",
-      "/products/tobogganing/wireguard",
-      "/products/tobogganing/headend",
-    ]);
+    // Valid routes are derived from MENU_ITEM_ROUTES config to prevent silent drift
+    const validRoutes = new Set<string>(MENU_ITEM_ROUTES);
 
     const allItems = categories.flatMap((c) => c.items);
     const deadLinks = allItems.filter((item) => !validRoutes.has(item.href));
