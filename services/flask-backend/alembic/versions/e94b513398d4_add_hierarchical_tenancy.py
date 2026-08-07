@@ -21,34 +21,43 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Add hierarchical tenancy columns and tables."""
-    # Add hierarchical tenancy columns to tenants table
-    op.add_column(
-        "tenants",
-        sa.Column(
-            "parent_tenant_id",
-            sa.Integer(),
-            sa.ForeignKey("tenants.id"),
-            nullable=True,
-        ),
-    )
-    op.add_column(
-        "tenants",
-        sa.Column(
-            "kind",
-            sa.String(length=50),
-            server_default="customer",
-            nullable=False,
-        ),
-    )
-    op.add_column(
-        "tenants",
-        sa.Column(
-            "depth",
-            sa.Integer(),
-            server_default=sa.text("0"),
-            nullable=False,
-        ),
-    )
+    # batch_alter_table, not bare op.add_column: adding a column that carries
+    # a ForeignKey emits an ALTER ... ADD CONSTRAINT, which SQLite does not
+    # support at all ("No support for ALTER of constraints in SQLite
+    # dialect"). Batch mode's copy-and-move strategy covers SQLite and
+    # degrades to a plain ALTER on PostgreSQL/MySQL, so one code path serves
+    # every supported backend. Without this, `alembic upgrade head` could
+    # never complete on the SQLite development/test backend.
+    with op.batch_alter_table("tenants") as batch_op:
+        batch_op.add_column(
+            sa.Column(
+                "parent_tenant_id",
+                sa.Integer(),
+                nullable=True,
+            )
+        )
+        batch_op.add_column(
+            sa.Column(
+                "kind",
+                sa.String(length=50),
+                server_default="customer",
+                nullable=False,
+            )
+        )
+        batch_op.add_column(
+            sa.Column(
+                "depth",
+                sa.Integer(),
+                server_default=sa.text("0"),
+                nullable=False,
+            )
+        )
+        batch_op.create_foreign_key(
+            "fk_tenants_parent_tenant_id",
+            "tenants",
+            ["parent_tenant_id"],
+            ["id"],
+        )
 
     # Create product_tenant_map table
     op.create_table(
@@ -84,6 +93,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Remove hierarchical tenancy columns and tables."""
     op.drop_table("product_tenant_map")
-    op.drop_column("tenants", "depth")
-    op.drop_column("tenants", "kind")
-    op.drop_column("tenants", "parent_tenant_id")
+    with op.batch_alter_table("tenants") as batch_op:
+        batch_op.drop_constraint("fk_tenants_parent_tenant_id", type_="foreignkey")
+        batch_op.drop_column("depth")
+        batch_op.drop_column("kind")
+        batch_op.drop_column("parent_tenant_id")
