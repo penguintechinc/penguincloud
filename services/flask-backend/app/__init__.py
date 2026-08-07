@@ -1,42 +1,38 @@
-"""Flask Backend Application Factory."""
+"""Quart Backend Application Factory (async-native)."""
 
-from flask import Flask
-from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from prometheus_client import make_wsgi_app
-from werkzeug.middleware.dispatcher import DispatcherMiddleware
+from __future__ import annotations
 
-from .background import get_background_manager
+import logging
+from typing import Any
+
+from penguin_dal.quart_ext import get_db, init_dal
+from quart import Quart
+from quart_cors import cors
+
 from .config import Config
 from .killkrill import killkrill_manager
 from .license import license_manager
 from .middleware import setup_request_logging
-from .models import get_db, init_db
 
-# Global rate limiter instance
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["100 per minute"],
-    storage_uri="memory://",
-)
+log = logging.getLogger(__name__)
 
 
-def create_app(config_class: type = Config) -> Flask:
-    """Create and configure the Flask application."""
-    app = Flask(__name__)
+def create_app(config_class: type = Config) -> Quart:
+    """Create and configure the Quart application.
+
+    Note: Routes are async; the factory itself is sync.
+    Database initialization happens at app startup (before_serving).
+    """
+    app = Quart(__name__)
     app.config.from_object(config_class)
 
-    # Set session configuration for OAuth state management
+    # Set session/cookie configuration
     app.config["SESSION_COOKIE_SECURE"] = True
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-    # Initialize rate limiter
-    limiter.init_app(app)
-
     # Initialize CORS
-    CORS(
+    cors(
         app,
         resources={
             r"/api/*": {
@@ -47,39 +43,59 @@ def create_app(config_class: type = Config) -> Flask:
         },
     )
 
-    # Initialize database
-    with app.app_context():
-        init_db(app)
+    # Initialize database (penguin-dal AsyncDB) at startup
+    @app.before_serving
+    async def _init_db() -> None:
+        """Initialize database on application startup."""
+        try:
+            init_dal(
+                app,
+                uri=app.config.get("DATABASE_URI") or app.config.get("DATABASE_URL"),
+                pool_size=app.config.get("DB_POOL_SIZE", 10),
+                echo=app.config.get("DB_ECHO", False),
+            )
+            log.info("Database initialized successfully")
+        except ValueError as e:
+            log.error(f"Database initialization failed: {e}")
+            raise
 
-    # Initialize license
-    with app.app_context():
+    # Validate license at startup
+    @app.before_serving
+    async def _init_license() -> None:
+        """Validate license on application startup."""
         if not license_manager.validate():
             if app.config.get("RELEASE_MODE"):
                 raise RuntimeError("License validation failed in RELEASE_MODE")
-        import logging
+        log.info(f"License Status: {license_manager.get_status()}")
 
-        logger = logging.getLogger(__name__)
-        logger.info(f"License Status: {license_manager.get_status()}")
-
-    # Initialize KillKrill
-    killkrill_manager.setup(
-        api_url=app.config.get("KILLKRILL_API_URL"),
-        grpc_url=app.config.get("KILLKRILL_GRPC_URL"),
-        client_id=app.config.get("KILLKRILL_CLIENT_ID"),
-        client_secret=app.config.get("KILLKRILL_CLIENT_SECRET"),
-        enabled=app.config.get("KILLKRILL_ENABLED"),
-    )
+    # Initialize KillKrill at startup
+    @app.before_serving
+    async def _init_killkrill() -> None:
+        """Initialize KillKrill on application startup."""
+        killkrill_manager.setup(
+            api_url=app.config.get("KILLKRILL_API_URL"),
+            grpc_url=app.config.get("KILLKRILL_GRPC_URL"),
+            client_id=app.config.get("KILLKRILL_CLIENT_ID"),
+            client_secret=app.config.get("KILLKRILL_CLIENT_SECRET"),
+            enabled=app.config.get("KILLKRILL_ENABLED"),
+        )
 
     # Setup structured request logging middleware
-    setup_request_logging(app)
+    setup_request_logging(app)  # type: ignore[no-untyped-call]
 
     # Register blueprints
     from .auth import auth_bp
+    from .audit import audit_bp
+    from .dashboard_api import dashboard_bp
+    from .discovery import discovery_bp
     from .hello import hello_bp
     from .license_api import license_bp
     from .mfa import mfa_bp
     from .oauth import oauth_bp
+    from .products import products_bp
+    from .proxy import proxy_bp
     from .teams import teams_bp
+    from .tenants import tenants_bp
     from .users import users_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
@@ -89,15 +105,6 @@ def create_app(config_class: type = Config) -> Flask:
     app.register_blueprint(oauth_bp, url_prefix="/api/v1")
     app.register_blueprint(teams_bp, url_prefix="/api/v1/teams")
     app.register_blueprint(mfa_bp, url_prefix="/api/v1/mfa")
-
-    # PenguinCloud blueprints
-    from .audit import audit_bp
-    from .dashboard_api import dashboard_bp
-    from .discovery import discovery_bp
-    from .products import products_bp
-    from .proxy import proxy_bp
-    from .tenants import tenants_bp
-
     app.register_blueprint(tenants_bp, url_prefix="/api/v1/tenants")
     app.register_blueprint(products_bp, url_prefix="/api/v1/products")
     app.register_blueprint(proxy_bp, url_prefix="/api/v1/proxy")
@@ -105,29 +112,25 @@ def create_app(config_class: type = Config) -> Flask:
     app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
     app.register_blueprint(audit_bp, url_prefix="/api/v1/audit")
 
-    # Health check endpoint
+    # Health check endpoint (async)
     @app.route("/healthz")
-    def health_check():
-        """Health check endpoint."""
+    async def health_check() -> tuple[dict[str, Any], int]:
+        """Health check endpoint.
+
+        Tests database connectivity by attempting a simple query.
+        """
         try:
-            db = get_db()
-            db.executesql("SELECT 1")
+            db = get_db()  # type: ignore[no-untyped-call]
+            # Simple test: count users to verify DB connection
+            _ = await db(db.users).select(limitby=(0, 1))
             return {"status": "healthy", "database": "connected"}, 200
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}, 503
 
-    # Readiness check endpoint
+    # Readiness check endpoint (async)
     @app.route("/readyz")
-    def readiness_check():
+    async def readiness_check() -> tuple[dict[str, str], int]:
         """Readiness check endpoint."""
         return {"status": "ready"}, 200
-
-    # Add Prometheus metrics endpoint
-    app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {"/metrics": make_wsgi_app()})
-
-    # Start background tasks
-    with app.app_context():
-        bg_manager = get_background_manager()
-        bg_manager.start()
 
     return app
