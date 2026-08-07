@@ -1,200 +1,120 @@
-# Application-Specific Standards
+# PenguinCloud Application Standards
 
-**This file contains context specific to this application.** It should be customized for each project forked from the template. The generic `CLAUDE.md` file is kept template-wide and can be updated across all projects without losing app-specific information.
+## Product Overview
 
-## Project Context
+**PenguinCloud** is the unified management and WebUI layer for the PenguinTech product portfolio. It serves MSPs, Enterprises, and hosting providers with a single portal and unified art scheme (gold #fbbf24 on slate dark), rendering full management screens via direct calls to product APIs. No SSO-handoff UI patchwork — one coherent experience across all integrated products.
 
-### Application Name
-[Add your application name here]
+## Integrated Products & Phasing
 
-### Project Description
-[Add a 1-2 paragraph description of what this application does]
+**Phase 0 (now):** Core 3 products
+- **Gough** — Hypervisor solutions (VMs, containers, resource orchestration)
+- **Nest** — Data, storage, and DBaaS (relational/NoSQL, backups, replication)
+- **Tobogganing** — Networking and SASE (firewalls, VPNs, routing, threat prevention)
 
-### Key Business Requirements
-- [Add critical business requirements]
-- [Add domain-specific features]
-- [Add compliance or regulatory requirements]
+**Phase 1:** WaddleAI (generative AI capabilities, licensing-gated Enterprise tier)
 
-## Architecture Overview
+**Later phases:** Elder (relationship/knowledge management), Waddles/WaddleBot (community management), Current (URL shortening/link management)
 
-### Core Services
-[Document the specific containers/services used in this application]
+## Architecture
 
-**Example:**
-- **flask-backend**: User management, order processing, API
-- **webui**: Admin dashboard, customer portal
-- **connector**: Third-party integrations (payment processing, shipping, etc.)
+### Current Status
+Phase 0 repository hygiene in progress on `chore/phase0-repo-hygiene`. Current state: legacy template lineage deleted; go-backend retired (unused, permanent osv-scanner advisory GO-2026-5932); git hooks live (gitleaks/flake8/mypy pre-commit, full security scans pre-push); test suite runs clean (33 passed, 46 skipped-as-not-implemented, 22 xfailed, exit 0). Backend currently Flask (`services/flask-backend`) — migration to Quart 0.19+ scheduled Phase 1a.
 
-> Note: the `go-backend` service has been retired (unused dead weight — never called
-> by flask-backend, no replacement scheduled). Its Go build lineage triggered a
-> permanent osv-scanner advisory (GO-2026-5932) with no fix available.
+### Services
 
-### Technology Choices
-[Document specific tech stack decisions and rationale]
+**Portal API** (`services/portal-api`): Backend orchestration layer
+- Framework: Quart 0.19+ with hypercorn ASGI server
+- Auth: penguin-aaa (OIDC, scope-based, tenant-scoped)
+- Database: penguin-dal (runtime) + SQLAlchemy/Alembic (schema-only)
+- API docs: quart-schema generates OpenAPI v1 at `openapi/v1.yaml` (authenticated)
+- Health endpoint: `/health` (TCP + HTTP GET)
 
-**Example:**
-- **Database**: PostgreSQL (multi-tenant support required)
-- **Cache**: Redis (session storage, real-time data)
-- **Message Queue**: RabbitMQ (async order processing)
-- **Search**: Elasticsearch (full-text search for products)
+**WebUI** (`services/webui`): React management dashboard
+- React 18, TypeScript strict
+- Styling: TailwindCSS v4 with @theme tokens (slate dark + gold)
+- Data fetching: TanStack Query 5
+- Components: @penguintechinc/react-libs (shared components, auth, forms)
+- Deployment: Node.js/Express serving static files + `/api` proxy to portal-api
 
-### Data Model Overview
-[Brief overview of core entities and relationships]
+### Product Adapters
+Each integrated product exposes a typed async contract (health checks, capabilities discovery, resource CRUD operations, metrics, user mapping). PenguinCloud calls these via deny-by-default scoped proxy with per-route allowlists (no blanket product-to-portal-api trust; every endpoint explicitly allowed).
 
-### Integration Points
-[Document external systems and integrations]
+Product tenant identity mapping via `product_tenant_map` table: portal tenant ↔ product tenant_id/organization_id/namespace.
 
-**Example:**
-- Stripe for payment processing
-- SendGrid for email notifications
-- AWS S3 for file storage
-- Twilio for SMS notifications
+## Tenancy Model
 
-## Application-Specific Requirements
+Hierarchical — provider org → customer tenants → teams/users. Delegated MSP admin via ancestor-tenant membership resolved at token issue. JWT claims carry `tenant`, `teams`, `roles`, and `scope` fields. Tenant isolation enforced at middleware layer (runs first, blocks 403 on mismatch).
 
-### Feature Requirements
-[Document critical features specific to this application]
+## License Tiers
 
-### Performance Requirements
-[Document specific performance SLAs]
+| Tier | Capabilities |
+|---|---|
+| **Community** | Single tenant only; core-3 (Gough/Nest/Tobogganing) read-only access |
+| **Professional** | Multi-tenant + delegated MSP admin (capped children count); whitelabeling; Google OAuth2 SSO |
+| **Enterprise** | Unlimited tenant hierarchy; SAML 2.0/OIDC SSO; audit export; external KMS encryption; WaddleAI; advanced analytics |
 
-**Example:**
-- API response time: <100ms p95
-- Search indexing: Near real-time (<1s latency)
-- Concurrent users supported: 10,000+
-- Database transactions: 500+ TPS
+Every feature behind a PostHog feature flag (`penguincloud.{feature}`, default OFF). License validation via `license.penguintech.io` at runtime; graceful degradation on server unreachable (cached last-known tier).
 
-### Scalability Requirements
-[Document expected growth and scaling needs]
+## Non-Goals
 
-### Security & Compliance
-[Document app-specific security requirements]
+- No per-product art schemes — unified gold-on-slate only
+- No Kustomize/raw manifests — Helm v4 only for all K8s deployments
+- No direct product-DB access — all interactions via product APIs
+- Desktop clients live in the `penguin` repo, not here
 
-**Example:**
-- PCI DSS compliance (payment handling)
-- GDPR compliance (user data)
-- SOC2 Type II certification needed
-- Data encryption at rest and in transit
+## Security Exceptions
 
-## Domain-Specific Standards
+### CKV_GHA_7 (GitHub Actions workflow_dispatch inputs)
+`.github/workflows/gitstream.yml` is generated by the gitStream GitHub App and its `workflow_dispatch` inputs are the app's dispatch contract. This workflow is not subject to the org-wide workflow_dispatch ban. All other workflows must NOT use workflow_dispatch inputs.
 
-### Business Logic Patterns
-[Document patterns specific to your domain]
-
-### API Endpoints Overview
-[High-level grouping of API endpoints by domain]
-
-**Example:**
-```
-/api/v1/auth/*        - Authentication endpoints
-/api/v1/users/*       - User management
-/api/v1/products/*    - Product catalog
-/api/v1/orders/*      - Order management
-/api/v1/payments/*    - Payment processing
-/api/v1/reports/*     - Analytics and reporting
-```
-
-### Database Schema Overview
-[Link to or document key tables and their relationships]
-
-### Custom Roles & Permissions
-[Document application-specific roles beyond the standard Admin/Maintainer/Viewer]
-
-**Example:**
-- **Product Manager**: Can manage products, pricing, but not process refunds
-- **Support Agent**: Can view orders and respond to tickets, but not process payments
-- **Finance Admin**: Can view financial reports but not access customer data
-- **Warehouse Manager**: Can manage inventory but not access pricing
+### Services/go-backend Retirement
+The `services/go-backend` was retired in Phase 0 (unused, never called by flask-backend, no replacement scheduled). It carried a permanent osv-scanner advisory (GO-2026-5932) with no available fix. Its health-polling duty will migrate to an asyncio task in portal-api during Phase 6.
 
 ## Development Setup
 
-### Prerequisites
-[App-specific setup beyond template requirements]
+**Prerequisites:**
+- Python 3.13+ (portal-api)
+- Node.js 26+ (webui)
+- PostgreSQL 17+ or MySQL 12.3+ (run locally or via docker-compose)
+- Docker + docker-compose for local services
 
-**Example:**
-- Stripe test API keys configured
-- SendGrid account and API key
-- AWS S3 bucket created
-- Elasticsearch cluster running
+**Local environment:**
+```bash
+make setup        # Install dependencies
+make dev          # Start all services (portal-api, webui, postgres, redis)
+make seed-mock-data  # Populate 3-4 test items per core-3 product
+make test         # Run full test suite
+```
 
-### Local Development Environment
-[Any additional setup or configuration beyond docs/DEVELOPMENT.md]
+**Mock data includes:** Sample VMs/containers (Gough), databases/storage (Nest), network policies (Tobogganing), test users across Community/Professional/Enterprise license tiers, hierarchical tenant structures for MSP admin testing.
 
-### Mock Data
-[App-specific mock data seeding beyond standard template patterns]
+## Testing Requirements
 
-**Example:**
-- 5-10 sample products with variants
-- 3-5 test users with different roles
-- Sample orders in various states (pending, shipped, delivered, refunded)
+**Smoke tests:** Build, run, API health, page loads, core workflows (login, resource list/create/delete, tenant navigation)
 
-## Testing Standards
+**Coverage:** 90%+ minimum (lines, branches, functions, statements)
 
-### Critical User Flows to Test
-[App-specific workflows that must be tested]
+**Integration tests:** Real postgres (rollback after each test), product adapter mocking
 
-**Example:**
-- User registration and email confirmation
-- Product search and filter
-- Add to cart, checkout, payment processing
-- Order tracking and delivery status
+**E2E:** Login → tenant switch → core-3 resource CRUD → permission checks
 
-### Performance Test Scenarios
-[Specific load testing requirements]
+## Deployment
 
-**Example:**
-- 1,000 concurrent product searches
-- 100 concurrent order placements
-- Search indexing of 100,000 products
+All environments (alpha/beta/gamma/prod) via Helm v4 only. Values files per environment: `alpha.yml`, `beta.yml`, `gamma.yml`, `production.yml`.
 
-## Deployment & Operations
+Alpha: local K8s (MicroK8s or Docker Desktop), `localhost:32000` registry
+Beta/Gamma: `dal2.penguintech.cloud`, `ghcr.io/penguintechinc/penguincloud/{service}:{tag}`
+Prod: Custom domain or `penguincloud.penguintech.cloud`, SHA256 image digests required
 
-### Environment-Specific Configuration
-[App-specific environment variables and settings]
+## Known Limitations
 
-### Monitoring & Alerting
-[App-specific metrics and alerts]
-
-**Example:**
-- Alert if payment processing fails (critical)
-- Alert if search index is stale >5 minutes
-- Track order fulfillment time distribution
-
-### Backup & Recovery
-[App-specific backup strategy]
-
-**Example:**
-- Daily database backups to S3
-- Transaction logs for point-in-time recovery
-- 30-day retention policy
-
-## Known Limitations & Constraints
-
-[Document any known issues, limitations, or architectural constraints specific to this application]
-
-**Example:**
-- Single payment gateway (Stripe only) - no multi-gateway support
-- Customer data limited to 10MB per user
-- Search index refreshes every 1 minute (near real-time)
-
-## Common Tasks & Runbooks
-
-### [Task Name]
-[Step-by-step instructions for common operational tasks]
-
-**Example:** Handling Refunds
-1. Customer initiates refund through dashboard
-2. Support team verifies order in admin panel
-3. Click "Process Refund" button
-4. Stripe processes refund (5-10 business days)
-5. Customer receives notification
-
-## Future Roadmap
-
-[Document planned features or architectural changes]
+- Single auth provider fallback (local accounts) during OIDC outage
+- Product API timeouts (default 10s) — increase per-product via environment
+- No multi-region replication (Phase 3 roadmap)
+- Audit export (Enterprise) supports CSV only (JSON/Parquet Phase 2)
 
 ---
 
-**Last Updated**: [Date]
-**Maintained By**: [Team/Person]
-**Related Documentation**: CLAUDE.md, docs/STANDARDS.md, docs/DEVELOPMENT.md, docs/TESTING.md
+**Last Updated:** 2026-08-07  
+**Maintained By:** PenguinTech Platform Team  
+**Related Documentation:** CLAUDE.md, docs/DEVELOPMENT.md, docs/TESTING.md, docs/PRE_COMMIT.md
