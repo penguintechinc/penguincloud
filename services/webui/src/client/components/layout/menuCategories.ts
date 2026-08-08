@@ -36,10 +36,16 @@ const PRODUCT_KEY_MAP: Record<string, string> = {
 const PRODUCT_ITEMS: Record<string, { header: string; items: MenuItem[] }> = {
   gough: {
     header: "Gough",
+    // No Clusters entry: Gough registers no cluster collection endpoint, and
+    // no cluster id is reachable from any screen here. Its Node and Biome
+    // models carry no cluster column, so nothing a nodes/biomes drill-down
+    // could hand a detail view. A cluster is only addressable at
+    // /clusters/{id}/... by an id the portal has no way to obtain, so the
+    // entry would be a link to a form asking the operator to type a UUID.
+    // See task-4G-report.md §Session 2.
     items: [
       { name: "Nodes", href: "/products/gough/nodes", icon: Gauge },
       { name: "Biomes", href: "/products/gough/biomes", icon: Building },
-      { name: "Clusters", href: "/products/gough/clusters", icon: Zap },
       { name: "Agents", href: "/products/gough/agents", icon: Shield },
     ],
   },

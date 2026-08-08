@@ -20,6 +20,9 @@ import ConnectionDetail from "./pages/connections/ConnectionDetail";
 import AuditLog from "./pages/audit/AuditLog";
 import ProductPage from "./pages/products/ProductPage";
 import Teams from "./pages/Teams";
+import NodesPage from "./pages/products/gough/NodesPage";
+import BiomesPage from "./pages/products/gough/BiomesPage";
+import AgentsPage from "./pages/products/gough/AgentsPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -119,6 +122,13 @@ function App() {
 
         {/* Product management - all authenticated (product-level auth via backend) */}
         <Route path="/products/:id" element={<ProductPage />} />
+
+        {/* Gough. No RoleGuard: authority is a scope question answered
+            server-side; flag + connection gating live in GoughScreen. No
+            Clusters route — see menuCategories.ts. */}
+        <Route path="/products/gough/nodes" element={<NodesPage />} />
+        <Route path="/products/gough/biomes" element={<BiomesPage />} />
+        <Route path="/products/gough/agents" element={<AgentsPage />} />
 
         {/* Settings - Maintainer and Admin */}
         <Route

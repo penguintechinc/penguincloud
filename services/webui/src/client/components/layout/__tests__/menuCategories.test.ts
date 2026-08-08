@@ -38,6 +38,24 @@ describe("buildMenuCategories", () => {
     expect(headers).toContain("Gough");
   });
 
+  it("offers no Clusters entry for Gough", () => {
+    // Gough registers no cluster collection endpoint, and neither its Node
+    // nor its Biome model carries a cluster column — so no cluster id is
+    // obtainable from any screen the portal has. A Clusters link could only
+    // lead to a form asking the operator to type a UUID by hand. Asserted
+    // rather than left implicit because the entry existed in Phase 2F and
+    // removing it is a decision, not an omission. See task-4G-report.md.
+    const gough = buildMenuCategories([connection("gough")], allowAll).find(
+      (category) => category.header === "Gough",
+    );
+
+    expect(gough?.items.map((item) => item.name)).toEqual([
+      "Nodes",
+      "Biomes",
+      "Agents",
+    ]);
+  });
+
   it("omits a connected product whose gate is off", () => {
     (isProductEnabled as jest.Mock).mockImplementation(
       (key) => key !== "gough",

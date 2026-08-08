@@ -26,6 +26,7 @@ export const AlertTriangle = (props: IconProps) => (
 export const Menu = (props: IconProps) => (
   <svg data-testid="icon-menu" {...props} />
 );
+export const X = (props: IconProps) => <svg data-testid="icon-x" {...props} />;
 
 // Sidebar category icons (components/layout/menuCategories.ts).
 export const Home = (props: IconProps) => (

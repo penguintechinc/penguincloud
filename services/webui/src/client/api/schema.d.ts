@@ -375,7 +375,14 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Accept a discovered product and create a connection. */
+    /**
+     * Accept a discovered product and create a connection.
+     * @description Gated on ``products:manage`` for the target tenant. The previous check
+     *     compared a direct membership row against the literals ``owner``/``admin``
+     *     — both halves wrong under this phase's model: it branched on role names,
+     *     and it refused a delegated admin who holds no membership row in the
+     *     tenant they administer.
+     */
     post: operations["post_accept_discovered_product"];
     delete?: never;
     options?: never;
@@ -390,7 +397,13 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Get latest scan results. */
+    /**
+     * Get latest scan results for a tenant.
+     * @description Gated on ``products:read`` for the target tenant. The previous
+     *     ``get_user_tenant_role`` check required a direct membership row, which
+     *     denied a delegated MSP admin their own customer's scan results — the
+     *     same defect this phase fixed in the dashboard and audit routes.
+     */
     get: operations["get_get_scan_results"];
     put?: never;
     post?: never;
@@ -411,9 +424,10 @@ export interface paths {
     put?: never;
     /**
      * Trigger a network scan for PenguinTech products.
-     * @description Requires owner/admin authority on the tenant, and scans only addresses
-     *     inside the operator's DISCOVERY_RANGES allowlist. Caller-supplied
-     *     ``ranges`` narrow that allowlist; they can never widen it.
+     * @description Requires ``products:manage`` on the target tenant — a scan exists to
+     *     produce product connections, so it is gated as the write it leads to.
+     *     Scans only addresses inside the operator's DISCOVERY_RANGES allowlist;
+     *     caller-supplied ``ranges`` narrow that allowlist and can never widen it.
      */
     post: operations["post_trigger_scan"];
     delete?: never;
@@ -446,7 +460,13 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Protected hello - requires maintainer or admin role. */
+    /**
+     * Protected hello — requires the ``platform:read`` scope.
+     * @description ``platform:read`` is carried by the platform admin and maintainer
+     *     bundles and by nothing else, so this admits exactly the callers the
+     *     previous ``@maintainer_or_admin_required`` did, decided on the token's
+     *     scope claim instead of a role-name comparison.
+     */
     get: operations["get_hello_protected"];
     put?: never;
     post?: never;
@@ -465,8 +485,14 @@ export interface paths {
     };
     /**
      * Get license status.
-     * @description Returns:
-     *         JSON response with license details (admin only).
+     * @description Gated on the ``license:read`` scope, which the platform-admin bundle
+     *     carries and no other role does — the same authority the previous
+     *     ``@admin_required`` conferred, expressed as a scope so the decision is
+     *     made on the token claim rather than on a role-name comparison
+     *     (security.md: authorization decisions on scope, never role names).
+     *
+     *     Returns:
+     *         JSON response with license details.
      */
     get: operations["get_get_license_status"];
     put?: never;
@@ -665,6 +691,82 @@ export interface paths {
     };
     /** Get latest health status for a product. */
     get: operations["get_get_product_health"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/operations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List a product's long-running operations, newest first. */
+    get: operations["get_list_operations"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/operations/{kind}/{operation_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Poll one operation. This is the route the UI's refetch loop calls. */
+    get: operations["get_get_operation"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/operations/{kind}/{operation_id}/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Request cancellation and return the operation's resulting state.
+     * @description Requires ``products:manage``: cancelling a deploy mid-flight changes what
+     *     the product does with real hardware, which is not a read.
+     */
+    post: operations["post_cancel_operation"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/operations/{kind}/{operation_id}/logs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Return an operation's log lines, oldest first.
+     * @description ``since`` lets the DetailDrawer's log tab fetch only what is new on each
+     *     poll instead of re-reading the whole stream every interval.
+     */
+    get: operations["get_operation_logs"];
     put?: never;
     post?: never;
     delete?: never;
@@ -2156,6 +2258,92 @@ export interface operations {
       header?: never;
       path: {
         product_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  get_list_operations: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  get_get_operation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        operation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  post_cancel_operation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        operation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  get_operation_logs: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        operation_id: string;
       };
       cookie?: never;
     };
