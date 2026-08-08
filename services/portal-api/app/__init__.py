@@ -12,7 +12,7 @@ from penguin_dal.quart_ext import get_db, init_dal
 from penguin_aaa.crypto.keystore import FileKeyStore, KeyStore, MemoryKeyStore
 from quart import Quart
 from quart_cors import cors
-from quart_schema import QuartSchema
+from quart_schema import HttpSecurityScheme, Info, QuartSchema
 
 from .config import Config
 from .killkrill import killkrill_manager
@@ -66,9 +66,31 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-    # Initialize QuartSchema for request/response validation
+    # Initialize QuartSchema for request/response validation and OpenAPI
+    # generation.
+    #
+    # All four UI/spec paths are set to None on purpose. quart-schema mounts
+    # /openapi.json, /docs, /redocs and /scalar UNAUTHENTICATED by default,
+    # each serving the complete API surface — every path, parameter name and
+    # request schema — to anyone who can reach the service. backend.md
+    # requires the live spec behind the same JWT middleware as the API, with
+    # only the login endpoint published in the clear. app/openapi.py mounts
+    # the replacements: a public login-only document and an authenticated
+    # full one. Leaving even one of these four enabled would keep an
+    # anonymous copy of the full map at a URL nobody remembered.
     app.config["QUART_SCHEMA_CONVERT_CASING"] = False
-    QuartSchema(app)
+    QuartSchema(
+        app,
+        openapi_path=None,
+        swagger_ui_path=None,
+        redoc_ui_path=None,
+        scalar_ui_path=None,
+        info=Info(title="PenguinCloud Portal API", version="1.0.0"),
+        security_schemes={
+            "bearerAuth": HttpSecurityScheme(scheme="bearer", bearer_format="JWT")
+        },
+        security=[{"bearerAuth": []}],
+    )
 
     # Initialize CORS with explicit origin allowlist (security: no open CORS)
     origins_str = app.config.get("CORS_ORIGINS_ENV", "http://localhost:3000")
@@ -125,6 +147,8 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     setup_request_logging(app)
 
     # Register blueprints
+    from .openapi import register_openapi_routes
+
     from .auth import auth_bp
     from .audit import audit_bp
     from .dashboard_api import dashboard_bp
@@ -157,6 +181,10 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     app.register_blueprint(discovery_bp, url_prefix="/api/v1/discovery")
     app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
     app.register_blueprint(audit_bp, url_prefix="/api/v1/audit")
+
+    # OpenAPI: public (login only) + authenticated (full). Registered
+    # after the blueprints so the generated document sees every route.
+    register_openapi_routes(app)
 
     # Health check endpoint (async)
     @app.route("/healthz")

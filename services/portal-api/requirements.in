@@ -56,5 +56,8 @@ black>=26.0.0
 flake8>=7.1.0
 isort>=5.13.0
 mypy>=1.14.0
+types-PyYAML>=6.0.0         # stubs for `yaml` (scripts/export-openapi.py);
+                            # PyYAML ships none inline, and mypy --strict
+                            # errors rather than inferring Any
 bandit>=1.8.0
 safety>=3.8.0
