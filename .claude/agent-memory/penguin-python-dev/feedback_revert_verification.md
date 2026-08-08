@@ -29,6 +29,12 @@ bug on first writing — an async isolation test that raced (`sleep(0)` returned
 before the lock was acquired; fixed with an event set from inside the hang).
 Writing the test does not mean it can fail.
 
+A sixth, from fix round 2: a **blocklist** of banned substrings is the same
+failure in another shape — it passes everything nobody thought to ban
+(`\w+`, `[^/]{1,64}`, `[A-Za-z0-9_-]+`, `\S+` all evaded a ban on `[^/]+`).
+Prefer a positive allowlist, and include a test that feeds it the specific
+evasions which motivated the change.
+
 **How to apply:**
 - Prefer behavioural assertions over source inspection. Grepping a handler for
   a constant name tests spelling, not enforcement.

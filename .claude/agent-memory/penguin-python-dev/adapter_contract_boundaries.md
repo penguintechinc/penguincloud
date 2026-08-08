@@ -31,10 +31,30 @@ live defects in Task 4G, neither found by reading the rules):
 1. **A permissive `[^/]+` id pattern allowlists literal sub-collections.**
    `^/api/v1/agents/[^/]+\Z` matched `/api/v1/agents/enrollment-keys` — the
    route that lists agent enrollment credentials — as though it were an id.
-   Now fixed at the contract: use `ID_INT` / `ID_UUID` / `ID_SLUG` from
-   `adapters/base.py`, and `tests/api/test_adapter_registry.py` enforces it
-   registry-wide (no id slot may match a sibling literal; `[^/]+` is banned
-   outright), so a new adapter inherits the check by being registered.
+   Fixed at the contract: use `ID_INT` / `ID_UUID` / `ID_SLUG`, enforced
+   registry-wide by `tests/api/test_adapter_registry.py`.
+
+   **Enforce this as an allowlist, never a blocklist.** The first attempt
+   banned the substrings `[^/]+ [^/]* .+ .*` — and `\w+`, `[^/]{1,64}`,
+   `[A-Za-z0-9_-]+` and `\S+` all sailed through, each re-admitting `enroll` /
+   `refresh` / `groups`. `APPROVED_ID_PATTERNS` now requires every non-literal
+   segment to BE an approved shape. Two consequences worth keeping: parse
+   segments individually (a whole-string substring match cannot say which part
+   of a rule is wrong), and make the splitter **character-class aware** —
+   `[^/]+` contains a `/` inside a class, so a naive split mangles the exact
+   input the checker exists to describe. Keep every adapter segment either a
+   plain literal or exactly an approved constant (`health(z)?` was split into
+   two rules) so the checker never has to classify regex shapes heuristically.
+   The structural check is **blind to routes the adapter does not declare** —
+   it compares id patterns only against that adapter's own literals, and
+   `enrollment-keys` was never in the allowlist to compare against. The portal
+   cannot enumerate a product's route table, so declare it:
+   `Adapter.unexposed_routes` lists concrete `(method, path)` requests the
+   proxy must refuse, mandatory for any adapter using a variable id segment.
+   Both layers are needed — `\w+` is caught only by the shape check (it cannot
+   match `enrollment-keys` because of the hyphen, and the declaration is
+   method-scoped).
+
 2. **Percent-encoded separators bypassed `normalize_proxy_path`.** Its
    segment scan splits on literal slashes, so `/nodes/..%2fadmin` was one
    segment to the portal and a traversal at any product that decodes it. The
