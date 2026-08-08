@@ -158,6 +158,7 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     from .mfa import mfa_bp
     from .oauth import oauth_bp
     from .products import products_bp
+    from .operations_api import operations_bp
     from .proxy import proxy_bp
     from .teams import teams_bp
     from .tenants import tenants_bp
@@ -172,6 +173,9 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     app.register_blueprint(mfa_bp, url_prefix="/api/v1/mfa")
     app.register_blueprint(tenants_bp, url_prefix="/api/v1/tenants")
     app.register_blueprint(products_bp, url_prefix="/api/v1/products")
+    # Long-running operation polling shares the products prefix: an
+    # operation is always addressed through the connection that owns it.
+    app.register_blueprint(operations_bp, url_prefix="/api/v1/products")
     # No url_prefix: proxy_bp's rule already carries its full path
     # (/api/v1/products/<id>/proxy/<path>). Registering it under a prefix
     # nested it at /api/v1/proxy/api/v1/products/... — every allowlist rule

@@ -44,6 +44,57 @@ Consequence for Phase 4: put untrusted input through the proxy and declare a
 method and hand it to ``transport.request`` — that is the one way to move
 work from column 1 to column 2 without the review column 1 gets.
 
+Which mutations go through which path
+=====================================
+**A mutation whose result the portal must interpret — anything returning an
+:class:`Operation` to poll — goes through a typed adapter method exposed on a
+portal route; everything else may go through the proxy.**
+
+The reason is that the proxy is a byte pipe. It forwards the product's
+response verbatim, so an action that answers ``202`` with a set of ids gives
+the browser the product's raw body and nothing else: no
+:class:`ActionResult`, no normalised :class:`OperationState`, no poll key the
+UI can hand back to ``get_operation``. A UI on that path can only invalidate
+its queries and hope, which is not the same as knowing what it started.
+:attr:`ActionResult.operations` is unreachable through the proxy by
+construction — it is built by the adapter, and the proxy never calls one.
+
+So ``POST /nodes/{id}/deploy`` (starts deployments the UI must poll) is a
+typed route, while ``PATCH /nodes/{id}/tags`` (a plain field write, nothing to
+poll) is fine proxied. The test of it is not "is this destructive" but "does
+the caller need something the product's own response body does not already
+say".
+
+Per-product scopes — what a RouteRule should require
+====================================================
+Declare rules in terms of ``products:{product_type}:{read|manage}``, built
+with :func:`product_scope`. Reads take the ``read`` action; **every mutating
+verb takes ``manage``**, and that split is the enforceable core — a
+read-only caller must not reach a destructive route.
+
+The coarse ``products:read``/``products:manage`` scopes still exist and still
+work: :class:`RBACEnforcer` treats the coarse form as satisfying the
+per-product one, so a principal holding ``products:manage`` passes a
+``products:gough:manage`` rule unchanged. The per-product scopes are also
+minted for real — ``app.tenancy.authz.resolve_scopes`` expands the coarse
+grant across the product types a tenant is actually connected to — so a rule
+requiring one is satisfiable by an ordinary token rather than being a
+permanently-403 decoration.
+
+Why the fine form is what a rule should name, given the coarse one implies
+it: the implication is what makes granting narrower possible later without
+touching any adapter. A principal issued only ``products:gough:manage``
+(no coarse scope) reaches Gough's mutating routes and no other product's —
+that is the junior-admin case, and it works today for anything that mints
+such a scope. A rule written against the coarse scope can never express it.
+
+Do NOT invent a product-specific namespace (``gough:nodes:read``). Nothing
+mints it, so every rule requiring one answers 403 to every token the portal
+can issue, while looking more precisely secured than what it replaced. The
+scope a rule names must be a scope something issues; the two halves are
+``resolve_scopes`` and this file, and they are asserted equal in
+``tests/api/test_product_scopes.py``.
+
 Path matching happens BEFORE tenant substitution
 ================================================
 A :class:`RouteRule` describes the path *as the caller writes it*, which is
@@ -58,6 +109,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any, Final, Generic, Protocol, TypeVar
 
 __all__ = [
@@ -68,14 +120,24 @@ __all__ = [
     "MetricSeries",
     "MetricsSummary",
     "TimeRange",
+    "OperationState",
+    "Operation",
+    "OperationLogLine",
+    "ActionResult",
     "AdapterContext",
     "PathSubstitution",
     "RouteRule",
+    "ID_INT",
+    "ID_UUID",
+    "ID_SLUG",
     "RBACEnforcer",
+    "PRODUCT_SCOPE_NAMESPACE",
+    "product_scope",
     "AdapterError",
     "AdapterCapabilityError",
     "ResourceNotFoundError",
     "ResourceConflictError",
+    "UpstreamValidationError",
     "RateLimitedError",
     "UpstreamAuthError",
     "UpstreamError",
@@ -139,6 +201,30 @@ class RateLimitedError(AdapterError):
         self.retry_after = retry_after
 
 
+class UpstreamValidationError(AdapterError):
+    """The product rejected the payload as invalid, field by field.
+
+    Distinct from :class:`ResourceConflictError`, which is a disagreement with
+    *current state* and tells the caller to re-read. This is a disagreement
+    with the *payload*: re-reading changes nothing, the user must edit what
+    they typed.
+
+    It exists because the alternative was rendering Gough's 422
+    ``validation_failed`` envelope as 502, which tells an operator the product
+    is broken when in fact a form field is wrong — and hides the one piece of
+    information that would fix it. ``violations`` carries the product's own
+    per-field detail so a form can mark the offending inputs instead of
+    showing a single opaque banner.
+    """
+
+    def __init__(
+        self, message: str, violations: list[dict[str, Any]] | None = None
+    ) -> None:
+        """Record the message and the product's per-field violations."""
+        super().__init__(message)
+        self.violations = violations or []
+
+
 class UpstreamAuthError(AdapterError):
     """The product rejected the portal's *stored* credential.
 
@@ -162,6 +248,7 @@ _ERROR_STATUS: Final[tuple[tuple[type[AdapterError], int], ...]] = (
     (AdapterCapabilityError, 501),
     (ResourceNotFoundError, 404),
     (ResourceConflictError, 409),
+    (UpstreamValidationError, 422),
     (RateLimitedError, 429),
     (UpstreamAuthError, 502),
     (UpstreamError, 502),
@@ -312,6 +399,158 @@ class MetricsSummary:
     totals: dict[str, float] = field(default_factory=dict)
 
 
+class OperationState(Enum):
+    """The portal's normalised view of where a long-running operation is.
+
+    This is the ONE place the contract normalises a product's vocabulary, and
+    the exception is deliberate. :attr:`Resource.status` is kept verbatim
+    because it is only ever *displayed* — collapsing it would lose the
+    distinction an operator opened the dashboard to see. An operation's state
+    is different in kind: the portal *branches* on it. It decides whether to
+    keep polling, whether to offer a cancel button, and whether to stop a
+    refetch loop. A caller that cannot tell "still running" from "finished"
+    either polls a completed operation forever or stops watching a live one.
+
+    So an adapter reports both: :attr:`Operation.state` for control flow and
+    :attr:`Operation.status` verbatim for display. Products disagree on
+    spelling — Gough deployments use ``pending``/``in_progress``/
+    ``succeeded``/``failed``/``cancelled`` while its upgrade runs carry a
+    separate ``phase`` — and mapping happens in the adapter, which is the only
+    layer that knows the product's vocabulary.
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @property
+    def is_terminal(self) -> bool:
+        """True when no further transition is possible.
+
+        The portal polls while this is False and stops when it is True. It is
+        also the correct gate for offering cancel: Gough answers 409 to a
+        cancel of an already-finished deployment, so a UI that offers the
+        button on a terminal operation is offering a guaranteed error.
+        """
+        return self in (
+            OperationState.SUCCEEDED,
+            OperationState.FAILED,
+            OperationState.CANCELLED,
+        )
+
+
+@dataclass(slots=True)
+class Operation:
+    """A long-running, product-side unit of work the portal can poll.
+
+    ``create_resource -> Resource`` describes only work that finishes inside
+    one request. Real product actions do not: Gough answers a node deploy with
+    ``202`` and a set of assignment ids, a biome upgrade with an
+    ``upgrade_run`` id to poll. Returning a ``Resource`` for those would mean
+    reporting a machine as deployed at the moment the deploy was *accepted*.
+
+    ``kind`` names the operation family, not the resource — ``deployment``
+    and ``biome_upgrade`` live at different poll routes with different
+    payloads, so the caller must hand it back on the next poll. It is also
+    what keeps polling a pure function of the returned object: given an
+    ``Operation``, ``get_operation(op.kind, op.id, ctx)`` refreshes it,
+    without the caller retaining knowledge of where it came from.
+
+    ``progress`` is ``None`` whenever the product does not report enough to
+    compute one, and adapters must NOT synthesise a value from ``state``.
+    Gough illustrates both halves: an upgrade run publishes
+    ``nodes_completed``/``nodes_total`` and yields a true fraction, while a
+    deployment publishes only an integer ``phase`` with no declared maximum
+    and therefore yields ``None``. A progress bar that advances on invented
+    numbers is read as fact, exactly as the fabricated ``Page.total`` this
+    contract already refuses.
+    """
+
+    id: str
+    #: Operation family — the poll route, not the resource kind.
+    kind: str
+    #: Normalised, for control flow. See :class:`OperationState`.
+    state: OperationState
+    #: The product's own status string, verbatim, for display.
+    status: str
+    #: What the operation acts on, so the UI can link back to the row.
+    resource_id: str | None = None
+    resource_kind: str | None = None
+    #: 0.0–1.0, or None when the product does not report enough to derive it.
+    progress: float | None = None
+    #: Human-facing detail — a phase name, the current step.
+    detail: str | None = None
+    #: Set only in the FAILED state; the product's reason.
+    error: str | None = None
+    #: What a SUCCEEDED operation produced, when it produced something.
+    #:
+    #: The success counterpart of :attr:`error`, and the contract was
+    #: asymmetric without it: an operation could report why it failed but had
+    #: nowhere to report what it made. That is not a hypothetical gap —
+    #: Nest's snapshot / restore / migrate all finish by producing an
+    #: artefact (a snapshot id, a restore target, a migration report), and
+    #: with no ``result`` channel the adapter's only options were to smuggle
+    #: it through free-form ``metadata`` (unvalidated, undocumented, and
+    #: dropped by :class:`OperationView`) or to make the UI re-fetch the
+    #: resource and guess which change was the one it started.
+    #:
+    #: Typed as a dict rather than a string because a produced artefact is
+    #: usually identified by more than one field, and ``None`` when the
+    #: operation produced nothing — which is how a caller distinguishes "no
+    #: artefact" from "an empty one".
+    result: dict[str, Any] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    completed_at: datetime | None = None
+    #: Genuinely product-specific extras. NOT a substitute for :attr:`result`
+    #: — anything the portal is expected to render belongs in a typed field,
+    #: because ``OperationView`` deliberately does not publish this.
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True, frozen=True)
+class OperationLogLine:
+    """One line of an operation's log stream.
+
+    Typed rather than a raw string because the portal renders severity and
+    orders by time; a pre-formatted line would force the UI to re-parse text
+    an adapter had already parsed.
+    """
+
+    message: str
+    timestamp: datetime | None = None
+    #: Product's own level (``info``, ``error``). Not normalised — nothing
+    #: branches on it, it is styling.
+    level: str = "info"
+
+
+@dataclass(slots=True)
+class ActionResult:
+    """Outcome of a verb that is neither a plain read nor a plain write.
+
+    Power cycling a node, evacuating it, upgrading a biome: none of these is
+    CRUD, and each may or may not start background work.
+
+    ``operations`` is a LIST because a real product needs it to be. A single
+    Gough ``POST /nodes/{id}/deploy`` returns ``assignment_ids`` — one
+    deployment per assigned biome — so a singular ``operation`` field would
+    force that adapter to pick one and silently drop the rest, leaving the UI
+    polling a fraction of the work it started. It is empty for an action that
+    completed synchronously, which is how a caller tells "nothing to poll"
+    from "poll these".
+    """
+
+    action: str
+    #: False when the product accepted the request but declined the action.
+    accepted: bool = True
+    operations: list[Operation] = field(default_factory=list)
+    #: The affected resource's post-action state, when the product returned it.
+    resource: Resource | None = None
+    message: str | None = None
+
+
 @dataclass(slots=True, frozen=True)
 class AdapterContext:
     """Immutable context for adapter operations.
@@ -353,9 +592,102 @@ TENANT_PLACEHOLDER_PATTERN: Final[str] = re.escape(TENANT_PLACEHOLDER)
 #: is for the product to decode it a second time into a traversal.
 _ENCODED_DOT = re.compile(r"%2e", re.IGNORECASE)
 
+#: Percent-encoded separators — ``%2f`` (/) and ``%5c`` (\\). Same reasoning as
+#: the encoded dot, and the same bypass: segment analysis below splits on a
+#: LITERAL slash, so ``/nodes/..%2fadmin`` is one segment here and two at any
+#: product that decodes it. The dot check alone does not catch it — the
+#: segment is ``..%2fadmin``, which is not equal to ``..``.
+_ENCODED_SEPARATOR = re.compile(r"%(2f|5c)", re.IGNORECASE)
+
 _ALLOWED_METHODS: Final[frozenset[str]] = frozenset(
     {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 )
+
+
+# -- typed id patterns ----------------------------------------------------
+#
+# An id slot in a ``path_regex`` MUST be typed to the shape the product's own
+# id actually has. The permissive ``[^/]+`` (and its ``(/[^/]+)?`` optional
+# form) is not a stylistic preference — it is a live security defect, because
+# a products' literal sub-collections sit at the same depth as its ids and an
+# untyped slot allowlists them:
+#
+#     ^/api/v1/agents/[^/]+\Z      also admits  /api/v1/agents/enrollment-keys
+#
+# ``enrollment-keys`` is the route that LISTS AGENT ENROLLMENT CREDENTIALS. It
+# was allowlisted under an "agent detail" read rule, and a second instance
+# admitted ``/biomes/deployments`` under a "biome detail" rule so the
+# operations scope governed nothing. Neither was found by reading the rules;
+# both were found by a matrix test.
+#
+# Typing the slot excludes those structurally — including FUTURE literals the
+# product mounts, which a hand-maintained exclusion list cannot. Use the
+# narrowest constant that fits the product's real ids, and prefer adding a new
+# one here over inlining a bespoke pattern in an adapter.
+
+
+#: Integer ids — for products declaring ``<int:...>`` route converters. The
+#: tightest of the three: no word-shaped literal can ever match it.
+ID_INT: Final[str] = r"\d+"
+
+#: UUID ids, anchored to the real 8-4-4-4-12 hex shape.
+#:
+#: Deliberately not a loose "hex and hyphens" run. A permissive version admits
+#: any hyphenated hex-ish word, which brings back the very collision this
+#: constant exists to prevent the moment a product mounts a literal like
+#: ``ad-hoc`` or ``dead-beef`` beside its ids.
+ID_UUID: Final[str] = (
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-" r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+#: Opaque product-generated ids that are neither integers nor UUIDs (Gough's
+#: deployment ids, for instance).
+#:
+#: This is the WEAKEST constant here and the only one that can collide with a
+#: literal, because a word-shaped id and a word-shaped sub-collection are
+#: genuinely indistinguishable by shape. Reach for :data:`ID_INT` or
+#: :data:`ID_UUID` first. When a product leaves no choice,
+#: ``test_adapter_registry`` still enforces that no rule's slug slot matches a
+#: literal segment used elsewhere in that same adapter — so a collision is a
+#: red test rather than a silently allowlisted credential endpoint.
+ID_SLUG: Final[str] = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"
+
+#: The COMPLETE set of shapes a variable path segment may take, anywhere in
+#: any registered adapter's ``route_allowlist``.
+#:
+#: ``tests/api/test_adapter_registry.py`` enforces this as a POSITIVE check:
+#: every non-literal segment must be string-equal to one of these. That is
+#: deliberate, and it replaces a blocklist that did not work.
+#:
+#: The blocklist banned the substrings ``[^/]+``, ``[^/]*``, ``.+`` and ``.*``.
+#: It was trivially evadable — ``\w+``, ``[^/]{1,64}``, ``[A-Za-z0-9_-]+`` and
+#: ``\S+`` all pass it, and every one of them re-admits the word-shaped
+#: literals (``enroll``, ``refresh``, ``groups``, ``login``) that are exactly
+#: the class which allowlisted ``/api/v1/agents/enrollment-keys``. A blocklist
+#: can only refuse the spellings someone thought of; an allowlist refuses
+#: every spelling that is not deliberately approved.
+#:
+#: Adding a shape here is therefore a deliberate contract change, reviewed on
+#: its own merits — not something an adapter author can do by inventing a
+#: regex in their own module.
+APPROVED_ID_PATTERNS: Final[frozenset[str]] = frozenset({ID_INT, ID_UUID, ID_SLUG})
+
+#: Namespace shared by the coarse and per-product product scopes. Duplicated
+#: from ``app.tenancy.authz.PRODUCT_SCOPE_NAMESPACE`` rather than imported:
+#: ``app.authz`` imports this module, so importing the authz side here would
+#: close an import cycle through ``app.adapters.__init__``. The two are
+#: asserted equal in ``tests/api/test_product_scopes.py``.
+PRODUCT_SCOPE_NAMESPACE: Final[str] = "products"
+
+
+def product_scope(product_type: str, action: str) -> str:
+    """Build the per-product scope an adapter's RouteRule should require.
+
+    ``product_scope("gough", "manage") -> "products:gough:manage"``. Use this
+    rather than an f-string in each adapter so the format is defined once;
+    see "Per-product scopes" in the module docstring for the model.
+    """
+    return f"{PRODUCT_SCOPE_NAMESPACE}:{product_type}:{action}"
 
 
 def normalize_proxy_path(raw: str) -> str:
@@ -374,6 +706,11 @@ def normalize_proxy_path(raw: str) -> str:
       "/users/../admin")`` is a match, so an allowlist alone does not stop it.
     * percent-encoded dots — a double-encoded traversal that survives the
       portal's decode and unfolds at the product.
+    * percent-encoded separators (``%2f``, ``%5c``) — the segment scan below
+      splits on literal slashes only, so ``/users/..%2fadmin`` reads as one
+      segment here and as a traversal at any product that decodes it. The
+      dot-segment check does not cover this: the segment is ``..%2fadmin``,
+      which is not equal to ``..``.
     * backslashes — treated as a separator by some servers, so ``..\\`` is a
       traversal on those and invisible here.
     * control characters — CR/LF in a path is request smuggling against the
@@ -396,6 +733,8 @@ def normalize_proxy_path(raw: str) -> str:
         raise PathTraversalError("path contains a backslash")
     if _ENCODED_DOT.search(raw):
         raise PathTraversalError("path contains a percent-encoded dot segment")
+    if _ENCODED_SEPARATOR.search(raw):
+        raise PathTraversalError("path contains a percent-encoded path separator")
 
     segments = raw.split("/")
     last = len(segments) - 1
@@ -465,10 +804,38 @@ class RouteRule:
 
     The path is matched as the CALLER wrote it, before tenant substitution —
     see the module docstring and :class:`PathSubstitution`.
+
+    Type every id slot
+    ==================
+    Anchoring is necessary but not sufficient. A fully anchored rule with an
+    UNTYPED id slot still over-matches, because a product's literal
+    sub-collections sit at the same path depth as its ids::
+
+        RouteRule("GET", r"^/api/v1/agents/[^/]+\\Z", ...)   # WRONG
+
+    That rule is correctly anchored and it allowlists
+    ``/api/v1/agents/enrollment-keys`` — the endpoint that lists agent
+    enrollment credentials — as though it were an agent id. Use the shared
+    constants instead::
+
+        RouteRule("GET", rf"^/api/v1/agents/{ID_UUID}\\Z", ...)   # RIGHT
+
+    Pick the narrowest of :data:`ID_INT`, :data:`ID_UUID`, :data:`ID_SLUG`
+    that matches the product's real ids. The cost of typing is that a
+    malformed id yields "not allowlisted" rather than the product's own 404,
+    which is the right trade: a 403 on a bad id is a usability wart, an
+    allowlisted credential endpoint is a breach.
+
+    ``tests/api/test_adapter_registry.py`` enforces this across EVERY
+    registered adapter — no id slot in a rule may match a literal segment that
+    appears elsewhere in that same adapter's rule list. A new adapter inherits
+    the check by being registered; it does not have to remember to ask for it.
     """
 
     method: str  # GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
-    path_regex: str  # e.g. r'^/users(/[^/]+)?\Z'
+    #: Fully anchored. Type every id slot — see :data:`ID_INT`, :data:`ID_UUID`
+    #: and :data:`ID_SLUG`. E.g. rf'^/users/{ID_INT}\Z', NEVER r'^/users(/[^/]+)?\Z'.
+    path_regex: str
     required_scope: str  # e.g. 'products:read', 'products:manage'
 
     def __post_init__(self) -> None:
@@ -532,6 +899,30 @@ class Adapter(Protocol):
     #: adapter. Deny-by-default: an empty list forwards nothing. Not
     #: consulted by the methods below.
     route_allowlist: list[RouteRule]
+
+    #: Routes the PRODUCT really registers that this adapter must NOT admit.
+    #:
+    #: This closes a blind spot the structural tests cannot close on their
+    #: own. The registry-wide id checks compare an id pattern only against the
+    #: literals THIS ADAPTER declares — so a route the product mounts and the
+    #: adapter deliberately omits is invisible to them. That is not a corner
+    #: case: ``GET /api/v1/agents/enrollment-keys`` (which lists agent
+    #: enrollment credentials) is precisely such a route, and a loose id
+    #: pattern silently allowlisted it. Nothing in the portal can enumerate a
+    #: product's route table, so the knowledge has to be declared.
+    #:
+    #: Each entry is ``(method, path)`` using a REAL id value, not a pattern —
+    #: it is a concrete request that must be refused.
+    #: ``tests/api/test_adapter_registry.py`` asserts no rule in
+    #: ``route_allowlist`` matches any of them, for every registered adapter.
+    #:
+    #: Populate it with the product's credential, auth, agent-side and
+    #: remote-execution endpoints first — those are where an over-matching id
+    #: pattern does real damage. An adapter that declares any variable id
+    #: segment MUST declare these; the test fails an adapter that has id
+    #: patterns and an empty declaration, so the gap is explicit rather than
+    #: silently absent.
+    unexposed_routes: tuple[tuple[str, str], ...]
 
     #: Placeholders this adapter's routes may carry, and the AdapterContext
     #: attribute supplying each value.
@@ -612,6 +1003,85 @@ class Adapter(Protocol):
         """
         ...
 
+    async def perform_action(
+        self,
+        kind: str,
+        resource_id: str,
+        action: str,
+        payload: dict[str, Any] | None,
+        ctx: AdapterContext,
+    ) -> ActionResult:
+        """Invoke a non-CRUD verb on a resource.
+
+        ``action`` is drawn from a per-adapter vocabulary (Gough: ``deploy``,
+        ``evacuate``, ``reject``) and is matched against a literal set inside
+        the adapter — it is a selector, never a path fragment. An adapter that
+        interpolates it into a URL has taken a caller-supplied string into the
+        trusted path; see the module docstring.
+
+        Raise AdapterCapabilityError for an unknown action, so an unsupported
+        verb is a 501 rather than a request the product silently ignores.
+        """
+        ...
+
+    async def list_operations(
+        self,
+        ctx: AdapterContext,
+        kind: str | None = None,
+        resource_id: str | None = None,
+        state: OperationState | None = None,
+        page: int = 1,
+        per_page: int = 20,
+        cursor: str | None = None,
+    ) -> Page[Operation]:
+        """List long-running operations, most recent first.
+
+        Raise AdapterCapabilityError if the product has no operation surface.
+        """
+        ...
+
+    async def get_operation(
+        self, kind: str, operation_id: str, ctx: AdapterContext
+    ) -> Operation:
+        """Poll one operation. The portal's refetch loop calls exactly this.
+
+        Raise ResourceNotFoundError when the product has no such operation.
+        """
+        ...
+
+    async def cancel_operation(
+        self, kind: str, operation_id: str, ctx: AdapterContext
+    ) -> Operation:
+        """Request cancellation and return the operation's resulting state.
+
+        Returns the Operation rather than None so the caller learns the
+        outcome without a second poll — cancellation is frequently a request
+        rather than a guarantee, and an adapter returning nothing would leave
+        the UI unable to distinguish "cancelling" from "cancelled".
+
+        Raise ResourceConflictError when the operation is already terminal
+        (Gough answers 409), ResourceNotFoundError when it does not exist, and
+        AdapterCapabilityError when the product cannot cancel this kind.
+        """
+        ...
+
+    async def operation_logs(
+        self,
+        kind: str,
+        operation_id: str,
+        ctx: AdapterContext,
+        since: datetime | None = None,
+        tail: int = 100,
+    ) -> list[OperationLogLine]:
+        """Return an operation's log lines, oldest first.
+
+        ``since`` lets a poller fetch only what is new instead of re-reading
+        the whole stream every interval.
+
+        Raise AdapterCapabilityError if the product exposes no logs.
+        """
+        ...
+
     async def metrics_summary(self, ctx: AdapterContext) -> MetricsSummary:
         """Return a typed metrics summary the portal can render generically.
 
@@ -667,6 +1137,10 @@ class HealthOnlyAdapter:
     #: forwards nothing at all for this product, which is the correct
     #: default for one whose surface has not been reviewed.
     route_allowlist: list[RouteRule] = []
+
+    #: Product routes this adapter must never admit. Empty is only correct
+    #: for an adapter with no variable id segments — see the protocol.
+    unexposed_routes: tuple[tuple[str, str], ...] = ()
 
     #: The tenant placeholder, unless a product addresses its customers by
     #: something else. Declared here so it is legible from the contract
@@ -726,6 +1200,53 @@ class HealthOnlyAdapter:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported(f"delete_resource({kind})")
 
+    async def perform_action(
+        self,
+        kind: str,
+        resource_id: str,
+        action: str,
+        payload: dict[str, Any] | None,
+        ctx: AdapterContext,
+    ) -> ActionResult:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"perform_action({kind}, {action})")
+
+    async def list_operations(
+        self,
+        ctx: AdapterContext,
+        kind: str | None = None,
+        resource_id: str | None = None,
+        state: OperationState | None = None,
+        page: int = 1,
+        per_page: int = 20,
+        cursor: str | None = None,
+    ) -> Page[Operation]:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported("list_operations()")
+
+    async def get_operation(
+        self, kind: str, operation_id: str, ctx: AdapterContext
+    ) -> Operation:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"get_operation({kind})")
+
+    async def cancel_operation(
+        self, kind: str, operation_id: str, ctx: AdapterContext
+    ) -> Operation:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"cancel_operation({kind})")
+
+    async def operation_logs(
+        self,
+        kind: str,
+        operation_id: str,
+        ctx: AdapterContext,
+        since: datetime | None = None,
+        tail: int = 100,
+    ) -> list[OperationLogLine]:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"operation_logs({kind})")
+
     async def metrics_summary(self, ctx: AdapterContext) -> MetricsSummary:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported("metrics_summary()")
@@ -749,6 +1270,12 @@ class RBACEnforcer:
     Shared between portal routes (@require_scope decorator) and proxy
     allowlist (RouteRule scope checks). Scopes are issued at token time
     and stored in the JWT; enforcement is zero-cost at request time.
+
+    One implication is recognised, and only one: the coarse
+    ``products:{action}`` scope satisfies the per-product
+    ``products:{type}:{action}`` form. See "Per-product scopes" in the module
+    docstring for why the relation lives here rather than being expanded at
+    every call site.
     """
 
     def __init__(self, required_scopes: str | list[str]) -> None:
@@ -762,13 +1289,35 @@ class RBACEnforcer:
             required_scopes if isinstance(required_scopes, list) else [required_scopes]
         )
 
+    @staticmethod
+    def _satisfies(required: str, granted: set[str]) -> bool:
+        """True when a granted set satisfies one required scope.
+
+        Exact match, or the coarse product grant that implies it. The
+        implication is deliberately one-directional and shape-restricted:
+        only a three-segment ``products:`` scope has a coarse form, so no
+        other scope namespace gains an implication by accident.
+        """
+        if required in granted:
+            return True
+        namespace, _, remainder = required.partition(":")
+        if namespace != PRODUCT_SCOPE_NAMESPACE:
+            return False
+        product_type, sep, action = remainder.partition(":")
+        if not sep or not product_type or ":" in action:
+            return False
+        return f"{PRODUCT_SCOPE_NAMESPACE}:{action}" in granted
+
     def enforce(self, granted_scopes: list[str]) -> bool:
         """Check if granted scopes satisfy the requirement.
 
-        Returns True if all required_scopes are in granted_scopes.
+        Returns True if every required scope is granted, directly or by the
+        coarse-implies-per-product relation in :meth:`_satisfies`.
         """
         granted_set = set(granted_scopes)
-        return all(scope in granted_set for scope in self.required_scopes)
+        return all(
+            self._satisfies(scope, granted_set) for scope in self.required_scopes
+        )
 
     def enforce_or_raise(self, granted_scopes: list[str]) -> None:
         """Raise ValueError if granted scopes do not satisfy the requirement."""

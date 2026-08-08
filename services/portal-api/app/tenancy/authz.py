@@ -22,9 +22,10 @@ every descendant.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
-from app.models import get_user_tenant_role
+from app.models import get_tenant_product_types, get_user_tenant_role
 
 from .resolver import get_ancestors, get_descendants
 
@@ -170,6 +171,103 @@ _ROLE_SCOPE_BUNDLES: Final[dict[str, tuple[str, ...]]] = {
 #: holder can enumerate their tenants and switch into one; nothing else.
 UNSCOPED_SCOPES: Final[tuple[str, ...]] = ("tenants:read", "tenants:switch")
 
+# Per-product scopes
+#
+# `products:manage` grants management of EVERY product a tenant has
+# connected. With one integration that was indistinguishable from
+# per-product authority; with three it is not, and an MSP portal is exactly
+# where the difference bites — a junior admin who may manage Tobogganing
+# firewall rules must not thereby be able to delete Gough VMs.
+#
+# The scope vocabulary is therefore widened to `products:{type}:{action}`,
+# minted here, and consumed by adapter `route_allowlist` rules (see
+# app/adapters/base.py, "Per-product scopes"). Two properties make the
+# widening safe to land before any UI exists to grant it:
+#
+# 1. **Derived from the coarse grant.** A role bundle that does not contain
+#    `products:read` gets no per-product read either, so this cannot widen
+#    anyone's authority. It re-expresses the authority a caller already has
+#    in terms an allowlist can be selective about.
+# 2. **Coarse implies fine at enforcement too.** RBACEnforcer treats
+#    `products:manage` as satisfying `products:gough:manage`, so a principal
+#    holding only the coarse scope — including a token minted before this
+#    change — is unaffected. See RBACEnforcer._satisfies.
+#
+# What it buys today is the plumbing plus a real floor: the scope set names
+# the products a tenant is actually connected to, so a per-product grant
+# surface becomes a change to THIS function's inputs rather than a change to
+# every allowlist. Dropping `products:manage` from a bundle and minting only
+# `products:gough:manage` yields genuine per-product restriction with no
+# further work; test_product_scopes.py asserts exactly that principal.
+#
+# Cost: one indexed equality SELECT per resolve_scopes() call, which is on
+# the proxy's request path. The removed `tenants:manage:descendants` scope
+# above was rejected partly for its query cost, and the distinction is
+# deliberate: that one cost a recursive subtree walk to produce a claim with
+# no consumer, this one costs a single-column lookup to produce a claim the
+# allowlist reads on every request. Deriving it live rather than caching it
+# in the token is what makes a newly connected product usable without
+# re-minting, and a disconnected one stop granting immediately.
+
+#: Namespace every product scope lives under, coarse and per-product alike.
+PRODUCT_SCOPE_NAMESPACE: Final[str] = "products"
+
+#: Actions a product scope can carry, coarse form `products:{action}`.
+PRODUCT_SCOPE_ACTIONS: Final[tuple[str, ...]] = ("read", "manage")
+
+#: Product types that may be expanded into a scope. `product_type` is
+#: operator-supplied at connection time, and a value containing a colon
+#: would forge a scope string with a different shape than it appears to have
+#: (`x:manage` -> `products:x:manage:read`). Restricting the charset means a
+#: derived scope always has exactly three segments.
+_PRODUCT_TYPE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\A[a-z0-9][a-z0-9_-]{0,31}\Z"
+)
+
+
+def product_scope(product_type: str, action: str) -> str:
+    """Build the per-product scope for a product type and action.
+
+    One constructor so the format lives in a single place: adapters, tests
+    and this minter cannot disagree about where the colons go.
+    """
+    return f"{PRODUCT_SCOPE_NAMESPACE}:{product_type}:{action}"
+
+
+def is_valid_product_type_for_scope(product_type: str) -> bool:
+    """True when a product type is safe to expand into a scope string."""
+    return bool(_PRODUCT_TYPE_PATTERN.fullmatch(product_type))
+
+
+async def _product_scopes(tenant_id: int, granted: set[str]) -> set[str]:
+    """Expand coarse product scopes into per-product ones for a tenant.
+
+    Only actions the caller already holds coarsely are expanded, and only
+    for product types the tenant actually has a connection to. A tenant with
+    no connections yields nothing, which is the correct answer rather than a
+    special case: there is no product there to hold authority over.
+    """
+    actions = [
+        action
+        for action in PRODUCT_SCOPE_ACTIONS
+        if f"{PRODUCT_SCOPE_NAMESPACE}:{action}" in granted
+    ]
+    if not actions:
+        return set()
+
+    # Connection state is read regardless of is_active. The kill-switch is
+    # enforced in the traffic path by design (app/proxy.py documents why),
+    # and deriving authority from it too would make deactivating a
+    # connection silently revoke scopes elsewhere — two enforcement points
+    # for one operator control, drifting apart at the first change.
+    return {
+        product_scope(product_type, action)
+        for product_type in await get_tenant_product_types(tenant_id)
+        if is_valid_product_type_for_scope(product_type)
+        for action in actions
+    }
+
+
 # Platform-role scope bundles
 #
 # The bundles above expand a caller's authority *within a tenant*. Platform
@@ -226,7 +324,8 @@ async def resolve_scopes(user_id: int, tenant_id: int) -> list[str]:
 
     Delegated administration is already inside ``resolve_effective_role``,
     so an MSP admin acting in a descendant resolves the same bundle a direct
-    admin there would.
+    admin there would — including the per-product scopes expanded below,
+    which is why delegation needs no separate handling here.
     """
     role = await resolve_effective_role(user_id, tenant_id)
     if role is None:
@@ -234,5 +333,6 @@ async def resolve_scopes(user_id: int, tenant_id: int) -> list[str]:
 
     scopes: set[str] = set(_ROLE_SCOPE_BUNDLES.get(role, ()))
     scopes.add("tenants:switch")
+    scopes |= await _product_scopes(tenant_id, scopes)
 
     return sorted(scopes)

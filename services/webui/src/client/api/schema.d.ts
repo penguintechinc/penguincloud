@@ -375,7 +375,14 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Accept a discovered product and create a connection. */
+    /**
+     * Accept a discovered product and create a connection.
+     * @description Gated on ``products:manage`` for the target tenant. The previous check
+     *     compared a direct membership row against the literals ``owner``/``admin``
+     *     — both halves wrong under this phase's model: it branched on role names,
+     *     and it refused a delegated admin who holds no membership row in the
+     *     tenant they administer.
+     */
     post: operations["post_accept_discovered_product"];
     delete?: never;
     options?: never;
@@ -390,7 +397,13 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Get latest scan results. */
+    /**
+     * Get latest scan results for a tenant.
+     * @description Gated on ``products:read`` for the target tenant. The previous
+     *     ``get_user_tenant_role`` check required a direct membership row, which
+     *     denied a delegated MSP admin their own customer's scan results — the
+     *     same defect this phase fixed in the dashboard and audit routes.
+     */
     get: operations["get_get_scan_results"];
     put?: never;
     post?: never;
@@ -411,9 +424,10 @@ export interface paths {
     put?: never;
     /**
      * Trigger a network scan for PenguinTech products.
-     * @description Requires owner/admin authority on the tenant, and scans only addresses
-     *     inside the operator's DISCOVERY_RANGES allowlist. Caller-supplied
-     *     ``ranges`` narrow that allowlist; they can never widen it.
+     * @description Requires ``products:manage`` on the target tenant — a scan exists to
+     *     produce product connections, so it is gated as the write it leads to.
+     *     Scans only addresses inside the operator's DISCOVERY_RANGES allowlist;
+     *     caller-supplied ``ranges`` narrow that allowlist and can never widen it.
      */
     post: operations["post_trigger_scan"];
     delete?: never;
@@ -446,7 +460,13 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Protected hello - requires maintainer or admin role. */
+    /**
+     * Protected hello — requires the ``platform:read`` scope.
+     * @description ``platform:read`` is carried by the platform admin and maintainer
+     *     bundles and by nothing else, so this admits exactly the callers the
+     *     previous ``@maintainer_or_admin_required`` did, decided on the token's
+     *     scope claim instead of a role-name comparison.
+     */
     get: operations["get_hello_protected"];
     put?: never;
     post?: never;
@@ -465,8 +485,14 @@ export interface paths {
     };
     /**
      * Get license status.
-     * @description Returns:
-     *         JSON response with license details (admin only).
+     * @description Gated on the ``license:read`` scope, which the platform-admin bundle
+     *     carries and no other role does — the same authority the previous
+     *     ``@admin_required`` conferred, expressed as a scope so the decision is
+     *     made on the token claim rather than on a role-name comparison
+     *     (security.md: authorization decisions on scope, never role names).
+     *
+     *     Returns:
+     *         JSON response with license details.
      */
     get: operations["get_get_license_status"];
     put?: never;
@@ -667,6 +693,143 @@ export interface paths {
     get: operations["get_get_product_health"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/metrics": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Return the product's headline metrics.
+     * @description The adapter has implemented and tested ``metrics_summary`` since Phase 4G,
+     *     but nothing exposed it — so the dashboard card counted rows from the
+     *     resource lists instead. That is not the same number: a list page is capped
+     *     (Gough's ``page_size`` maxes at 500) and Gough's own ``total`` is the
+     *     length of the page it just serialised, so a fleet larger than one page
+     *     rendered as the page size. ``totals`` here comes from the product's
+     *     ``/metrics`` scrape and is the real figure.
+     */
+    get: operations["get_product_metrics"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/operations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List a product's long-running operations, newest first. */
+    get: operations["get_list_operations"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/operations/{kind}/{operation_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Poll one operation. This is the route the UI's refetch loop calls. */
+    get: operations["get_get_operation"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/operations/{kind}/{operation_id}/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Request cancellation and return the operation's resulting state.
+     * @description Requires ``products:manage``: cancelling a deploy mid-flight changes what
+     *     the product does with real hardware, which is not a read.
+     */
+    post: operations["post_cancel_operation"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/operations/{kind}/{operation_id}/logs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Return an operation's log lines, oldest first.
+     * @description ``since`` lets the DetailDrawer's log tab fetch only what is new on each
+     *     poll instead of re-reading the whole stream every interval.
+     */
+    get: operations["get_operation_logs"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/resources/{kind}/{resource_id}/actions/{action}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Invoke a product action and return the operations it started.
+     * @description This is the TYPED path for actions, and it exists because the proxy
+     *     cannot serve this case. Proxying ``POST /nodes/{id}/deploy`` forwards
+     *     Gough's raw ``202`` body to the browser, which leaves the UI holding a
+     *     product-specific payload with no :class:`ActionResult`, no normalised
+     *     state, and no poll key — so it can only invalidate its queries and hope
+     *     the deploy it just started eventually shows up somewhere.
+     *
+     *     Going through :meth:`Adapter.perform_action` instead means the response
+     *     carries the deployment ids as :class:`OperationView` objects, each already
+     *     addressable at ``/operations/{kind}/{id}``. The UI learns exactly what it
+     *     started. See "Which mutations go through which path" in
+     *     :mod:`app.adapters.base`.
+     *
+     *     Requires ``manage``: every action reaching here changes product state.
+     *     ``kind`` and ``action`` are validated by the adapter against literal
+     *     tables before any URL is built — neither is interpolated into a path here.
+     */
+    post: operations["post_perform_resource_action"];
     delete?: never;
     options?: never;
     head?: never;
@@ -1242,6 +1405,102 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /**
+     * ActionResourceView
+     * @description The affected resource's post-action state, when the product returned it.
+     *
+     *     A named subset rather than the whole :class:`~app.adapters.base.Resource`:
+     *     ``metadata`` is the adapter's free-form bag and is not published here for
+     *     the same reason :class:`OperationView` omits it.
+     */
+    ActionResourceView: {
+      /** Id */
+      id: string;
+      /** Kind */
+      kind: string;
+      /** Name */
+      name: string;
+      /** Status */
+      status: string | null;
+    };
+    /**
+     * MetricPointView
+     * @description One sample in a series.
+     */
+    MetricPointView: {
+      /** Timestamp */
+      timestamp: string;
+      /** Value */
+      value: number;
+    };
+    /**
+     * MetricSeriesView
+     * @description A named, unit-carrying sequence of samples.
+     */
+    MetricSeriesView: {
+      /** Key */
+      key: string;
+      /** Label */
+      label: string;
+      /** Points */
+      points: components["schemas"]["MetricPointView"][];
+      /** Unit */
+      unit: string;
+    };
+    /**
+     * OperationLogLineView
+     * @description Wire shape for one log line.
+     */
+    OperationLogLineView: {
+      /** Level */
+      level: string;
+      /** Message */
+      message: string;
+      /** Timestamp */
+      timestamp: string | null;
+    };
+    /**
+     * OperationView
+     * @description Wire shape for one operation.
+     *
+     *     An explicit DTO rather than serialising the dataclass directly: the
+     *     response schema is enforced field by field, so a future field added to
+     *     :class:`Operation` for internal use cannot silently start being published
+     *     (see the output-validation rule — an unvalidated response is as dangerous
+     *     as an unvalidated request, just harder to notice).
+     */
+    OperationView: {
+      /** Completed At */
+      completed_at: string | null;
+      /** Created At */
+      created_at: string | null;
+      /** Detail */
+      detail: string | null;
+      /** Error */
+      error: string | null;
+      /** Id */
+      id: string;
+      /** Is Terminal */
+      is_terminal: boolean;
+      /** Kind */
+      kind: string;
+      /** Progress */
+      progress: number | null;
+      /** Resource Id */
+      resource_id: string | null;
+      /** Resource Kind */
+      resource_kind: string | null;
+      /** Result */
+      result: {
+        [key: string]: unknown;
+      } | null;
+      /** State */
+      state: string;
+      /** Status */
+      status: string;
+      /** Updated At */
+      updated_at: string | null;
+    };
     /**
      * RollupEntry
      * @description Per-tenant rollup row.
@@ -2167,6 +2426,279 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  get_product_metrics: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Headline metrics for one product connection.
+       *
+       *     ``series`` may legitimately be empty — Gough's ``/metrics`` is an
+       *     instantaneous scrape with no time dimension, and the adapter refuses to
+       *     fabricate a two-point series from one sample. ``totals`` is the part the
+       *     dashboard counter tiles read.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** End */
+            end: string;
+            /** Series */
+            series: components["schemas"]["MetricSeriesView"][];
+            /** Start */
+            start: string;
+            /** Totals */
+            totals: {
+              [key: string]: number;
+            };
+          };
+        };
+      };
+    };
+  };
+  get_list_operations: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Envelope for a page of operations. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Has More */
+            has_more: boolean;
+            /** Operations */
+            operations: components["schemas"]["OperationView"][];
+            /** Page */
+            page: number;
+            /** Per Page */
+            per_page: number;
+            /** Total */
+            total: number | null;
+          };
+        };
+      };
+    };
+  };
+  get_get_operation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        operation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Wire shape for one operation.
+       *
+       *     An explicit DTO rather than serialising the dataclass directly: the
+       *     response schema is enforced field by field, so a future field added to
+       *     :class:`Operation` for internal use cannot silently start being published
+       *     (see the output-validation rule — an unvalidated response is as dangerous
+       *     as an unvalidated request, just harder to notice).
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Completed At */
+            completed_at: string | null;
+            /** Created At */
+            created_at: string | null;
+            /** Detail */
+            detail: string | null;
+            /** Error */
+            error: string | null;
+            /** Id */
+            id: string;
+            /** Is Terminal */
+            is_terminal: boolean;
+            /** Kind */
+            kind: string;
+            /** Progress */
+            progress: number | null;
+            /** Resource Id */
+            resource_id: string | null;
+            /** Resource Kind */
+            resource_kind: string | null;
+            /** Result */
+            result: {
+              [key: string]: unknown;
+            } | null;
+            /** State */
+            state: string;
+            /** Status */
+            status: string;
+            /** Updated At */
+            updated_at: string | null;
+          };
+        };
+      };
+    };
+  };
+  post_cancel_operation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        operation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Wire shape for one operation.
+       *
+       *     An explicit DTO rather than serialising the dataclass directly: the
+       *     response schema is enforced field by field, so a future field added to
+       *     :class:`Operation` for internal use cannot silently start being published
+       *     (see the output-validation rule — an unvalidated response is as dangerous
+       *     as an unvalidated request, just harder to notice).
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Completed At */
+            completed_at: string | null;
+            /** Created At */
+            created_at: string | null;
+            /** Detail */
+            detail: string | null;
+            /** Error */
+            error: string | null;
+            /** Id */
+            id: string;
+            /** Is Terminal */
+            is_terminal: boolean;
+            /** Kind */
+            kind: string;
+            /** Progress */
+            progress: number | null;
+            /** Resource Id */
+            resource_id: string | null;
+            /** Resource Kind */
+            resource_kind: string | null;
+            /** Result */
+            result: {
+              [key: string]: unknown;
+            } | null;
+            /** State */
+            state: string;
+            /** Status */
+            status: string;
+            /** Updated At */
+            updated_at: string | null;
+          };
+        };
+      };
+    };
+  };
+  get_operation_logs: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        operation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Envelope for an operation's log lines, oldest first. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Kind */
+            kind: string;
+            /** Logs */
+            logs: components["schemas"]["OperationLogLineView"][];
+            /** Operation Id */
+            operation_id: string;
+          };
+        };
+      };
+    };
+  };
+  post_perform_resource_action: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        resource_id: string;
+        action: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Outcome of a product action, including anything left to poll.
+       *
+       *     ``operations`` is the field this route exists for. It is a LIST because a
+       *     single Gough node deploy returns one deployment per assigned biome, and a
+       *     caller handed only the first would poll a fraction of the work it started.
+       *     An empty list means the action completed synchronously — which is how the
+       *     UI tells "nothing to poll" from "poll these".
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Accepted */
+            accepted: boolean;
+            /** Action */
+            action: string;
+            /** Message */
+            message: string | null;
+            /** Operations */
+            operations: components["schemas"]["OperationView"][];
+            resource: components["schemas"]["ActionResourceView"] | null;
+          };
+        };
       };
     };
   };

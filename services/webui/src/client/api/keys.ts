@@ -47,6 +47,40 @@ export const queryKeys = {
   // Product type catalogue (global, not tenant-scoped)
   productTypes: () => [...queryKeys.all(), "product-types"] as const,
 
+  // Gough resources, reached through the proxy.
+  //
+  // Keyed by tenant AND connection id. The connection id alone would look
+  // sufficient — a connection belongs to exactly one tenant — but the tenant
+  // id is what every other key in this file carries, and dropping it here
+  // would make Gough the one surface where a tenant switch does not
+  // partition the cache. Same rule, no exception.
+  gough: () => [...queryKeys.all(), "gough"] as const,
+  goughResource: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+    kind: string,
+  ) => [...queryKeys.gough(), tenantId, productId, kind] as const,
+  goughOperations: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+  ) => [...queryKeys.gough(), tenantId, productId, "operations"] as const,
+  goughMetrics: (tenantId: number | undefined, productId: number | undefined) =>
+    [...queryKeys.gough(), tenantId, productId, "metrics"] as const,
+  goughOperationLogs: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+    kind: string,
+    operationId: string,
+  ) =>
+    [
+      ...queryKeys.gough(),
+      tenantId,
+      productId,
+      "operation-logs",
+      kind,
+      operationId,
+    ] as const,
+
   // Users
   users: () => [...queryKeys.all(), "users"] as const,
   userList: (page: number, perPage: number) =>

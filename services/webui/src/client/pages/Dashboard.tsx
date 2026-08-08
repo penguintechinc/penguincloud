@@ -14,6 +14,7 @@ import { queryKeys } from "../api/keys";
 import HealthGrid from "../components/HealthGrid";
 import TabNavigation from "../components/TabNavigation";
 import OverviewTab from "./dashboard/OverviewTab";
+import GoughSummaryCard from "./dashboard/GoughSummaryCard";
 import ActivityTab from "./dashboard/ActivityTab";
 import RollupMatrix from "./dashboard/RollupMatrix";
 import type { ProductConnection } from "../types";
@@ -111,7 +112,12 @@ export default function Dashboard() {
 
       <div className="mt-6">
         {activeTab === "overview" && (
-          <OverviewTab overview={overviewQuery.data} />
+          <>
+            <OverviewTab overview={overviewQuery.data} />
+            <div className="mt-6">
+              <GoughSummaryCard />
+            </div>
+          </>
         )}
 
         {activeTab === "health" && (
