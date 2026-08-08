@@ -17,6 +17,7 @@
  */
 
 import { proxyApi } from "./products";
+import { GOUGH_COLLECTION_PATHS } from "./goughPaths";
 import type {
   GoughAgent,
   GoughBiome,
@@ -63,19 +64,19 @@ const seg = (value: string | number): string =>
 export const goughApi = {
   listNodes: async (productId: number): Promise<GoughNode[]> =>
     collection<GoughNode>(
-      await proxyApi.request(productId, "GET", "api/v1/nodes"),
+      await proxyApi.request(productId, "GET", GOUGH_COLLECTION_PATHS.nodes),
       "nodes",
     ),
 
   listBiomes: async (productId: number): Promise<GoughBiome[]> =>
     collection<GoughBiome>(
-      await proxyApi.request(productId, "GET", "api/v1/biomes"),
+      await proxyApi.request(productId, "GET", GOUGH_COLLECTION_PATHS.biomes),
       "biomes",
     ),
 
   listAgents: async (productId: number): Promise<GoughAgent[]> =>
     collection<GoughAgent>(
-      await proxyApi.request(productId, "GET", "api/v1/agents"),
+      await proxyApi.request(productId, "GET", GOUGH_COLLECTION_PATHS.agents),
       "agents",
     ),
 
@@ -109,7 +110,7 @@ export const goughApi = {
     productId: number,
     payload: Record<string, unknown>,
   ): Promise<unknown> =>
-    proxyApi.request(productId, "POST", "api/v1/biomes", payload),
+    proxyApi.request(productId, "POST", GOUGH_COLLECTION_PATHS.biomes, payload),
 
   updateBiome: async (
     productId: number,

@@ -64,6 +64,27 @@ _COLLECTIONS: Final[dict[str, str]] = {
     "agents": "/api/v1/agents",
 }
 
+#: The EXACT path Gough registers for each COLLECTION endpoint, trailing
+#: slash included or omitted to match the product's own route table.
+#:
+#: This cannot be derived by appending ``/`` to :data:`_COLLECTIONS`, and the
+#: attempt was a live defect. Gough registers ``nodes_bp.route("/")``,
+#: ``biomes_bp.route("/")`` and ``agents_bp.route("/")`` — trailing slash — but
+#: ``biomes_bp.route("/groups")`` WITHOUT one, and never sets
+#: ``strict_slashes``. Werkzeug's default is asymmetric: a request missing a
+#: registered trailing slash gets a 308 redirect, while a request carrying one
+#: the route does not declare gets a flat 404 with no redirect back. So
+#: ``/api/v1/biomes/groups/`` did not "nearly work" — it 404'd outright.
+#:
+#: Only the collection route varies this way; item paths are built as
+#: ``f"{_COLLECTIONS[kind]}/{id}"`` and are unaffected.
+_COLLECTION_ROUTES: Final[dict[str, str]] = {
+    "nodes": "/api/v1/nodes/",
+    "biomes": "/api/v1/biomes/",
+    "biome_groups": "/api/v1/biomes/groups",
+    "agents": "/api/v1/agents/",
+}
+
 #: Which key inside Gough's response envelope holds the array, per kind.
 _ITEM_KEYS: Final[dict[str, str]] = {
     "nodes": "nodes",
@@ -209,7 +230,7 @@ class GoughAdapter(HealthOnlyAdapter):
                 "gough exposes no cluster collection endpoint; clusters are "
                 "addressed individually by id via get_resource('clusters', id)"
             )
-        path = self._require_kind(kind)
+        self._require_kind(kind)
 
         params: dict[str, Any] = {}
         if kind in ("nodes", "biomes"):
@@ -219,7 +240,11 @@ class GoughAdapter(HealthOnlyAdapter):
         params.update(self._safe_filters(kind, filters))
 
         payload = await self._call(
-            "GET", f"{path}/", ctx, f"list {kind}", params=params or None
+            "GET",
+            _COLLECTION_ROUTES[kind],
+            ctx,
+            f"list {kind}",
+            params=params or None,
         )
         mapper = _MAPPERS[kind]
         items = [mapper(item) for item in self._items(payload, kind)]
@@ -347,9 +372,9 @@ class GoughAdapter(HealthOnlyAdapter):
                 f"gough does not support creating {kind!r}; nodes are discovered "
                 f"and agents are enrolled by the product itself"
             )
-        path = self._require_kind(kind)
+        self._require_kind(kind)
         response = await self._call(
-            "POST", f"{path}/", ctx, f"create {kind}", json=payload
+            "POST", _COLLECTION_ROUTES[kind], ctx, f"create {kind}", json=payload
         )
         return _MAPPERS[kind](self._unwrap_single(response, kind))
 

@@ -27,6 +27,8 @@ from typing import Any
 
 import httpx
 import pytest
+from werkzeug.exceptions import MethodNotAllowed, NotFound
+from werkzeug.routing import Map, RequestRedirect, Rule
 
 from app.adapters.base import (
     AdapterCapabilityError,
@@ -153,12 +155,102 @@ UPGRADE_RUN_ROW = {
 }
 
 
+#: Gough's REAL route registrations, transcribed from its source.
+#:
+#: Sources (``~/code/gough/services/api-manager/app/``): ``auth.py``,
+#: ``api/nodes.py`` (``url_prefix="/api/v1/nodes"``), ``api/biomes.py``
+#: (``url_prefix="/api/v1/biomes"``), ``api/agents.py``
+#: (``url_prefix="/api/v1/agents"``), ``api/clusters.py`` (prefix applied at
+#: ``register_blueprint``) and ``__init__.py`` for ``/healthz`` / ``/readyz``.
+#: Deliberately NOT transcribed from Gough's committed
+#: ``docs/api/openapi-spec.yaml``, which documents routes the service does not
+#: register.
+#:
+#: The trailing slashes here are the load-bearing part: ``nodes``, ``biomes``
+#: and ``agents`` register ``"/"`` for their collection, while ``groups`` and
+#: ``deployments`` register no trailing slash. Gough never sets
+#: ``strict_slashes``, so Werkzeug's asymmetric default governs, and
+#: :class:`FakeGough` reproduces it below rather than restating it.
+_GOUGH_REAL_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("/healthz", ("GET",)),
+    ("/readyz", ("GET",)),
+    ("/api/v1/status", ("GET",)),
+    ("/api/v1/auth/login", ("POST",)),
+    ("/api/v1/auth/refresh", ("POST",)),
+    # -- nodes ------------------------------------------------------------
+    ("/api/v1/nodes/", ("GET",)),
+    ("/api/v1/nodes/<int:node_id>", ("GET", "PATCH", "DELETE")),
+    ("/api/v1/nodes/<int:node_id>/deploy", ("POST",)),
+    ("/api/v1/nodes/<int:node_id>/evacuate", ("POST",)),
+    ("/api/v1/nodes/<int:node_id>/reject", ("POST",)),
+    ("/api/v1/nodes/<int:node_id>/tags", ("GET", "PATCH")),
+    ("/api/v1/nodes/<int:node_id>/biomes", ("GET", "POST")),
+    ("/api/v1/nodes/<int:node_id>/biomes/<int:biome_id>", ("DELETE",)),
+    # -- biomes -----------------------------------------------------------
+    ("/api/v1/biomes/", ("GET", "POST")),
+    ("/api/v1/biomes/<int:biome_id>", ("GET", "PUT", "DELETE")),
+    ("/api/v1/biomes/<int:biome_id>/upgrade", ("POST",)),
+    ("/api/v1/biomes/<int:biome_id>/upgrade-runs/<run_id>", ("GET",)),
+    ("/api/v1/biomes/<int:biome_id>/eligibility", ("GET",)),
+    # No trailing slash — this is the shape the adapter got wrong.
+    ("/api/v1/biomes/groups", ("GET", "POST")),
+    ("/api/v1/biomes/groups/<int:group_id>", ("GET", "PUT", "DELETE")),
+    ("/api/v1/biomes/deployments", ("GET",)),
+    ("/api/v1/biomes/deployments/<string:deployment_id>", ("GET",)),
+    ("/api/v1/biomes/deployments/<string:deployment_id>/logs", ("GET",)),
+    ("/api/v1/biomes/deployments/<string:deployment_id>/cancel", ("POST",)),
+    # -- agents -----------------------------------------------------------
+    ("/api/v1/agents/", ("GET",)),
+    ("/api/v1/agents/enrollment-keys", ("GET", "POST")),
+    ("/api/v1/agents/<agent_id>", ("GET",)),
+    ("/api/v1/agents/<agent_id>/suspend", ("POST",)),
+    ("/api/v1/agents/<agent_id>/resume", ("POST",)),
+    # -- clusters ---------------------------------------------------------
+    ("/api/v1/clusters/<cluster_id>/config", ("GET", "PATCH")),
+    ("/api/v1/clusters/<cluster_id>/storage", ("GET", "PATCH")),
+    ("/api/v1/clusters/<cluster_id>/lxd/status", ("GET",)),
+    ("/api/v1/clusters/<cluster_id>/lxd/members", ("GET",)),
+    ("/api/v1/clusters/<cluster_id>/network-pools", ("GET", "PATCH")),
+)
+
+
+def _gough_url_map() -> Map:
+    """Build a Werkzeug map mirroring Gough's own registrations.
+
+    Using a real :class:`~werkzeug.routing.Map` rather than a hand-written
+    string comparison is the point: Gough IS a Quart app, so its slash
+    handling is Werkzeug's, and reproducing that behaviour by description
+    would just re-encode the same assumption the adapter got wrong.
+    """
+    return Map(
+        [
+            Rule(rule, endpoint=f"{rule}:{','.join(methods)}", methods=methods)
+            for rule, methods in _GOUGH_REAL_ROUTES
+        ]
+    )
+
+
 class FakeGough:
     """An in-process Gough that records what it was asked.
 
-    Routes on ``(method, path)`` and answers from ``self.routes``. Anything
-    unrouted is a 404 carrying the path, so a test that mis-guesses an
-    endpoint fails with the URL rather than a generic assertion.
+    Every request is first matched against :data:`_GOUGH_REAL_ROUTES` through a
+    real Werkzeug map, so the fake answers **the way Gough would** rather than
+    the way the adapter assumes:
+
+    * a path Gough does not register at all -> 404
+    * a path missing a registered trailing slash -> **308**, as Werkzeug's
+      default ``strict_slashes`` produces
+    * a path carrying a trailing slash Gough does NOT declare -> **404**, with
+      no redirect back, which is the asymmetry that made
+      ``/api/v1/biomes/groups/`` fail outright
+
+    This is what the previous version could not catch. It routed purely on the
+    ``(method, path)`` keys the tests supplied, which were themselves copied
+    from what the adapter sent — so the fake agreed with the adapter by
+    construction and a wrong path shape was unfalsifiable.
+
+    ``self.routes`` still supplies the response BODY; the map decides only
+    whether the request is one Gough would have accepted.
     """
 
     def __init__(self, routes: dict[tuple[str, str], Any] | None = None) -> None:
@@ -167,10 +259,41 @@ class FakeGough:
         self.requests: list[httpx.Request] = []
         self.login_count = 0
         self.refresh_count = 0
+        self._url_adapter = _gough_url_map().bind("gough.test")
+
+    def _route_shape_response(self, request: httpx.Request) -> httpx.Response | None:
+        """Reproduce Gough's routing outcome, or None when the path matches.
+
+        Returns the response Gough itself would produce for a path whose SHAPE
+        is wrong, so the adapter is tested against the product's real slash
+        semantics instead of the fake's convenience.
+        """
+        try:
+            self._url_adapter.match(request.url.path, method=request.method)
+        except RequestRedirect as redirect:
+            # Werkzeug's 308 for a missing trailing slash. The portal transport
+            # does not follow redirects and the proxy strips `location`, so this
+            # reaches the browser as an empty body — the exact failure that
+            # rendered three empty tables.
+            return httpx.Response(308, headers={"location": redirect.new_url})
+        except MethodNotAllowed:
+            return _error(405, "method_not_allowed", f"{request.method} not allowed")
+        except NotFound:
+            return _error(
+                404,
+                "not_found",
+                f"gough registers no route for {request.method} {request.url.path}",
+            )
+        return None
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         """MockTransport handler."""
         self.requests.append(request)
+
+        shape_failure = self._route_shape_response(request)
+        if shape_failure is not None:
+            return shape_failure
+
         key = (request.method, request.url.path)
 
         if key == ("POST", "/api/v1/auth/login"):
@@ -1155,3 +1278,97 @@ class TestTransportBehaviour:
                 "GET", "https://attacker.invalid/api/v1/nodes/", _ctx()
             )
         assert fake.requests == []
+
+
+class TestCollectionRouteShapes:
+    """The adapter must address each collection the way Gough registers it.
+
+    These are regression tests for a defect the previous suite structurally
+    could not catch: :class:`FakeGough` used to route on the keys the tests
+    supplied, and those keys were copied from what the adapter sent, so any
+    path shape the adapter chose was correct by construction.
+
+    The fake now matches through a real Werkzeug map built from Gough's own
+    registrations, so a wrong slash produces the product's real answer — 308
+    one way, 404 the other. Both are fatal to the caller: the transport does
+    not follow redirects and the proxy strips ``location``.
+    """
+
+    async def test_biome_groups_list_hits_the_slashless_route(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``/api/v1/biomes/groups`` has NO trailing slash in Gough.
+
+        The adapter previously sent ``/api/v1/biomes/groups/``. Werkzeug does
+        not redirect that direction, so it was a flat 404 — the biome-groups
+        collection simply never worked. Reverting the fix makes this red.
+        """
+        fake = FakeGough({("GET", "/api/v1/biomes/groups"): _envelope({"groups": []})})
+        _wire(fake, monkeypatch)
+
+        await GoughAdapter().list_resources("biome_groups", _ctx())
+
+        paths = [r.url.path for r in fake.requests if "auth" not in r.url.path]
+        assert paths == ["/api/v1/biomes/groups"]
+
+    async def test_biome_groups_create_hits_the_slashless_route(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Create shares the same route shape, and shared the same bug."""
+        fake = FakeGough(
+            {
+                ("POST", "/api/v1/biomes/groups"): _envelope(
+                    {"group": {"id": 3, "name": "edge"}}
+                )
+            }
+        )
+        _wire(fake, monkeypatch)
+
+        await GoughAdapter().create_resource("biome_groups", {"name": "edge"}, _ctx())
+
+        paths = [r.url.path for r in fake.requests if "auth" not in r.url.path]
+        assert paths == ["/api/v1/biomes/groups"]
+
+    @pytest.mark.parametrize(
+        ("kind", "expected_path", "item_key"),
+        [
+            ("nodes", "/api/v1/nodes/", "nodes"),
+            ("biomes", "/api/v1/biomes/", "biomes"),
+            ("agents", "/api/v1/agents/", "agents"),
+        ],
+    )
+    async def test_slashed_collections_keep_their_trailing_slash(
+        self,
+        kind: str,
+        expected_path: str,
+        item_key: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """These three DO register ``"/"``; dropping the slash yields a 308."""
+        fake = FakeGough({("GET", expected_path): _envelope({item_key: []})})
+        _wire(fake, monkeypatch)
+
+        await GoughAdapter().list_resources(kind, _ctx())
+
+        paths = [r.url.path for r in fake.requests if "auth" not in r.url.path]
+        assert paths == [expected_path]
+
+    async def test_fake_reproduces_goughs_308_for_a_missing_slash(self) -> None:
+        """Guard on the guard: prove the fake models the 308, not just a 404.
+
+        If this ever stops being a 308, the tests above stop testing the thing
+        that actually broke the UI — an empty-bodied redirect the browser reads
+        as zero rows rather than as an error.
+        """
+        fake = FakeGough()
+        response = fake.handler(httpx.Request("GET", "https://gough.test/api/v1/nodes"))
+        assert response.status_code == 308
+        assert response.headers["location"].endswith("/api/v1/nodes/")
+
+    async def test_fake_reproduces_goughs_404_for_an_extra_slash(self) -> None:
+        """The other direction: no redirect back, just a 404."""
+        fake = FakeGough()
+        response = fake.handler(
+            httpx.Request("GET", "https://gough.test/api/v1/biomes/groups/")
+        )
+        assert response.status_code == 404

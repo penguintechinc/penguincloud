@@ -45,7 +45,7 @@ describe("goughApi list bindings", () => {
     const rows = await goughApi.listNodes(7);
 
     expect(rows).toEqual([{ id: 1 }]);
-    expect(forwardedPath()).toBe("api/v1/nodes");
+    expect(forwardedPath()).toBe("api/v1/nodes/");
   });
 
   it("unwraps the bare shape used by agents", async () => {
@@ -73,7 +73,7 @@ describe("goughApi list bindings", () => {
 
   it("lists biomes from the allowlisted collection path", async () => {
     await goughApi.listBiomes(7);
-    expect(forwardedPath()).toBe("api/v1/biomes");
+    expect(forwardedPath()).toBe("api/v1/biomes/");
   });
 });
 
@@ -105,7 +105,7 @@ describe("goughApi mutating verbs", () => {
 
   it("creates, updates and deletes biomes on allowlisted paths", async () => {
     await goughApi.createBiome(7, { name: "web" });
-    expect(forwardedPath()).toBe("api/v1/biomes");
+    expect(forwardedPath()).toBe("api/v1/biomes/");
 
     jest.clearAllMocks();
     mockApi.request.mockResolvedValue({ data: {} });
@@ -122,6 +122,28 @@ describe("goughApi mutating verbs", () => {
     await goughApi.agentAction(7, "3f2b-aa", "suspend");
     expect(forwardedPath()).toBe("api/v1/agents/3f2b-aa/suspend");
   });
+
+  it.each([
+    ["listNodes", () => goughApi.listNodes(7), "api/v1/nodes/"],
+    ["listBiomes", () => goughApi.listBiomes(7), "api/v1/biomes/"],
+    ["listAgents", () => goughApi.listAgents(7), "api/v1/agents/"],
+    ["createBiome", () => goughApi.createBiome(7, {}), "api/v1/biomes/"],
+  ])(
+    "%s sends the trailing slash Gough's route actually declares",
+    async (_name, call, expected) => {
+      // Regression: these four were sent WITHOUT the trailing slash. Gough
+      // registers `route("/")` for all three collections, so Werkzeug answered
+      // 308. The transport does not follow redirects and the proxy strips
+      // `location`, so the browser got an empty body, `collection()` returned
+      // [], and the user saw three empty tables plus a create that silently
+      // did nothing — with no error banner anywhere.
+      //
+      // Asserting `.toBe` on the exact string is the point: a `toContain` or a
+      // regex would have passed against the broken value too.
+      await call();
+      expect(forwardedPath()).toBe(expected);
+    },
+  );
 
   it("encodes an id rather than letting it compose a new path", async () => {
     // The portal would refuse this anyway — agent ids are matched as hex, so
