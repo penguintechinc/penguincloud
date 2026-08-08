@@ -2,14 +2,21 @@
 
 Routes: /api/v1/products/<connection_id>/proxy/<path>
 
+This is the UNTRUSTED-INPUT path into a connected product: the caller
+supplies the path, method, query string and body. See
+:mod:`app.adapters.base` for the full statement of which path is the
+security boundary and why adapter methods are treated differently.
+
 Security model:
-- Request must match adapter's route_allowlist (deny-by-default)
+- Request path is normalized and refused outright on traversal/control chars
+- Request must match adapter's route_allowlist (deny-by-default, anchored)
 - Scope check via RBACEnforcer against rule's required_scope
-- Inbound Authorization header stripped
+- A deactivated connection is refused before its credential is decrypted
+- Request headers are ALLOW-listed; anything not named is dropped
 - Product credentials injected from connection (decrypted)
 - Portal tenant substituted with external product tenant ID
-- Audit log records every call (rule matched, scope result, status)
-- Response size capped at 10MB
+- Every call is audited — allowed AND refused, with rule/scope/tenant/status
+- Request and response size capped at 10MB
 """
 
 from __future__ import annotations
@@ -17,6 +24,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import uuid
 from typing import Any
 from urllib.parse import quote
@@ -24,7 +32,13 @@ from urllib.parse import quote
 from quart import Blueprint, make_response, request
 
 from .adapters import get_adapter
-from .adapters.base import AdapterContext, RBACEnforcer
+from .adapters.base import (
+    AdapterContext,
+    PathTraversalError,
+    RBACEnforcer,
+    RouteRule,
+    normalize_proxy_path,
+)
 from .adapters.transport import ResponseTooLargeError, get_transport
 from .encryption import decrypt_value
 from .middleware import auth_required, get_current_user
@@ -60,9 +74,19 @@ REDACTION_MARKER = "[REDACTED]"
 #: misconfiguration, and failing closed is the only safe reading of it.
 MIN_REDACTABLE_CREDENTIAL_LEN = 4
 
+#: A caller may supply the correlation id so their own trace stitches to
+#: ours, but the value is echoed into structured logs, into an outbound
+#: header and back into a response header. Constrain it to a token charset
+#: and a sane length: CR/LF here is log injection and header splitting, and
+#: an unbounded value is a cheap way to bloat every log line it touches.
+CORRELATION_ID_MAX_LEN = 128
+_CORRELATION_ID_RE = re.compile(r"\A[A-Za-z0-9_.:-]{1,%d}\Z" % CORRELATION_ID_MAX_LEN)
+
 #: Response headers never passed back to the caller. hop-by-hop headers
-#: belong to this connection, and Set-Cookie would let a product plant a
-#: cookie on the portal's origin.
+#: belong to this connection; Set-Cookie would let a product plant a cookie
+#: on the portal's origin; and Location/Content-Location/Refresh would let a
+#: product turn the portal into an open redirect, borrowing the portal's
+#: origin to send an authenticated user anywhere it chooses.
 _STRIPPED_RESPONSE_HEADERS = frozenset(
     {
         "transfer-encoding",
@@ -74,44 +98,73 @@ _STRIPPED_RESPONSE_HEADERS = frozenset(
         "www-authenticate",
         "content-length",
         "content-encoding",
+        "location",
+        "content-location",
+        "refresh",
     }
 )
 
-#: Request headers never forwarded to the product. `authorization` is the
-#: important one: the caller's portal JWT must not reach a third-party
-#: product, and the slot is about to be filled with the product's own
-#: credential anyway.
-_STRIPPED_REQUEST_HEADERS = frozenset(
+#: Request headers forwarded to the product — an ALLOW-list, because this is
+#: the one channel on a deny-by-default boundary where "everything not named
+#: is permitted" would otherwise apply. A deny-list has to enumerate every
+#: credential-bearing header name any product might honour, forever:
+#: X-Auth-Token, Api-Key, Authentication, X-Forwarded-*, X-Original-URL and
+#: whatever the next framework invents. Naming what is safe instead bounds
+#: the problem to content negotiation and conditional requests.
+#:
+#: Deliberately absent:
+#: - authorization / cookie: the caller's portal credentials must not reach
+#:   a third party, and the slot is filled with the product's own credential
+#: - user-agent / x-forwarded-*: caller-controlled identity claims the
+#:   product may trust for its own access decisions
+#: - host / content-length: recomputed by the transport for the real target
+_FORWARDED_REQUEST_HEADERS = frozenset(
     {
-        "authorization",
-        "proxy-authorization",
-        "cookie",
-        "host",
-        "connection",
-        "content-length",
-        "x-api-key",
+        "accept",
+        "accept-charset",
+        "accept-language",
+        "content-type",
+        "if-match",
+        "if-modified-since",
+        "if-none-match",
+        "if-unmodified-since",
+        "range",
     }
 )
 
 
-#: Placeholder an adapter's route_allowlist uses to mark where the product's
-#: own tenant identifier belongs. The caller never supplies it — they address
-#: their portal tenant, and this is where the mapped external id is spliced in.
-TENANT_PLACEHOLDER = "{tenant}"
+def _resolve_correlation_id() -> str:
+    """Return a safe correlation id for this request.
 
-
-def _substitute_tenant(fragment: str, ctx: AdapterContext) -> str:
-    """Replace the tenant placeholder with the mapped external identifier.
-
-    The portal's tenant ids are its own; a product knows its customers by
-    whatever ``product_tenant_map`` recorded (``external_id``). Substituting
-    server-side means the outbound identity is derived from the mapping row
-    rather than from anything the caller sent, so a caller cannot address
-    another customer's data inside the product by editing the path.
+    A caller-supplied value is honoured only if it matches the token charset
+    and length bound; anything else is replaced with a server-generated
+    uuid4 rather than rejected outright. Refusing the whole request over a
+    malformed diagnostic header would fail a call for a reason unrelated to
+    what it was asking for; substituting keeps the request working while
+    guaranteeing nothing unvalidated reaches a log line, an outbound header
+    or a response header.
     """
-    if TENANT_PLACEHOLDER not in fragment:
-        return fragment
-    return fragment.replace(TENANT_PLACEHOLDER, quote(ctx.external_id, safe=""))
+    supplied = request.headers.get(CORRELATION_ID_HEADER, "")
+    if supplied and _CORRELATION_ID_RE.match(supplied):
+        return supplied
+    return str(uuid.uuid4())
+
+
+def _substitute(fragment: str, adapter: Any, ctx: AdapterContext) -> str:
+    """Apply the adapter's declared placeholder substitutions to a fragment.
+
+    Which placeholders exist, and what fills each, is declared by the adapter
+    (``path_substitutions``) rather than hard-coded here — see
+    :class:`app.adapters.base.PathSubstitution`. Values are read from the
+    :class:`AdapterContext`, every field of which is server-derived, so a
+    caller cannot interpolate anything of their own by editing the path.
+    """
+    for substitution in getattr(adapter, "path_substitutions", ()):
+        if substitution.placeholder not in fragment:
+            continue
+        value = str(getattr(ctx, substitution.context_attr, "") or "")
+        fragment = fragment.replace(substitution.placeholder, quote(value, safe=""))
+    return fragment
 
 
 def _credential_material(ctx: AdapterContext) -> list[str]:
@@ -148,6 +201,71 @@ def _redact(payload: bytes, material: list[str]) -> bytes:
     return payload
 
 
+async def _audit_proxy_call(
+    *,
+    user_id: int,
+    tenant_id: int,
+    connection_id: int,
+    outcome: str,
+    status_code: int,
+    correlation_id: str,
+    method: str,
+    path: str,
+    product_type: str | None = None,
+    rule: RouteRule | None = None,
+    required_scope: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """Record one proxy decision — allowed or refused — in the audit trail.
+
+    Refusals are audited as deliberately as successes. A deny-by-default
+    boundary's denials ARE its signal: repeated ``route_not_allowed`` against
+    one connection is somebody mapping the allowlist, repeated
+    ``insufficient_scope`` is somebody probing for authority they lack, and
+    ``connection_inactive`` says an operator's kill-switch is being tested.
+    Warn-logging those (which is all the previous implementation did) keeps
+    them out of the tenant-visible trail an admin actually reviews, so the
+    only recorded evidence of an attack would be the calls that succeeded.
+
+    ``action`` distinguishes the two families so either can be queried alone:
+    ``proxy.get`` for a forwarded call, ``proxy.get.denied`` for a refusal.
+    """
+    changes: dict[str, Any] = {
+        "outcome": outcome,
+        "method": method,
+        "path": path,
+        "status_code": status_code,
+        "correlation_id": correlation_id,
+    }
+    if product_type is not None:
+        changes["product_type"] = product_type
+    if rule is not None:
+        changes["route_matched"] = f"{rule.method} {rule.path_regex}"
+    if required_scope is not None:
+        changes["scope_required"] = required_scope
+    if detail is not None:
+        changes["detail"] = detail
+
+    suffix = "" if outcome == "allowed" else ".denied"
+    try:
+        await create_audit_log(
+            user_id=user_id,
+            action=f"proxy.{method.lower()}{suffix}",
+            resource_type="product_connection",
+            resource_id=str(connection_id),
+            tenant_id=tenant_id,
+            ip_address=request.remote_addr,
+            changes=json.dumps(changes),
+        )
+    except Exception:  # pragma: no cover - trail must not break the decision
+        # An audit write that fails must not convert a correct refusal into
+        # a 500 (or, worse, into a forwarded request). Log loudly instead.
+        logger.exception(
+            "proxy_audit_write_failed",
+            extra={"outcome": outcome, "correlation_id": correlation_id},
+        )
+
+
 @proxy_bp.route(
     "/api/v1/products/<int:connection_id>/proxy/<path:proxy_path>",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
@@ -162,18 +280,22 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
     if not user:
         return {"error": "User not authenticated"}, 401
 
-    # Generate correlation ID for request tracking
-    corr_id = request.headers.get(CORRELATION_ID_HEADER, str(uuid.uuid4()))
+    corr_id = _resolve_correlation_id()
+    method = request.method
 
     try:
         # Get raw connection (with encrypted keys)
         conn_raw = await get_product_connection_raw(connection_id)
         if not conn_raw:
+            # Not audited: there is no tenant to attribute the row to, and
+            # inventing one would file a stranger's probe in some other
+            # tenant's trail. The log line carries the caller.
             logger.warning(
                 "proxy_request",
                 extra={
                     "event": "connection_not_found",
                     "connection_id": connection_id,
+                    "user_id": user["id"],
                     "correlation_id": corr_id,
                 },
             )
@@ -194,20 +316,84 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
         portal_tenant_id: int = portal_tenant_id_maybe
         base_url: str = str(conn_raw.get("base_url", "")).rstrip("/")
 
-        # Resolve effective role in the tenant
-        effective_role = await resolve_effective_role(user["id"], portal_tenant_id)
-        if effective_role is None:
+        async def _deny(
+            outcome: str,
+            body: dict[str, Any],
+            status: int,
+            *,
+            rule: RouteRule | None = None,
+            required_scope: str | None = None,
+            detail: str | None = None,
+        ) -> tuple[dict[str, Any], int]:
+            """Audit a refusal, then return it."""
             logger.warning(
                 "proxy_request",
                 extra={
-                    "event": "unauthorized_tenant",
+                    "event": outcome,
                     "connection_id": connection_id,
                     "user_id": user["id"],
                     "tenant_id": portal_tenant_id,
+                    "method": method,
+                    "path": proxy_path,
                     "correlation_id": corr_id,
                 },
             )
-            return {"error": "Not a member of this tenant"}, 403
+            await _audit_proxy_call(
+                user_id=user["id"],
+                tenant_id=portal_tenant_id,
+                connection_id=connection_id,
+                outcome=outcome,
+                status_code=status,
+                correlation_id=corr_id,
+                method=method,
+                path=proxy_path,
+                product_type=product_type,
+                rule=rule,
+                required_scope=required_scope,
+                detail=detail,
+            )
+            return body, status
+
+        # Resolve effective role in the tenant. Checked before anything that
+        # would reveal connection state, so an outsider learns only that they
+        # are not a member.
+        effective_role = await resolve_effective_role(user["id"], portal_tenant_id)
+        if effective_role is None:
+            return await _deny(
+                "unauthorized_tenant", {"error": "Not a member of this tenant"}, 403
+            )
+
+        # The operator's kill-switch. Enforced HERE, in the traffic path,
+        # rather than in get_product_connection_raw: that accessor also feeds
+        # the product's own management and schema endpoints, and a row that
+        # vanishes when deactivated would make the connection invisible to
+        # the very UI an operator uses to re-activate it — the kill-switch
+        # would break the un-kill switch. Enforcement belongs where the
+        # decision is, and this is the only path that carries traffic.
+        #
+        # Placed before decryption on purpose: a deactivated connection's
+        # credential is never decrypted at all, so "deactivated" means the
+        # secret stays at rest rather than merely not being sent.
+        if not conn_raw.get("is_active"):
+            return await _deny(
+                "connection_inactive",
+                {"error": "Product connection is inactive"},
+                403,
+            )
+
+        # Refuse a malformed path before it is matched against anything.
+        # `re.match(r"^/users", "/users/../admin")` is a match, so an
+        # allowlist alone does not stop traversal; and the product, not the
+        # portal, would be the one resolving the dot-segments.
+        try:
+            proxy_path = normalize_proxy_path(proxy_path)
+        except PathTraversalError as exc:
+            return await _deny(
+                "malformed_path",
+                {"error": "Invalid request path"},
+                400,
+                detail=str(exc),
+            )
 
         # Resolve scopes from effective role
         scopes = await resolve_scopes(user["id"], portal_tenant_id)
@@ -215,16 +401,11 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
         # Get product tenant mapping (external ID)
         mapping = await get_product_tenant_map(connection_id, portal_tenant_id)
         if not mapping:
-            logger.warning(
-                "proxy_request",
-                extra={
-                    "event": "tenant_mapping_not_found",
-                    "connection_id": connection_id,
-                    "portal_tenant_id": portal_tenant_id,
-                    "correlation_id": corr_id,
-                },
+            return await _deny(
+                "tenant_mapping_not_found",
+                {"error": "Product tenant mapping not found"},
+                404,
             )
-            return {"error": "Product tenant mapping not found"}, 404
 
         external_id = mapping.get("external_id", "")
         external_kind = mapping.get("external_kind", "")
@@ -258,44 +439,26 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
         # Get adapter instance
         adapter = get_adapter(product_type, ctx)
 
-        # Normalize proxy path: ensure it starts with /
-        if not proxy_path.startswith("/"):
-            proxy_path = "/" + proxy_path
-
         # Check route allowlist (deny-by-default)
         matched_rule = None
         for rule in adapter.route_allowlist:
-            if rule.matches(request.method, proxy_path):
+            if rule.matches(method, proxy_path):
                 matched_rule = rule
                 break
 
         if matched_rule is None:
-            logger.warning(
-                "proxy_request",
-                extra={
-                    "event": "route_not_allowed",
-                    "method": request.method,
-                    "path": proxy_path,
-                    "connection_id": connection_id,
-                    "product_type": product_type,
-                    "correlation_id": corr_id,
-                },
-            )
-            return {"error": "Route not allowed"}, 404
+            return await _deny("route_not_allowed", {"error": "Route not allowed"}, 404)
 
         # Check scope requirement
         enforcer = RBACEnforcer(matched_rule.required_scope)
         if not enforcer.enforce(scopes):
-            logger.warning(
-                "proxy_request",
-                extra={
-                    "event": "insufficient_scope",
-                    "required_scope": matched_rule.required_scope,
-                    "granted_scopes": scopes,
-                    "correlation_id": corr_id,
-                },
+            return await _deny(
+                "insufficient_scope",
+                {"error": "Insufficient permissions"},
+                403,
+                rule=matched_rule,
+                required_scope=matched_rule.required_scope,
             )
-            return {"error": "Insufficient permissions"}, 403
 
         # A credential too short to redact safely means this connection
         # cannot be proxied without risking disclosure — refuse it here,
@@ -305,49 +468,45 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
             len(secret) < MIN_REDACTABLE_CREDENTIAL_LEN
             for secret in credential_material
         ):
-            logger.error(
-                "proxy_request",
-                extra={
-                    "event": "credential_too_short_to_redact",
-                    "connection_id": connection_id,
-                    "correlation_id": corr_id,
-                },
+            return await _deny(
+                "credential_too_short_to_redact",
+                {"error": "Product connection is misconfigured"},
+                502,
+                rule=matched_rule,
+                required_scope=matched_rule.required_scope,
             )
-            return {"error": "Product connection is misconfigured"}, 502
 
         # Build outbound URL. The portal tenant is substituted for the
         # product's own identifier from product_tenant_map: the caller
         # addresses their portal tenant, the product only ever sees its own.
-        substituted_path = _substitute_tenant(proxy_path, ctx)
+        substituted_path = _substitute(proxy_path, adapter, ctx)
         outbound_url = f"{base_url}{substituted_path}"
         if request.query_string:
-            query = _substitute_tenant(request.query_string.decode(), ctx)
+            query = _substitute(request.query_string.decode(), adapter, ctx)
             outbound_url += f"?{query}"
 
-        # Collect request body and headers (stripping auth)
+        # Collect request body and headers (allow-list)
         body = await request.get_data()
         if len(body) > MAX_REQUEST_SIZE:
-            logger.warning(
-                "proxy_request",
-                extra={
-                    "event": "request_too_large",
-                    "size": len(body),
-                    "max_size": MAX_REQUEST_SIZE,
-                    "correlation_id": corr_id,
-                },
+            return await _deny(
+                "request_too_large",
+                {"error": "Request body too large"},
+                413,
+                rule=matched_rule,
+                required_scope=matched_rule.required_scope,
+                detail=f"{len(body)} bytes",
             )
-            return {"error": "Request body too large"}, 413
 
         headers: dict[str, str] = {}
         for key, value in request.headers:
-            if key.lower() not in _STRIPPED_REQUEST_HEADERS:
+            if key.lower() in _FORWARDED_REQUEST_HEADERS:
                 headers[key] = value
 
         # Make the proxied request
         transport = await get_transport()
         try:
             outbound_response = await transport.request(
-                request.method,
+                method,
                 outbound_url,
                 ctx,
                 headers=headers,
@@ -357,16 +516,14 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
 
             # Check response size
             if len(outbound_response.content) > MAX_RESPONSE_SIZE:
-                logger.warning(
-                    "proxy_request",
-                    extra={
-                        "event": "response_too_large",
-                        "size": len(outbound_response.content),
-                        "max_size": MAX_RESPONSE_SIZE,
-                        "correlation_id": corr_id,
-                    },
+                return await _deny(
+                    "response_too_large",
+                    {"error": "Response too large"},
+                    502,
+                    rule=matched_rule,
+                    required_scope=matched_rule.required_scope,
+                    detail=f"{len(outbound_response.content)} bytes",
                 )
-                return {"error": "Response too large"}, 502
 
             # Redact before anything is written to the response object, so
             # there is no ordering in which the raw body reaches the caller.
@@ -387,24 +544,18 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
 
             response.headers[CORRELATION_ID_HEADER] = corr_id
 
-            # Audit log success
-            changes = json.dumps(
-                {
-                    "product_type": product_type,
-                    "path": proxy_path,
-                    "status_code": outbound_response.status_code,
-                    "route_matched": f"{matched_rule.method} {matched_rule.path_regex}",
-                    "scope_required": matched_rule.required_scope,
-                }
-            )
-            await create_audit_log(
+            await _audit_proxy_call(
                 user_id=user["id"],
-                action=f"proxy.{request.method.lower()}",
-                resource_type="product_connection",
-                resource_id=str(connection_id),
                 tenant_id=portal_tenant_id,
-                ip_address=request.remote_addr,
-                changes=changes,
+                connection_id=connection_id,
+                outcome="allowed",
+                status_code=outbound_response.status_code,
+                correlation_id=corr_id,
+                method=method,
+                path=proxy_path,
+                product_type=product_type,
+                rule=matched_rule,
+                required_scope=matched_rule.required_scope,
             )
 
             return response
@@ -412,15 +563,13 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
         except ResponseTooLargeError:
             # Raised by the transport when the body blew the cap before
             # the proxy's own check could see it.
-            logger.warning(
-                "proxy_request",
-                extra={
-                    "event": "response_too_large",
-                    "connection_id": connection_id,
-                    "correlation_id": corr_id,
-                },
+            return await _deny(
+                "response_too_large",
+                {"error": "Response too large"},
+                502,
+                rule=matched_rule,
+                required_scope=matched_rule.required_scope,
             )
-            return {"error": "Response too large"}, 502
 
         except Exception as e:
             logger.error(
@@ -434,15 +583,19 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
                     "correlation_id": corr_id,
                 },
             )
-            changes = json.dumps({"error": str(e)})
-            await create_audit_log(
+            await _audit_proxy_call(
                 user_id=user["id"],
-                action=f"proxy.{request.method.lower()}.error",
-                resource_type="product_connection",
-                resource_id=str(connection_id),
                 tenant_id=portal_tenant_id,
-                ip_address=request.remote_addr,
-                changes=changes,
+                connection_id=connection_id,
+                outcome="transport_error",
+                status_code=502,
+                correlation_id=corr_id,
+                method=method,
+                path=proxy_path,
+                product_type=product_type,
+                rule=matched_rule,
+                required_scope=matched_rule.required_scope,
+                detail=str(e),
             )
             return {"error": "Proxy request failed"}, 502
 
