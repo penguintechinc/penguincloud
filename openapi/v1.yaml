@@ -802,6 +802,104 @@ paths:
           description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
             so no schema is published for it; do not rely on a specific body until one is.
       summary: Get latest health status for a product.
+  /api/v1/products/{product_id}/operations:
+    get:
+      description: ''
+      operationId: get_list_operations
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: List a product's long-running operations, newest first.
+  /api/v1/products/{product_id}/operations/{kind}/{operation_id}:
+    get:
+      description: ''
+      operationId: get_get_operation
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: operation_id
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Poll one operation. This is the route the UI's refetch loop calls.
+  /api/v1/products/{product_id}/operations/{kind}/{operation_id}/cancel:
+    post:
+      description: '
+
+        Requires ``products:manage``: cancelling a deploy mid-flight changes what
+
+        the product does with real hardware, which is not a read.'
+      operationId: post_cancel_operation
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: operation_id
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Request cancellation and return the operation's resulting state.
+  /api/v1/products/{product_id}/operations/{kind}/{operation_id}/logs:
+    get:
+      description: '
+
+        ``since`` lets the DetailDrawer''s log tab fetch only what is new on each
+
+        poll instead of re-reading the whole stream every interval.'
+      operationId: get_operation_logs
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: operation_id
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Return an operation's log lines, oldest first.
   /api/v1/products/{product_id}/schema:
     get:
       description: ''
