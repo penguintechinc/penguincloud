@@ -58,8 +58,13 @@ ALLOWED: list[tuple[str, str, str]] = [
     ("GET", "/api/v1/clusters/7f3a-b21c/lxd/status", READ),
     ("PATCH", "/api/v1/clusters/7f3a-b21c/config", WRITE),
     ("GET", "/api/v1/agents", READ),
-    ("GET", "/api/v1/agents/aaaa-bbbb", READ),
-    ("POST", "/api/v1/agents/aaaa-bbbb/suspend", WRITE),
+    # A REAL uuid4, because that is what Gough mints for an agent id
+    # (``api/agents.py``: ``agent_id = str(uuid.uuid4())``). The former
+    # fixture used "aaaa-bbbb", which no Gough agent can ever have — it
+    # only passed because the id pattern was a loose hex-and-hyphen run.
+    ("GET", "/api/v1/agents/5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f", READ),
+    ("POST", "/api/v1/agents/5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f/suspend", WRITE),
+    ("POST", "/api/v1/agents/5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f/resume", WRITE),
 ]
 
 
@@ -104,10 +109,23 @@ DENIED: list[tuple[str, str, str]] = [
     ("POST", "/api/v1/clusters/7f3a-b21c/lxd/join", "joins a node to the cluster"),
     ("GET", "/api/v1/clusters", "gough registers no cluster collection"),
     # -- wrong verb on an allowed path ------------------------------------
-    ("DELETE", "/api/v1/agents/aaaa-bbbb", "agents are not deletable via the portal"),
+    (
+        "DELETE",
+        "/api/v1/agents/5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+        "agents are not deletable via the portal",
+    ),
     ("POST", "/api/v1/nodes/12", "no such verb"),
     ("PUT", "/api/v1/nodes/12", "nodes take PATCH"),
     ("DELETE", "/healthz", "read-only surface"),
+    # -- id shapes the loose pattern used to admit (M1) -------------------
+    # Each of these matched the previous "[0-9a-fA-F][0-9a-fA-F-]{0,63}"
+    # agent-id run. Anchoring ID_UUID to the real 8-4-4-4-12 shape is what
+    # refuses them, and a word-shaped literal Gough might mount beside its
+    # agent ids in future is refused by the same property.
+    ("GET", "/api/v1/agents/aaaa-bbbb", "not a uuid; loose pattern admitted it"),
+    ("GET", "/api/v1/agents/dead-beef", "not a uuid; hex-shaped word"),
+    ("GET", "/api/v1/agents/ad-hoc", "not a uuid; word-shaped literal"),
+    ("GET", "/api/v1/agents/a", "not a uuid; single hex char"),
     # -- near-misses on an allowed prefix ---------------------------------
     ("GET", "/api/v1/nodes/12/cloud-init", "renders node credentials/config"),
     ("POST", "/api/v1/nodes/12/lxd/join", "not part of the reviewed surface"),

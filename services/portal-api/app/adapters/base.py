@@ -106,6 +106,9 @@ __all__ = [
     "AdapterContext",
     "PathSubstitution",
     "RouteRule",
+    "ID_INT",
+    "ID_UUID",
+    "ID_SLUG",
     "RBACEnforcer",
     "PRODUCT_SCOPE_NAMESPACE",
     "product_scope",
@@ -559,6 +562,55 @@ _ALLOWED_METHODS: Final[frozenset[str]] = frozenset(
     {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 )
 
+
+# -- typed id patterns ----------------------------------------------------
+#
+# An id slot in a ``path_regex`` MUST be typed to the shape the product's own
+# id actually has. The permissive ``[^/]+`` (and its ``(/[^/]+)?`` optional
+# form) is not a stylistic preference — it is a live security defect, because
+# a products' literal sub-collections sit at the same depth as its ids and an
+# untyped slot allowlists them:
+#
+#     ^/api/v1/agents/[^/]+\Z      also admits  /api/v1/agents/enrollment-keys
+#
+# ``enrollment-keys`` is the route that LISTS AGENT ENROLLMENT CREDENTIALS. It
+# was allowlisted under an "agent detail" read rule, and a second instance
+# admitted ``/biomes/deployments`` under a "biome detail" rule so the
+# operations scope governed nothing. Neither was found by reading the rules;
+# both were found by a matrix test.
+#
+# Typing the slot excludes those structurally — including FUTURE literals the
+# product mounts, which a hand-maintained exclusion list cannot. Use the
+# narrowest constant that fits the product's real ids, and prefer adding a new
+# one here over inlining a bespoke pattern in an adapter.
+
+
+#: Integer ids — for products declaring ``<int:...>`` route converters. The
+#: tightest of the three: no word-shaped literal can ever match it.
+ID_INT: Final[str] = r"\d+"
+
+#: UUID ids, anchored to the real 8-4-4-4-12 hex shape.
+#:
+#: Deliberately not a loose "hex and hyphens" run. A permissive version admits
+#: any hyphenated hex-ish word, which brings back the very collision this
+#: constant exists to prevent the moment a product mounts a literal like
+#: ``ad-hoc`` or ``dead-beef`` beside its ids.
+ID_UUID: Final[str] = (
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-" r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+#: Opaque product-generated ids that are neither integers nor UUIDs (Gough's
+#: deployment ids, for instance).
+#:
+#: This is the WEAKEST constant here and the only one that can collide with a
+#: literal, because a word-shaped id and a word-shaped sub-collection are
+#: genuinely indistinguishable by shape. Reach for :data:`ID_INT` or
+#: :data:`ID_UUID` first. When a product leaves no choice,
+#: ``test_adapter_registry`` still enforces that no rule's slug slot matches a
+#: literal segment used elsewhere in that same adapter — so a collision is a
+#: red test rather than a silently allowlisted credential endpoint.
+ID_SLUG: Final[str] = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"
+
 #: Namespace shared by the coarse and per-product product scopes. Duplicated
 #: from ``app.tenancy.authz.PRODUCT_SCOPE_NAMESPACE`` rather than imported:
 #: ``app.authz`` imports this module, so importing the authz side here would
@@ -691,10 +743,38 @@ class RouteRule:
 
     The path is matched as the CALLER wrote it, before tenant substitution —
     see the module docstring and :class:`PathSubstitution`.
+
+    Type every id slot
+    ==================
+    Anchoring is necessary but not sufficient. A fully anchored rule with an
+    UNTYPED id slot still over-matches, because a product's literal
+    sub-collections sit at the same path depth as its ids::
+
+        RouteRule("GET", r"^/api/v1/agents/[^/]+\\Z", ...)   # WRONG
+
+    That rule is correctly anchored and it allowlists
+    ``/api/v1/agents/enrollment-keys`` — the endpoint that lists agent
+    enrollment credentials — as though it were an agent id. Use the shared
+    constants instead::
+
+        RouteRule("GET", rf"^/api/v1/agents/{ID_UUID}\\Z", ...)   # RIGHT
+
+    Pick the narrowest of :data:`ID_INT`, :data:`ID_UUID`, :data:`ID_SLUG`
+    that matches the product's real ids. The cost of typing is that a
+    malformed id yields "not allowlisted" rather than the product's own 404,
+    which is the right trade: a 403 on a bad id is a usability wart, an
+    allowlisted credential endpoint is a breach.
+
+    ``tests/api/test_adapter_registry.py`` enforces this across EVERY
+    registered adapter — no id slot in a rule may match a literal segment that
+    appears elsewhere in that same adapter's rule list. A new adapter inherits
+    the check by being registered; it does not have to remember to ask for it.
     """
 
     method: str  # GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
-    path_regex: str  # e.g. r'^/users(/[^/]+)?\Z'
+    #: Fully anchored. Type every id slot — see :data:`ID_INT`, :data:`ID_UUID`
+    #: and :data:`ID_SLUG`. E.g. rf'^/users/{ID_INT}\Z', NEVER r'^/users(/[^/]+)?\Z'.
+    path_regex: str
     required_scope: str  # e.g. 'products:read', 'products:manage'
 
     def __post_init__(self) -> None:

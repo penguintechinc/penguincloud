@@ -8,6 +8,7 @@ planned product silently acquiring an adapter with a permissive allowlist —
 would not show up as a test failure anywhere else.
 """
 
+import re
 from typing import Any
 
 import pytest
@@ -19,7 +20,14 @@ from app.adapters import (
     get_adapter_metadata,
     get_all_product_types,
 )
-from app.adapters.base import AdapterCapabilityError, AdapterContext, RouteRule
+from app.adapters.base import (
+    ID_INT,
+    ID_SLUG,
+    ID_UUID,
+    AdapterCapabilityError,
+    AdapterContext,
+    RouteRule,
+)
 
 
 def _ctx(product: str = "gough") -> AdapterContext:
@@ -323,3 +331,171 @@ def test_get_adapter_returns_a_fresh_instance(_unused: Any = None) -> None:
     first = get_adapter("gough", _ctx())
     second = get_adapter("gough", _ctx())
     assert first is not second
+
+
+# -- typed id patterns, enforced across every registered adapter ----------
+
+
+def _rule_segments(rule: RouteRule) -> list[str]:
+    """Split a ``path_regex`` into its path segments.
+
+    Strips the mandatory ``^`` / ``\\Z`` anchors and the optional trailing
+    ``/?`` some collection rules carry, then splits on the literal ``/`` that
+    separates segments. Adapter patterns never contain a ``/`` inside a
+    character class or group, so a plain split is exact for this corpus — and
+    ``test_segment_split_matches_rule_text`` re-derives the original from the
+    pieces to keep that assumption honest rather than assumed.
+    """
+    body = rule.path_regex
+    assert body.startswith("^") and body.endswith(r"\Z")
+    body = body[1:-2]
+    if body.endswith("/?"):
+        body = body[:-2]
+    return [segment for segment in body.split("/") if segment]
+
+
+#: A segment made only of these characters is a literal path component, not a
+#: pattern. Anything containing regex metacharacters is treated as an id slot.
+_LITERAL_SEGMENT = re.compile(r"^[A-Za-z0-9_-]+\Z")
+
+
+def _is_literal(segment: str) -> bool:
+    """True when a segment is a plain path literal."""
+    return _LITERAL_SEGMENT.match(segment) is not None
+
+
+def _adapters_with_rules() -> list[tuple[str, list[RouteRule]]]:
+    """Every registered adapter that declares at least one route rule."""
+    return [
+        (product_type, list(adapter_cls.route_allowlist))
+        for product_type, adapter_cls in ADAPTER_REGISTRY.items()
+        if getattr(adapter_cls, "route_allowlist", None)
+    ]
+
+
+class TestTypedIdPatterns:
+    """No id slot may swallow a literal sibling route.
+
+    This is the registry-wide form of the defect that shipped twice in Task
+    4G. A permissive id pattern is correctly anchored, reads as correct, and
+    silently allowlists whatever literal sub-collection the product mounts at
+    the same depth:
+
+        ``^/api/v1/agents/[^/]+\\Z``  also admits  ``/api/v1/agents/enrollment-keys``
+
+    — the route that lists agent enrollment credentials.
+
+    The check lives here rather than in a per-adapter test file on purpose:
+    a Phase-4 adapter inherits it by being added to ``ADAPTER_REGISTRY``, so
+    Nest and Tobogganing cannot repeat this by simply not writing the test.
+
+    Scope and limits. This compares an id slot against literals THIS ADAPTER
+    ALLOWLISTS at the same depth beneath the same prefix. It cannot see a
+    literal the product registers but the adapter does not allowlist —
+    ``enrollment-keys`` is exactly that case — because nothing in the portal
+    knows the product's full route table. That case is covered per-adapter by
+    a deny matrix naming the hazard (``test_gough_allowlist.py``), and both
+    layers are needed: this one generalises, that one knows the product.
+    """
+
+    def test_segment_split_matches_rule_text(self) -> None:
+        """The splitter must be lossless, or every assertion below is soft."""
+        for _product_type, rules in _adapters_with_rules():
+            for rule in rules:
+                rebuilt = "/" + "/".join(_rule_segments(rule))
+                stripped = rule.path_regex[1:-2]
+                assert stripped.rstrip("/?") == rebuilt.rstrip("/?") or (
+                    stripped == rebuilt
+                ), f"segment split lost information for {rule.path_regex!r}"
+
+    @pytest.mark.parametrize(
+        "product_type", sorted(p for p, _ in _adapters_with_rules())
+    )
+    def test_no_id_pattern_matches_a_sibling_literal(self, product_type: str) -> None:
+        """An id slot must not match a literal route at the same position.
+
+        "Same position" means: another rule in the SAME adapter whose leading
+        segments are identical and which carries a literal where this rule
+        carries a pattern. That is precisely the shape of the two real
+        defects — ``/agents/{id}`` vs ``/agents/enrollment-keys``, and
+        ``/biomes/{id}`` vs ``/biomes/deployments``.
+        """
+        rules = dict(_adapters_with_rules())[product_type]
+        parsed = [(rule, _rule_segments(rule)) for rule in rules]
+
+        for rule, segments in parsed:
+            for index, segment in enumerate(segments):
+                if _is_literal(segment):
+                    continue
+                prefix = segments[:index]
+                compiled = re.compile(segment)
+                for other_rule, other_segments in parsed:
+                    if len(other_segments) <= index:
+                        continue
+                    if other_segments[:index] != prefix:
+                        continue
+                    sibling = other_segments[index]
+                    if not _is_literal(sibling):
+                        continue
+                    assert compiled.fullmatch(sibling) is None, (
+                        f"{product_type}: id pattern {segment!r} in "
+                        f"{rule.path_regex!r} also matches the literal "
+                        f"{sibling!r} from {other_rule.path_regex!r} — that "
+                        f"literal route is allowlisted under the id rule's "
+                        f"scope, not its own"
+                    )
+
+    @pytest.mark.parametrize(
+        "product_type", sorted(p for p, _ in _adapters_with_rules())
+    )
+    def test_no_rule_uses_an_untyped_id_slot(self, product_type: str) -> None:
+        """Ban the specific pattern that caused the defect.
+
+        ``[^/]+`` and ``.+`` match every word-shaped literal a product could
+        ever mount. There is no product whose ids are genuinely "any
+        non-slash byte sequence", so a slot this wide is always a mistake —
+        :data:`ID_SLUG` is the loosest justifiable form and is still bounded.
+        """
+        banned = ("[^/]+", "[^/]*", ".+", ".*")
+        for rule in dict(_adapters_with_rules())[product_type]:
+            for token in banned:
+                assert token not in rule.path_regex, (
+                    f"{product_type}: {rule.path_regex!r} uses the untyped id "
+                    f"slot {token!r}; use ID_INT / ID_UUID / ID_SLUG from "
+                    f"app.adapters.base instead"
+                )
+
+    def test_shared_id_constants_reject_word_shaped_literals(self) -> None:
+        """The constants themselves must hold the property they promise."""
+        hazards = [
+            "enrollment-keys",
+            "enroll",
+            "refresh",
+            "heartbeat",
+            "deployments",
+            "groups",
+            "login",
+            "admin",
+        ]
+        for literal in hazards:
+            assert re.fullmatch(ID_INT, literal) is None, literal
+            assert re.fullmatch(ID_UUID, literal) is None, literal
+
+    def test_id_uuid_matches_a_real_uuid_and_nothing_looser(self) -> None:
+        """M1: anchored to 8-4-4-4-12, not a loose hex-and-hyphen run."""
+        assert re.fullmatch(ID_UUID, "9f2c1a4b-77de-4c0a-b1ef-2d3c4e5f6a7b")
+        # The loose form this replaced matched all of these.
+        for near_miss in ("aaaa-bbbb", "dead-beef", "a", "ad-hoc", "7f3a-b21c"):
+            assert re.fullmatch(ID_UUID, near_miss) is None, near_miss
+
+    def test_id_slug_is_bounded_and_excludes_separators(self) -> None:
+        """ID_SLUG is the loosest constant, so its limits are the contract.
+
+        It must never admit a path separator, a traversal, or an unbounded
+        run — those are the properties that keep it a *typed* id rather than
+        ``[^/]+`` under a friendlier name.
+        """
+        assert re.fullmatch(ID_SLUG, "dep-77")
+        assert re.fullmatch(ID_SLUG, "7f3a-b21c")
+        for rejected in ("..", "a/b", "a\\b", "", "-leading", "a" * 200):
+            assert re.fullmatch(ID_SLUG, rejected) is None, rejected

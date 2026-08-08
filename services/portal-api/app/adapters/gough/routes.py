@@ -49,16 +49,31 @@ them. Two real cases, both caught by the matrix in
   admitted under ``gough:biomes:read`` instead of ``gough:operations:read``,
   so the operations scope governed nothing.
 
-So each id is matched by what it actually is:
+So each id is matched by what it actually is, using the shared constants in
+:mod:`app.adapters.base` rather than patterns invented here — the contract
+now carries the typed-id rule, so Phase-4N and 4T inherit it instead of
+rediscovering it:
 
-* :data:`_INT_ID` (``\\d+``) for nodes and biomes — Gough declares those
-  routes ``<int:node_id>``/``<int:biome_id>``, so a non-numeric value was
-  never going to be a valid id, and restricting to digits cannot collide
-  with any word-shaped literal.
-* :data:`_UUID_ID` (hex and hyphens) for agents, deployments and clusters,
-  whose ids are UUIDs. This excludes ``enrollment-keys``, ``enroll``,
+* :data:`_INT_ID` (:data:`~app.adapters.base.ID_INT`, ``\\d+``) for nodes,
+  biomes and biome groups — Gough declares those routes ``<int:node_id>`` /
+  ``<int:biome_id>`` / ``<int:group_id>``, so a non-numeric value was never
+  going to be a valid id, and digits cannot collide with a word-shaped
+  literal.
+* :data:`_UUID_ID` (:data:`~app.adapters.base.ID_UUID`) for agents, anchored
+  to the real 8-4-4-4-12 shape because Gough mints agent ids with
+  ``str(uuid.uuid4())``. This excludes ``enrollment-keys``, ``enroll``,
   ``refresh`` and ``heartbeat`` structurally — including any *future* literal
   Gough mounts there, which a hand-written exclusion list would not.
+* :data:`_OPAQUE_ID` (:data:`~app.adapters.base.ID_SLUG`) for deployments,
+  clusters and upgrade runs, whose ids are genuinely opaque strings
+  (``deployments.id`` is ``String(64)``, ``clusters.id`` is ``String(255)``).
+  These are NOT UUIDs and typing them as UUIDs would have refused valid ids.
+
+The previous revision typed all three of the last group as a loose
+``[0-9a-fA-F][0-9a-fA-F-]{0,63}``, which was simultaneously too tight (it
+would reject a legitimate non-hex deployment id) and too loose (it admitted
+any hyphenated hex-ish word, re-opening the collision). Splitting them is
+what makes both halves true.
 
 (The second case above is stated in the scopes of the time; both rules now
 carry ``products:gough:*``, and the collision it describes is unchanged.)
@@ -72,7 +87,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from ..base import RouteRule, product_scope
+from ..base import ID_INT, ID_SLUG, ID_UUID, RouteRule, product_scope
 
 __all__ = ["GOUGH_ROUTE_ALLOWLIST", "PRODUCT_TYPE", "SCOPES"]
 
@@ -82,10 +97,28 @@ __all__ = ["GOUGH_ROUTE_ALLOWLIST", "PRODUCT_TYPE", "SCOPES"]
 PRODUCT_TYPE: Final[str] = "gough"
 
 #: Numeric ids — Gough's ``<int:...>`` route converters.
-_INT_ID = r"\d+"
+#: Aliases the shared :data:`~app.adapters.base.ID_INT` so the typed-id
+#: contract lives in one place and every Phase-4 adapter inherits it.
+_INT_ID = ID_INT
 
-#: UUID-shaped ids: hex digits and hyphens only. Deliberately not ``[^/]+``.
-_UUID_ID = r"[0-9a-fA-F][0-9a-fA-F-]{0,63}"
+#: Agent ids. Gough mints these with ``str(uuid.uuid4())``
+#: (``api/agents.py:245``), so the full 8-4-4-4-12 shape is exact, not
+#: defensive. This replaces a looser ``[0-9a-fA-F][0-9a-fA-F-]{0,63}`` run,
+#: which admitted any hyphenated hex-ish word and so re-opened the literal
+#: collision that typing ids exists to close.
+_UUID_ID = ID_UUID
+
+#: Opaque product-generated ids that are genuinely not int or UUID:
+#: ``deployments.id`` is ``String(64)`` and ``clusters.id`` is ``String(255)``
+#: (``models_m1.py``), and upgrade-run ids come straight from an insert.
+#:
+#: Word-shaped, so this is the one family that COULD collide with a literal
+#: sub-collection. It does not today — no rule below mounts a literal at the
+#: same depth beneath the same prefix — and
+#: ``test_adapter_registry.test_no_id_pattern_matches_a_sibling_literal``
+#: enforces that for every adapter, so a future literal added beside one of
+#: these is a red test rather than a silent widening.
+_OPAQUE_ID = ID_SLUG
 
 #: Per-product scopes for this adapter. The coarse ``products:read`` /
 #: ``products:manage`` still satisfy these (RBACEnforcer implication), so
@@ -137,29 +170,29 @@ GOUGH_ROUTE_ALLOWLIST: Final[list[RouteRule]] = [
     RouteRule("POST", rf"^/api/v1/biomes/{_INT_ID}/upgrade\Z", _WRITE),
     # -- operations (deployments + upgrade runs) --------------------------
     RouteRule("GET", r"^/api/v1/biomes/deployments\Z", _READ),
-    RouteRule("GET", rf"^/api/v1/biomes/deployments/{_UUID_ID}\Z", _READ),
-    RouteRule("GET", rf"^/api/v1/biomes/deployments/{_UUID_ID}/logs\Z", _READ),
+    RouteRule("GET", rf"^/api/v1/biomes/deployments/{_OPAQUE_ID}\Z", _READ),
+    RouteRule("GET", rf"^/api/v1/biomes/deployments/{_OPAQUE_ID}/logs\Z", _READ),
     RouteRule(
         "GET",
-        rf"^/api/v1/biomes/{_INT_ID}/upgrade-runs/{_UUID_ID}\Z",
+        rf"^/api/v1/biomes/{_INT_ID}/upgrade-runs/{_OPAQUE_ID}\Z",
         _READ,
     ),
     RouteRule(
         "POST",
-        rf"^/api/v1/biomes/deployments/{_UUID_ID}/cancel\Z",
+        rf"^/api/v1/biomes/deployments/{_OPAQUE_ID}/cancel\Z",
         _WRITE,
     ),
     # -- clusters ---------------------------------------------------------
     # No collection rule: Gough registers no ``GET /api/v1/clusters``. A rule
     # for it would allowlist a 404.
-    RouteRule("GET", rf"^/api/v1/clusters/{_UUID_ID}/config\Z", _READ),
-    RouteRule("GET", rf"^/api/v1/clusters/{_UUID_ID}/lxd/status\Z", _READ),
-    RouteRule("GET", rf"^/api/v1/clusters/{_UUID_ID}/lxd/members\Z", _READ),
-    RouteRule("GET", rf"^/api/v1/clusters/{_UUID_ID}/storage\Z", _READ),
-    RouteRule("GET", rf"^/api/v1/clusters/{_UUID_ID}/network-pools\Z", _READ),
-    RouteRule("PATCH", rf"^/api/v1/clusters/{_UUID_ID}/config\Z", _WRITE),
-    RouteRule("PATCH", rf"^/api/v1/clusters/{_UUID_ID}/storage\Z", _WRITE),
-    RouteRule("PATCH", rf"^/api/v1/clusters/{_UUID_ID}/network-pools\Z", _WRITE),
+    RouteRule("GET", rf"^/api/v1/clusters/{_OPAQUE_ID}/config\Z", _READ),
+    RouteRule("GET", rf"^/api/v1/clusters/{_OPAQUE_ID}/lxd/status\Z", _READ),
+    RouteRule("GET", rf"^/api/v1/clusters/{_OPAQUE_ID}/lxd/members\Z", _READ),
+    RouteRule("GET", rf"^/api/v1/clusters/{_OPAQUE_ID}/storage\Z", _READ),
+    RouteRule("GET", rf"^/api/v1/clusters/{_OPAQUE_ID}/network-pools\Z", _READ),
+    RouteRule("PATCH", rf"^/api/v1/clusters/{_OPAQUE_ID}/config\Z", _WRITE),
+    RouteRule("PATCH", rf"^/api/v1/clusters/{_OPAQUE_ID}/storage\Z", _WRITE),
+    RouteRule("PATCH", rf"^/api/v1/clusters/{_OPAQUE_ID}/network-pools\Z", _WRITE),
     # -- agents -----------------------------------------------------------
     RouteRule("GET", r"^/api/v1/agents/?\Z", _READ),
     RouteRule("GET", rf"^/api/v1/agents/{_UUID_ID}\Z", _READ),
