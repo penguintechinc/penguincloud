@@ -1,5 +1,6 @@
 """Product Connection Management APIs (async Quart)."""
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -8,7 +9,7 @@ from quart import Blueprint, request
 from quart_schema import validate_request, validate_response
 
 from .adapters import get_adapter, get_all_product_types
-from .adapters.base import AdapterContext
+from .adapters.base import AdapterCapabilityError, AdapterContext
 from .encryption import decrypt_value
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -38,6 +39,8 @@ from .tenancy import (
     may_bind_tenant,
     tenancy_aware,
 )
+
+logger = logging.getLogger(__name__)
 
 products_bp = Blueprint("products", __name__)
 
@@ -441,16 +444,32 @@ async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
         api_secret=api_secret,
     )
 
-    # Get adapter and retrieve capabilities
+    # Get adapter and retrieve capabilities.
+    #
+    # The two failure modes are reported differently on purpose. Collapsing
+    # both into `{"capabilities": []}` (as this did) tells the UI "this
+    # product supports nothing", which renders identically to a healthy
+    # product that genuinely exposes nothing — so a broken adapter, an
+    # unreachable product or a bad credential all appeared as a working
+    # integration with an empty feature set, and nobody investigates that.
     adapter = get_adapter(conn_raw["product_type"], ctx)
     try:
         capabilities = await adapter.capabilities(ctx)
-        schema = {"capabilities": capabilities}
+    except AdapterCapabilityError:
+        # The adapter answered: it cannot enumerate capabilities. An empty
+        # list IS the truthful answer here.
+        return {"capabilities": [], "schema_status": "unsupported"}, 200
     except Exception:
-        # If capabilities not available, return empty schema
-        schema = {"capabilities": []}
+        logger.exception(
+            "product_schema_unavailable",
+            extra={"product_id": product_id, "product_type": conn_raw["product_type"]},
+        )
+        return {
+            "error": "Product capabilities unavailable",
+            "schema_status": "unavailable",
+        }, 502
 
-    return schema, 200
+    return {"capabilities": capabilities, "schema_status": "ok"}, 200
 
 
 def _validate_external_kind(product_type: str) -> tuple[str, bool]:

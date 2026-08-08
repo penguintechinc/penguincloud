@@ -65,6 +65,8 @@ __all__ = [
     "SCOPE_USERS_READ",
     "SCOPE_USERS_MANAGE",
     "SCOPE_AUDIT_READ",
+    "SCOPE_PLATFORM_READ",
+    "SCOPE_LICENSE_READ",
     "SCOPE_TEAMS_READ",
     "SCOPE_TEAMS_MANAGE",
     "SCOPE_TEAMS_DELETE",
@@ -96,6 +98,13 @@ SCOPE_PRODUCTS_MANAGE: Final[str] = "products:manage"
 SCOPE_USERS_READ: Final[str] = "users:read"
 SCOPE_USERS_MANAGE: Final[str] = "users:manage"
 SCOPE_AUDIT_READ: Final[str] = "audit:read"
+#: Operator-facing platform surfaces that are not about the users table.
+#: Held by platform admin and maintainer — exactly the set the removed
+#: ``@maintainer_or_admin_required`` decorator admitted.
+SCOPE_PLATFORM_READ: Final[str] = "platform:read"
+#: Licence entitlement and status. Platform admin only, reproducing the
+#: removed ``@admin_required`` decorator's authority set.
+SCOPE_LICENSE_READ: Final[str] = "license:read"
 
 # Team scopes. Teams carry their own membership table with its own role
 # column, independent of tenant membership, so these are resolved per-team

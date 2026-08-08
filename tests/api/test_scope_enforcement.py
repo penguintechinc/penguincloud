@@ -336,8 +336,189 @@ class TestScopeHelpers:
         """An unrecognised role confers no authority — fail closed."""
         from app.tenancy.authz import platform_scopes
 
-        assert platform_scopes("admin") == ["audit:read", "users:manage", "users:read"]
+        assert platform_scopes("admin") == [
+            "audit:read",
+            "license:read",
+            "platform:read",
+            "users:manage",
+            "users:read",
+        ]
+        assert platform_scopes("maintainer") == [
+            "audit:read",
+            "platform:read",
+            "users:read",
+        ]
         assert platform_scopes("viewer") == []
         assert platform_scopes("wizard") == []
         assert platform_scopes(None) == []
         assert platform_scopes("") == []
+
+
+@pytest.mark.usefixtures("app_context")
+class TestDiscoveryAndPlatformScopeGates:
+    """The last five role-name comparisons, now answered by scope.
+
+    ``discovery.py`` kept two ``get_user_tenant_role`` checks (one of them
+    comparing against the literals ``owner``/``admin``) and one
+    ``EFFECTIVE_ADMIN_ROLES`` membership test, two functions away from the
+    routes this phase had already migrated. ``license_api`` and ``hello``
+    kept ``@admin_required`` / ``@maintainer_or_admin_required``, which
+    compared ``user["role"]`` in middleware.
+    """
+
+    @pytest.mark.asyncio
+    async def test_delegated_admin_reads_descendant_scan_results(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The defect: a direct-membership check denied delegated admins.
+
+        ``GET /discovery/results`` used ``get_user_tenant_role``, which is
+        None for an MSP admin whose authority over the customer comes from
+        an ancestor. The provider could not see the scan results for the
+        customer whose network they administer — the same class of bug this
+        phase fixed in dashboard_api and audit, left behind here.
+        """
+        _, msp_email = await _register(client)
+        msp_headers = await _headers(client, msp_email)
+        _, customer_email = await _register(client)
+        customer_headers = await _headers(client, customer_email)
+
+        parent_id = await _create_tenant(client, msp_headers, "MspDisc")
+        child_id = await _create_tenant(client, customer_headers, "CustDisc")
+        await _attach_child(app, child_id, parent_id)
+
+        async with app.app_context():
+            from app.models import get_user_by_email, get_user_tenant_role
+
+            msp_user = await get_user_by_email(msp_email)
+            assert msp_user is not None
+            # The premise: authority is delegated, not direct.
+            assert await get_user_tenant_role(int(msp_user["id"]), child_id) is None
+
+        response = await client.get(
+            f"/api/v1/discovery/results?tenant_id={child_id}", headers=msp_headers
+        )
+
+        assert response.status_code == 200, await response.get_json()
+        body = await response.get_json()
+        assert "discovered" in body and "count" in body
+
+    @pytest.mark.asyncio
+    async def test_outsider_is_still_refused_scan_results(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Widening to scopes must not widen who gets in."""
+        _, owner_email = await _register(client)
+        owner_headers = await _headers(client, owner_email)
+        tenant_id = await _create_tenant(client, owner_headers, "DiscOwner")
+
+        _, outsider_email = await _register(client)
+        outsider_headers = await _headers(client, outsider_email)
+
+        response = await client.get(
+            f"/api/v1/discovery/results?tenant_id={tenant_id}",
+            headers=outsider_headers,
+        )
+
+        assert response.status_code == 403
+        assert (await response.get_json())["error"] == "insufficient_scope"
+
+    @pytest.mark.asyncio
+    async def test_delegated_admin_may_accept_a_descendant_discovery(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The write path is gated the same way as the read.
+
+        A 404 here is the scope gate PASSING — the request got past
+        authorization and failed on there being no such discovery result.
+        A 403 would mean delegation was refused.
+        """
+        _, msp_email = await _register(client)
+        msp_headers = await _headers(client, msp_email)
+        _, customer_email = await _register(client)
+        customer_headers = await _headers(client, customer_email)
+
+        parent_id = await _create_tenant(client, msp_headers, "MspAccept")
+        child_id = await _create_tenant(client, customer_headers, "CustAccept")
+        await _attach_child(app, child_id, parent_id)
+
+        response = await client.post(
+            "/api/v1/discovery/accept/1",
+            headers=msp_headers,
+            json={"tenant_id": child_id},
+        )
+
+        assert response.status_code == 404, await response.get_json()
+        assert (await response.get_json())["error"] == "Discovery result not found"
+
+    @pytest.mark.asyncio
+    async def test_member_may_not_trigger_a_scan(self, client: Any, app: Quart) -> None:
+        """Scanning is gated as the write it leads to, not as a read."""
+        _, owner_email = await _register(client)
+        owner_headers = await _headers(client, owner_email)
+        tenant_id = await _create_tenant(client, owner_headers, "ScanGate")
+
+        member_id, member_email = await _register(client)
+        add = await client.post(
+            f"/api/v1/tenants/{tenant_id}/members",
+            headers=owner_headers,
+            json={"user_id": member_id, "role": "member"},
+        )
+        assert add.status_code == 201, await add.get_json()
+        member_headers = await _headers(client, member_email)
+
+        response = await client.post(
+            "/api/v1/discovery/scan",
+            headers=member_headers,
+            json={"tenant_id": tenant_id},
+        )
+
+        assert response.status_code == 403
+        body = await response.get_json()
+        assert body["error"] == "insufficient_scope"
+        assert body["required_scope"] == ["products:manage"]
+
+    @pytest.mark.asyncio
+    async def test_license_status_is_gated_on_a_scope_not_a_role_name(
+        self, client: Any
+    ) -> None:
+        """`@admin_required` compared user['role']; `license:read` replaces it.
+
+        A freshly registered user carries the default platform role, which
+        does not expand to ``license:read``, so the previous decorator and
+        this gate refuse exactly the same callers.
+        """
+        _, email = await _register(client)
+        headers = await _headers(client, email)
+
+        response = await client.get("/api/v1/license/status", headers=headers)
+
+        assert response.status_code == 403
+        assert (await response.get_json())["error"] == "insufficient_scope"
+        assert (await response.get_json())["required_scope"] == ["license:read"]
+
+    @pytest.mark.asyncio
+    async def test_platform_read_gate_replaces_maintainer_or_admin(
+        self, client: Any
+    ) -> None:
+        """Same authority set as the removed decorator, decided on scope."""
+        _, email = await _register(client)
+        headers = await _headers(client, email)
+
+        response = await client.get("/api/v1/hello/protected", headers=headers)
+
+        assert response.status_code == 403
+        assert (await response.get_json())["required_scope"] == ["platform:read"]
+
+    @pytest.mark.asyncio
+    async def test_role_name_decorators_are_gone_from_middleware(self) -> None:
+        """No working, forbidden shortcut left behind for the next author.
+
+        security.md: authorization decisions on scope, never role names.
+        Leaving the decorators as unused helpers would leave the pattern
+        one import away from returning.
+        """
+        import app.middleware as middleware
+
+        for name in ("role_required", "admin_required", "maintainer_or_admin_required"):
+            assert not hasattr(middleware, name), f"{name} still exists"

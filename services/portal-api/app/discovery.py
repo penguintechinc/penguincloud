@@ -18,14 +18,17 @@ import aiohttp
 from quart import Blueprint, request
 
 from .adapters.discovery_profiles import DISCOVERY_PROFILES, DiscoveryProfile
+from .authz import (
+    SCOPE_PRODUCTS_MANAGE,
+    SCOPE_PRODUCTS_READ,
+    require_tenant_scope,
+)
 from .middleware import auth_required, get_current_user
 from .models import (
     create_audit_log,
     create_product_connection,
     get_product_connection_by_id,
-    get_user_tenant_role,
 )
-from .tenancy import EFFECTIVE_ADMIN_ROLES, resolve_effective_role
 
 logger = logging.getLogger(__name__)
 
@@ -350,9 +353,10 @@ async def _scan_network(network_ranges: list[str]) -> list[dict[str, Any]]:
 async def trigger_scan() -> tuple[dict[str, Any], int]:
     """Trigger a network scan for PenguinTech products.
 
-    Requires owner/admin authority on the tenant, and scans only addresses
-    inside the operator's DISCOVERY_RANGES allowlist. Caller-supplied
-    ``ranges`` narrow that allowlist; they can never widen it.
+    Requires ``products:manage`` on the target tenant — a scan exists to
+    produce product connections, so it is gated as the write it leads to.
+    Scans only addresses inside the operator's DISCOVERY_RANGES allowlist;
+    caller-supplied ``ranges`` narrow that allowlist and can never widen it.
     """
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
@@ -363,9 +367,11 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await resolve_effective_role(user["id"], tenant_id)
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
+    denied = await require_tenant_scope(
+        user["id"], tenant_id, SCOPE_PRODUCTS_MANAGE
+    )
+    if denied:
+        return denied
 
     from .config import Config
 
@@ -415,7 +421,13 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
 @discovery_bp.route("/results", methods=["GET"])
 @auth_required
 async def get_scan_results() -> tuple[dict[str, Any], int]:
-    """Get latest scan results."""
+    """Get latest scan results for a tenant.
+
+    Gated on ``products:read`` for the target tenant. The previous
+    ``get_user_tenant_role`` check required a direct membership row, which
+    denied a delegated MSP admin their own customer's scan results — the
+    same defect this phase fixed in the dashboard and audit routes.
+    """
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
@@ -424,9 +436,9 @@ async def get_scan_results() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_PRODUCTS_READ)
+    if denied:
+        return denied
 
     results = _scan_results.get(tenant_id, [])
     return {"discovered": results, "count": len(results)}, 200
@@ -435,7 +447,14 @@ async def get_scan_results() -> tuple[dict[str, Any], int]:
 @discovery_bp.route("/accept/<int:discovery_id>", methods=["POST"])
 @auth_required
 async def accept_discovered_product(discovery_id: int) -> tuple[dict[str, Any], int]:
-    """Accept a discovered product and create a connection."""
+    """Accept a discovered product and create a connection.
+
+    Gated on ``products:manage`` for the target tenant. The previous check
+    compared a direct membership row against the literals ``owner``/``admin``
+    — both halves wrong under this phase's model: it branched on role names,
+    and it refused a delegated admin who holds no membership row in the
+    tenant they administer.
+    """
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
@@ -445,9 +464,11 @@ async def accept_discovered_product(discovery_id: int) -> tuple[dict[str, Any], 
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    denied = await require_tenant_scope(
+        user["id"], tenant_id, SCOPE_PRODUCTS_MANAGE
+    )
+    if denied:
+        return denied
 
     results = _scan_results.get(tenant_id, [])
     discovered = next((r for r in results if r.get("id") == discovery_id), None)

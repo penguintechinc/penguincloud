@@ -154,10 +154,17 @@ _ROLE_SCOPE_BUNDLES: Final[dict[str, tuple[str, ...]]] = {
     ),
 }
 
-#: Granted on top of the role bundle when the caller administers at least
-#: one descendant of the active tenant. Names the *capability*, never the
-#: descendant ids, so the claim stays a fixed size regardless of fleet size.
-SCOPE_MANAGE_DESCENDANTS: Final[str] = "tenants:manage:descendants"
+# A `tenants:manage:descendants` scope used to be issued here, granted when
+# the caller administered at least one descendant of the active tenant.
+# Nothing ever consumed it, and nothing should have: every route that cares
+# asks `has_tenant_scope(user, <the specific descendant>, tenants:manage)`,
+# which is strictly more precise than "administers some descendant". A
+# coarse capability claim can only ever be a weaker duplicate of the
+# per-tenant question, so any consumer would have been doing a worse check
+# than the one already available. Issuing it also cost an uncached
+# get_descendants() subtree query on every token mint. Removed rather than
+# retrofitted with a consumer — a decorative claim in an authorization
+# payload invites exactly that retrofit.
 
 #: Issued with a token that has no real active tenant (login, refresh). The
 #: holder can enumerate their tenants and switch into one; nothing else.
@@ -182,10 +189,17 @@ _PLATFORM_ROLE_SCOPES: Final[dict[str, tuple[str, ...]]] = {
         "users:read",
         "users:manage",
         "audit:read",
+        # Platform-operator surfaces that are not about the users table.
+        # `platform:read` replaces the old @maintainer_or_admin_required and
+        # `license:read` the old @admin_required, each reproducing that
+        # decorator's authority set exactly rather than widening it.
+        "platform:read",
+        "license:read",
     ),
     "maintainer": (
         "users:read",
         "audit:read",
+        "platform:read",
     ),
     "viewer": (),
 }
@@ -206,11 +220,13 @@ def platform_scopes(role: str | None) -> list[str]:
 async def resolve_scopes(user_id: int, tenant_id: int) -> list[str]:
     """Expand a user's authority in a tenant into a sorted scope list.
 
-    Combines the role bundle for their effective role with
-    :data:`SCOPE_MANAGE_DESCENDANTS` when they administer any descendant of
-    the active tenant. Returns an empty list when the user has no authority
-    at all, which is what an unauthorized switch attempt would have produced
-    had it not already been rejected.
+    Returns an empty list when the user has no authority at all, which is
+    what an unauthorized switch attempt would have produced had it not
+    already been rejected.
+
+    Delegated administration is already inside ``resolve_effective_role``,
+    so an MSP admin acting in a descendant resolves the same bundle a direct
+    admin there would.
     """
     role = await resolve_effective_role(user_id, tenant_id)
     if role is None:
@@ -218,8 +234,5 @@ async def resolve_scopes(user_id: int, tenant_id: int) -> list[str]:
 
     scopes: set[str] = set(_ROLE_SCOPE_BUNDLES.get(role, ()))
     scopes.add("tenants:switch")
-
-    if role in EFFECTIVE_ADMIN_ROLES and await get_descendants(tenant_id):
-        scopes.add(SCOPE_MANAGE_DESCENDANTS)
 
     return sorted(scopes)

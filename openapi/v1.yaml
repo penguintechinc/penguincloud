@@ -438,7 +438,17 @@ paths:
       summary: Aggregated stats for all products in the current tenant.
   /api/v1/discovery/accept/{discovery_id}:
     post:
-      description: ''
+      description: '
+
+        Gated on ``products:manage`` for the target tenant. The previous check
+
+        compared a direct membership row against the literals ``owner``/``admin``
+
+        — both halves wrong under this phase''s model: it branched on role names,
+
+        and it refused a delegated admin who holds no membership row in the
+
+        tenant they administer.'
       operationId: post_accept_discovered_product
       parameters:
         - in: path
@@ -453,23 +463,33 @@ paths:
       summary: Accept a discovered product and create a connection.
   /api/v1/discovery/results:
     get:
-      description: ''
+      description: '
+
+        Gated on ``products:read`` for the target tenant. The previous
+
+        ``get_user_tenant_role`` check required a direct membership row, which
+
+        denied a delegated MSP admin their own customer''s scan results — the
+
+        same defect this phase fixed in the dashboard and audit routes.'
       operationId: get_get_scan_results
       parameters: []
       responses:
         default:
           description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
             so no schema is published for it; do not rely on a specific body until one is.
-      summary: Get latest scan results.
+      summary: Get latest scan results for a tenant.
   /api/v1/discovery/scan:
     post:
       description: '
 
-        Requires owner/admin authority on the tenant, and scans only addresses
+        Requires ``products:manage`` on the target tenant — a scan exists to
 
-        inside the operator''s DISCOVERY_RANGES allowlist. Caller-supplied
+        produce product connections, so it is gated as the write it leads to.
 
-        ``ranges`` narrow that allowlist; they can never widen it.'
+        Scans only addresses inside the operator''s DISCOVERY_RANGES allowlist;
+
+        caller-supplied ``ranges`` narrow that allowlist and can never widen it.'
       operationId: post_trigger_scan
       parameters: []
       responses:
@@ -489,17 +509,28 @@ paths:
       summary: Hello world endpoint - requires authentication.
   /api/v1/hello/protected:
     get:
-      description: ''
+      description: '
+
+        ``platform:read`` is carried by the platform admin and maintainer
+
+        bundles and by nothing else, so this admits exactly the callers the
+
+        previous ``@maintainer_or_admin_required`` did, decided on the token''s
+
+        scope claim instead of a role-name comparison.'
       operationId: get_hello_protected
       parameters: []
       responses:
         default:
           description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
             so no schema is published for it; do not rely on a specific body until one is.
-      summary: Protected hello - requires maintainer or admin role.
+      summary: Protected hello — requires the ``platform:read`` scope.
   /api/v1/license/status:
     get:
-      description: "\nReturns:\n    JSON response with license details (admin only)."
+      description: "\nGated on the ``license:read`` scope, which the platform-admin bundle\ncarries and no other role does\
+        \ — the same authority the previous\n``@admin_required`` conferred, expressed as a scope so the decision is\nmade\
+        \ on the token claim rather than on a role-name comparison\n(security.md: authorization decisions on scope, never\
+        \ role names).\n\nReturns:\n    JSON response with license details."
       operationId: get_get_license_status
       parameters: []
       responses:
