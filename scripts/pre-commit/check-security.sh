@@ -31,13 +31,13 @@ if find "$PROJECT_ROOT" -name "*.py" -type f -not -path "*/venv/*" -not -path "*
     # safety
     if command -v safety &> /dev/null; then
         echo "Running safety check..."
-        find "$PROJECT_ROOT" -name "requirements.txt" -not -path "*/venv/*" -not -path "*/.venv/*" | while read -r req; do
+        while read -r req; do
             echo "Checking $req..."
             if ! safety check -r "$req" --short-report 2>&1; then
                 echo "safety found vulnerable packages in $req"
                 ((FAILED++))
             fi
-        done
+        done < <(find "$PROJECT_ROOT" -name "requirements.txt" -not -path "*/venv/*" -not -path "*/.venv/*")
     else
         echo "safety not installed"
     fi
@@ -94,13 +94,13 @@ if find "$PROJECT_ROOT" -name "Dockerfile" -type f 2>/dev/null | head -1 | grep 
 
     if command -v trivy &> /dev/null; then
         echo "Running trivy on Dockerfiles..."
-        find "$PROJECT_ROOT" -name "Dockerfile" -type f | while read -r dockerfile; do
+        while read -r dockerfile; do
             echo "Scanning $dockerfile..."
             if ! trivy config --severity HIGH,CRITICAL "$dockerfile" 2>&1; then
                 echo "trivy found issues in $dockerfile"
                 ((FAILED++))
             fi
-        done
+        done < <(find "$PROJECT_ROOT" -name "Dockerfile" -type f)
     else
         echo "trivy not installed, skipping container scanning"
     fi

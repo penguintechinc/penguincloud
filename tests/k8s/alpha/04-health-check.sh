@@ -116,13 +116,13 @@ main() {
 
     local failed=0
 
-    # Health check: flask-backend
-    if start_port_forward "flask-backend" 15000 5000; then
-        if ! health_check "flask-backend" 15000 "/healthz"; then
+    # Health check: portal-api
+    if start_port_forward "portal-api" 15000 5000; then
+        if ! health_check "portal-api" 15000 "/healthz"; then
             ((failed++))
         fi
     else
-        log_warn "Skipping flask-backend health check (service not found)"
+        log_warn "Skipping portal-api health check (service not found)"
     fi
 
     # Health check: webui

@@ -18,7 +18,7 @@
 ## Architecture
 
 ### Current Status
-Phase 0 repository hygiene in progress on `chore/phase0-repo-hygiene`. Current state: legacy template lineage deleted; go-backend retired (unused, permanent osv-scanner advisory GO-2026-5932); git hooks live (gitleaks/flake8/mypy pre-commit, full security scans pre-push); test suite runs clean (73 passed, 12 skipped-as-not-implemented, 19 xfailed, exit 0). Backend currently Flask (`services/flask-backend`) — migration to Quart 0.19+ scheduled Phase 1a.
+Phase 0 repository hygiene in progress on `chore/phase0-repo-hygiene`. Current state: legacy template lineage deleted; go-backend retired (unused, permanent osv-scanner advisory GO-2026-5932); git hooks live (gitleaks/flake8/mypy pre-commit, full security scans pre-push); test suite runs clean (73 passed, 12 skipped-as-not-implemented, 19 xfailed, exit 0). Backend currently Flask (`services/portal-api`) — migration to Quart 0.19+ scheduled Phase 1a.
 
 ### Services
 
@@ -71,7 +71,7 @@ Every feature behind a PostHog feature flag (`penguincloud.{feature}`, default O
 Scoped via an inline `# checkov:skip=CKV_GHA_7: ...` comment on the `workflow_dispatch:` line in `gitstream.yml` itself — not a repo-wide `skip-check` in a `.checkov.yaml` config, which would silently exempt every *future* workflow's `workflow_dispatch` too. If the gitStream app regenerates the file and drops the comment, `checkov` fails loudly on the next scan and the comment is re-added; that's the intended failure mode.
 
 ### Services/go-backend Retirement
-The `services/go-backend` was retired in Phase 0 (unused, never called by flask-backend, no replacement scheduled). It carried a permanent osv-scanner advisory (GO-2026-5932) with no available fix. Its health-polling duty will migrate to an asyncio task in portal-api during Phase 6.
+The `services/go-backend` was retired in Phase 0 (unused, never called by portal-api, no replacement scheduled). It carried a permanent osv-scanner advisory (GO-2026-5932) with no available fix. Its health-polling duty will migrate to an asyncio task in portal-api during Phase 6.
 
 ## Development Setup
 

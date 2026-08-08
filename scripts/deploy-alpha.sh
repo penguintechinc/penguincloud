@@ -43,7 +43,7 @@ readonly APP_HOST="${APP_HOST:-penguincloud.localhost.local}"
 readonly OVERLAY_PATH="${OVERLAY_PATH:-k8s/kustomize/overlays/alpha}"
 
 # Services with Dockerfiles (customize per repo)
-declare -a SERVICES=("flask-backend" "webui")
+declare -a SERVICES=("portal-api" "webui")
 
 # Image name prefix (used for docker build tags)
 readonly IMAGE_PREFIX="${APP_NAME}"
@@ -314,7 +314,7 @@ OPTIONS:
     --build               Build images and import into MicroK8s (default)
     --skip-build          Skip Docker build, use existing images
     --tag TAG             Image tag (default: alpha)
-    --service SERVICE     Build specific service only (e.g., flask-backend)
+    --service SERVICE     Build specific service only (e.g., portal-api)
     --dry-run             Render manifests without applying
     --rollback            Rollback deployments to previous revision
     --help                Show this help message
@@ -334,7 +334,7 @@ EXAMPLES:
     $(basename "$0") --skip-build
 
     # Build and deploy only one service
-    $(basename "$0") --service flask-backend
+    $(basename "$0") --service portal-api
 
     # Preview what would be applied
     $(basename "$0") --skip-build --dry-run

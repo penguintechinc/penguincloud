@@ -82,7 +82,7 @@ main() {
     echo "----------------"
 
     # Check for Python services
-    if [ -d "$PROJECT_ROOT/services/flask-backend" ] || find "$PROJECT_ROOT" -name "*.py" -type f 2>/dev/null | head -1 | grep -q .; then
+    if [ -d "$PROJECT_ROOT/services/portal-api" ] || find "$PROJECT_ROOT" -name "*.py" -type f 2>/dev/null | head -1 | grep -q .; then
         run_check "python-lint" "$SCRIPT_DIR/check-python.sh" "$PROJECT_ROOT" || all_passed=false
     fi
 

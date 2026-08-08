@@ -159,13 +159,13 @@ make dev
 **Start specific services**:
 ```bash
 # Start only Flask backend
-docker-compose up -d flask-backend
+docker-compose up -d portal-api
 
 # Start WebUI and database
 docker-compose up -d postgres webui
 
 # Start without detaching (see logs)
-docker-compose up flask-backend
+docker-compose up portal-api
 ```
 
 **View service logs**:
@@ -174,7 +174,7 @@ docker-compose up flask-backend
 docker-compose logs -f
 
 # Specific service
-docker-compose logs -f flask-backend
+docker-compose logs -f portal-api
 
 # Last 100 lines, follow new entries
 docker-compose logs -f --tail=100 webui
@@ -233,7 +233,7 @@ make smoke-test
 make lint
 
 # Run unit tests (specific service)
-cd services/flask-backend && pytest tests/unit/
+cd services/portal-api && pytest tests/unit/
 
 # Run all tests
 make test
@@ -282,11 +282,11 @@ When adding new database tables or modifying schemas, use Alembic:
 
 **Workflow**:
 ```bash
-# 1. Define SQLAlchemy models in services/flask-backend/app/models.py
+# 1. Define SQLAlchemy models in services/portal-api/app/models.py
 #    (See docs/standards/DATABASE.md for examples)
 
 # 2. Generate migration script
-cd services/flask-backend
+cd services/portal-api
 alembic revision --autogenerate -m "Add teams table"
 
 # 3. Review migration in alembic/versions/
@@ -296,7 +296,7 @@ alembic revision --autogenerate -m "Add teams table"
 alembic upgrade head
 
 # 5. Restart Flask service to pick up schema changes
-docker-compose up -d --build flask-backend
+docker-compose up -d --build portal-api
 
 # 6. Verify migration applied
 alembic history  # View migration history
@@ -393,14 +393,14 @@ gh pr create --title "Brief feature description" \
 ### Adding a New Python Dependency
 
 ```bash
-# Add to services/flask-backend/requirements.txt
-echo "new-package==1.0.0" >> services/flask-backend/requirements.txt
+# Add to services/portal-api/requirements.txt
+echo "new-package==1.0.0" >> services/portal-api/requirements.txt
 
 # Rebuild Flask container
-docker-compose up -d --build flask-backend
+docker-compose up -d --build portal-api
 
 # Verify import works
-docker-compose exec flask-backend python -c "import new_package"
+docker-compose exec portal-api python -c "import new_package"
 ```
 
 ### Adding a New Node.js Dependency
@@ -426,20 +426,20 @@ echo "NEW_VAR=value" >> .env
 docker-compose restart
 
 # Verify it's set
-docker-compose exec flask-backend printenv | grep NEW_VAR
+docker-compose exec portal-api printenv | grep NEW_VAR
 ```
 
 ### Debugging a Service
 
 **View logs in real-time**:
 ```bash
-docker-compose logs -f flask-backend
+docker-compose logs -f portal-api
 ```
 
 **Access container shell**:
 ```bash
 # Python service
-docker-compose exec flask-backend bash
+docker-compose exec portal-api bash
 
 # Node.js service
 docker-compose exec webui bash
@@ -448,10 +448,10 @@ docker-compose exec webui bash
 **Execute commands in container**:
 ```bash
 # Run Python script
-docker-compose exec flask-backend python -c "print('hello')"
+docker-compose exec portal-api python -c "print('hello')"
 
 # Check service health
-docker-compose exec flask-backend curl http://localhost:5000/health
+docker-compose exec portal-api curl http://localhost:5000/health
 ```
 
 ### Database Operations
@@ -480,10 +480,10 @@ make seed-mock-data
 **Run migrations**:
 ```bash
 # Auto-migrate on startup
-docker-compose restart flask-backend
+docker-compose restart portal-api
 
 # Or manually run migration
-docker-compose exec flask-backend python -m migrations
+docker-compose exec portal-api python -m migrations
 ```
 
 ### Working with Git Branches
@@ -566,14 +566,14 @@ docker-compose logs postgres
 
 ```bash
 # Check logs
-docker-compose logs flask-backend
+docker-compose logs portal-api
 
 # Verify database migration
-docker-compose exec flask-backend python -c "from app import db; db.create_all()"
+docker-compose exec portal-api python -c "from app import db; db.create_all()"
 
 # Reset and rebuild
 docker-compose down
-docker-compose up -d --build flask-backend
+docker-compose up -d --build portal-api
 ```
 
 ### Smoke Tests Failing
@@ -620,7 +620,7 @@ docker system df
 docker system prune
 
 # Rebuild without cache (slow, but fresh)
-docker-compose build --no-cache flask-backend
+docker-compose build --no-cache portal-api
 ```
 
 ### QEMU Cross-Architecture Build Issues
@@ -695,7 +695,7 @@ docker container prune
 
 ```bash
 # Use specific services to reduce memory usage
-docker-compose up postgres flask-backend  # Skip Go backend, WebUI
+docker-compose up postgres portal-api  # Skip Go backend, WebUI
 
 # Use lightweight testing
 make smoke-test  # Instead of full test suite while developing

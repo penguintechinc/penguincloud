@@ -54,8 +54,8 @@ microk8s config | kubectl config --kubeconfig ~/.kube/config merge -
 
 ```bash
 # Build and push your image to the local registry
-docker build -t localhost:32000/flask-backend:latest ./services/flask-backend
-docker push localhost:32000/flask-backend:latest
+docker build -t localhost:32000/portal-api:latest ./services/portal-api
+docker push localhost:32000/portal-api:latest
 
 # Deploy via Kustomize (always pass --context)
 kubectl apply --context local-alpha -k k8s/kustomize/overlays/alpha
@@ -219,7 +219,7 @@ Developer pushes to v1.2.x release branch
         ↓
 GitHub Actions builds image (linux/amd64 + linux/arm64)
         ↓
-Image pushed to ghcr.io/.../flask-backend:beta-1710000000
+Image pushed to ghcr.io/.../portal-api:beta-1710000000
         ↓
 deploy-beta.sh queries ghcr.io for latest beta tag
         ↓
@@ -269,8 +269,8 @@ crane digest python:3.13-slim-bookworm
 ```yaml
 # k8s/kustomize/overlays/beta/kustomization.yaml
 images:
-  - name: flask-backend
-    newName: ghcr.io/penguintechinc/myapp/flask-backend
+  - name: portal-api
+    newName: ghcr.io/penguintechinc/myapp/portal-api
     newTag: beta-1710000000      # tag is acceptable for alpha/beta
 ```
 
@@ -278,8 +278,8 @@ images:
 ```yaml
 # k8s/kustomize/overlays/prod/kustomization.yaml
 images:
-  - name: flask-backend
-    newName: ghcr.io/penguintechinc/myapp/flask-backend
+  - name: portal-api
+    newName: ghcr.io/penguintechinc/myapp/portal-api
     digest: sha256:<digest>      # digest required in production
 ```
 
@@ -298,7 +298,7 @@ images:
 ```yaml
 # values-prod.yaml
 image:
-  repository: ghcr.io/penguintechinc/myapp/flask-backend
+  repository: ghcr.io/penguintechinc/myapp/portal-api
   tag: ""                        # leave empty when using digest
   digest: sha256:<digest>        # required in production
 ```

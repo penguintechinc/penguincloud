@@ -34,7 +34,7 @@ PORT_FORWARDS=()
 
 # Services to scale test
 DEPLOYMENTS=(
-    "flask-backend"
+    "portal-api"
     "webui"
 )
 
@@ -135,7 +135,7 @@ for deployment in "${DEPLOYMENTS[@]}"; do
 
     # Test load distribution (if health endpoint is available)
     case $deployment in
-        flask-backend)
+        portal-api)
             SERVICE_PORT=5000
             HEALTH_PATH="/healthz"
             ;;

@@ -182,7 +182,7 @@ You're in! The WebUI is serving. Behind the scenes:
 
 ```bash
 # Port-forward to Flask backend
-kubectl port-forward --context local-alpha svc/flask-backend 5000:5000 &
+kubectl port-forward --context local-alpha svc/portal-api 5000:5000 &
 
 # Login and get a token
 curl -X POST http://localhost:5000/api/v1/auth/login \
@@ -381,8 +381,8 @@ Edit the resource limits in your Kustomize overlay or Helm values:
 
 ```bash
 # Patch resource limits on a running deployment
-kubectl --context local-alpha patch deployment flask-backend -n myapp \
-  -p '{"spec":{"template":{"spec":{"containers":[{"name":"flask-backend","resources":{"requests":{"cpu":"500m","memory":"512Mi"},"limits":{"cpu":"2","memory":"2Gi"}}}]}}}}'
+kubectl --context local-alpha patch deployment portal-api -n myapp \
+  -p '{"spec":{"template":{"spec":{"containers":[{"name":"portal-api","resources":{"requests":{"cpu":"500m","memory":"512Mi"},"limits":{"cpu":"2","memory":"2Gi"}}}]}}}}'
 ```
 
 Or update your Helm values and redeploy:
@@ -405,14 +405,14 @@ Scale your deployments in Kubernetes:
 
 ```bash
 # Scale Flask backend to 3 replicas
-kubectl scale --context local-alpha deployment flask-backend --replicas=3 -n myapp
+kubectl scale --context local-alpha deployment portal-api --replicas=3 -n myapp
 
 # Or edit the Kustomize overlay
 # k8s/kustomize/overlays/alpha/kustomization.yaml
 patches:
 - target:
     kind: Deployment
-    name: flask-backend
+    name: portal-api
   patch: |-
     - op: replace
       path: /spec/replicas

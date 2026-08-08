@@ -7,15 +7,15 @@ This guide covers deploying the project template to Kubernetes using three deplo
 ### Option 1: Helm Charts (Recommended)
 
 Helm charts are located in `k8s/helm/` with pre-configured templates for each service:
-- `k8s/helm/flask-backend/` - Flask backend service
+- `k8s/helm/portal-api/` - Flask backend service
 - `k8s/helm/webui/` - WebUI frontend service
 
 > Note: the `go-backend` service (and its `k8s/helm/go-backend/` chart) has been
-> retired — unused dead weight, never called by flask-backend.
+> retired — unused dead weight, never called by portal-api.
 
 **Install a service:**
 ```bash
-helm install my-release k8s/helm/flask-backend \
+helm install my-release k8s/helm/portal-api \
   --namespace production \
   --create-namespace \
   --values custom-values.yaml
@@ -23,7 +23,7 @@ helm install my-release k8s/helm/flask-backend \
 
 **Upgrade a service:**
 ```bash
-helm upgrade my-release k8s/helm/flask-backend \
+helm upgrade my-release k8s/helm/portal-api \
   --namespace production \
   --values custom-values.yaml
 ```
@@ -36,12 +36,12 @@ helm uninstall my-release --namespace production
 ### Option 2: Raw Manifests
 
 Raw Kubernetes manifests are in `k8s/manifests/` for direct kubectl application:
-- `k8s/manifests/flask-backend/` - Flask deployment files
+- `k8s/manifests/portal-api/` - Flask deployment files
 - `k8s/manifests/webui/` - WebUI deployment files
 
 **Apply manifests:**
 ```bash
-kubectl apply -f k8s/manifests/flask-backend/
+kubectl apply -f k8s/manifests/portal-api/
 kubectl apply -f k8s/manifests/webui/
 ```
 
@@ -52,7 +52,7 @@ kubectl get deployments,services,ingress -n default
 
 **Delete manifests:**
 ```bash
-kubectl delete -f k8s/manifests/flask-backend/
+kubectl delete -f k8s/manifests/portal-api/
 ```
 
 ### Option 3: Kustomize Overlays
@@ -88,7 +88,7 @@ kubectl apply -k k8s/kustomize/overlays/prod/ --dry-run=client -o yaml
 ### Using Helm (Fastest)
 ```bash
 # Install all services
-helm install app-release k8s/helm/flask-backend -n default --create-namespace
+helm install app-release k8s/helm/portal-api -n default --create-namespace
 helm install app-release k8s/helm/webui -n default --create-namespace
 
 # Check status
@@ -130,7 +130,7 @@ kubectl delete -k k8s/kustomize/overlays/prod/
 Create custom `values.yaml` files for each environment:
 ```yaml
 # values-prod.yaml
-flask-backend:
+portal-api:
   replicaCount: 3
   resources:
     limits:
@@ -151,22 +151,22 @@ Edit `k8s/kustomize/overlays/prod/kustomization.yaml` to customize resources, re
 
 **Scale a deployment:**
 ```bash
-kubectl scale deployment flask-backend --replicas=5 -n production
+kubectl scale deployment portal-api --replicas=5 -n production
 ```
 
 **View logs:**
 ```bash
-kubectl logs deployment/flask-backend -n production --follow
+kubectl logs deployment/portal-api -n production --follow
 ```
 
 **Access pod shell:**
 ```bash
-kubectl exec -it pod/flask-backend-xxx /bin/bash -n production
+kubectl exec -it pod/portal-api-xxx /bin/bash -n production
 ```
 
 **Port forward:**
 ```bash
-kubectl port-forward service/flask-backend 5000:5000 -n production
+kubectl port-forward service/portal-api 5000:5000 -n production
 ```
 
 **Check resource usage:**

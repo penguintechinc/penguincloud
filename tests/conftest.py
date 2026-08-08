@@ -12,7 +12,7 @@ import pytest_asyncio
 from quart import Quart
 
 # Ensure the flask backend app can be imported
-backend_path = os.path.join(os.path.dirname(__file__), "../services/flask-backend")
+backend_path = os.path.join(os.path.dirname(__file__), "../services/portal-api")
 if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
 

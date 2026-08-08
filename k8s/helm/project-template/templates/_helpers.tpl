@@ -60,26 +60,26 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
-Flask Backend fullname
+Portal API fullname
 */}}
-{{- define "project-template.flaskBackend.fullname" -}}
-{{- printf "%s-flask-backend" (include "project-template.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- define "project-template.portalApi.fullname" -}}
+{{- printf "%s-portal-api" (include "project-template.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
-Flask Backend labels
+Portal API labels
 */}}
-{{- define "project-template.flaskBackend.labels" -}}
+{{- define "project-template.portalApi.labels" -}}
 {{ include "project-template.labels" . }}
-app.kubernetes.io/component: flask-backend
+app.kubernetes.io/component: portal-api
 {{- end }}
 
 {{/*
-Flask Backend selector labels
+Portal API selector labels
 */}}
-{{- define "project-template.flaskBackend.selectorLabels" -}}
+{{- define "project-template.portalApi.selectorLabels" -}}
 {{ include "project-template.selectorLabels" . }}
-app.kubernetes.io/component: flask-backend
+app.kubernetes.io/component: portal-api
 {{- end }}
 
 {{/*

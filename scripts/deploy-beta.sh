@@ -48,7 +48,7 @@ build_and_push_images() {
     if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "beta" ]; then
         IMAGE_TAG="beta-${EPOCH}"
     fi
-    local SERVICES=("flask-backend" "webui")
+    local SERVICES=("portal-api" "webui")
     for svc in "${SERVICES[@]}"; do
         if [ -n "$SERVICE" ] && [ "$SERVICE" != "$svc" ]; then continue; fi
         local dockerfile="$PROJECT_ROOT/services/$svc/Dockerfile"

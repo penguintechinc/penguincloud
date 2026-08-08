@@ -63,7 +63,7 @@ main() {
     log_info "Repository root: $REPO_ROOT"
 
     # Build each service
-    build_and_import "flask-backend"
+    build_and_import "portal-api"
     build_and_import "webui"
 
     log_pass "All images built and imported successfully"

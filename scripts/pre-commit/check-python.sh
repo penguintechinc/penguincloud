@@ -13,8 +13,8 @@ echo "Project: ${PROJECT_ROOT}"
 echo ""
 
 # Find Python directories
-if [ -d "$PROJECT_ROOT/services/flask-backend" ]; then
-    PYTHON_DIRS+=("$PROJECT_ROOT/services/flask-backend")
+if [ -d "$PROJECT_ROOT/services/portal-api" ]; then
+    PYTHON_DIRS+=("$PROJECT_ROOT/services/portal-api")
 fi
 
 # Find any other directories with Python files
@@ -124,12 +124,12 @@ echo "--- Build Check ---"
 
 # Syntax check
 echo "Running syntax check..."
-find "$PROJECT_ROOT" -name "*.py" -type f ! -path "*/.venv/*" ! -path "*/venv/*" ! -path "*/__pycache__/*" | while read -r pyfile; do
+while read -r pyfile; do
     if ! python3 -m py_compile "$pyfile" 2>/dev/null; then
         echo "Syntax error in $pyfile"
         ((FAILED++))
     fi
-done
+done < <(find "$PROJECT_ROOT" -name "*.py" -type f ! -path "*/.venv/*" ! -path "*/venv/*" ! -path "*/__pycache__/*")
 
 echo ""
 if [ "$FAILED" -eq 0 ]; then

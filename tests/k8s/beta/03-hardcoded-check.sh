@@ -206,7 +206,7 @@ if [[ $VIOLATIONS_FOUND -gt 0 ]]; then
     log_fail "Hardcoded IP/port check FAILED - found ${VIOLATIONS_FOUND} violation(s)"
     log_info "Beta environment must use DNS-based service discovery"
     log_info "Examples of correct patterns:"
-    log_info "  - http://flask-backend:5000"
+    log_info "  - http://portal-api:5000"
     log_info "  - http://webui.${NAMESPACE}.svc.cluster.local:3000"
     log_info "  - postgresql:5432"
     exit 1

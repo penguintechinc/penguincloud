@@ -135,7 +135,7 @@ class TestTenantSwitch:
         """tenant_required gates on the verified `tenant` claim.
 
         No production endpoint is currently wrapped with @tenant_required —
-        grep confirms zero usages in services/flask-backend/app/*.py outside
+        grep confirms zero usages in services/portal-api/app/*.py outside
         the decorator's own definition in middleware.py. Attach it to an
         ad-hoc route on this test's app instance so the decorator's actual
         claim-reading behavior is exercised directly, instead of merely

@@ -126,7 +126,7 @@ kubectl get svc -n myapp
 curl -f https://myapp.penguintech.cloud/healthz
 
 # Run live integration tests
-kubectl exec -n myapp deploy/flask-backend -- pytest tests/live/
+kubectl exec -n myapp deploy/portal-api -- pytest tests/live/
 ```
 
 ### Quick Reference: Three-Phase Strategy
@@ -174,7 +174,7 @@ kubectl apply --context local-alpha -k k8s/kustomize/overlays/alpha
 **Directory structure** (one smoke test per container):
 ```
 tests/smoketests/
-├── flask-backend.sh       # Your Flask API smoke test
+├── portal-api.sh       # Your Flask API smoke test
 ├── go-backend.sh          # Your Go service smoke test
 ├── webui.sh               # Your React UI smoke test
 └── run-all.sh             # Runs everything at once
@@ -192,7 +192,7 @@ tests/smoketests/
 
 #### Writing Your First Smoke Test
 
-**Flask Backend example** - `tests/smoketests/flask-backend.sh`
+**Flask Backend example** - `tests/smoketests/portal-api.sh`
 ```bash
 #!/bin/bash
 set -e
@@ -201,7 +201,7 @@ echo "=== Flask Backend Smoke Test ==="
 
 # 1. Build verification
 echo "Building container..."
-docker build -t flask-backend:test ./services/flask-backend
+docker build -t portal-api:test ./services/portal-api
 
 # 2. Deploy to local K8s cluster
 echo "Deploying to Kubernetes..."
@@ -209,12 +209,12 @@ kubectl apply --context local-alpha -f - <<EOF
 apiVersion: v1
 kind: Pod
 metadata:
-  name: flask-backend-smoke-test
+  name: portal-api-smoke-test
   namespace: default
 spec:
   containers:
-  - name: flask-backend
-    image: flask-backend:test
+  - name: portal-api
+    image: portal-api:test
     ports:
     - containerPort: 5000
     env:
@@ -230,7 +230,7 @@ sleep 10
 
 # 3. Health check
 echo "Checking health endpoint..."
-kubectl exec --context local-alpha pod/flask-backend-smoke-test -- python3 -c "
+kubectl exec --context local-alpha pod/portal-api-smoke-test -- python3 -c "
 import http.client
 conn = http.client.HTTPConnection('localhost', 5000)
 conn.request('GET', '/healthz')
@@ -242,15 +242,15 @@ print('✓ Health check passed')
 
 # 4. Run unit tests
 echo "Running unit tests..."
-kubectl exec --context local-alpha pod/flask-backend-smoke-test -- pytest tests/unit -v
+kubectl exec --context local-alpha pod/portal-api-smoke-test -- pytest tests/unit -v
 
 # 5. Run basic integration tests
 echo "Running integration tests..."
-kubectl exec --context local-alpha pod/flask-backend-smoke-test -- pytest tests/integration/test_api_basic.py -v
+kubectl exec --context local-alpha pod/portal-api-smoke-test -- pytest tests/integration/test_api_basic.py -v
 
 # 6. API endpoint smoke tests
 echo "Testing API endpoints..."
-kubectl exec --context local-alpha pod/flask-backend-smoke-test -- python3 -c "
+kubectl exec --context local-alpha pod/portal-api-smoke-test -- python3 -c "
 import http.client, json
 conn = http.client.HTTPConnection('localhost', 5000)
 
@@ -268,7 +268,7 @@ print('✓ Users endpoint responding')
 "
 
 # Cleanup
-kubectl delete --context local-alpha pod flask-backend-smoke-test
+kubectl delete --context local-alpha pod portal-api-smoke-test
 
 echo "✓ Flask Backend Smoke Test PASSED"
 ```
@@ -492,7 +492,7 @@ npm run test:unit -- --coverage
 **Real Example** - Testing a user creation function:
 
 ```python
-# services/flask-backend/tests/unit/test_user.py
+# services/portal-api/tests/unit/test_user.py
 import pytest
 from app.models import User
 from app.services.user_service import create_user
@@ -533,7 +533,7 @@ Integration tests answer: "Do my services actually work together?" They're slowe
 **Typical Structure**:
 ```
 tests/integration/
-├── flask-backend/
+├── portal-api/
 │   ├── test_api_basic.py        # API endpoints work
 │   ├── test_auth.py             # Login flows work
 │   └── test_database.py         # Database CRUD works
@@ -558,7 +558,7 @@ kubectl delete --context local-alpha -k tests/integration/k8s
 **Real Example** - Testing user login:
 
 ```python
-# services/flask-backend/tests/integration/test_auth.py
+# services/portal-api/tests/integration/test_auth.py
 import pytest
 from flask import Flask
 from app import create_app
@@ -725,7 +725,7 @@ MOCK_USERS = [
 echo "Seeding test database..."
 
 # Execute seed script inside Flask pod
-kubectl exec --context local-alpha -n myapp deploy/flask-backend -- python3 -c "
+kubectl exec --context local-alpha -n myapp deploy/portal-api -- python3 -c "
 from app import create_app, db
 from app.models import User
 from tests.fixtures import users

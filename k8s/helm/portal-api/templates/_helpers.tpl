@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "flask-backend.name" -}}
+{{- define "portal-api.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "flask-backend.fullname" -}}
+{{- define "portal-api.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,16 +24,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "flask-backend.chart" -}}
+{{- define "portal-api.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "flask-backend.labels" -}}
-helm.sh/chart: {{ include "flask-backend.chart" . }}
-{{ include "flask-backend.selectorLabels" . }}
+{{- define "portal-api.labels" -}}
+helm.sh/chart: {{ include "portal-api.chart" . }}
+{{ include "portal-api.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -43,17 +43,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "flask-backend.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "flask-backend.name" . }}
+{{- define "portal-api.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "portal-api.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "flask-backend.serviceAccountName" -}}
+{{- define "portal-api.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "flask-backend.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "portal-api.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
