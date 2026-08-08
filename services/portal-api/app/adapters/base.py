@@ -81,6 +81,7 @@ __all__ = [
     "AdapterCapabilityError",
     "ResourceNotFoundError",
     "ResourceConflictError",
+    "UpstreamValidationError",
     "RateLimitedError",
     "UpstreamAuthError",
     "UpstreamError",
@@ -144,6 +145,30 @@ class RateLimitedError(AdapterError):
         self.retry_after = retry_after
 
 
+class UpstreamValidationError(AdapterError):
+    """The product rejected the payload as invalid, field by field.
+
+    Distinct from :class:`ResourceConflictError`, which is a disagreement with
+    *current state* and tells the caller to re-read. This is a disagreement
+    with the *payload*: re-reading changes nothing, the user must edit what
+    they typed.
+
+    It exists because the alternative was rendering Gough's 422
+    ``validation_failed`` envelope as 502, which tells an operator the product
+    is broken when in fact a form field is wrong — and hides the one piece of
+    information that would fix it. ``violations`` carries the product's own
+    per-field detail so a form can mark the offending inputs instead of
+    showing a single opaque banner.
+    """
+
+    def __init__(
+        self, message: str, violations: list[dict[str, Any]] | None = None
+    ) -> None:
+        """Record the message and the product's per-field violations."""
+        super().__init__(message)
+        self.violations = violations or []
+
+
 class UpstreamAuthError(AdapterError):
     """The product rejected the portal's *stored* credential.
 
@@ -167,6 +192,7 @@ _ERROR_STATUS: Final[tuple[tuple[type[AdapterError], int], ...]] = (
     (AdapterCapabilityError, 501),
     (ResourceNotFoundError, 404),
     (ResourceConflictError, 409),
+    (UpstreamValidationError, 422),
     (RateLimitedError, 429),
     (UpstreamAuthError, 502),
     (UpstreamError, 502),
@@ -490,6 +516,13 @@ TENANT_PLACEHOLDER_PATTERN: Final[str] = re.escape(TENANT_PLACEHOLDER)
 #: is for the product to decode it a second time into a traversal.
 _ENCODED_DOT = re.compile(r"%2e", re.IGNORECASE)
 
+#: Percent-encoded separators — ``%2f`` (/) and ``%5c`` (\\). Same reasoning as
+#: the encoded dot, and the same bypass: segment analysis below splits on a
+#: LITERAL slash, so ``/nodes/..%2fadmin`` is one segment here and two at any
+#: product that decodes it. The dot check alone does not catch it — the
+#: segment is ``..%2fadmin``, which is not equal to ``..``.
+_ENCODED_SEPARATOR = re.compile(r"%(2f|5c)", re.IGNORECASE)
+
 _ALLOWED_METHODS: Final[frozenset[str]] = frozenset(
     {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 )
@@ -511,6 +544,11 @@ def normalize_proxy_path(raw: str) -> str:
       "/users/../admin")`` is a match, so an allowlist alone does not stop it.
     * percent-encoded dots — a double-encoded traversal that survives the
       portal's decode and unfolds at the product.
+    * percent-encoded separators (``%2f``, ``%5c``) — the segment scan below
+      splits on literal slashes only, so ``/users/..%2fadmin`` reads as one
+      segment here and as a traversal at any product that decodes it. The
+      dot-segment check does not cover this: the segment is ``..%2fadmin``,
+      which is not equal to ``..``.
     * backslashes — treated as a separator by some servers, so ``..\\`` is a
       traversal on those and invisible here.
     * control characters — CR/LF in a path is request smuggling against the
@@ -533,6 +571,8 @@ def normalize_proxy_path(raw: str) -> str:
         raise PathTraversalError("path contains a backslash")
     if _ENCODED_DOT.search(raw):
         raise PathTraversalError("path contains a percent-encoded dot segment")
+    if _ENCODED_SEPARATOR.search(raw):
+        raise PathTraversalError("path contains a percent-encoded path separator")
 
     segments = raw.split("/")
     last = len(segments) - 1

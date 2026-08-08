@@ -114,11 +114,31 @@ class TestAllowlists:
         assert ADAPTER_REGISTRY["generic"].route_allowlist == []
 
     def test_stub_adapters_expose_only_read_only_liveness(self) -> None:
-        """Phase 3 stubs allow health and capabilities, nothing more."""
-        for product_type in ("gough", "nest", "tobogganing"):
+        """Products with no Phase-4 integration allow liveness and nothing more.
+
+        Gough is deliberately absent: Phase 4G gave it a real allowlist with
+        write rules. Its matrix lives in ``test_gough_allowlist.py``, which
+        asserts both what it admits and what it must not.
+        """
+        for product_type in ("nest", "tobogganing"):
             rules = ADAPTER_REGISTRY[product_type].route_allowlist
             assert {rule.method for rule in rules} == {"GET"}
             assert {rule.required_scope for rule in rules} == {"products:read"}
+
+    def test_only_integrated_products_may_proxy_a_mutating_verb(self) -> None:
+        """Write access is a per-integration decision, never a default.
+
+        Structural guard on the registry as a whole: a product picks up a
+        mutating proxy rule only by being integrated and reviewed. Nest and
+        Tobogganing land next, and this fails the moment one of them ships a
+        write rule without its own allowlist matrix.
+        """
+        integrated = {"gough"}
+        for product_type, adapter_class in ADAPTER_REGISTRY.items():
+            methods = {rule.method.upper() for rule in adapter_class.route_allowlist}
+            mutating = methods - {"GET", "HEAD", "OPTIONS"}
+            if product_type not in integrated:
+                assert not mutating, f"{product_type} proxies {sorted(mutating)}"
 
     def test_route_rule_matching_is_anchored_and_method_exact(self) -> None:
         """A rule matches its own method and path shape, and nothing near it."""
@@ -139,17 +159,29 @@ class TestAllowlists:
 class TestHealthOnlyBehaviour:
     """Unimplemented operations raise rather than returning empty results."""
 
-    @pytest.mark.parametrize(
-        "product_type", ["gough", "nest", "tobogganing", "generic"]
-    )
+    @pytest.mark.parametrize("product_type", ["nest", "tobogganing", "generic"])
     async def test_capabilities_reports_health_only(self, product_type: str) -> None:
-        """capabilities() tells the truth about what Phase 3 supports."""
+        """capabilities() tells the truth about what is implemented.
+
+        Gough is excluded because 4G implemented it; ``capabilities()`` must
+        now list what it really does, and that list is asserted in
+        ``test_gough_adapter.py``.
+        """
         adapter = get_adapter(product_type, _ctx())
         assert await adapter.capabilities(_ctx()) == ["health"]
 
-    @pytest.mark.parametrize(
-        "product_type", ["gough", "nest", "tobogganing", "generic"]
-    )
+    async def test_gough_reports_the_operations_it_implements(self) -> None:
+        """An integrated product must not still claim health-only.
+
+        capabilities() drives what the UI offers, so a stale answer here hides
+        working features rather than breaking loudly.
+        """
+        adapter = get_adapter("gough", _ctx())
+        reported = await adapter.capabilities(_ctx())
+        assert "health" in reported
+        assert {"list_resources", "get_operation", "cancel_operation"} <= set(reported)
+
+    @pytest.mark.parametrize("product_type", ["nest", "tobogganing", "generic"])
     async def test_resource_operations_raise_capability_error(
         self, product_type: str
     ) -> None:
@@ -181,11 +213,15 @@ class TestHealthOnlyBehaviour:
             await adapter.invite_user({}, ctx)
 
     async def test_capability_error_names_the_product(self) -> None:
-        """The 501 message identifies which product could not do what."""
-        adapter = get_adapter("gough", _ctx())
+        """The 501 message identifies which product could not do what.
+
+        Uses nest now that gough implements ``metrics_summary`` — the property
+        under test is the message, not which product happens to lack the op.
+        """
+        adapter = get_adapter("nest", _ctx())
         with pytest.raises(AdapterCapabilityError) as excinfo:
             await adapter.metrics_summary(_ctx())
-        assert "gough" in str(excinfo.value)
+        assert "nest" in str(excinfo.value)
         assert "metrics_summary" in str(excinfo.value)
 
 
