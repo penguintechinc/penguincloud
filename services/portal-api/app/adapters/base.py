@@ -44,6 +44,36 @@ Consequence for Phase 4: put untrusted input through the proxy and declare a
 method and hand it to ``transport.request`` — that is the one way to move
 work from column 1 to column 2 without the review column 1 gets.
 
+Per-product scopes — what a RouteRule should require
+====================================================
+Declare rules in terms of ``products:{product_type}:{read|manage}``, built
+with :func:`product_scope`. Reads take the ``read`` action; **every mutating
+verb takes ``manage``**, and that split is the enforceable core — a
+read-only caller must not reach a destructive route.
+
+The coarse ``products:read``/``products:manage`` scopes still exist and still
+work: :class:`RBACEnforcer` treats the coarse form as satisfying the
+per-product one, so a principal holding ``products:manage`` passes a
+``products:gough:manage`` rule unchanged. The per-product scopes are also
+minted for real — ``app.tenancy.authz.resolve_scopes`` expands the coarse
+grant across the product types a tenant is actually connected to — so a rule
+requiring one is satisfiable by an ordinary token rather than being a
+permanently-403 decoration.
+
+Why the fine form is what a rule should name, given the coarse one implies
+it: the implication is what makes granting narrower possible later without
+touching any adapter. A principal issued only ``products:gough:manage``
+(no coarse scope) reaches Gough's mutating routes and no other product's —
+that is the junior-admin case, and it works today for anything that mints
+such a scope. A rule written against the coarse scope can never express it.
+
+Do NOT invent a product-specific namespace (``gough:nodes:read``). Nothing
+mints it, so every rule requiring one answers 403 to every token the portal
+can issue, while looking more precisely secured than what it replaced. The
+scope a rule names must be a scope something issues; the two halves are
+``resolve_scopes`` and this file, and they are asserted equal in
+``tests/api/test_product_scopes.py``.
+
 Path matching happens BEFORE tenant substitution
 ================================================
 A :class:`RouteRule` describes the path *as the caller writes it*, which is
@@ -77,6 +107,8 @@ __all__ = [
     "PathSubstitution",
     "RouteRule",
     "RBACEnforcer",
+    "PRODUCT_SCOPE_NAMESPACE",
+    "product_scope",
     "AdapterError",
     "AdapterCapabilityError",
     "ResourceNotFoundError",
@@ -526,6 +558,23 @@ _ENCODED_SEPARATOR = re.compile(r"%(2f|5c)", re.IGNORECASE)
 _ALLOWED_METHODS: Final[frozenset[str]] = frozenset(
     {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 )
+
+#: Namespace shared by the coarse and per-product product scopes. Duplicated
+#: from ``app.tenancy.authz.PRODUCT_SCOPE_NAMESPACE`` rather than imported:
+#: ``app.authz`` imports this module, so importing the authz side here would
+#: close an import cycle through ``app.adapters.__init__``. The two are
+#: asserted equal in ``tests/api/test_product_scopes.py``.
+PRODUCT_SCOPE_NAMESPACE: Final[str] = "products"
+
+
+def product_scope(product_type: str, action: str) -> str:
+    """Build the per-product scope an adapter's RouteRule should require.
+
+    ``product_scope("gough", "manage") -> "products:gough:manage"``. Use this
+    rather than an f-string in each adapter so the format is defined once;
+    see "Per-product scopes" in the module docstring for the model.
+    """
+    return f"{PRODUCT_SCOPE_NAMESPACE}:{product_type}:{action}"
 
 
 def normalize_proxy_path(raw: str) -> str:
@@ -1052,6 +1101,12 @@ class RBACEnforcer:
     Shared between portal routes (@require_scope decorator) and proxy
     allowlist (RouteRule scope checks). Scopes are issued at token time
     and stored in the JWT; enforcement is zero-cost at request time.
+
+    One implication is recognised, and only one: the coarse
+    ``products:{action}`` scope satisfies the per-product
+    ``products:{type}:{action}`` form. See "Per-product scopes" in the module
+    docstring for why the relation lives here rather than being expanded at
+    every call site.
     """
 
     def __init__(self, required_scopes: str | list[str]) -> None:
@@ -1065,13 +1120,35 @@ class RBACEnforcer:
             required_scopes if isinstance(required_scopes, list) else [required_scopes]
         )
 
+    @staticmethod
+    def _satisfies(required: str, granted: set[str]) -> bool:
+        """True when a granted set satisfies one required scope.
+
+        Exact match, or the coarse product grant that implies it. The
+        implication is deliberately one-directional and shape-restricted:
+        only a three-segment ``products:`` scope has a coarse form, so no
+        other scope namespace gains an implication by accident.
+        """
+        if required in granted:
+            return True
+        namespace, _, remainder = required.partition(":")
+        if namespace != PRODUCT_SCOPE_NAMESPACE:
+            return False
+        product_type, sep, action = remainder.partition(":")
+        if not sep or not product_type or ":" in action:
+            return False
+        return f"{PRODUCT_SCOPE_NAMESPACE}:{action}" in granted
+
     def enforce(self, granted_scopes: list[str]) -> bool:
         """Check if granted scopes satisfy the requirement.
 
-        Returns True if all required_scopes are in granted_scopes.
+        Returns True if every required scope is granted, directly or by the
+        coarse-implies-per-product relation in :meth:`_satisfies`.
         """
         granted_set = set(granted_scopes)
-        return all(scope in granted_set for scope in self.required_scopes)
+        return all(
+            self._satisfies(scope, granted_set) for scope in self.required_scopes
+        )
 
     def enforce_or_raise(self, granted_scopes: list[str]) -> None:
         """Raise ValueError if granted scopes do not satisfy the requirement."""

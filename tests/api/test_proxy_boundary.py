@@ -246,7 +246,10 @@ class TestAuditOnEveryPath:
         entry = json.loads(rows[0]["metadata"])
         assert rows[0]["action_type"] == "proxy.get"
         assert rows[0]["tenant_id"] == tenant_id
-        assert entry["scope_required"] == "products:read"
+        # The per-product form, not the coarse one: the audit trail records
+        # the scope the RULE demanded, so an auditor can tell a Gough-scoped
+        # grant from a blanket products:read without re-reading the code.
+        assert entry["scope_required"] == "products:gough:read"
         assert entry["route_matched"].startswith("GET ")
         assert entry["status_code"] == 200
 

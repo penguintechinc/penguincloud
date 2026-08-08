@@ -7,32 +7,29 @@ what bounds it.
 
 Scope convention
 ================
-Reads require ``products:read``; every mutating verb requires
-``products:manage``. Both are the portal's own scopes, defined in
-``app/authz.py`` and minted into real tokens.
+Reads require ``products:gough:read``; every mutating verb requires
+``products:gough:manage``. Both are built with
+:func:`~app.adapters.base.product_scope` and both are minted for real by
+``app.tenancy.authz.resolve_scopes``, which expands a caller's coarse
+``products:*`` grant across the product types their tenant is connected to.
+See "Per-product scopes" in :mod:`app.adapters.base` for the model.
 
-The brief specified ``gough:{resource}:{read|write}`` instead. That was not
+The brief specified ``gough:{resource}:{read|write}``. The namespace was not
 adopted, and the reason is not stylistic: **nothing in the portal issues a
-``gough:*`` scope.** ``_TEAM_ROLE_SCOPES`` and ``resolve_scopes`` produce
-``products:read``/``products:manage``, so an allowlist demanding
-``gough:nodes:read`` would be unsatisfiable by every token the portal can
-mint — the entire Gough proxy surface would answer 403 to everyone, while
-looking more precisely secured than the thing it replaced.
+``gough:*`` scope**, so an allowlist demanding ``gough:nodes:read`` would be
+unsatisfiable by every token the portal can mint — the entire Gough proxy
+surface would answer 403 to everyone, while looking more precisely secured
+than the thing it replaced. The brief's *intent* — an operator with
+authority over one product and not another — is what the ``products:gough:*``
+form delivers, because it is inside the namespace the portal already mints.
 
-The half of the brief's intent that *is* enforceable is enforced: reads and
-writes are separated, so ``POST /nodes/{id}/deploy`` (provisions hardware)
-and ``DELETE /nodes/{id}`` (decommissions it) are unreachable with a
-read-only token, and ``test_write_scopes_guard_every_mutating_verb`` asserts
-that for every rule. Per-resource scopes remain worth having, but they need
-role bundles and token minting to grow with them — a scope-model change
-across all three Phase-4 products, not something the first integration
-should introduce unilaterally. Flagged for the controller in
-``task-4G-report.md``.
-
-The literals below are duplicated from ``app/authz.py`` rather than imported:
-``app.authz`` imports ``app.adapters.base``, so importing it here would make
-``app.adapters`` and ``app.authz`` mutually dependent at import time.
-``test_gough_allowlist.py`` asserts they have not drifted.
+Per-resource granularity (``…:nodes:…`` vs ``…:biomes:…``) is still not
+adopted. Nothing distinguishes those grants either, and a scope no grant
+surface can express is the same dead rule in a smaller form. The enforceable
+split is read vs write, and it is enforced for every rule below:
+``POST /nodes/{id}/deploy`` (provisions hardware) and
+``DELETE /nodes/{id}`` (decommissions it) are unreachable with a read-only
+token, asserted by ``test_write_scopes_guard_every_mutating_verb``.
 
 Anchoring is enforced by :class:`~app.adapters.base.RouteRule` at
 construction, so a mistake in this module is an ImportError in CI rather
@@ -63,6 +60,9 @@ So each id is matched by what it actually is:
   ``refresh`` and ``heartbeat`` structurally — including any *future* literal
   Gough mounts there, which a hand-written exclusion list would not.
 
+(The second case above is stated in the scopes of the time; both rules now
+carry ``products:gough:*``, and the collision it describes is unchanged.)
+
 The cost is that a malformed id now yields "not allowlisted" rather than the
 product's own 404. That is the right trade: a 403 on a bad id is a small
 usability wart, and an allowlisted credential endpoint is not.
@@ -72,9 +72,14 @@ from __future__ import annotations
 
 from typing import Final
 
-from ..base import RouteRule
+from ..base import RouteRule, product_scope
 
-__all__ = ["GOUGH_ROUTE_ALLOWLIST", "SCOPES"]
+__all__ = ["GOUGH_ROUTE_ALLOWLIST", "PRODUCT_TYPE", "SCOPES"]
+
+#: The ``product_connections.product_type`` value this adapter serves. Also
+#: the middle segment of every scope below, so a connection of this type is
+#: exactly what makes those scopes minted for its tenant.
+PRODUCT_TYPE: Final[str] = "gough"
 
 #: Numeric ids — Gough's ``<int:...>`` route converters.
 _INT_ID = r"\d+"
@@ -82,9 +87,12 @@ _INT_ID = r"\d+"
 #: UUID-shaped ids: hex digits and hyphens only. Deliberately not ``[^/]+``.
 _UUID_ID = r"[0-9a-fA-F][0-9a-fA-F-]{0,63}"
 
-#: Mirrors ``app.authz.SCOPE_PRODUCTS_READ`` / ``SCOPE_PRODUCTS_MANAGE``.
-_READ: Final[str] = "products:read"
-_WRITE: Final[str] = "products:manage"
+#: Per-product scopes for this adapter. The coarse ``products:read`` /
+#: ``products:manage`` still satisfy these (RBACEnforcer implication), so
+#: naming the narrow form costs nothing today and is what lets a narrower
+#: grant restrict to Gough alone tomorrow.
+_READ: Final[str] = product_scope(PRODUCT_TYPE, "read")
+_WRITE: Final[str] = product_scope(PRODUCT_TYPE, "manage")
 
 #: Every scope this adapter's allowlist can require. Exported so a scope
 #: audit does not have to re-derive the set by reading regexes.

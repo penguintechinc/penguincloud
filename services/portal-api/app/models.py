@@ -56,6 +56,7 @@ __all__ = [
     "get_product_connection_by_id",
     "get_product_connection_raw",
     "get_tenant_product_connections",
+    "get_tenant_product_types",
     "update_product_health",
     "create_audit_log",
     "get_oauth_connection",
@@ -600,6 +601,26 @@ async def get_tenant_product_connections(tenant_id: int) -> list[dict[str, Any]]
     return [_mask_connection_secrets(dict(row)) for row in rows]
 
 
+async def get_tenant_product_types(tenant_id: int) -> set[str]:
+    """Get the distinct product types a tenant has connections to (async).
+
+    Selects the one column it needs rather than reusing
+    ``get_tenant_product_connections``: this runs inside ``resolve_scopes``,
+    so it is on the authorization path for every proxied request, and the
+    fuller accessor builds a dict and masks credentials for every row to
+    answer a question about column values.
+
+    Rows with an empty product_type are dropped — a scope derived from one
+    would be ``products::read``, which no rule can require and which reads
+    like a malformed grant in an audit trail.
+    """
+    db = get_db()
+    rows = await db(db.product_connections.tenant_id == tenant_id).select(
+        db.product_connections.product_type
+    )
+    return {str(row["product_type"]) for row in rows if row["product_type"]}
+
+
 async def get_tenant_product_count(tenant_id: int) -> int:
     """Get the count of product connections for a tenant (async)."""
     db = get_db()
@@ -755,9 +776,7 @@ async def set_product_tenant_map(
         return new_id
 
 
-async def delete_product_tenant_map(
-    connection_id: int, tenant_id: int
-) -> bool:
+async def delete_product_tenant_map(connection_id: int, tenant_id: int) -> bool:
     """Delete product tenant mapping (async)."""
     db = get_db()
     rows = await db(

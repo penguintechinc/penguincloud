@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import pytest
 
-from app.adapters.base import RouteRule
-from app.adapters.gough import GOUGH_ROUTE_ALLOWLIST, SCOPES
+from app.adapters.base import PRODUCT_SCOPE_NAMESPACE, RouteRule, product_scope
+from app.adapters.gough import GOUGH_ROUTE_ALLOWLIST, PRODUCT_TYPE, SCOPES
 from app.adapters.gough.routes import _INT_ID, _UUID_ID
-from app.authz import SCOPE_PRODUCTS_MANAGE, SCOPE_PRODUCTS_READ
+from app.tenancy.authz import PRODUCT_SCOPE_ACTIONS
 
-READ = SCOPE_PRODUCTS_READ
-WRITE = SCOPE_PRODUCTS_MANAGE
+READ = product_scope(PRODUCT_TYPE, "read")
+WRITE = product_scope(PRODUCT_TYPE, "manage")
 
 
 def _match(method: str, path: str) -> RouteRule | None:
@@ -203,18 +203,23 @@ class TestTraversalAndAnchoring:
         assert used == set(SCOPES)
 
     def test_declared_scopes_are_ones_the_portal_actually_mints(self) -> None:
-        """The rules must name scopes that exist in app/authz.py.
+        """The rules must name scopes the minter can actually produce.
 
-        ``routes.py`` duplicates these literals rather than importing them —
-        ``app.authz`` imports ``app.adapters.base``, so importing it there
-        would make the two packages mutually dependent at import time. This is
-        what stops the copies drifting.
-
-        It is also the regression guard for the brief's ``gough:{resource}:
-        {read|write}`` scheme: nothing mints those, so an allowlist demanding
-        one would 403 every token the portal can issue while looking stricter.
+        Regression guard for the brief's ``gough:{resource}:{read|write}``
+        scheme: nothing mints those, so an allowlist demanding one would 403
+        every token the portal can issue while looking stricter. The
+        ``products:`` namespace IS minted — ``resolve_scopes`` expands the
+        coarse grant across a tenant's connected product types — and
+        ``test_product_scopes.py`` proves a real token carries these two.
         """
-        assert set(SCOPES) == {SCOPE_PRODUCTS_READ, SCOPE_PRODUCTS_MANAGE}
+        assert set(SCOPES) == {
+            f"{PRODUCT_SCOPE_NAMESPACE}:{PRODUCT_TYPE}:read",
+            f"{PRODUCT_SCOPE_NAMESPACE}:{PRODUCT_TYPE}:manage",
+        }
+        for scope in SCOPES:
+            assert scope in {
+                product_scope(PRODUCT_TYPE, action) for action in PRODUCT_SCOPE_ACTIONS
+            }
 
     def test_write_scopes_guard_every_mutating_verb(self) -> None:
         """No mutating route may be reachable with a read scope.
