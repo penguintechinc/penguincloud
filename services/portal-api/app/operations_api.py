@@ -24,22 +24,37 @@ where it came from.
 
 Security
 ========
-Every route resolves the connection, enforces a tenant-scoped portal scope,
-then decrypts the credential — in that order, matching the ordering
-established for the proxy in Phase 3 (A1). Reads require ``products:read``;
-cancel is a mutation and requires ``products:manage``. Nothing here accepts a
-caller-supplied path: ``kind`` is validated by the adapter against a literal
-set, and ``operation_id`` is validated before it can reach a URL segment.
+Every route resolves the connection, checks tenant membership, enforces a
+scope, then decrypts the credential — in that order, matching the ordering
+established for the proxy in Phase 3 (A1).
+
+Scopes are **per-product**: ``products:{product_type}:read`` for the polls and
+the log tail, ``products:{product_type}:manage`` for cancel. Deriving the
+scope from the connection's own product type is what makes these routes part
+of the same authorisation model as the proxy allowlist. Gating them on the
+coarse ``products:read`` / ``products:manage`` instead — as this module did
+originally — meant the model's motivating principal, an operator granted
+``products:gough:manage`` and nothing else, was refused the ability to poll or
+cancel the very deploy they had just been authorised to start. The coarse
+scopes still work: :class:`~app.adapters.base.RBACEnforcer` treats them as
+satisfying the per-product form.
+
+A non-member gets **404, not 403** — see the oracle note in :func:`_resolve`.
+
+Nothing here accepts a caller-supplied path: ``kind`` is validated by the
+adapter against a literal set, and ``operation_id`` is validated before it can
+reach a URL segment.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 
 from quart import Blueprint, request
+from quart_schema import validate_response
 
 from .adapters import get_adapter
 from .adapters.base import (
@@ -48,8 +63,9 @@ from .adapters.base import (
     Operation,
     OperationState,
     adapter_error_status,
+    product_scope,
 )
-from .authz import SCOPE_PRODUCTS_MANAGE, SCOPE_PRODUCTS_READ, require_tenant_scope
+from .authz import require_tenant_scope
 from .encryption import decrypt_value
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -58,6 +74,7 @@ from .models import (
     get_product_tenant_map,
 )
 from .tenancy import tenancy_aware
+from .tenancy.authz import resolve_effective_role
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +86,19 @@ _MAX_PER_PAGE = 100
 
 #: Upper bound on log lines per request, matching Gough's own cap.
 _MAX_TAIL = 1000
+
+#: The single "you get nothing" answer. Shared so that "no such connection"
+#: and "not your tenant" are byte-identical — see the oracle note in
+#: :func:`_resolve`.
+_NOT_FOUND: Final[tuple[dict[str, Any], int]] = (
+    {"error": "Product connection not found"},
+    404,
+)
+
+#: Scope actions these routes require. Reads poll and tail logs; cancel
+#: changes what the product is doing to real hardware, so it is a mutation.
+_ACTION_READ: Final[str] = "read"
+_ACTION_MANAGE: Final[str] = "manage"
 
 
 @dataclass(slots=True, frozen=True)
@@ -92,6 +122,8 @@ class OperationView:
     progress: float | None
     detail: str | None
     error: str | None
+    #: What a succeeded operation produced. See :attr:`Operation.result`.
+    result: dict[str, Any] | None
     created_at: str | None
     updated_at: str | None
     completed_at: str | None
@@ -104,6 +136,14 @@ class OperationView:
         ``state``: it is the flag the UI's refetch loop branches on, and
         deriving it client-side means every consumer re-implements the
         terminal-state set and one of them gets it wrong.
+
+        ``metadata`` is deliberately NOT published. It is the adapter's
+        free-form bag, with no declared schema, so publishing it would make
+        every key an adapter happens to stash there part of the portal's wire
+        contract by accident — the output-validation failure this DTO exists
+        to prevent. An adapter with something the UI must render puts it in
+        ``result`` (or asks for a typed field), which is exactly why
+        ``result`` had to exist.
         """
         return cls(
             id=operation.id,
@@ -116,10 +156,41 @@ class OperationView:
             progress=operation.progress,
             detail=operation.detail,
             error=operation.error,
+            result=operation.result,
             created_at=_iso(operation.created_at),
             updated_at=_iso(operation.updated_at),
             completed_at=_iso(operation.completed_at),
         )
+
+
+@dataclass(slots=True, frozen=True)
+class OperationListResponse:
+    """Envelope for a page of operations."""
+
+    operations: list[OperationView]
+    page: int
+    per_page: int
+    #: Absent for cursor paginators — see :class:`~app.adapters.base.Page`.
+    total: int | None
+    has_more: bool
+
+
+@dataclass(slots=True, frozen=True)
+class OperationLogLineView:
+    """Wire shape for one log line."""
+
+    message: str
+    level: str
+    timestamp: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class OperationLogsResponse:
+    """Envelope for an operation's log lines, oldest first."""
+
+    logs: list[OperationLogLineView]
+    operation_id: str
+    kind: str
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -128,14 +199,19 @@ def _iso(value: datetime | None) -> str | None:
 
 
 async def _resolve(
-    product_id: int, scope: str
+    product_id: int, action: str
 ) -> tuple[AdapterContext, str, None] | tuple[None, None, tuple[dict[str, Any], int]]:
     """Authorise the caller and build the adapter context.
 
+    ``action`` is ``read`` or ``manage``; the required scope is derived from
+    it and the connection's product type, so these routes participate in the
+    per-product scope model rather than stopping at the coarse grant. See
+    "Per-product scopes" in :mod:`app.adapters.base`.
+
     Returns ``(ctx, product_type, None)`` on success or
     ``(None, None, error_response)``. Ordering is deliberate and matches the
-    proxy: membership/scope first, so a non-member learns nothing about the
-    connection, and credential decryption last, so an unauthorised request
+    proxy: membership first, then scope, so a non-member learns nothing about
+    the connection, and credential decryption last, so an unauthorised request
     never causes a secret to be decrypted at all.
     """
     user = get_current_user()
@@ -144,15 +220,34 @@ async def _resolve(
 
     conn = await get_product_connection_by_id(product_id)
     if not conn:
-        return None, None, ({"error": "Product connection not found"}, 404)
+        return None, None, _NOT_FOUND
 
-    denied = await require_tenant_scope(user["id"], conn["tenant_id"], scope)
+    # Membership before anything that distinguishes this connection from a
+    # non-existent one, and a 404 rather than a 403 when it fails.
+    #
+    # A 403 here would answer "this id exists, in a tenant that is not yours"
+    # while a 404 answers "no such id" — so a caller in any tenant could walk
+    # product_ids and map every connection in the deployment, including how
+    # many other tenants exist and roughly when each was created. The scope
+    # check below still answers 403, which is correct and not an oracle: it
+    # is only reachable by someone already established as a member of that
+    # tenant, so it discloses nothing they did not already have.
+    portal_tenant_id = conn["tenant_id"]
+    if await resolve_effective_role(user["id"], portal_tenant_id) is None:
+        return None, None, _NOT_FOUND
+
+    product_type_for_scope = str(conn.get("product_type", ""))
+    denied = await require_tenant_scope(
+        user["id"],
+        portal_tenant_id,
+        product_scope(product_type_for_scope, action),
+    )
     if denied:
         return None, None, denied
 
     conn_raw = await get_product_connection_raw(product_id)
     if not conn_raw:
-        return None, None, ({"error": "Product connection not found"}, 404)
+        return None, None, _NOT_FOUND
 
     if not conn_raw.get("is_active", True):
         # Same kill switch the proxy honours: a deactivated connection must
@@ -204,11 +299,12 @@ def _failure(
 @operations_bp.route("/<int:product_id>/operations", methods=["GET"])
 @auth_required
 @tenancy_aware
-async def list_operations(product_id: int) -> tuple[dict[str, Any], int]:
+@validate_response(OperationListResponse)
+async def list_operations(product_id: int) -> tuple[Any, int]:
     """List a product's long-running operations, newest first."""
-    ctx, product_type, error = await _resolve(product_id, SCOPE_PRODUCTS_READ)
+    ctx, product_type, error = await _resolve(product_id, _ACTION_READ)
     if error is not None or ctx is None or product_type is None:
-        return error or ({"error": "Product connection not found"}, 404)
+        return error or _NOT_FOUND
 
     args = request.args
     try:
@@ -241,13 +337,16 @@ async def list_operations(product_id: int) -> tuple[dict[str, Any], int]:
     except AdapterError as exc:
         return _failure(exc, product_id, "list_operations")
 
-    return {
-        "operations": [asdict(OperationView.of(item)) for item in result.items],
-        "page": result.page,
-        "per_page": result.per_page,
-        "total": result.total,
-        "has_more": result.has_more,
-    }, 200
+    return (
+        OperationListResponse(
+            operations=[OperationView.of(item) for item in result.items],
+            page=result.page,
+            per_page=result.per_page,
+            total=result.total,
+            has_more=result.has_more,
+        ),
+        200,
+    )
 
 
 @operations_bp.route(
@@ -255,13 +354,14 @@ async def list_operations(product_id: int) -> tuple[dict[str, Any], int]:
 )
 @auth_required
 @tenancy_aware
+@validate_response(OperationView)
 async def get_operation(
     product_id: int, kind: str, operation_id: str
-) -> tuple[dict[str, Any], int]:
+) -> tuple[Any, int]:
     """Poll one operation. This is the route the UI's refetch loop calls."""
-    ctx, product_type, error = await _resolve(product_id, SCOPE_PRODUCTS_READ)
+    ctx, product_type, error = await _resolve(product_id, _ACTION_READ)
     if error is not None or ctx is None or product_type is None:
-        return error or ({"error": "Product connection not found"}, 404)
+        return error or _NOT_FOUND
 
     adapter = get_adapter(product_type, ctx)
     try:
@@ -269,7 +369,7 @@ async def get_operation(
     except AdapterError as exc:
         return _failure(exc, product_id, "get_operation")
 
-    return asdict(OperationView.of(operation)), 200
+    return OperationView.of(operation), 200
 
 
 @operations_bp.route(
@@ -277,17 +377,18 @@ async def get_operation(
 )
 @auth_required
 @tenancy_aware
+@validate_response(OperationView)
 async def cancel_operation(
     product_id: int, kind: str, operation_id: str
-) -> tuple[dict[str, Any], int]:
+) -> tuple[Any, int]:
     """Request cancellation and return the operation's resulting state.
 
     Requires ``products:manage``: cancelling a deploy mid-flight changes what
     the product does with real hardware, which is not a read.
     """
-    ctx, product_type, error = await _resolve(product_id, SCOPE_PRODUCTS_MANAGE)
+    ctx, product_type, error = await _resolve(product_id, _ACTION_MANAGE)
     if error is not None or ctx is None or product_type is None:
-        return error or ({"error": "Product connection not found"}, 404)
+        return error or _NOT_FOUND
 
     adapter = get_adapter(product_type, ctx)
     try:
@@ -295,7 +396,7 @@ async def cancel_operation(
     except AdapterError as exc:
         return _failure(exc, product_id, "cancel_operation")
 
-    return asdict(OperationView.of(operation)), 200
+    return OperationView.of(operation), 200
 
 
 @operations_bp.route(
@@ -303,17 +404,18 @@ async def cancel_operation(
 )
 @auth_required
 @tenancy_aware
+@validate_response(OperationLogsResponse)
 async def operation_logs(
     product_id: int, kind: str, operation_id: str
-) -> tuple[dict[str, Any], int]:
+) -> tuple[Any, int]:
     """Return an operation's log lines, oldest first.
 
     ``since`` lets the DetailDrawer's log tab fetch only what is new on each
     poll instead of re-reading the whole stream every interval.
     """
-    ctx, product_type, error = await _resolve(product_id, SCOPE_PRODUCTS_READ)
+    ctx, product_type, error = await _resolve(product_id, _ACTION_READ)
     if error is not None or ctx is None or product_type is None:
-        return error or ({"error": "Product connection not found"}, 404)
+        return error or _NOT_FOUND
 
     args = request.args
     try:
@@ -337,15 +439,18 @@ async def operation_logs(
     except AdapterError as exc:
         return _failure(exc, product_id, "operation_logs")
 
-    return {
-        "logs": [
-            {
-                "message": line.message,
-                "level": line.level,
-                "timestamp": _iso(line.timestamp),
-            }
-            for line in lines
-        ],
-        "operation_id": operation_id,
-        "kind": kind,
-    }, 200
+    return (
+        OperationLogsResponse(
+            logs=[
+                OperationLogLineView(
+                    message=line.message,
+                    level=line.level,
+                    timestamp=_iso(line.timestamp),
+                )
+                for line in lines
+            ],
+            operation_id=operation_id,
+            kind=kind,
+        ),
+        200,
+    )

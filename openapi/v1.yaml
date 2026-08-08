@@ -3,6 +3,118 @@
 # Source: services/portal-api route table (API v1).
 components:
   schemas:
+    OperationLogLineView:
+      description: Wire shape for one log line.
+      properties:
+        level:
+          title: Level
+          type: string
+        message:
+          title: Message
+          type: string
+        timestamp:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Timestamp
+      required:
+        - message
+        - level
+        - timestamp
+      title: OperationLogLineView
+      type: object
+    OperationView:
+      description: 'Wire shape for one operation.
+
+
+        An explicit DTO rather than serialising the dataclass directly: the
+
+        response schema is enforced field by field, so a future field added to
+
+        :class:`Operation` for internal use cannot silently start being published
+
+        (see the output-validation rule — an unvalidated response is as dangerous
+
+        as an unvalidated request, just harder to notice).'
+      properties:
+        completed_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Completed At
+        created_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Created At
+        detail:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Detail
+        error:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Error
+        id:
+          title: Id
+          type: string
+        is_terminal:
+          title: Is Terminal
+          type: boolean
+        kind:
+          title: Kind
+          type: string
+        progress:
+          anyOf:
+            - type: number
+            - type: 'null'
+          title: Progress
+        resource_id:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource Id
+        resource_kind:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource Kind
+        result:
+          anyOf:
+            - additionalProperties: true
+              type: object
+            - type: 'null'
+          title: Result
+        state:
+          title: State
+          type: string
+        status:
+          title: Status
+          type: string
+        updated_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Updated At
+      required:
+        - id
+        - kind
+        - state
+        - status
+        - is_terminal
+        - resource_id
+        - resource_kind
+        - progress
+        - detail
+        - error
+        - result
+        - created_at
+        - updated_at
+        - completed_at
+      title: OperationView
+      type: object
     RollupEntry:
       description: Per-tenant rollup row.
       properties:
@@ -813,9 +925,41 @@ paths:
           schema:
             type: number
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for a page of operations.
+                properties:
+                  has_more:
+                    title: Has More
+                    type: boolean
+                  operations:
+                    items:
+                      $ref: '#/components/schemas/OperationView'
+                    maxItems: 10000
+                    title: Operations
+                    type: array
+                  page:
+                    title: Page
+                    type: integer
+                  per_page:
+                    title: Per Page
+                    type: integer
+                  total:
+                    anyOf:
+                      - type: integer
+                      - type: 'null'
+                    title: Total
+                required:
+                  - operations
+                  - page
+                  - per_page
+                  - total
+                  - has_more
+                title: OperationListResponse
+                type: object
+          description: Envelope for a page of operations.
       summary: List a product's long-running operations, newest first.
   /api/v1/products/{product_id}/operations/{kind}/{operation_id}:
     get:
@@ -838,9 +982,113 @@ paths:
           schema:
             type: string
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Wire shape for one operation.
+
+
+                  An explicit DTO rather than serialising the dataclass directly: the
+
+                  response schema is enforced field by field, so a future field added to
+
+                  :class:`Operation` for internal use cannot silently start being published
+
+                  (see the output-validation rule — an unvalidated response is as dangerous
+
+                  as an unvalidated request, just harder to notice).'
+                properties:
+                  completed_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Completed At
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  detail:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Detail
+                  error:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Error
+                  id:
+                    title: Id
+                    type: string
+                  is_terminal:
+                    title: Is Terminal
+                    type: boolean
+                  kind:
+                    title: Kind
+                    type: string
+                  progress:
+                    anyOf:
+                      - type: number
+                      - type: 'null'
+                    title: Progress
+                  resource_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Resource Id
+                  resource_kind:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Resource Kind
+                  result:
+                    anyOf:
+                      - additionalProperties: true
+                        type: object
+                      - type: 'null'
+                    title: Result
+                  state:
+                    title: State
+                    type: string
+                  status:
+                    title: Status
+                    type: string
+                  updated_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Updated At
+                required:
+                  - id
+                  - kind
+                  - state
+                  - status
+                  - is_terminal
+                  - resource_id
+                  - resource_kind
+                  - progress
+                  - detail
+                  - error
+                  - result
+                  - created_at
+                  - updated_at
+                  - completed_at
+                title: OperationView
+                type: object
+          description: 'Wire shape for one operation.
+
+
+            An explicit DTO rather than serialising the dataclass directly: the
+
+            response schema is enforced field by field, so a future field added to
+
+            :class:`Operation` for internal use cannot silently start being published
+
+            (see the output-validation rule — an unvalidated response is as dangerous
+
+            as an unvalidated request, just harder to notice).'
       summary: Poll one operation. This is the route the UI's refetch loop calls.
   /api/v1/products/{product_id}/operations/{kind}/{operation_id}/cancel:
     post:
@@ -867,9 +1115,113 @@ paths:
           schema:
             type: string
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Wire shape for one operation.
+
+
+                  An explicit DTO rather than serialising the dataclass directly: the
+
+                  response schema is enforced field by field, so a future field added to
+
+                  :class:`Operation` for internal use cannot silently start being published
+
+                  (see the output-validation rule — an unvalidated response is as dangerous
+
+                  as an unvalidated request, just harder to notice).'
+                properties:
+                  completed_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Completed At
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  detail:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Detail
+                  error:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Error
+                  id:
+                    title: Id
+                    type: string
+                  is_terminal:
+                    title: Is Terminal
+                    type: boolean
+                  kind:
+                    title: Kind
+                    type: string
+                  progress:
+                    anyOf:
+                      - type: number
+                      - type: 'null'
+                    title: Progress
+                  resource_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Resource Id
+                  resource_kind:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Resource Kind
+                  result:
+                    anyOf:
+                      - additionalProperties: true
+                        type: object
+                      - type: 'null'
+                    title: Result
+                  state:
+                    title: State
+                    type: string
+                  status:
+                    title: Status
+                    type: string
+                  updated_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Updated At
+                required:
+                  - id
+                  - kind
+                  - state
+                  - status
+                  - is_terminal
+                  - resource_id
+                  - resource_kind
+                  - progress
+                  - detail
+                  - error
+                  - result
+                  - created_at
+                  - updated_at
+                  - completed_at
+                title: OperationView
+                type: object
+          description: 'Wire shape for one operation.
+
+
+            An explicit DTO rather than serialising the dataclass directly: the
+
+            response schema is enforced field by field, so a future field added to
+
+            :class:`Operation` for internal use cannot silently start being published
+
+            (see the output-validation rule — an unvalidated response is as dangerous
+
+            as an unvalidated request, just harder to notice).'
       summary: Request cancellation and return the operation's resulting state.
   /api/v1/products/{product_id}/operations/{kind}/{operation_id}/logs:
     get:
@@ -896,9 +1248,31 @@ paths:
           schema:
             type: string
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for an operation's log lines, oldest first.
+                properties:
+                  kind:
+                    title: Kind
+                    type: string
+                  logs:
+                    items:
+                      $ref: '#/components/schemas/OperationLogLineView'
+                    maxItems: 10000
+                    title: Logs
+                    type: array
+                  operation_id:
+                    title: Operation Id
+                    type: string
+                required:
+                  - logs
+                  - operation_id
+                  - kind
+                title: OperationLogsResponse
+                type: object
+          description: Envelope for an operation's log lines, oldest first.
       summary: Return an operation's log lines, oldest first.
   /api/v1/products/{product_id}/schema:
     get:

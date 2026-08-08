@@ -463,9 +463,29 @@ class Operation:
     detail: str | None = None
     #: Set only in the FAILED state; the product's reason.
     error: str | None = None
+    #: What a SUCCEEDED operation produced, when it produced something.
+    #:
+    #: The success counterpart of :attr:`error`, and the contract was
+    #: asymmetric without it: an operation could report why it failed but had
+    #: nowhere to report what it made. That is not a hypothetical gap —
+    #: Nest's snapshot / restore / migrate all finish by producing an
+    #: artefact (a snapshot id, a restore target, a migration report), and
+    #: with no ``result`` channel the adapter's only options were to smuggle
+    #: it through free-form ``metadata`` (unvalidated, undocumented, and
+    #: dropped by :class:`OperationView`) or to make the UI re-fetch the
+    #: resource and guess which change was the one it started.
+    #:
+    #: Typed as a dict rather than a string because a produced artefact is
+    #: usually identified by more than one field, and ``None`` when the
+    #: operation produced nothing — which is how a caller distinguishes "no
+    #: artefact" from "an empty one".
+    result: dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+    #: Genuinely product-specific extras. NOT a substitute for :attr:`result`
+    #: — anything the portal is expected to render belongs in a typed field,
+    #: because ``OperationView`` deliberately does not publish this.
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

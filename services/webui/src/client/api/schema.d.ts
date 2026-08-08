@@ -1345,6 +1345,60 @@ export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
     /**
+     * OperationLogLineView
+     * @description Wire shape for one log line.
+     */
+    OperationLogLineView: {
+      /** Level */
+      level: string;
+      /** Message */
+      message: string;
+      /** Timestamp */
+      timestamp: string | null;
+    };
+    /**
+     * OperationView
+     * @description Wire shape for one operation.
+     *
+     *     An explicit DTO rather than serialising the dataclass directly: the
+     *     response schema is enforced field by field, so a future field added to
+     *     :class:`Operation` for internal use cannot silently start being published
+     *     (see the output-validation rule — an unvalidated response is as dangerous
+     *     as an unvalidated request, just harder to notice).
+     */
+    OperationView: {
+      /** Completed At */
+      completed_at: string | null;
+      /** Created At */
+      created_at: string | null;
+      /** Detail */
+      detail: string | null;
+      /** Error */
+      error: string | null;
+      /** Id */
+      id: string;
+      /** Is Terminal */
+      is_terminal: boolean;
+      /** Kind */
+      kind: string;
+      /** Progress */
+      progress: number | null;
+      /** Resource Id */
+      resource_id: string | null;
+      /** Resource Kind */
+      resource_kind: string | null;
+      /** Result */
+      result: {
+        [key: string]: unknown;
+      } | null;
+      /** State */
+      state: string;
+      /** Status */
+      status: string;
+      /** Updated At */
+      updated_at: string | null;
+    };
+    /**
      * RollupEntry
      * @description Per-tenant rollup row.
      */
@@ -2283,12 +2337,25 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /** @description Envelope for a page of operations. */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Has More */
+            has_more: boolean;
+            /** Operations */
+            operations: components["schemas"]["OperationView"][];
+            /** Page */
+            page: number;
+            /** Per Page */
+            per_page: number;
+            /** Total */
+            total: number | null;
+          };
+        };
       };
     };
   };
@@ -2305,12 +2372,53 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Wire shape for one operation.
+       *
+       *     An explicit DTO rather than serialising the dataclass directly: the
+       *     response schema is enforced field by field, so a future field added to
+       *     :class:`Operation` for internal use cannot silently start being published
+       *     (see the output-validation rule — an unvalidated response is as dangerous
+       *     as an unvalidated request, just harder to notice).
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Completed At */
+            completed_at: string | null;
+            /** Created At */
+            created_at: string | null;
+            /** Detail */
+            detail: string | null;
+            /** Error */
+            error: string | null;
+            /** Id */
+            id: string;
+            /** Is Terminal */
+            is_terminal: boolean;
+            /** Kind */
+            kind: string;
+            /** Progress */
+            progress: number | null;
+            /** Resource Id */
+            resource_id: string | null;
+            /** Resource Kind */
+            resource_kind: string | null;
+            /** Result */
+            result: {
+              [key: string]: unknown;
+            } | null;
+            /** State */
+            state: string;
+            /** Status */
+            status: string;
+            /** Updated At */
+            updated_at: string | null;
+          };
+        };
       };
     };
   };
@@ -2327,12 +2435,53 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Wire shape for one operation.
+       *
+       *     An explicit DTO rather than serialising the dataclass directly: the
+       *     response schema is enforced field by field, so a future field added to
+       *     :class:`Operation` for internal use cannot silently start being published
+       *     (see the output-validation rule — an unvalidated response is as dangerous
+       *     as an unvalidated request, just harder to notice).
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Completed At */
+            completed_at: string | null;
+            /** Created At */
+            created_at: string | null;
+            /** Detail */
+            detail: string | null;
+            /** Error */
+            error: string | null;
+            /** Id */
+            id: string;
+            /** Is Terminal */
+            is_terminal: boolean;
+            /** Kind */
+            kind: string;
+            /** Progress */
+            progress: number | null;
+            /** Resource Id */
+            resource_id: string | null;
+            /** Resource Kind */
+            resource_kind: string | null;
+            /** Result */
+            result: {
+              [key: string]: unknown;
+            } | null;
+            /** State */
+            state: string;
+            /** Status */
+            status: string;
+            /** Updated At */
+            updated_at: string | null;
+          };
+        };
       };
     };
   };
@@ -2349,12 +2498,21 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /** @description Envelope for an operation's log lines, oldest first. */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Kind */
+            kind: string;
+            /** Logs */
+            logs: components["schemas"]["OperationLogLineView"][];
+            /** Operation Id */
+            operation_id: string;
+          };
+        };
       };
     };
   };

@@ -12,8 +12,10 @@ through the HTTP layer would test httpx twice and the route logic once.
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Iterator
+from unittest import mock
 
 import pytest
 from quart import Quart
@@ -28,6 +30,10 @@ from app.adapters.base import (
 )
 
 PRODUCT_SECRET = "-".join(("not", "a", "real", "operations", "credential"))
+
+#: Patch target for scope resolution. `has_tenant_scope` looks the name up on
+#: `app.authz` at call time, so this is the binding that has to be replaced.
+_AUTHZ_MODULE = "app.authz"
 
 
 async def _register(client: Any) -> tuple[int, str]:
@@ -82,6 +88,26 @@ async def _create_connection(app: Quart, tenant_id: int) -> int:
         assert conn_id is not None
         await set_product_tenant_map(conn_id, tenant_id, "tenant_id", "ext-ops")
         return int(conn_id)
+
+
+@contextmanager
+def _patched_scopes(replacement: Any) -> Iterator[None]:
+    """Run a block with a specific scope set granted to every caller.
+
+    Patched at ``app.authz.resolve_scopes`` — the name ``has_tenant_scope``
+    actually calls — rather than at its definition, so the substitution is
+    effective regardless of how the module imported it. The real
+    :class:`~app.adapters.base.RBACEnforcer` still decides whether the granted
+    set satisfies the requirement, so the coarse-implies-per-product relation
+    is exercised for real rather than stubbed.
+
+    Uses ``mock.patch`` with a STRING target rather than assigning to the
+    module attribute: ``mypy --strict`` rejects the assignment form with
+    "Module does not explicitly export attribute", and the pre-commit hook
+    runs mypy on staged test files.
+    """
+    with mock.patch(f"{_AUTHZ_MODULE}.resolve_scopes", replacement):
+        yield
 
 
 def _operation(**overrides: Any) -> Operation:
@@ -249,10 +275,57 @@ class TestPolling:
             "progress",
             "detail",
             "error",
+            # I4: the success counterpart of `error`. Nest's snapshot/restore/
+            # migrate finish by producing an artefact and had nowhere to
+            # report it; `metadata` is not that place, because this DTO
+            # deliberately does not publish it.
+            "result",
             "created_at",
             "updated_at",
             "completed_at",
         }
+
+    async def test_result_is_published_and_metadata_still_is_not(
+        self, client: Any, app: Quart
+    ) -> None:
+        """I4: a produced artefact reaches the wire; internals still do not.
+
+        Both halves matter. Publishing `result` is what gives an adapter a
+        declared channel for what an operation made; keeping `metadata`
+        unpublished is what stops that channel from becoming "serialise
+        everything".
+        """
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.operation = _operation(
+            state=OperationState.SUCCEEDED,
+            status="succeeded",
+            result={"snapshot_id": "snap-42", "bytes": 1024},
+            metadata={"logs_url": "/internal/secret"},
+        )
+
+        response = await client.get(
+            f"/api/v1/products/{conn_id}/operations/deployment/77", headers=headers
+        )
+
+        body = await response.get_json()
+        assert body["result"] == {"snapshot_id": "snap-42", "bytes": 1024}
+        assert "metadata" not in body
+        assert "/internal/secret" not in str(body)
+
+    async def test_result_is_null_when_the_operation_produced_nothing(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Absent, not omitted — a caller can tell "none" from "not sent"."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.operation = _operation()
+
+        response = await client.get(
+            f"/api/v1/products/{conn_id}/operations/deployment/77", headers=headers
+        )
+
+        body = await response.get_json()
+        assert "result" in body
+        assert body["result"] is None
 
     async def test_capability_error_is_501_not_500(
         self, client: Any, app: Quart
@@ -301,29 +374,126 @@ class TestAuthorization:
     ) -> None:
         """Cancelling a deploy changes what the product does with hardware.
 
-        Structural rather than behavioural, and deliberately so: every handler
-        obtains its scope from the same ``_resolve`` call, so the thing that
-        can regress is which constant is passed. This reads the actual source
-        of each handler and asserts it — a swap to ``SCOPE_PRODUCTS_READ`` on
-        cancel would make write access reachable with a viewer's token, and
-        this fails on that edit.
+        Behavioural now, not source inspection. The previous version grepped
+        each handler for ``SCOPE_PRODUCTS_MANAGE``; that could only ever check
+        which *constant name* was typed, so it passed while the routes were
+        gated on the coarse scope and would have kept passing if the required
+        scope had been renamed but not enforced.
         """
-        import inspect
+        conn_id, headers = await _setup(client, app)
 
-        from app import operations_api
+        granted: list[str] = []
 
-        cancel_src = inspect.getsource(operations_api.cancel_operation)
-        assert "SCOPE_PRODUCTS_MANAGE" in cancel_src
-        assert "SCOPE_PRODUCTS_READ" not in cancel_src
+        async def _only(user_id: int, tenant_id: int) -> list[str]:
+            return list(granted)
 
-        for handler in (
-            operations_api.get_operation,
-            operations_api.list_operations,
-            operations_api.operation_logs,
-        ):
-            source = inspect.getsource(handler)
-            assert "SCOPE_PRODUCTS_READ" in source, handler.__name__
-            assert "SCOPE_PRODUCTS_MANAGE" not in source, handler.__name__
+        with _patched_scopes(_only):
+            granted[:] = ["products:gough:read"]
+            poll = await client.get(
+                f"/api/v1/products/{conn_id}/operations/deployment/77",
+                headers=headers,
+            )
+            cancel = await client.post(
+                f"/api/v1/products/{conn_id}/operations/deployment/77/cancel",
+                headers=headers,
+            )
+
+        assert poll.status_code == 200
+        assert cancel.status_code == 403, "read scope reached a mutating route"
+
+    async def test_a_gough_only_scope_drives_gough_operations(
+        self, client: Any, app: Quart
+    ) -> None:
+        """I3: the per-product model must not stop at the proxy.
+
+        The principal these scopes exist for holds ``products:gough:manage``
+        and no coarse grant. Before this fix the operations routes required
+        ``products:read``/``products:manage``, so that principal could start a
+        deploy through the proxy and was then refused permission to poll it,
+        cancel it, or read its logs.
+        """
+        conn_id, headers = await _setup(client, app)
+
+        async def _gough_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:gough:read", "products:gough:manage"]
+
+        with _patched_scopes(_gough_only):
+            listed = await client.get(
+                f"/api/v1/products/{conn_id}/operations", headers=headers
+            )
+            polled = await client.get(
+                f"/api/v1/products/{conn_id}/operations/deployment/77",
+                headers=headers,
+            )
+            logs = await client.get(
+                f"/api/v1/products/{conn_id}/operations/deployment/77/logs",
+                headers=headers,
+            )
+            cancelled = await client.post(
+                f"/api/v1/products/{conn_id}/operations/deployment/77/cancel",
+                headers=headers,
+            )
+
+        assert listed.status_code == 200
+        assert polled.status_code == 200
+        assert logs.status_code == 200
+        assert cancelled.status_code == 200
+
+    async def test_another_products_scope_cannot_touch_a_gough_operation(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Selectivity, the direction that actually proves the gate.
+
+        A scope for a different product must not open this connection. Without
+        this half, granting every per-product scope would look identical to
+        granting the right one.
+        """
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.seen_ctx = None
+
+        async def _nest_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:nest:read", "products:nest:manage"]
+
+        with _patched_scopes(_nest_only):
+            polled = await client.get(
+                f"/api/v1/products/{conn_id}/operations/deployment/77",
+                headers=headers,
+            )
+            cancelled = await client.post(
+                f"/api/v1/products/{conn_id}/operations/deployment/77/cancel",
+                headers=headers,
+            )
+
+        assert polled.status_code == 403
+        assert cancelled.status_code == 403
+        assert StubAdapter.seen_ctx is None, "adapter was reached without scope"
+
+    async def test_coarse_scope_still_satisfies_the_per_product_form(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The implication is what makes this change non-breaking.
+
+        Every existing tenant admin holds only the coarse grant, so if the
+        per-product requirement did not accept it, this fix would have locked
+        out every current operator.
+        """
+        conn_id, headers = await _setup(client, app)
+
+        async def _coarse(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:read", "products:manage"]
+
+        with _patched_scopes(_coarse):
+            polled = await client.get(
+                f"/api/v1/products/{conn_id}/operations/deployment/77",
+                headers=headers,
+            )
+            cancelled = await client.post(
+                f"/api/v1/products/{conn_id}/operations/deployment/77/cancel",
+                headers=headers,
+            )
+
+        assert polled.status_code == 200
+        assert cancelled.status_code == 200
 
     async def test_cancel_conflict_is_409(self, client: Any, app: Quart) -> None:
         """Cancelling a finished operation is a conflict, not a server error."""
@@ -363,7 +533,13 @@ class TestAuthorization:
             headers=outsider_headers,
         )
 
-        assert response.status_code in (403, 404)
+        # M6: EXACTLY 404, not "403 or 404". The looseness was hiding a
+        # cross-tenant existence oracle: a 403 answers "this id exists, in a
+        # tenant that is not yours" and a 404 answers "no such id", so an
+        # assertion accepting either passes whichever one the code emits and
+        # can never detect the disclosure. A non-member must not be able to
+        # tell an existing connection from an absent one.
+        assert response.status_code == 404
         assert StubAdapter.seen_ctx is None, "adapter was reached by a non-member"
 
     async def test_deactivated_connection_is_refused_before_decryption(
