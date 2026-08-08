@@ -82,6 +82,11 @@ export interface GoughOperation {
   progress?: number | null;
   detail?: string | null;
   error?: string | null;
+  /**
+   * What a succeeded operation produced — the success counterpart of `error`.
+   * Null when the operation produced no artefact.
+   */
+  result?: Record<string, unknown> | null;
   created_at?: string | null;
   updated_at?: string | null;
   completed_at?: string | null;
@@ -96,3 +101,29 @@ export interface GoughOperationLogLine {
 
 /** Every Gough resource a screen in this directory lists. */
 export type GoughResourceKind = "nodes" | "biomes" | "agents";
+
+/** The affected resource's post-action state, when the product returned it. */
+export interface GoughActionResource {
+  id: string;
+  kind: string;
+  name: string;
+  status?: string | null;
+}
+
+/**
+ * Outcome of a product action, from the TYPED portal route.
+ *
+ * `operations` is why this type exists. A proxied action returns the product's
+ * raw body, which carries no poll key — the UI could only invalidate its
+ * queries and hope. Through the typed route each started operation comes back
+ * already addressable at `/operations/{kind}/{id}`, so the UI can follow
+ * exactly the work it started. It is a LIST because one Gough node deploy
+ * starts one deployment per assigned biome.
+ */
+export interface GoughActionResult {
+  action: string;
+  accepted: boolean;
+  operations: GoughOperation[];
+  resource?: GoughActionResource | null;
+  message?: string | null;
+}

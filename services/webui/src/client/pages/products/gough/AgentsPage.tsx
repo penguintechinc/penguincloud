@@ -4,7 +4,7 @@ import {
   DataTable,
   DetailDrawer,
 } from "../../../components/kit";
-import { goughApi } from "../../../api/resources/gough";
+import { goughOperationsApi } from "../../../api/resources/goughOperations";
 import { GoughScreen } from "./GoughScreen";
 import { OperationsPanel } from "./OperationsPanel";
 import { agentColumns } from "./agentColumns";
@@ -36,7 +36,10 @@ export default function AgentsPage() {
 
   const action = useGoughMutation<{ agentId: string; verb: AgentVerb }>(
     "agents",
-    (id, vars) => goughApi.agentAction(id, vars.agentId, vars.verb),
+    // Typed portal route — same action surface as nodes, so a caller does
+    // not have to know which verbs happen to start background work.
+    (id, vars) =>
+      goughOperationsApi.performAction(id, "agents", vars.agentId, vars.verb),
   );
 
   const rows = (data ?? []).map((agent) => ({

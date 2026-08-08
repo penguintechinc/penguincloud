@@ -11,6 +11,7 @@
 
 import api from "../../lib/api";
 import type {
+  GoughActionResult,
   GoughOperation,
   GoughOperationLogLine,
 } from "../../pages/products/gough/types";
@@ -20,6 +21,31 @@ const seg = (value: string | number): string =>
   encodeURIComponent(String(value));
 
 export const goughOperationsApi = {
+  /**
+   * Invoke a product action through the TYPED portal route.
+   *
+   * Not `proxyApi`, and that is the point. Proxying `POST /nodes/{id}/deploy`
+   * forwards Gough's raw 202 to the browser: no normalised state, no poll key,
+   * so the caller can only invalidate its queries and hope the deploy it
+   * started shows up. This route returns an `ActionResult`, so the caller
+   * learns the ids of the deployments it just started and can poll each one.
+   *
+   * See "Which mutations go through which path" in `app/adapters/base.py`.
+   */
+  performAction: async (
+    productId: number,
+    kind: string,
+    resourceId: string,
+    action: string,
+    payload?: Record<string, unknown>,
+  ): Promise<GoughActionResult> => {
+    const response = await api.post(
+      `/products/${productId}/resources/${seg(kind)}/${seg(resourceId)}/actions/${seg(action)}`,
+      payload ?? {},
+    );
+    return response.data as GoughActionResult;
+  },
+
   /** Operations the product is currently running. Portal endpoint, not proxy. */
   listOperations: async (productId: number): Promise<GoughOperation[]> => {
     const response = await api.get(`/products/${productId}/operations`);

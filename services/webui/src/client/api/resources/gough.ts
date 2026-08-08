@@ -14,6 +14,15 @@
  *
  * Operations live in `goughOperations.ts`: they are typed portal routes, not
  * proxied paths, and the two should not be reached for interchangeably.
+ *
+ * **Actions are not here.** `nodeAction`/`agentAction` used to live in this
+ * module and POST through the proxy, which returned Gough's raw 202 to the
+ * browser — no `ActionResult`, no normalised state, no poll key — so the UI
+ * could only invalidate its queries and hope the deploy it started appeared.
+ * They are now `goughOperationsApi.performAction`, on the typed route, which
+ * returns the ids of the operations the action started. What is left in this
+ * module is reads and plain field writes: mutations whose whole result is
+ * already in the product's own response body.
  */
 
 import { proxyApi } from "./products";
@@ -80,23 +89,6 @@ export const goughApi = {
       "agents",
     ),
 
-  /**
-   * A node verb. Gough has no power actions — the fleet verbs are `deploy`
-   * (commissions hardware), `evacuate` (drains it) and `reject` (removes it
-   * from the fleet). All three are destructive or provisioning, so every
-   * caller must confirm first and all require `products:gough:manage`.
-   */
-  nodeAction: async (
-    productId: number,
-    nodeId: string,
-    action: "deploy" | "evacuate" | "reject",
-  ): Promise<unknown> =>
-    proxyApi.request(
-      productId,
-      "POST",
-      `api/v1/nodes/${seg(nodeId)}/${action}`,
-    ),
-
   updateNodeTags: async (
     productId: number,
     nodeId: string,
@@ -126,15 +118,4 @@ export const goughApi = {
 
   deleteBiome: async (productId: number, biomeId: string): Promise<unknown> =>
     proxyApi.request(productId, "DELETE", `api/v1/biomes/${seg(biomeId)}`),
-
-  agentAction: async (
-    productId: number,
-    agentId: string,
-    action: "suspend" | "resume",
-  ): Promise<unknown> =>
-    proxyApi.request(
-      productId,
-      "POST",
-      `api/v1/agents/${seg(agentId)}/${action}`,
-    ),
 };

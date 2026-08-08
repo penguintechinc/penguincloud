@@ -27,9 +27,21 @@ Per-resource granularity (``…:nodes:…`` vs ``…:biomes:…``) is still not
 adopted. Nothing distinguishes those grants either, and a scope no grant
 surface can express is the same dead rule in a smaller form. The enforceable
 split is read vs write, and it is enforced for every rule below:
-``POST /nodes/{id}/deploy`` (provisions hardware) and
-``DELETE /nodes/{id}`` (decommissions it) are unreachable with a read-only
-token, asserted by ``test_write_scopes_guard_every_mutating_verb``.
+``POST /nodes/{id}/evacuate`` (drains hardware) and ``DELETE /nodes/{id}``
+(decommissions it) are unreachable with a read-only token, asserted by
+``test_write_scopes_guard_every_mutating_verb``.
+
+Actions that start pollable work are NOT here
+=============================================
+``POST /nodes/{id}/deploy`` and ``POST /biomes/{id}/upgrade`` are deliberately
+absent. Both answer ``202`` with ids the caller must poll, and the proxy
+forwards a response body verbatim — so proxying either would hand the browser
+Gough's raw payload with no :class:`~app.adapters.base.Operation`, no
+normalised state and no poll key, leaving the UI to invalidate its queries and
+hope. They are served by the typed action route
+(``POST /products/{id}/resources/{kind}/{id}/actions/{action}``), which returns
+an :class:`~app.adapters.base.ActionResult` carrying those ids. See "Which
+mutations go through which path" in :mod:`app.adapters.base`.
 
 Anchoring is enforced by :class:`~app.adapters.base.RouteRule` at
 construction, so a mistake in this module is an ImportError in CI rather
@@ -146,7 +158,13 @@ GOUGH_ROUTE_ALLOWLIST: Final[list[RouteRule]] = [
     # Destructive and provisioning verbs. Deploy commissions hardware,
     # evacuate drains it, reject and delete remove it from the fleet — all
     # write, none reachable with a read scope.
-    RouteRule("POST", rf"^/api/v1/nodes/{_INT_ID}/deploy\Z", _WRITE),
+    # NOT allowlisted: POST /nodes/{id}/deploy. It answers 202 with the
+    # assignment ids the caller must poll, and the proxy forwards a body
+    # verbatim — so a proxied deploy hands the browser Gough's raw payload
+    # with no Operation, no normalised state and no poll key. It is served by
+    # the typed action route instead (`perform_action`), which returns an
+    # ActionResult carrying those ids. See "Which mutations go through which
+    # path" in :mod:`app.adapters.base`.
     RouteRule("POST", rf"^/api/v1/nodes/{_INT_ID}/evacuate\Z", _WRITE),
     RouteRule("POST", rf"^/api/v1/nodes/{_INT_ID}/reject\Z", _WRITE),
     RouteRule("POST", rf"^/api/v1/nodes/{_INT_ID}/biomes\Z", _WRITE),
@@ -167,7 +185,8 @@ GOUGH_ROUTE_ALLOWLIST: Final[list[RouteRule]] = [
     RouteRule("POST", r"^/api/v1/biomes/?\Z", _WRITE),
     RouteRule("PUT", rf"^/api/v1/biomes/{_INT_ID}\Z", _WRITE),
     RouteRule("DELETE", rf"^/api/v1/biomes/{_INT_ID}\Z", _WRITE),
-    RouteRule("POST", rf"^/api/v1/biomes/{_INT_ID}/upgrade\Z", _WRITE),
+    # NOT allowlisted for the same reason as node deploy: upgrade answers
+    # 202 with an upgrade_run_id to poll. Typed action route only.
     # -- operations (deployments + upgrade runs) --------------------------
     RouteRule("GET", r"^/api/v1/biomes/deployments\Z", _READ),
     RouteRule("GET", rf"^/api/v1/biomes/deployments/{_OPAQUE_ID}\Z", _READ),

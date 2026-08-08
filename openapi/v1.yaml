@@ -3,6 +3,37 @@
 # Source: services/portal-api route table (API v1).
 components:
   schemas:
+    ActionResourceView:
+      description: 'The affected resource''s post-action state, when the product returned it.
+
+
+        A named subset rather than the whole :class:`~app.adapters.base.Resource`:
+
+        ``metadata`` is the adapter''s free-form bag and is not published here for
+
+        the same reason :class:`OperationView` omits it.'
+      properties:
+        id:
+          title: Id
+          type: string
+        kind:
+          title: Kind
+          type: string
+        name:
+          title: Name
+          type: string
+        status:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Status
+      required:
+        - id
+        - kind
+        - name
+        - status
+      title: ActionResourceView
+      type: object
     OperationLogLineView:
       description: Wire shape for one log line.
       properties:
@@ -1274,6 +1305,121 @@ paths:
                 type: object
           description: Envelope for an operation's log lines, oldest first.
       summary: Return an operation's log lines, oldest first.
+  /api/v1/products/{product_id}/resources/{kind}/{resource_id}/actions/{action}:
+    post:
+      description: '
+
+        This is the TYPED path for actions, and it exists because the proxy
+
+        cannot serve this case. Proxying ``POST /nodes/{id}/deploy`` forwards
+
+        Gough''s raw ``202`` body to the browser, which leaves the UI holding a
+
+        product-specific payload with no :class:`ActionResult`, no normalised
+
+        state, and no poll key — so it can only invalidate its queries and hope
+
+        the deploy it just started eventually shows up somewhere.
+
+
+        Going through :meth:`Adapter.perform_action` instead means the response
+
+        carries the deployment ids as :class:`OperationView` objects, each already
+
+        addressable at ``/operations/{kind}/{id}``. The UI learns exactly what it
+
+        started. See "Which mutations go through which path" in
+
+        :mod:`app.adapters.base`.
+
+
+        Requires ``manage``: every action reaching here changes product state.
+
+        ``kind`` and ``action`` are validated by the adapter against literal
+
+        tables before any URL is built — neither is interpolated into a path here.'
+      operationId: post_perform_resource_action
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: resource_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: action
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Outcome of a product action, including anything left to poll.
+
+
+                  ``operations`` is the field this route exists for. It is a LIST because a
+
+                  single Gough node deploy returns one deployment per assigned biome, and a
+
+                  caller handed only the first would poll a fraction of the work it started.
+
+                  An empty list means the action completed synchronously — which is how the
+
+                  UI tells "nothing to poll" from "poll these".'
+                properties:
+                  accepted:
+                    title: Accepted
+                    type: boolean
+                  action:
+                    title: Action
+                    type: string
+                  message:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Message
+                  operations:
+                    items:
+                      $ref: '#/components/schemas/OperationView'
+                    maxItems: 10000
+                    title: Operations
+                    type: array
+                  resource:
+                    anyOf:
+                      - $ref: '#/components/schemas/ActionResourceView'
+                      - type: 'null'
+                required:
+                  - action
+                  - accepted
+                  - operations
+                  - resource
+                  - message
+                title: ActionResultResponse
+                type: object
+          description: 'Outcome of a product action, including anything left to poll.
+
+
+            ``operations`` is the field this route exists for. It is a LIST because a
+
+            single Gough node deploy returns one deployment per assigned biome, and a
+
+            caller handed only the first would poll a fraction of the work it started.
+
+            An empty list means the action completed synchronously — which is how the
+
+            UI tells "nothing to poll" from "poll these".'
+      summary: Invoke a product action and return the operations it started.
   /api/v1/products/{product_id}/schema:
     get:
       description: ''

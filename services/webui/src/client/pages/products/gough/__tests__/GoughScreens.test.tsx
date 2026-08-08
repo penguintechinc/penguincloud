@@ -41,8 +41,6 @@ const goughApi = {
   listNodes: jest.fn(),
   listBiomes: jest.fn(),
   listAgents: jest.fn(),
-  nodeAction: jest.fn(),
-  agentAction: jest.fn(),
   createBiome: jest.fn(),
   updateBiome: jest.fn(),
   deleteBiome: jest.fn(),
@@ -55,6 +53,9 @@ const goughOperationsApi = {
   getOperation: jest.fn(),
   cancelOperation: jest.fn(),
   operationLogs: jest.fn(),
+  // I5: node and agent verbs go through the TYPED route now, so the pages
+  // call performAction rather than the proxy bindings in `gough.ts`.
+  performAction: jest.fn(),
 };
 jest.mock("../../../../api/resources/goughOperations", () => ({
   goughOperationsApi,
@@ -162,7 +163,11 @@ describe("NodesPage", () => {
   it.each(["deploy", "evacuate", "reject"])(
     "requires confirmation before %s reaches the product",
     async (verb) => {
-      goughApi.nodeAction.mockResolvedValue({});
+      goughOperationsApi.performAction.mockResolvedValue({
+        action: verb,
+        accepted: true,
+        operations: [],
+      });
       renderPage(<NodesPage />);
 
       await waitFor(() =>
@@ -173,12 +178,17 @@ describe("NodesPage", () => {
 
       // The dialog is up and nothing has been sent yet.
       expect(screen.getByTestId("gough-node-confirm")).toBeInTheDocument();
-      expect(goughApi.nodeAction).not.toHaveBeenCalled();
+      expect(goughOperationsApi.performAction).not.toHaveBeenCalled();
 
       fireEvent.click(screen.getByTestId("gough-node-confirm-confirm"));
 
       await waitFor(() =>
-        expect(goughApi.nodeAction).toHaveBeenCalledWith(7, "12", verb),
+        expect(goughOperationsApi.performAction).toHaveBeenCalledWith(
+          7,
+          "nodes",
+          "12",
+          verb,
+        ),
       );
     },
   );
@@ -193,7 +203,7 @@ describe("NodesPage", () => {
     fireEvent.click(screen.getByTestId("gough-node-action-reject"));
     fireEvent.click(screen.getByTestId("gough-node-confirm-cancel"));
 
-    expect(goughApi.nodeAction).not.toHaveBeenCalled();
+    expect(goughOperationsApi.performAction).not.toHaveBeenCalled();
   });
 });
 
@@ -219,7 +229,11 @@ describe("BiomesPage", () => {
 
 describe("AgentsPage", () => {
   it("addresses an agent by agent_id, never the row id", async () => {
-    goughApi.agentAction.mockResolvedValue({});
+    goughOperationsApi.performAction.mockResolvedValue({
+      action: "suspend",
+      accepted: true,
+      operations: [],
+    });
     renderPage(<AgentsPage />);
 
     await waitFor(() =>
@@ -232,8 +246,9 @@ describe("AgentsPage", () => {
     fireEvent.click(screen.getByTestId("gough-agent-confirm-confirm"));
 
     await waitFor(() =>
-      expect(goughApi.agentAction).toHaveBeenCalledWith(
+      expect(goughOperationsApi.performAction).toHaveBeenCalledWith(
         7,
+        "agents",
         "3f2b-aa",
         "suspend",
       ),

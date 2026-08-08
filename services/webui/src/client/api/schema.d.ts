@@ -775,6 +775,41 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/products/{product_id}/resources/{kind}/{resource_id}/actions/{action}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Invoke a product action and return the operations it started.
+     * @description This is the TYPED path for actions, and it exists because the proxy
+     *     cannot serve this case. Proxying ``POST /nodes/{id}/deploy`` forwards
+     *     Gough's raw ``202`` body to the browser, which leaves the UI holding a
+     *     product-specific payload with no :class:`ActionResult`, no normalised
+     *     state, and no poll key — so it can only invalidate its queries and hope
+     *     the deploy it just started eventually shows up somewhere.
+     *
+     *     Going through :meth:`Adapter.perform_action` instead means the response
+     *     carries the deployment ids as :class:`OperationView` objects, each already
+     *     addressable at ``/operations/{kind}/{id}``. The UI learns exactly what it
+     *     started. See "Which mutations go through which path" in
+     *     :mod:`app.adapters.base`.
+     *
+     *     Requires ``manage``: every action reaching here changes product state.
+     *     ``kind`` and ``action`` are validated by the adapter against literal
+     *     tables before any URL is built — neither is interpolated into a path here.
+     */
+    post: operations["post_perform_resource_action"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/products/{product_id}/schema": {
     parameters: {
       query?: never;
@@ -1344,6 +1379,24 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /**
+     * ActionResourceView
+     * @description The affected resource's post-action state, when the product returned it.
+     *
+     *     A named subset rather than the whole :class:`~app.adapters.base.Resource`:
+     *     ``metadata`` is the adapter's free-form bag and is not published here for
+     *     the same reason :class:`OperationView` omits it.
+     */
+    ActionResourceView: {
+      /** Id */
+      id: string;
+      /** Kind */
+      kind: string;
+      /** Name */
+      name: string;
+      /** Status */
+      status: string | null;
+    };
     /**
      * OperationLogLineView
      * @description Wire shape for one log line.
@@ -2511,6 +2564,49 @@ export interface operations {
             logs: components["schemas"]["OperationLogLineView"][];
             /** Operation Id */
             operation_id: string;
+          };
+        };
+      };
+    };
+  };
+  post_perform_resource_action: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        resource_id: string;
+        action: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Outcome of a product action, including anything left to poll.
+       *
+       *     ``operations`` is the field this route exists for. It is a LIST because a
+       *     single Gough node deploy returns one deployment per assigned biome, and a
+       *     caller handed only the first would poll a fraction of the work it started.
+       *     An empty list means the action completed synchronously — which is how the
+       *     UI tells "nothing to poll" from "poll these".
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Accepted */
+            accepted: boolean;
+            /** Action */
+            action: string;
+            /** Message */
+            message: string | null;
+            /** Operations */
+            operations: components["schemas"]["OperationView"][];
+            resource: components["schemas"]["ActionResourceView"] | null;
           };
         };
       };

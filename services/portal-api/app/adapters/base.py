@@ -44,6 +44,27 @@ Consequence for Phase 4: put untrusted input through the proxy and declare a
 method and hand it to ``transport.request`` — that is the one way to move
 work from column 1 to column 2 without the review column 1 gets.
 
+Which mutations go through which path
+=====================================
+**A mutation whose result the portal must interpret — anything returning an
+:class:`Operation` to poll — goes through a typed adapter method exposed on a
+portal route; everything else may go through the proxy.**
+
+The reason is that the proxy is a byte pipe. It forwards the product's
+response verbatim, so an action that answers ``202`` with a set of ids gives
+the browser the product's raw body and nothing else: no
+:class:`ActionResult`, no normalised :class:`OperationState`, no poll key the
+UI can hand back to ``get_operation``. A UI on that path can only invalidate
+its queries and hope, which is not the same as knowing what it started.
+:attr:`ActionResult.operations` is unreachable through the proxy by
+construction — it is built by the adapter, and the proxy never calls one.
+
+So ``POST /nodes/{id}/deploy`` (starts deployments the UI must poll) is a
+typed route, while ``PATCH /nodes/{id}/tags`` (a plain field write, nothing to
+poll) is fine proxied. The test of it is not "is this destructive" but "does
+the caller need something the product's own response body does not already
+say".
+
 Per-product scopes — what a RouteRule should require
 ====================================================
 Declare rules in terms of ``products:{product_type}:{read|manage}``, built

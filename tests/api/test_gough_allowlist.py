@@ -38,7 +38,6 @@ ALLOWED: list[tuple[str, str, str]] = [
     ("GET", "/api/v1/nodes/12", READ),
     ("GET", "/api/v1/nodes/12/tags", READ),
     ("PATCH", "/api/v1/nodes/12", WRITE),
-    ("POST", "/api/v1/nodes/12/deploy", WRITE),
     ("POST", "/api/v1/nodes/12/evacuate", WRITE),
     ("POST", "/api/v1/nodes/12/reject", WRITE),
     ("DELETE", "/api/v1/nodes/12", WRITE),
@@ -49,7 +48,6 @@ ALLOWED: list[tuple[str, str, str]] = [
     ("POST", "/api/v1/biomes/groups", WRITE),
     ("PUT", "/api/v1/biomes/5", WRITE),
     ("DELETE", "/api/v1/biomes/5", WRITE),
-    ("POST", "/api/v1/biomes/5/upgrade", WRITE),
     ("GET", "/api/v1/biomes/deployments", READ),
     ("GET", "/api/v1/biomes/deployments/77", READ),
     ("GET", "/api/v1/biomes/deployments/77/logs", READ),
@@ -101,6 +99,23 @@ DENIED: list[tuple[str, str, str]] = [
     ("GET", "/api/v1/vault/status", "secret material"),
     ("GET", "/api/v1/ssh-ca/ca", "signing authority"),
     ("POST", "/api/v1/shell/exec", "remote execution"),
+    # -- actions that start pollable work: TYPED route only (I5) ----------
+    # Both answer 202 with ids the caller must poll. The proxy forwards a
+    # response body verbatim, so proxying either hands the browser Gough's
+    # raw payload with no Operation and no poll key — the UI could only
+    # invalidate its queries and hope. They are served by
+    # POST /products/{id}/resources/{kind}/{id}/actions/{action}, which
+    # returns an ActionResult carrying the operation ids.
+    (
+        "POST",
+        "/api/v1/nodes/12/deploy",
+        "starts deployments to poll; typed action route only",
+    ),
+    (
+        "POST",
+        "/api/v1/biomes/5/upgrade",
+        "starts an upgrade run to poll; typed action route only",
+    ),
     # -- surfaces this integration does not cover -------------------------
     ("GET", "/api/v1/users", "portal has its own identity model"),
     ("GET", "/metrics", "scraped by the adapter, not proxied verbatim"),

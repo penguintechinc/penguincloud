@@ -4,7 +4,7 @@ import {
   DataTable,
   DetailDrawer,
 } from "../../../components/kit";
-import { goughApi } from "../../../api/resources/gough";
+import { goughOperationsApi } from "../../../api/resources/goughOperations";
 import { GoughScreen } from "./GoughScreen";
 import { OperationsPanel } from "./OperationsPanel";
 import { nodeColumns } from "./nodeColumns";
@@ -33,7 +33,10 @@ export default function NodesPage() {
 
   const action = useGoughMutation<{ nodeId: string; verb: NodeAction["verb"] }>(
     "nodes",
-    (id, vars) => goughApi.nodeAction(id, vars.nodeId, vars.verb),
+    // Typed portal route, not the proxy: a deploy returns the deployment
+    // ids to poll, which a proxied 202 cannot convey.
+    (id, vars) =>
+      goughOperationsApi.performAction(id, "nodes", vars.nodeId, vars.verb),
   );
 
   const rows = (data ?? []).map((node) => ({ ...node, id: String(node.id) }));

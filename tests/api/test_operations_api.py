@@ -21,11 +21,13 @@ import pytest
 from quart import Quart
 
 from app.adapters.base import (
+    ActionResult,
     AdapterCapabilityError,
     Operation,
     OperationLogLine,
     OperationState,
     Page,
+    Resource,
     ResourceConflictError,
 )
 
@@ -136,6 +138,8 @@ class StubAdapter:
     operation: Operation | None = None
     raises: Exception | None = None
     logs: list[OperationLogLine] = []
+    action_result: ActionResult | None = None
+    seen_action: Any = None
 
     def __init__(self) -> None:
         """Match the registry's zero-argument construction."""
@@ -173,6 +177,22 @@ class StubAdapter:
             raise StubAdapter.raises
         return StubAdapter.logs
 
+    async def perform_action(
+        self,
+        kind: str,
+        resource_id: str,
+        action: str,
+        payload: dict[str, Any] | None,
+        ctx: Any,
+    ) -> ActionResult:
+        """Return the staged action result or raise the staged error."""
+        StubAdapter.seen_ctx = ctx
+        StubAdapter.seen_action = (kind, resource_id, action, payload)
+        if StubAdapter.raises is not None:
+            raise StubAdapter.raises
+        assert StubAdapter.action_result is not None
+        return StubAdapter.action_result
+
 
 @pytest.fixture(autouse=True)
 def _stub_adapter(monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -181,6 +201,8 @@ def _stub_adapter(monkeypatch: pytest.MonkeyPatch) -> Any:
     StubAdapter.raises = None
     StubAdapter.logs = []
     StubAdapter.seen_ctx = None
+    StubAdapter.action_result = ActionResult(action="deploy", accepted=True)
+    StubAdapter.seen_action = None
     monkeypatch.setitem(
         __import__("app.adapters", fromlist=["ADAPTER_REGISTRY"]).ADAPTER_REGISTRY,
         "gough",
@@ -606,3 +628,196 @@ class TestLogs:
         )
 
         assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+class TestTypedActionPath:
+    """I5: actions that start work go through a typed route, not the proxy.
+
+    The Phase-3 B1 decision splits the two paths by trust — the proxy is the
+    untrusted-input path, adapter methods are trusted server-side code. This
+    class covers the consequence for actions: proxying a deploy forwards
+    Gough's raw 202 to the browser, which strips it of ``ActionResult``, of a
+    normalised state, and of any poll key. The UI could only invalidate its
+    queries and hope. Through the typed route it is handed the deployment ids.
+    """
+
+    async def test_action_returns_the_operations_it_started(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The whole point: the caller learns what to poll.
+
+        A Gough node deploy answers with one deployment per assigned biome, so
+        this asserts a LIST — an implementation returning only the first would
+        leave the UI polling a fraction of the work it started.
+        """
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.action_result = ActionResult(
+            action="deploy",
+            accepted=True,
+            operations=[
+                _operation(id="dep-1", state=OperationState.PENDING, status="pending"),
+                _operation(id="dep-2", state=OperationState.PENDING, status="pending"),
+            ],
+            message="2 deployments queued",
+        )
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/nodes/12/actions/deploy",
+            headers=headers,
+            json={},
+        )
+
+        assert response.status_code == 200
+        body = await response.get_json()
+        assert body["action"] == "deploy"
+        assert body["accepted"] is True
+        assert [op["id"] for op in body["operations"]] == ["dep-1", "dep-2"]
+        # Each returned operation must be addressable at the poll route, or
+        # the UI still cannot follow the work it started.
+        assert all(op["kind"] == "deployment" for op in body["operations"])
+        assert all(op["is_terminal"] is False for op in body["operations"])
+
+    async def test_returned_operation_id_is_pollable_end_to_end(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Start an action, then poll what it returned. No id juggling."""
+        conn_id, headers = await _setup(client, app)
+        started = _operation(id="dep-77", state=OperationState.PENDING)
+        StubAdapter.action_result = ActionResult(
+            action="deploy", accepted=True, operations=[started]
+        )
+
+        action_response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/nodes/12/actions/deploy",
+            headers=headers,
+            json={},
+        )
+        first = (await action_response.get_json())["operations"][0]
+
+        StubAdapter.operation = _operation(id=first["id"])
+        poll = await client.get(
+            f"/api/v1/products/{conn_id}/operations/{first['kind']}/{first['id']}",
+            headers=headers,
+        )
+
+        assert poll.status_code == 200
+        assert (await poll.get_json())["id"] == "dep-77"
+
+    async def test_synchronous_action_returns_no_operations(
+        self, client: Any, app: Quart
+    ) -> None:
+        """An empty list is how a caller tells "nothing to poll" from "poll these"."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.action_result = ActionResult(action="suspend", accepted=True)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/agents/a-1/actions/suspend",
+            headers=headers,
+            json={},
+        )
+
+        assert response.status_code == 200
+        assert (await response.get_json())["operations"] == []
+
+    async def test_action_requires_manage_not_read(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Every action reaching this route changes product state."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.seen_ctx = None
+
+        async def _read_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:gough:read"]
+
+        with _patched_scopes(_read_only):
+            response = await client.post(
+                f"/api/v1/products/{conn_id}/resources/nodes/12/actions/deploy",
+                headers=headers,
+                json={},
+            )
+
+        assert response.status_code == 403
+        assert StubAdapter.seen_ctx is None, "adapter was reached without manage"
+
+    async def test_a_gough_only_scope_can_act_on_gough(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The per-product principal must reach the typed path too (I3)."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.action_result = ActionResult(action="deploy", accepted=True)
+
+        async def _gough_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:gough:manage"]
+
+        with _patched_scopes(_gough_only):
+            response = await client.post(
+                f"/api/v1/products/{conn_id}/resources/nodes/12/actions/deploy",
+                headers=headers,
+                json={},
+            )
+
+        assert response.status_code == 200
+
+    async def test_unknown_action_is_501_not_500(self, client: Any, app: Quart) -> None:
+        """An unsupported verb is a declared absence, not a crash."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.raises = AdapterCapabilityError("gough has no action 'reboot'")
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/nodes/12/actions/reboot",
+            headers=headers,
+            json={},
+        )
+
+        assert response.status_code == 501
+
+    async def test_non_object_body_is_rejected(self, client: Any, app: Quart) -> None:
+        """The payload reaches the product; it must be the shape declared."""
+        conn_id, headers = await _setup(client, app)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/nodes/12/actions/deploy",
+            headers=headers,
+            json=["not", "an", "object"],
+        )
+
+        assert response.status_code == 400
+
+    async def test_response_publishes_only_declared_action_fields(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Output validation applies to this route too.
+
+        `Resource.metadata` carries product internals, so the action response
+        publishes a named subset rather than the whole Resource.
+        """
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.action_result = ActionResult(
+            action="deploy",
+            accepted=True,
+            resource=Resource(
+                id="12",
+                kind="nodes",
+                name="rack1-node12",
+                status="deploying",
+                metadata={"internal_url": "/internal/secret"},
+            ),
+        )
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/nodes/12/actions/deploy",
+            headers=headers,
+            json={},
+        )
+
+        body = await response.get_json()
+        assert set(body) == {
+            "action",
+            "accepted",
+            "operations",
+            "resource",
+            "message",
+        }
+        assert set(body["resource"]) == {"id", "kind", "name", "status"}
+        assert "/internal/secret" not in str(body)

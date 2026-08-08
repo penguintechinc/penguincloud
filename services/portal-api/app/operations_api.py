@@ -8,12 +8,21 @@ done or lie about the outcome.
 
 Routes (all under ``/api/v1/products/<product_id>``):
 
-===================================================  ======================
-``GET    /operations``                               list, newest first
-``GET    /operations/<kind>/<operation_id>``         poll one
-``POST   /operations/<kind>/<operation_id>/cancel``  request cancellation
-``GET    /operations/<kind>/<operation_id>/logs``    log lines
-===================================================  ======================
+========================================================  =================
+``GET    /operations``                                    list, newest first
+``GET    /operations/<kind>/<operation_id>``              poll one
+``POST   /operations/<kind>/<operation_id>/cancel``       request cancellation
+``GET    /operations/<kind>/<operation_id>/logs``         log lines
+``POST   /resources/<kind>/<id>/actions/<action>``        start one
+========================================================  =================
+
+The last route is the typed action path. An action that starts background work
+must NOT be proxied: the proxy forwards the product's response verbatim, so the
+browser receives a product-specific ``202`` body with no ``ActionResult`` and no
+poll key, and can only invalidate its queries and hope. Routing it through
+:meth:`Adapter.perform_action` is what makes :attr:`ActionResult.operations`
+reachable, so the UI learns the ids of the deployments it just started. See
+"Which mutations go through which path" in :mod:`app.adapters.base`.
 
 ``kind`` is in the path rather than a query parameter because it is part of
 the operation's identity, not a filter: :attr:`Operation.kind` selects which
@@ -58,10 +67,12 @@ from quart_schema import validate_response
 
 from .adapters import get_adapter
 from .adapters.base import (
+    ActionResult,
     AdapterContext,
     AdapterError,
     Operation,
     OperationState,
+    Resource,
     adapter_error_status,
     product_scope,
 )
@@ -191,6 +202,64 @@ class OperationLogsResponse:
     logs: list[OperationLogLineView]
     operation_id: str
     kind: str
+
+
+@dataclass(slots=True, frozen=True)
+class ActionResourceView:
+    """The affected resource's post-action state, when the product returned it.
+
+    A named subset rather than the whole :class:`~app.adapters.base.Resource`:
+    ``metadata`` is the adapter's free-form bag and is not published here for
+    the same reason :class:`OperationView` omits it.
+    """
+
+    id: str
+    kind: str
+    name: str
+    status: str | None
+
+    @classmethod
+    def of(cls, resource: Resource) -> ActionResourceView:
+        """Project an adapter Resource onto the wire shape."""
+        return cls(
+            id=resource.id,
+            kind=resource.kind,
+            name=resource.name,
+            status=resource.status,
+        )
+
+
+@dataclass(slots=True, frozen=True)
+class ActionResultResponse:
+    """Outcome of a product action, including anything left to poll.
+
+    ``operations`` is the field this route exists for. It is a LIST because a
+    single Gough node deploy returns one deployment per assigned biome, and a
+    caller handed only the first would poll a fraction of the work it started.
+    An empty list means the action completed synchronously — which is how the
+    UI tells "nothing to poll" from "poll these".
+    """
+
+    action: str
+    accepted: bool
+    operations: list[OperationView]
+    resource: ActionResourceView | None
+    message: str | None
+
+    @classmethod
+    def of(cls, result: ActionResult) -> ActionResultResponse:
+        """Project an adapter ActionResult onto the wire shape."""
+        return cls(
+            action=result.action,
+            accepted=result.accepted,
+            operations=[OperationView.of(item) for item in result.operations],
+            resource=(
+                ActionResourceView.of(result.resource)
+                if result.resource is not None
+                else None
+            ),
+            message=result.message,
+        )
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -454,3 +523,52 @@ async def operation_logs(
         ),
         200,
     )
+
+
+@operations_bp.route(
+    "/<int:product_id>/resources/<kind>/<resource_id>/actions/<action>",
+    methods=["POST"],
+)
+@auth_required
+@tenancy_aware
+@validate_response(ActionResultResponse)
+async def perform_resource_action(
+    product_id: int, kind: str, resource_id: str, action: str
+) -> tuple[Any, int]:
+    """Invoke a product action and return the operations it started.
+
+    This is the TYPED path for actions, and it exists because the proxy
+    cannot serve this case. Proxying ``POST /nodes/{id}/deploy`` forwards
+    Gough's raw ``202`` body to the browser, which leaves the UI holding a
+    product-specific payload with no :class:`ActionResult`, no normalised
+    state, and no poll key — so it can only invalidate its queries and hope
+    the deploy it just started eventually shows up somewhere.
+
+    Going through :meth:`Adapter.perform_action` instead means the response
+    carries the deployment ids as :class:`OperationView` objects, each already
+    addressable at ``/operations/{kind}/{id}``. The UI learns exactly what it
+    started. See "Which mutations go through which path" in
+    :mod:`app.adapters.base`.
+
+    Requires ``manage``: every action reaching here changes product state.
+    ``kind`` and ``action`` are validated by the adapter against literal
+    tables before any URL is built — neither is interpolated into a path here.
+    """
+    ctx, product_type, error = await _resolve(product_id, _ACTION_MANAGE)
+    if error is not None or ctx is None or product_type is None:
+        return error or _NOT_FOUND
+
+    payload: dict[str, Any] = {}
+    if await request.get_data():
+        body = await request.get_json(silent=True)
+        if body is not None and not isinstance(body, dict):
+            return {"error": "request body must be a JSON object"}, 400
+        payload = body or {}
+
+    adapter = get_adapter(product_type, ctx)
+    try:
+        outcome = await adapter.perform_action(kind, resource_id, action, payload, ctx)
+    except AdapterError as exc:
+        return _failure(exc, product_id, f"perform_action:{action}")
+
+    return ActionResultResponse.of(outcome), 200

@@ -78,19 +78,6 @@ describe("goughApi list bindings", () => {
 });
 
 describe("goughApi mutating verbs", () => {
-  it.each([
-    ["deploy", "api/v1/nodes/12/deploy"],
-    ["evacuate", "api/v1/nodes/12/evacuate"],
-    ["reject", "api/v1/nodes/12/reject"],
-  ] as const)("posts the %s verb to its own route", async (verb, path) => {
-    await goughApi.nodeAction(7, "12", verb);
-
-    expect(mockApi.request).toHaveBeenCalledWith(
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(forwardedPath()).toBe(path);
-  });
-
   it("patches node tags", async () => {
     await goughApi.updateNodeTags(7, "12", ["gpu"]);
 
@@ -118,11 +105,6 @@ describe("goughApi mutating verbs", () => {
     expect(forwardedPath()).toBe("api/v1/biomes/4");
   });
 
-  it("suspends and resumes an agent by its UUID", async () => {
-    await goughApi.agentAction(7, "3f2b-aa", "suspend");
-    expect(forwardedPath()).toBe("api/v1/agents/3f2b-aa/suspend");
-  });
-
   it.each([
     ["listNodes", () => goughApi.listNodes(7), "api/v1/nodes/"],
     ["listBiomes", () => goughApi.listBiomes(7), "api/v1/biomes/"],
@@ -146,12 +128,22 @@ describe("goughApi mutating verbs", () => {
   );
 
   it("encodes an id rather than letting it compose a new path", async () => {
-    // The portal would refuse this anyway — agent ids are matched as hex, so
-    // a slash-bearing value cannot reach a different route. Encoding here
+    // The portal would refuse this anyway — biome ids are matched as digits,
+    // so a slash-bearing value cannot reach a different route. Encoding here
     // means the refusal is a clean 403 instead of a request for a path the
     // caller did not intend to build.
-    await goughApi.agentAction(7, "../../auth/login", "resume");
+    await goughApi.deleteBiome(7, "../../auth/login");
     expect(forwardedPath()).not.toContain("../");
+  });
+
+  it("no longer exposes action verbs on the proxy module", () => {
+    // I5: actions moved to `goughOperationsApi.performAction`, the TYPED
+    // route. Proxying them returned Gough's raw 202 — no ActionResult, no
+    // poll key — so the UI could only invalidate and hope. Asserting their
+    // ABSENCE here is what stops a future call site quietly reinstating the
+    // proxy path for an action that starts background work.
+    expect("nodeAction" in goughApi).toBe(false);
+    expect("agentAction" in goughApi).toBe(false);
   });
 });
 
@@ -188,6 +180,60 @@ describe("goughOperationsApi", () => {
 
     expect(mockApi.get).toHaveBeenCalledWith(
       "/products/7/operations/biome_upgrade/9%3Arun-1",
+    );
+  });
+
+  it("performs an action on the typed route, not the proxy", async () => {
+    // I5. `mockApi.request` is the PROXY transport; `mockApi.post` is the
+    // portal client. Asserting the proxy was never touched is the half that
+    // actually pins the decision — the path assertion alone would still pass
+    // if someone routed this back through the proxy at the same URL.
+    mockApi.post.mockResolvedValue({
+      data: {
+        action: "deploy",
+        accepted: true,
+        operations: [{ id: "dep-1", kind: "deployment" }],
+      },
+    });
+
+    const result = await goughOperationsApi.performAction(
+      7,
+      "nodes",
+      "12",
+      "deploy",
+    );
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/products/7/resources/nodes/12/actions/deploy",
+      {},
+    );
+    expect(mockApi.request).not.toHaveBeenCalled();
+    // The caller learns what it started — the whole reason for the move.
+    expect(result.operations.map((op) => op.id)).toEqual(["dep-1"]);
+  });
+
+  it("encodes every action path segment", async () => {
+    await goughOperationsApi.performAction(
+      7,
+      "nodes",
+      "../../auth/login",
+      "deploy",
+    );
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      expect.not.stringContaining("../"),
+      {},
+    );
+  });
+
+  it("forwards an action payload when one is given", async () => {
+    await goughOperationsApi.performAction(7, "nodes", "12", "deploy", {
+      biome_ids: [5],
+    });
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/products/7/resources/nodes/12/actions/deploy",
+      { biome_ids: [5] },
     );
   });
 
