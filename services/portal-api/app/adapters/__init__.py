@@ -1,89 +1,135 @@
-"""Product Adapter Registry."""
+"""Product Adapter Registry — v2 Contract.
 
-from typing import Any
+Phase 3: Core adapters (gough, nest, tobogganing) implement the v2 Adapter
+protocol; thin adapters are deprecated and marked as planned.
+"""
 
-from .base_adapter import ProductAdapter
-from .generic_adapter import GenericAdapter
-from .marchproxy_adapter import MarchProxyAdapter
-from .squawk_adapter import SquawkAdapter
-from .license_server_adapter import LicenseServerAdapter
-from .skauswatch_adapter import SkausWatchAdapter
-from .waddleai_adapter import WaddleAIAdapter
-from .articdbm_adapter import ArticDBMAdapter
-from .cerberus_adapter import CerberusAdapter
-from .waddlebot_adapter import WaddleBotAdapter
-from .waddleperf_adapter import WaddlePerfAdapter
-from .iceshelves_adapter import IceShelvesAdapter
-from .icecharts_adapter import IceChartsAdapter
-from .killkrill_adapter import KillKrillAdapter
-from .tobogganing_adapter import TobogganingAdapter
-from .nest_adapter import NestAdapter
-from .darwin_adapter import DarwinAdapter
+from __future__ import annotations
+
+from typing import Any, Type
+
+from .base import Adapter, AdapterContext
 from .gough_adapter import GoughAdapter
-from .current_adapter import CurrentAdapter
-from .elder_adapter import ElderAdapter
-from .admin_adapter import AdminAdapter
+from .nest_adapter import NestAdapter
+from .tobogganing_adapter import TobogganingAdapter
 
-# Registry mapping product_type string -> adapter class
-ADAPTER_REGISTRY: dict[str, type[ProductAdapter]] = {
-    "marchproxy": MarchProxyAdapter,
-    "squawk": SquawkAdapter,
-    "license_server": LicenseServerAdapter,
-    "skauswatch": SkausWatchAdapter,
-    "waddleai": WaddleAIAdapter,
-    "articdbm": ArticDBMAdapter,
-    "cerberus": CerberusAdapter,
-    "waddlebot": WaddleBotAdapter,
-    "waddleperf": WaddlePerfAdapter,
-    "iceshelves": IceShelvesAdapter,
-    "icecharts": IceChartsAdapter,
-    "killkrill": KillKrillAdapter,
-    "tobogganing": TobogganingAdapter,
-    "nest": NestAdapter,
-    "darwin": DarwinAdapter,
+__all__ = ["get_adapter", "get_adapter_metadata", "get_all_product_types"]
+
+#: Adapter registry — product_type string -> v2 Adapter class.
+#: Phase 3 includes only the three core products; thin adapters are
+#: deprecated and marked status:planned in the portal UI.
+ADAPTER_REGISTRY: dict[str, Type[Adapter]] = {
     "gough": GoughAdapter,
-    "current": CurrentAdapter,
-    "elder": ElderAdapter,
-    "admin": AdminAdapter,
-    "generic": GenericAdapter,
+    "nest": NestAdapter,
+    "tobogganing": TobogganingAdapter,
+}
+
+#: Product metadata for planning/deprecated products.
+#: These products are no longer actively developed but appear in the portal
+#: with status:planned to show that connections may be created but will
+#: have limited functionality.
+PLANNED_PRODUCTS = {
+    "marchproxy": {"display_name": "MarchProxy", "category": "networking"},
+    "squawk": {"display_name": "Squawk", "category": "dns"},
+    "license_server": {"display_name": "License Server", "category": "licensing"},
+    "skauswatch": {"display_name": "SkausWatch", "category": "monitoring"},
+    "waddleai": {"display_name": "WaddleAI", "category": "ai"},
+    "articdbm": {"display_name": "ArticDBM", "category": "database"},
+    "cerberus": {"display_name": "Cerberus", "category": "security"},
+    "waddlebot": {"display_name": "Waddles", "category": "community"},
+    "waddleperf": {"display_name": "WaddlePerf", "category": "monitoring"},
+    "iceshelves": {"display_name": "IceShelves", "category": "storage"},
+    "icecharts": {"display_name": "IceCharts", "category": "analytics"},
+    "killkrill": {"display_name": "KillKrill", "category": "logging"},
+    "darwin": {"display_name": "Darwin", "category": "security"},
+    "current": {"display_name": "Current", "category": "networking"},
+    "elder": {"display_name": "Elder", "category": "crm"},
+    "admin": {"display_name": "Admin", "category": "admin"},
 }
 
 
-def get_adapter(product_type: str, connection: dict[str, Any]) -> ProductAdapter:
-    """Get an adapter instance for the given product type and connection."""
-    adapter_class = ADAPTER_REGISTRY.get(product_type, GenericAdapter)
-    return adapter_class(connection)
+def get_adapter(product_type: str, ctx: AdapterContext) -> Adapter:
+    """Get an adapter instance for the given product type.
+
+    Args:
+        product_type: The product type string (e.g., 'gough')
+        ctx: AdapterContext with connection details and credentials
+
+    Returns:
+        An instance of the adapter
+
+    Raises:
+        ValueError: If product_type is not in the active registry
+    """
+    adapter_class = ADAPTER_REGISTRY.get(product_type)
+    if adapter_class is None:
+        raise ValueError(
+            f"Product {product_type} is not supported or is marked as planned. "
+            f"Active products: {sorted(ADAPTER_REGISTRY.keys())}"
+        )
+    return adapter_class()
 
 
 def get_adapter_metadata(product_type: str) -> dict[str, Any]:
-    """Get metadata for a product type without a connection."""
-    adapter_class = ADAPTER_REGISTRY.get(product_type, GenericAdapter)
+    """Get metadata for a product type.
+
+    For active products, returns v2 adapter metadata.
+    For planned products, returns minimal metadata with status:planned.
+    """
+    if product_type in ADAPTER_REGISTRY:
+        adapter_class = ADAPTER_REGISTRY[product_type]
+        # Instantiate to get class attributes
+        display_name = getattr(adapter_class, "DISPLAY_NAME", product_type)
+        return {
+            "product_type": product_type,
+            "display_name": display_name,
+            "status": "active",
+        }
+
+    if product_type in PLANNED_PRODUCTS:
+        meta = PLANNED_PRODUCTS[product_type]
+        return {
+            "product_type": product_type,
+            "display_name": meta["display_name"],
+            "category": meta["category"],
+            "status": "planned",
+        }
+
     return {
-        "product_type": adapter_class.PRODUCT_TYPE,
-        "display_name": adapter_class.DISPLAY_NAME,
-        "category": adapter_class.CATEGORY,
-        "icon": adapter_class.ICON,
-        "default_health_endpoint": adapter_class.DEFAULT_HEALTH_ENDPOINT,
-        "default_api_version": adapter_class.DEFAULT_API_VERSION,
-        "discovery_ports": adapter_class.DISCOVERY_PORTS,
+        "product_type": product_type,
+        "display_name": product_type,
+        "status": "unknown",
     }
 
 
 def get_all_product_types() -> list[dict[str, Any]]:
-    """Get metadata for all registered product types."""
+    """Get metadata for all product types (active + planned).
+
+    Active products have full v2 adapter implementation.
+    Planned products are available for connection but limited to basic ops.
+    """
     result = []
+
+    # Active products
     for ptype, cls in ADAPTER_REGISTRY.items():
-        if ptype == "generic":
-            continue
+        display_name = getattr(cls, "DISPLAY_NAME", ptype)
         result.append(
             {
-                "product_type": cls.PRODUCT_TYPE,
-                "display_name": cls.DISPLAY_NAME,
-                "category": cls.CATEGORY,
-                "icon": cls.ICON,
-                "default_health_endpoint": cls.DEFAULT_HEALTH_ENDPOINT,
-                "default_api_version": cls.DEFAULT_API_VERSION,
-                "discovery_ports": cls.DISCOVERY_PORTS,
+                "product_type": ptype,
+                "display_name": display_name,
+                "status": "active",
             }
         )
-    return sorted(result, key=lambda x: (x["category"], x["display_name"]))
+
+    # Planned products
+    for ptype, meta in PLANNED_PRODUCTS.items():
+        result.append(
+            {
+                "product_type": ptype,
+                "display_name": meta["display_name"],
+                "category": meta.get("category", "other"),
+                "status": "planned",
+            }
+        )
+
+    return sorted(result, key=lambda x: (x["status"], x["display_name"]))
