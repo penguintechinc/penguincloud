@@ -133,6 +133,16 @@ def map_node(payload: dict[str, Any]) -> Resource:
     in metadata rather than merged in: they answer different questions
     ("where is it in provisioning" vs "is it compliant"), and a node can be
     ``ready`` while non-compliant.
+
+    ``firmware_type`` is ALWAYS ``None``, and that is a property of Gough, not
+    of a given node. ``_serialize_node`` emits the key through its tolerant
+    ``_g(node, "firmware_type")`` getter, but no ``firmware_type`` column
+    exists on ``nodes`` and no Gough model declares one — verified against a
+    live database (``information_schema.columns`` returns no such column in
+    any table). The same is true of ``ipv4_static``, which is why it is not
+    mapped at all. The key is kept here so the mapping starts working by
+    itself if Gough ever adds the column; it is documented so nobody spends
+    an afternoon asking why the UI's "Firmware" row is permanently blank.
     """
     return Resource(
         id=_identifier(payload, "id"),
@@ -189,7 +199,34 @@ def map_biome(payload: dict[str, Any]) -> Resource:
 
 
 def map_biome_group(payload: dict[str, Any]) -> Resource:
-    """Map a Gough biome group — an ordered bundle of biomes."""
+    """Map a Gough biome group — an ordered bundle of biomes.
+
+    **Membership lives under ``biomes``, not ``biome_ids``.** This mapper read
+    ``biome_ids``, a field Gough does not emit anywhere in a group response —
+    the column is ``biome_groups.biomes`` and ``serialize_biome_group``
+    forwards it under that name. The old key therefore resolved to ``None`` on
+    every group ever returned and the ``or []`` turned it into an empty list,
+    so a group's membership silently rendered as "no biomes" no matter how
+    many it contained. Nothing failed; the data just was not there.
+
+    The shape was wrong too, not only the name. ``biomes`` is a JSON array of
+    ``{"biome_id": int, "order": int}`` objects (the ``POST /biomes/groups``
+    handler validates exactly that), so even reading the right key as a flat
+    list of ids would have produced dicts where ids were expected.
+
+    Both are exposed: ``biomes`` verbatim, because the order and the per-entry
+    ``order`` field are the group's actual content, and ``biome_ids`` as the
+    flat projection callers already expect. The projection preserves Gough's
+    stored order rather than sorting on ``order`` — re-sorting here would make
+    the portal disagree with the sequence Gough itself returns, and the
+    adapter is not the place to decide that question.
+    """
+    raw_members = payload.get("biomes")
+    members = (
+        [entry for entry in raw_members if isinstance(entry, dict)]
+        if isinstance(raw_members, list)
+        else []
+    )
     return Resource(
         id=_identifier(payload, "id"),
         kind="biome_groups",
@@ -198,7 +235,14 @@ def map_biome_group(payload: dict[str, Any]) -> Resource:
         updated_at=parse_timestamp(payload.get("updated_at")),
         metadata={
             "description": payload.get("description"),
-            "biome_ids": payload.get("biome_ids") or [],
+            "display_name": payload.get("display_name"),
+            "is_default": payload.get("is_default"),
+            "biomes": members,
+            "biome_ids": [
+                entry["biome_id"]
+                for entry in members
+                if entry.get("biome_id") is not None
+            ],
         },
     )
 
