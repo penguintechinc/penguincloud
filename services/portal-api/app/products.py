@@ -1,6 +1,5 @@
 """Product Connection Management APIs (async Quart)."""
 
-import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -9,6 +8,8 @@ from quart import Blueprint, request
 from quart_schema import validate_request, validate_response
 
 from .adapters import get_adapter, get_all_product_types
+from .adapters.base import AdapterContext
+from .encryption import decrypt_value
 from .middleware import auth_required, get_current_user
 from .models import (
     create_audit_log,
@@ -310,12 +311,50 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
     conn_raw = await get_product_connection_raw(product_id)
     if not conn_raw:
         return {"error": "Product connection not found"}, 404
-    adapter = get_adapter(conn_raw["product_type"], conn_raw)
-    result = await asyncio.to_thread(adapter.health_check)
 
-    await update_product_health(product_id, result["status"])
+    # Decrypt credentials
+    api_key = (
+        decrypt_value(conn_raw.get("api_key", ""))
+        if conn_raw.get("api_key")
+        else ""
+    )
+    api_secret = (
+        decrypt_value(conn_raw.get("api_secret", ""))
+        if conn_raw.get("api_secret")
+        else ""
+    )
 
-    return result, 200
+    # Try to get product tenant mapping (may not exist yet)
+    mapping = await get_product_tenant_map(product_id, conn_masked["tenant_id"])
+
+    # Build adapter context (external_id and external_kind optional for health checks)
+    ctx = AdapterContext(
+        connection_id=product_id,
+        portal_tenant_id=conn_masked["tenant_id"],
+        external_id=mapping.get("external_id", "") if mapping else "",
+        external_kind=mapping.get("external_kind", "") if mapping else "",
+        base_url=conn_raw.get("base_url", ""),
+        auth_type=conn_raw.get("auth_type", "bearer"),
+        api_key=api_key,
+        api_secret=api_secret,
+    )
+
+    # Get adapter instance and check health
+    adapter = get_adapter(conn_raw["product_type"], ctx)
+    result = await adapter.health(ctx)
+
+    # Convert HealthResult to dict for response
+    result_dict = {
+        "status": result.status,
+        "status_code": result.status_code,
+        "response_time_ms": result.response_time_ms,
+    }
+    if result.error:
+        result_dict["error"] = result.error
+
+    await update_product_health(product_id, result.status)
+
+    return result_dict, 200
 
 
 @products_bp.route("/<int:product_id>/health", methods=["GET"])
@@ -362,8 +401,39 @@ async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
     conn_raw = await get_product_connection_raw(product_id)
     if not conn_raw:
         return {"error": "Product connection not found"}, 404
-    adapter = get_adapter(conn_raw["product_type"], conn_raw)
-    schema = await asyncio.to_thread(adapter.get_management_schema)
+
+    # Decrypt credentials
+    api_key = (
+        decrypt_value(conn_raw.get("api_key", ""))
+        if conn_raw.get("api_key")
+        else ""
+    )
+    api_secret = (
+        decrypt_value(conn_raw.get("api_secret", ""))
+        if conn_raw.get("api_secret")
+        else ""
+    )
+
+    # Build adapter context
+    ctx = AdapterContext(
+        connection_id=product_id,
+        portal_tenant_id=conn["tenant_id"],
+        external_id="",
+        external_kind="",
+        base_url=conn_raw.get("base_url", ""),
+        auth_type=conn_raw.get("auth_type", "bearer"),
+        api_key=api_key,
+        api_secret=api_secret,
+    )
+
+    # Get adapter and retrieve capabilities
+    adapter = get_adapter(conn_raw["product_type"], ctx)
+    try:
+        capabilities = await adapter.capabilities(ctx)
+        schema = {"capabilities": capabilities}
+    except Exception:
+        # If capabilities not available, return empty schema
+        schema = {"capabilities": []}
 
     return schema, 200
 
