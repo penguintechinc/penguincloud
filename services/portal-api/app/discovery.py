@@ -1,10 +1,18 @@
-"""Auto-Discovery Service for PenguinTech Products."""
+"""Auto-Discovery Service for PenguinTech Products.
+
+Scan targets are attacker-influenced input: /scan probes whatever it is
+given and reports which host:port answered and what it looked like, which
+is an SSRF primitive and an internal port scanner unless the target set is
+constrained. :func:`resolve_scan_targets` is that constraint and every scan
+path goes through it — see its docstring for the model.
+"""
 
 import asyncio
+import ipaddress
 import logging
 import socket
 import time
-from typing import Any
+from typing import Any, Final, TypeAlias
 
 import aiohttp
 from quart import Blueprint, request
@@ -18,6 +26,7 @@ from .models import (
     get_product_connection_by_id,
     get_user_tenant_role,
 )
+from .tenancy import EFFECTIVE_ADMIN_ROLES, resolve_effective_role
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +35,238 @@ discovery_bp = Blueprint("discovery", __name__)
 # In-memory store for latest scan results per tenant
 _scan_results: dict[int, list[dict[str, Any]]] = {}
 
+IPAddress: TypeAlias = ipaddress.IPv4Address | ipaddress.IPv6Address
+IPNetwork: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+#: Ceiling on how many individual addresses one scan may expand to.
+#:
+#: Without it, an allowlisted /8 expands to ~16.7M addresses times every
+#: adapter times every discovery port, which is a self-inflicted DoS rather
+#: than a discovery scan. Exceeding it is a 400, not a silent truncation —
+#: a partial scan that looks complete is worse than a clear error.
+MAX_SCAN_TARGETS: Final[int] = 1024
+
+
+class DiscoveryTargetError(ValueError):
+    """A requested scan target is not permitted.
+
+    Carries a caller-safe message: it names the rejected entry and the rule
+    it broke, never anything about hosts the caller did not already supply.
+    """
+
+
+def _reject_reason(addr: IPAddress) -> str | None:
+    """Return why an address may never be scanned, or None if it may be.
+
+    These rejections hold *even for an allowlisted address*. This is a LAN
+    product-discovery feature, so RFC1918 is explicitly not disqualifying —
+    blanket-blocking private space would remove the feature's entire
+    purpose. What is blocked is the special-use space that turns discovery
+    into an attack primitive: link-local carries the cloud metadata service
+    (169.254.169.254), and loopback reaches the portal's own internal
+    surfaces that never expected an off-box caller.
+
+    Determined from :mod:`ipaddress` properties rather than a hand-written
+    CIDR list, so the ranges cannot drift from the standard.
+    """
+    # An IPv4-mapped IPv6 address (::ffff:127.0.0.1) reports False for
+    # is_loopback et al. on the IPv6 object, so unwrap it and judge the
+    # address that will actually be connected to.
+    mapped = getattr(addr, "ipv4_mapped", None)
+    if mapped is not None:
+        addr = mapped
+
+    if addr.is_unspecified:
+        return "unspecified address"
+    if addr.is_loopback:
+        return "loopback address"
+    if addr.is_link_local:
+        return "link-local address (cloud metadata range)"
+    if addr.is_multicast:
+        return "multicast address"
+    if addr.is_reserved:
+        return "reserved address"
+    return None
+
+
+def _assert_scannable(addr: IPAddress, entry: str) -> None:
+    """Raise DiscoveryTargetError if an address is in blocked special-use space."""
+    reason = _reject_reason(addr)
+    if reason is not None:
+        raise DiscoveryTargetError(f"'{entry}' resolves to {addr}: {reason} is blocked")
+
+
+def parse_allowlist(raw: str) -> list[IPNetwork]:
+    """Parse DISCOVERY_RANGES into the authoritative CIDR allowlist.
+
+    The operator allowlist — not a private-IP ban — is the primary control
+    on where this service may send traffic. Unparseable entries are dropped
+    with a warning rather than failing the request: one typo in operator
+    config should not silently widen the allowlist, and must not take the
+    endpoint down either.
+    """
+    networks: list[IPNetwork] = []
+    for entry in raw.split(","):
+        candidate = entry.strip()
+        if not candidate:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(candidate, strict=False))
+        except ValueError:
+            logger.warning(
+                "Ignoring unparseable DISCOVERY_RANGES entry: %r", candidate
+            )
+    return networks
+
+
+def _is_subnet(network: IPNetwork, allowed: IPNetwork) -> bool:
+    """True when ``network`` is wholly contained in ``allowed``.
+
+    The isinstance pairs are what let the type checker see a same-family
+    comparison. ``subnet_of`` raises on a mixed-family argument at runtime
+    too, so this states the existing requirement in a checkable way rather
+    than adding one.
+    """
+    if isinstance(network, ipaddress.IPv4Network) and isinstance(
+        allowed, ipaddress.IPv4Network
+    ):
+        return network.subnet_of(allowed)
+    if isinstance(network, ipaddress.IPv6Network) and isinstance(
+        allowed, ipaddress.IPv6Network
+    ):
+        return network.subnet_of(allowed)
+    return False
+
+
+def _assert_allowlisted(
+    network: IPNetwork, entry: str, allowlist: list[IPNetwork]
+) -> None:
+    """Raise unless a requested network sits entirely inside an allowlisted CIDR.
+
+    Containment is checked against the whole network, not against one
+    address in it: a caller supplying a CIDR must have all of it permitted,
+    or a /8 request would pass on the strength of its first host.
+    """
+    if any(_is_subnet(network, allowed) for allowed in allowlist):
+        return
+    raise DiscoveryTargetError(
+        f"'{entry}' is outside the DISCOVERY_RANGES allowlist"
+    )
+
+
+def _expand(network: IPNetwork, entry: str) -> list[IPAddress]:
+    """Expand a validated network into the addresses that will be probed."""
+    if network.num_addresses > MAX_SCAN_TARGETS:
+        raise DiscoveryTargetError(
+            f"'{entry}' expands to {network.num_addresses} addresses; "
+            f"the limit is {MAX_SCAN_TARGETS}"
+        )
+    # hosts() drops the network and broadcast addresses, which are not
+    # probe targets -- except for /31 and /32 (and /127, /128), where the
+    # single address itself is what is wanted.
+    #
+    # The two branches are deliberately not collapsed: only the concrete
+    # IPv4Network/IPv6Network overrides of hosts() are typed as yielding a
+    # concrete address, the shared base declares the untyped _BaseAddress.
+    addresses: list[IPAddress]
+    if isinstance(network, ipaddress.IPv4Network):
+        addresses = list(network.hosts())
+    else:
+        addresses = list(network.hosts())
+    return addresses or [network.network_address]
+
+
+async def _resolve_hostname(name: str) -> list[IPAddress]:
+    """Resolve a hostname to every address it currently maps to.
+
+    Every returned address is validated by the caller, because a single
+    name can resolve to several addresses and only one of them needs to be
+    internal for a DNS-rebinding-style bypass to succeed. The resolved
+    addresses are what get connected to (never the name), so the check and
+    the connection cannot disagree about where the traffic went.
+    """
+    try:
+        infos = await asyncio.to_thread(
+            socket.getaddrinfo, name, None, 0, socket.SOCK_STREAM
+        )
+    except socket.gaierror as exc:
+        raise DiscoveryTargetError(f"'{name}' could not be resolved") from exc
+
+    resolved: list[IPAddress] = []
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if address not in resolved:
+            resolved.append(address)
+    if not resolved:
+        raise DiscoveryTargetError(f"'{name}' could not be resolved")
+    return resolved
+
+
+async def resolve_scan_targets(
+    entries: list[str], allowlist: list[IPNetwork]
+) -> list[str]:
+    """Validate scan entries and return the concrete addresses to probe.
+
+    The single gate between caller input and outbound traffic. An entry may
+    be an IP, a CIDR, or a hostname; whichever it is, the result is a list
+    of literal IP addresses, so the probe connects to exactly what was
+    validated.
+
+    Two independent conditions must both hold for every address:
+
+    1. it falls inside an operator-allowlisted CIDR (:func:`parse_allowlist`)
+    2. it is not blocked special-use space (:func:`_reject_reason`)
+
+    Raises DiscoveryTargetError on the first violation.
+    """
+    targets: list[str] = []
+
+    for raw_entry in entries:
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+
+        try:
+            network = ipaddress.ip_network(entry, strict=False)
+        except ValueError:
+            # Not an IP or CIDR, so treat it as a hostname.
+            addresses = await _resolve_hostname(entry)
+            for address in addresses:
+                _assert_scannable(address, entry)
+                _assert_allowlisted(
+                    ipaddress.ip_network(address), entry, allowlist
+                )
+                targets.append(str(address))
+        else:
+            # Special-use rejection is evaluated before the allowlist, so it
+            # holds unconditionally: an operator who allowlists
+            # 169.254.0.0/16 still cannot reach the metadata service, and
+            # the error names the real reason rather than blaming the
+            # allowlist.
+            addresses = _expand(network, entry)
+            for address in addresses:
+                _assert_scannable(address, entry)
+            _assert_allowlisted(network, entry, allowlist)
+            targets.extend(str(address) for address in addresses)
+
+        if len(targets) > MAX_SCAN_TARGETS:
+            raise DiscoveryTargetError(
+                f"scan expands to more than {MAX_SCAN_TARGETS} addresses"
+            )
+
+    # Preserve order while dropping duplicates -- overlapping entries should
+    # not multiply the probe count.
+    return list(dict.fromkeys(targets))
+
+
+def _format_host(host: str) -> str:
+    """Render an address for use in a URL authority, bracketing IPv6."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    return f"[{host}]" if address.version == 6 else host
+
 
 async def _probe_endpoint(
     host: str,
@@ -33,8 +274,13 @@ async def _probe_endpoint(
     adapter_cls: type[ProductAdapter],
     session: aiohttp.ClientSession,
 ) -> dict[str, Any] | None:
-    """Probe a single host:port for a PenguinTech product (async)."""
-    base_url = f"http://{host}:{port}"
+    """Probe a single host:port for a PenguinTech product (async).
+
+    ``host`` is always a literal IP address already cleared by
+    :func:`resolve_scan_targets` — never a caller-supplied hostname, so no
+    second name resolution can land somewhere the validation did not see.
+    """
+    base_url = f"http://{_format_host(host)}:{port}"
     health_ep = adapter_cls.DEFAULT_HEALTH_ENDPOINT
 
     try:
@@ -105,7 +351,12 @@ async def _scan_network(network_ranges: list[str]) -> list[dict[str, Any]]:
 @discovery_bp.route("/scan", methods=["POST"])
 @auth_required
 async def trigger_scan() -> tuple[dict[str, Any], int]:
-    """Trigger network scan for PenguinTech products."""
+    """Trigger a network scan for PenguinTech products.
+
+    Requires owner/admin authority on the tenant, and scans only addresses
+    inside the operator's DISCOVERY_RANGES allowlist. Caller-supplied
+    ``ranges`` narrow that allowlist; they can never widen it.
+    """
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
@@ -115,26 +366,37 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if role not in ["owner", "admin"]:
+    role = await resolve_effective_role(user["id"], tenant_id)
+    if role not in EFFECTIVE_ADMIN_ROLES:
         return {"error": "Admin access required"}, 403
 
-    # Get scan targets from request or config
     from .config import Config
 
-    ranges = data.get("ranges", [])
-    if not ranges:
-        default_ranges = getattr(Config, "DISCOVERY_RANGES", "")
-        if default_ranges:
-            ranges = [r.strip() for r in default_ranges.split(",") if r.strip()]
+    allowlist = parse_allowlist(getattr(Config, "DISCOVERY_RANGES", "") or "")
+    requested = data.get("ranges") or []
 
-    if not ranges:
+    if requested and not allowlist:
+        # Fail closed. With no operator allowlist there is nothing to
+        # validate caller input against, so honouring it would mean
+        # scanning wherever the caller pointed us.
+        return {
+            "error": "DISCOVERY_RANGES is not configured; "
+            "caller-supplied ranges are not permitted"
+        }, 400
+
+    entries = requested or [str(network) for network in allowlist]
+    if not entries:
         return {
             "error": "No network ranges specified. "
             "Provide 'ranges' or set DISCOVERY_RANGES."
         }, 400
 
-    results = await _scan_network(ranges)
+    try:
+        targets = await resolve_scan_targets(entries, allowlist)
+    except DiscoveryTargetError as exc:
+        return {"error": str(exc)}, 400
+
+    results = await _scan_network(targets)
     _scan_results[tenant_id] = results
 
     await create_audit_log(
@@ -149,7 +411,7 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
     return {
         "discovered": results,
         "count": len(results),
-        "ranges_scanned": ranges,
+        "ranges_scanned": entries,
     }, 200
 
 
