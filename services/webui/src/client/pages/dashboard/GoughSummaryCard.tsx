@@ -2,7 +2,10 @@ import { useNavigate } from "react-router";
 import Card from "../../components/Card";
 import { isProductEnabled } from "../../lib/featureGates";
 import { useGoughAgents, useGoughNodes } from "../products/gough/useGough";
-import { useGoughOperations } from "../products/gough/useGoughOperations";
+import {
+  useGoughMetrics,
+  useGoughOperations,
+} from "../products/gough/useGoughOperations";
 
 /** One headline number. */
 function Stat({
@@ -30,15 +33,32 @@ function Stat({
  * costs no requests rather than showing an empty card that implies the
  * product is present but idle.
  *
- * Counts come from the resource lists rather than a `total` field: Gough's
- * `total` is the length of the page it just serialised, not the collection
- * size, so reading it would report the page size as the fleet size.
+ * Where each number comes from, and why they differ
+ * ------------------------------------------------
+ * Queue depths come from `metrics_summary()` — the product's own `/metrics`
+ * scrape, reached through `GET /products/{id}/metrics`. That endpoint was
+ * added because the adapter had implemented and tested `metrics_summary`
+ * since Phase 4G with nothing exposing it.
+ *
+ * Fleet counts still come from the resource lists, and that is a limitation of
+ * the PRODUCT, not an oversight here. Gough's `/metrics` exposes no
+ * fleet-size gauge at all: every metric it registers
+ * (`services/api-manager/app/metrics.py`) is an operational or security
+ * counter — queue depths, API error totals, latency, audit-chain failures.
+ * There is no `gough_nodes`/`gough_agents`/`gough_biomes`. So the fleet tiles
+ * cannot be sourced from metrics until Gough publishes such a gauge.
+ *
+ * The list-derived counts carry a real caveat worth knowing: a list page is
+ * capped (Gough's `page_size` maxes at 500), so these are "nodes on the first
+ * page", not a guaranteed fleet total. Gough's own `total` field is no better
+ * — it is the length of the page it just serialised.
  */
 export default function GoughSummaryCard() {
   const navigate = useNavigate();
   const nodes = useGoughNodes();
   const agents = useGoughAgents();
   const operations = useGoughOperations();
+  const metrics = useGoughMetrics();
 
   if (!isProductEnabled("gough") || nodes.productId === undefined) return null;
 
@@ -46,10 +66,21 @@ export default function GoughSummaryCard() {
   const ready = nodeRows.filter((node) => node.state === "ready").length;
   const live = (operations.data ?? []).filter((op) => !op.is_terminal).length;
 
+  // Real product metrics. Absent (rather than zero) when the scrape has not
+  // landed yet — a confident "0" for an unknown value is the failure mode the
+  // Operation contract already refuses for `progress`.
+  const totals = metrics.data?.totals;
+  const queued = totals?.["gough_provisioning_queue_depth"];
+  const deployQueue = totals?.["gough_deployment_queue_depth"];
+  const queueDepth =
+    queued === undefined && deployQueue === undefined
+      ? "—"
+      : (queued ?? 0) + (deployQueue ?? 0);
+
   return (
     <Card title="Gough">
       <div
-        className="grid grid-cols-4 gap-4"
+        className="grid grid-cols-5 gap-4"
         data-testid="gough-summary-card"
         aria-busy={nodes.isLoading}
       >
@@ -60,6 +91,15 @@ export default function GoughSummaryCard() {
           label="Running ops"
           value={live}
           tone={live > 0 ? "text-sky-400" : "text-slate-400"}
+        />
+        <Stat
+          label="Queue depth"
+          value={queueDepth}
+          tone={
+            typeof queueDepth === "number" && queueDepth > 0
+              ? "text-amber-400"
+              : "text-slate-400"
+          }
         />
       </div>
       <button

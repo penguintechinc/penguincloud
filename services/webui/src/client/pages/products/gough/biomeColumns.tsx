@@ -1,6 +1,6 @@
 import type { FormField } from "@penguintechinc/react-libs";
 import type { ColumnConfig } from "../../../components/kit";
-import type { GoughBiome } from "./types";
+import type { GoughBiomeRow } from "./types";
 
 const absent = <span className="text-slate-500">—</span>;
 
@@ -12,7 +12,7 @@ const absent = <span className="text-slate-500">—</span>;
  * would make every biome look stateless in a list an operator reads alongside
  * the node fleet.
  */
-export const biomeColumns: ColumnConfig<GoughBiome>[] = [
+export const biomeColumns: ColumnConfig<GoughBiomeRow>[] = [
   { key: "name", label: "Name" },
   {
     key: "is_active",

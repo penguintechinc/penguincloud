@@ -12,7 +12,7 @@ import { FactList, RowOpenButtons } from "./FactList";
 import { ActionButton } from "./ActionButton";
 import { NODE_ACTIONS, type NodeAction } from "./nodeActions";
 import { useGoughMutation, useGoughNodes } from "./useGough";
-import type { GoughNode } from "./types";
+import type { GoughNode, GoughNodeRow } from "./types";
 
 /**
  * Gough node fleet.
@@ -63,8 +63,8 @@ export default function NodesPage() {
     >
       <OperationsPanel />
 
-      <DataTable<GoughNode & { id: string }>
-        columns={nodeColumns as never}
+      <DataTable<GoughNodeRow>
+        columns={nodeColumns}
         data={rows}
         isLoading={isLoading}
         error={error as Error | null}

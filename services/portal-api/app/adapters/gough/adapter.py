@@ -44,7 +44,7 @@ from ..base import (
 from ..transport import Transport, get_transport
 from . import mapping
 from .mapping import OP_BIOME_UPGRADE, OP_DEPLOYMENT, OPERATION_KINDS
-from .responses import GoughResponse, unwrap
+from .responses import GoughResponse, raise_for_status, unwrap
 from .routes import GOUGH_ROUTE_ALLOWLIST
 from .session import GoughSession
 
@@ -703,6 +703,18 @@ class GoughAdapter(HealthOnlyAdapter):
         is an instantaneous scrape, so Gough's REST surface has no time
         dimension to draw. Charting history is Prometheus's job, and
         fabricating a two-point series from one scrape would render as data.
+
+        This method cannot use :meth:`_call`, because ``/metrics`` answers
+        Prometheus text rather than Gough's JSON envelope and ``unwrap`` would
+        fail to decode a perfectly good response. It does NOT follow that the
+        error taxonomy is optional: failures go through the same
+        :func:`raise_for_status` every other call uses, so a 403 here is an
+        ``UpstreamAuthError`` and a 429 is a ``RateLimitedError`` with the
+        product's retry hint — exactly as a caller of any other adapter method
+        would get. Collapsing all of them to a bare ``UpstreamError`` (as this
+        did) meant the dashboard card reported "upstream error" for a throttle
+        the portal should have backed off from, and for a permission problem an
+        operator could have fixed.
         """
         transport = await self._transport()
         session = GoughSession(transport)
@@ -712,10 +724,7 @@ class GoughAdapter(HealthOnlyAdapter):
         if response.status_code == 401:
             authed = await session.reauthorize(ctx)
             response = await transport.request("GET", url, authed, headers={})
-        if response.status_code >= 400:
-            raise UpstreamError(
-                f"gough metrics scrape failed with HTTP {response.status_code}"
-            )
+        raise_for_status(response, "gough metrics scrape")
 
         now = datetime.now(UTC)
         return MetricsSummary(

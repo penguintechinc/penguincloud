@@ -26,9 +26,12 @@ from app.adapters.base import (
     Operation,
     OperationLogLine,
     OperationState,
+    MetricsSummary,
     Page,
+    RateLimitedError,
     Resource,
     ResourceConflictError,
+    TimeRange,
 )
 
 PRODUCT_SECRET = "-".join(("not", "a", "real", "operations", "credential"))
@@ -140,6 +143,7 @@ class StubAdapter:
     logs: list[OperationLogLine] = []
     action_result: ActionResult | None = None
     seen_action: Any = None
+    metrics: MetricsSummary | None = None
 
     def __init__(self) -> None:
         """Match the registry's zero-argument construction."""
@@ -177,6 +181,14 @@ class StubAdapter:
             raise StubAdapter.raises
         return StubAdapter.logs
 
+    async def metrics_summary(self, ctx: Any) -> MetricsSummary:
+        """Return the staged metrics or raise the staged error."""
+        StubAdapter.seen_ctx = ctx
+        if StubAdapter.raises is not None:
+            raise StubAdapter.raises
+        assert StubAdapter.metrics is not None
+        return StubAdapter.metrics
+
     async def perform_action(
         self,
         kind: str,
@@ -203,6 +215,12 @@ def _stub_adapter(monkeypatch: pytest.MonkeyPatch) -> Any:
     StubAdapter.seen_ctx = None
     StubAdapter.action_result = ActionResult(action="deploy", accepted=True)
     StubAdapter.seen_action = None
+    StubAdapter.metrics = MetricsSummary(
+        range=TimeRange(
+            start=datetime(2026, 8, 8, tzinfo=UTC),
+            end=datetime(2026, 8, 8, tzinfo=UTC),
+        )
+    )
     monkeypatch.setitem(
         __import__("app.adapters", fromlist=["ADAPTER_REGISTRY"]).ADAPTER_REGISTRY,
         "gough",
@@ -821,3 +839,87 @@ class TestTypedActionPath:
         }
         assert set(body["resource"]) == {"id", "kind", "name", "status"}
         assert "/internal/secret" not in str(body)
+
+
+@pytest.mark.asyncio
+class TestMetricsRoute:
+    """The route that makes `metrics_summary` reachable.
+
+    The adapter has implemented and tested `metrics_summary` since Phase 4G,
+    but nothing exposed it — so the dashboard card counted rows from the
+    resource lists instead. Those are different numbers: a list page is capped
+    (Gough's `page_size` maxes at 500), so a fleet larger than one page
+    rendered as the page size.
+    """
+
+    async def test_metrics_are_published_with_a_declared_shape(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Explicit field set, same output-validation rule as everything else."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.metrics = MetricsSummary(
+            range=TimeRange(
+                start=datetime(2026, 8, 8, tzinfo=UTC),
+                end=datetime(2026, 8, 8, tzinfo=UTC),
+            ),
+            series=[],
+            totals={"gough_provisioning_queue_depth": 3.0},
+        )
+
+        response = await client.get(
+            f"/api/v1/products/{conn_id}/metrics", headers=headers
+        )
+
+        assert response.status_code == 200
+        body = await response.get_json()
+        assert set(body) == {"start", "end", "series", "totals"}
+        assert body["totals"] == {"gough_provisioning_queue_depth": 3.0}
+
+    async def test_metrics_require_only_read(self, client: Any, app: Quart) -> None:
+        """A dashboard tile is a read, and a read scope must reach it."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.metrics = MetricsSummary(
+            range=TimeRange(
+                start=datetime(2026, 8, 8, tzinfo=UTC),
+                end=datetime(2026, 8, 8, tzinfo=UTC),
+            )
+        )
+
+        async def _read_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:gough:read"]
+
+        with _patched_scopes(_read_only):
+            response = await client.get(
+                f"/api/v1/products/{conn_id}/metrics", headers=headers
+            )
+
+        assert response.status_code == 200
+
+    async def test_another_products_scope_cannot_read_gough_metrics(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Selectivity, same as every other per-product route."""
+        conn_id, headers = await _setup(client, app)
+
+        async def _nest_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:nest:read"]
+
+        with _patched_scopes(_nest_only):
+            response = await client.get(
+                f"/api/v1/products/{conn_id}/metrics", headers=headers
+            )
+
+        assert response.status_code == 403
+
+    async def test_metrics_failure_uses_the_error_taxonomy(
+        self, client: Any, app: Quart
+    ) -> None:
+        """A throttle must not surface as a generic 500 (M12's HTTP half)."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.raises = RateLimitedError("slow down", retry_after=17)
+
+        response = await client.get(
+            f"/api/v1/products/{conn_id}/metrics", headers=headers
+        )
+
+        assert response.status_code == 429

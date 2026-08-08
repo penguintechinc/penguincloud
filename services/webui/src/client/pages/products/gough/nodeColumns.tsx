@@ -1,5 +1,5 @@
 import type { ColumnConfig } from "../../../components/kit";
-import type { GoughNode } from "./types";
+import type { GoughNodeRow } from "./types";
 
 /** Muted dash for an absent value — an empty cell reads as a layout bug. */
 const absent = <span className="text-slate-500">—</span>;
@@ -16,7 +16,7 @@ const absent = <span className="text-slate-500">—</span>;
  * There is no node `status` field to render — Gough does not have one. See
  * `types.ts`.
  */
-export const nodeColumns: ColumnConfig<GoughNode>[] = [
+export const nodeColumns: ColumnConfig<GoughNodeRow>[] = [
   { key: "name", label: "Name" },
   {
     key: "state",

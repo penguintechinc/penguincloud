@@ -347,3 +347,108 @@ describe("operations panel", () => {
     );
   });
 });
+
+describe("operation logs (M15)", () => {
+  /**
+   * The jobs-log surface. `operationLogs` on the API client and
+   * `operation_logs` on the adapter were implemented and tested but had no
+   * caller — the brief's DetailDrawer log tab was never built. These tests
+   * cover the tab that makes that chain reachable.
+   */
+  beforeEach(() => {
+    goughOperationsApi.listOperations.mockResolvedValue([
+      {
+        id: "dep-1",
+        kind: "deployment",
+        state: "running",
+        status: "in_progress",
+        is_terminal: false,
+      },
+    ]);
+  });
+
+  it("does not fetch logs until the operator opens them", async () => {
+    renderPage(<NodesPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("gough-operation-dep-1")).toBeInTheDocument(),
+    );
+    // A panel listing ten deployments must not fetch ten log streams nobody
+    // asked for — the `enabled` flag is what makes the disclosure cheap.
+    expect(goughOperationsApi.operationLogs).not.toHaveBeenCalled();
+  });
+
+  it("fetches and renders log lines once opened", async () => {
+    goughOperationsApi.operationLogs.mockResolvedValue([
+      { timestamp: "2026-08-08T00:00:00Z", level: "info", message: "started" },
+      { timestamp: "2026-08-08T00:00:05Z", level: "error", message: "boom" },
+    ]);
+    renderPage(<NodesPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("gough-operation-logs-toggle-dep-1"),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId("gough-operation-logs-toggle-dep-1"));
+
+    await waitFor(() =>
+      expect(screen.getByText("started")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("boom")).toBeInTheDocument();
+    expect(goughOperationsApi.operationLogs).toHaveBeenCalledWith(
+      7,
+      "deployment",
+      "dep-1",
+    );
+  });
+
+  it("reports an empty stream rather than rendering nothing", async () => {
+    goughOperationsApi.operationLogs.mockResolvedValue([]);
+    renderPage(<NodesPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("gough-operation-logs-toggle-dep-1"),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId("gough-operation-logs-toggle-dep-1"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("gough-operation-logs-empty-dep-1"),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("surfaces a log fetch failure instead of showing an empty stream", async () => {
+    // An error rendered as "no log lines yet" tells an operator the deploy is
+    // quiet when in fact the portal could not read it.
+    goughOperationsApi.operationLogs.mockRejectedValue(new Error("nope"));
+    renderPage(<NodesPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("gough-operation-logs-toggle-dep-1"),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId("gough-operation-logs-toggle-dep-1"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("gough-operation-logs-error-dep-1"),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("exposes the disclosure state to assistive tech", async () => {
+    renderPage(<NodesPage />);
+
+    const toggle = await screen.findByTestId(
+      "gough-operation-logs-toggle-dep-1",
+    );
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+});

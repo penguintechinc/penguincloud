@@ -70,6 +70,9 @@ from .adapters.base import (
     ActionResult,
     AdapterContext,
     AdapterError,
+    MetricPoint,
+    MetricSeries,
+    MetricsSummary,
     Operation,
     OperationState,
     Resource,
@@ -259,6 +262,65 @@ class ActionResultResponse:
                 else None
             ),
             message=result.message,
+        )
+
+
+@dataclass(slots=True, frozen=True)
+class MetricPointView:
+    """One sample in a series."""
+
+    timestamp: str
+    value: float
+
+    @classmethod
+    def of(cls, point: MetricPoint) -> MetricPointView:
+        """Project an adapter MetricPoint onto the wire shape."""
+        return cls(timestamp=point.timestamp.isoformat(), value=point.value)
+
+
+@dataclass(slots=True, frozen=True)
+class MetricSeriesView:
+    """A named, unit-carrying sequence of samples."""
+
+    key: str
+    label: str
+    unit: str
+    points: list[MetricPointView]
+
+    @classmethod
+    def of(cls, series: MetricSeries) -> MetricSeriesView:
+        """Project an adapter MetricSeries onto the wire shape."""
+        return cls(
+            key=series.key,
+            label=series.label,
+            unit=series.unit,
+            points=[MetricPointView.of(point) for point in series.points],
+        )
+
+
+@dataclass(slots=True, frozen=True)
+class MetricsSummaryResponse:
+    """Headline metrics for one product connection.
+
+    ``series`` may legitimately be empty — Gough's ``/metrics`` is an
+    instantaneous scrape with no time dimension, and the adapter refuses to
+    fabricate a two-point series from one sample. ``totals`` is the part the
+    dashboard counter tiles read.
+    """
+
+    start: str
+    end: str
+    series: list[MetricSeriesView]
+    totals: dict[str, float]
+
+    @classmethod
+    def of(cls, summary: MetricsSummary) -> MetricsSummaryResponse:
+        """Project an adapter MetricsSummary onto the wire shape."""
+        return cls(
+            start=summary.range.start.isoformat(),
+            end=summary.range.end.isoformat(),
+            series=[MetricSeriesView.of(item) for item in summary.series],
+            totals=summary.totals,
         )
 
 
@@ -572,3 +634,31 @@ async def perform_resource_action(
         return _failure(exc, product_id, f"perform_action:{action}")
 
     return ActionResultResponse.of(outcome), 200
+
+
+@operations_bp.route("/<int:product_id>/metrics", methods=["GET"])
+@auth_required
+@tenancy_aware
+@validate_response(MetricsSummaryResponse)
+async def product_metrics(product_id: int) -> tuple[Any, int]:
+    """Return the product's headline metrics.
+
+    The adapter has implemented and tested ``metrics_summary`` since Phase 4G,
+    but nothing exposed it — so the dashboard card counted rows from the
+    resource lists instead. That is not the same number: a list page is capped
+    (Gough's ``page_size`` maxes at 500) and Gough's own ``total`` is the
+    length of the page it just serialised, so a fleet larger than one page
+    rendered as the page size. ``totals`` here comes from the product's
+    ``/metrics`` scrape and is the real figure.
+    """
+    ctx, product_type, error = await _resolve(product_id, _ACTION_READ)
+    if error is not None or ctx is None or product_type is None:
+        return error or _NOT_FOUND
+
+    adapter = get_adapter(product_type, ctx)
+    try:
+        summary = await adapter.metrics_summary(ctx)
+    except AdapterError as exc:
+        return _failure(exc, product_id, "metrics_summary")
+
+    return MetricsSummaryResponse.of(summary), 200

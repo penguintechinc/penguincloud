@@ -64,9 +64,43 @@ class _CachedToken:
 #: otherwise keep getting the old session until it expired on its own.
 _TOKEN_CACHE: dict[tuple[int, str], _CachedToken] = {}
 
-#: Guards the cache across concurrent requests for the same connection, so a
-#: burst of parallel calls performs one login rather than one per request.
-_CACHE_LOCK = asyncio.Lock()
+#: One lock PER CACHE KEY, so a burst of parallel calls for one connection
+#: performs a single login while every other connection proceeds untouched.
+#:
+#: This was a single module-level ``asyncio.Lock`` held across the network
+#: login. Because the await happened inside the critical section, one Gough
+#: instance that was slow or hanging stalled EVERY Gough request in the
+#: portal — including requests to entirely different tenants' connections,
+#: which share nothing with it but this lock. The blast radius of one
+#: unreachable product was every product of that type.
+#:
+#: The keys are the same ``(connection_id, credential fingerprint)`` pairs the
+#: token cache uses, so contention is scoped exactly to the callers who would
+#: otherwise duplicate the same login.
+#:
+#: This module is the template Phase-4N and 4T copy, which is why it is worth
+#: fixing here rather than three times later.
+_KEY_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
+
+#: Guards mutation of :data:`_KEY_LOCKS` itself. Held only long enough to hand
+#: out a lock — never across a network call, which is the whole distinction
+#: from the lock it replaced.
+_LOCKS_GUARD = asyncio.Lock()
+
+
+async def _lock_for(key: tuple[int, str]) -> asyncio.Lock:
+    """Return the lock guarding one connection's cached token.
+
+    Created on demand under :data:`_LOCKS_GUARD` so two coroutines racing for
+    the same new key cannot each build a lock and then both proceed to log in
+    — which would reintroduce the duplicate-login this exists to prevent.
+    """
+    async with _LOCKS_GUARD:
+        lock = _KEY_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _KEY_LOCKS[key] = lock
+        return lock
 
 
 def _fingerprint(ctx: AdapterContext) -> str:
@@ -85,8 +119,14 @@ def _fingerprint(ctx: AdapterContext) -> str:
 
 
 def clear_token_cache() -> None:
-    """Drop every cached token. For tests and connection teardown."""
+    """Drop every cached token. For tests and connection teardown.
+
+    Also drops the per-key locks. They are cheap, but keeping them after their
+    token is gone would leave one entry per connection ever seen — the same
+    unbounded-growth shape the token cache itself has (tracked as M13).
+    """
     _TOKEN_CACHE.clear()
+    _KEY_LOCKS.clear()
 
 
 class GoughSession:
@@ -102,7 +142,7 @@ class GoughSession:
         Uses the cached token when it is still fresh, otherwise logs in.
         """
         key = (ctx.connection_id, _fingerprint(ctx))
-        async with _CACHE_LOCK:
+        async with await _lock_for(key):
             cached = _TOKEN_CACHE.get(key)
             if cached is not None and cached.is_fresh(time.monotonic()):
                 return self._with_token(ctx, cached.access_token)
@@ -120,7 +160,7 @@ class GoughSession:
         every request until the process restarts.
         """
         key = (ctx.connection_id, _fingerprint(ctx))
-        async with _CACHE_LOCK:
+        async with await _lock_for(key):
             cached = _TOKEN_CACHE.pop(key, None)
             token: _CachedToken | None = None
             if cached is not None:

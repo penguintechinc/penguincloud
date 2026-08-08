@@ -15,7 +15,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { goughOperationsApi } from "../../../api/resources/goughOperations";
 import { queryKeys } from "../../../api/keys";
 import { useGoughConnection } from "./useGough";
-import type { GoughOperation } from "./types";
+import type {
+  GoughMetricsSummary,
+  GoughOperation,
+  GoughOperationLogLine,
+} from "./types";
 
 /** Poll interval for a live operation. */
 const OPERATION_POLL_MS = 3000;
@@ -79,6 +83,61 @@ export function useGoughOperation(
       query.state.data && !query.state.data.is_terminal
         ? OPERATION_POLL_MS
         : false,
+  });
+}
+
+/**
+ * Log lines for one operation, polled while it is still live.
+ *
+ * `enabled` is what makes the disclosure cheap: the query does not run until
+ * the operator actually opens the log view, so a panel listing ten
+ * deployments does not fetch ten log streams nobody asked for.
+ *
+ * Polling stops on `is_terminal` for the same reason every other loop here
+ * does — a finished operation's log will not grow, and a loop that keeps
+ * asking is pure background traffic.
+ */
+export function useOperationLogs(
+  kind: string,
+  operationId: string,
+  options: { enabled: boolean; isTerminal: boolean },
+) {
+  const { tenantId, productId, isEnabled } = useGoughConnection();
+
+  return useQuery({
+    queryKey: queryKeys.goughOperationLogs(
+      tenantId,
+      productId,
+      kind,
+      operationId,
+    ),
+    queryFn: async (): Promise<GoughOperationLogLine[]> => {
+      if (productId === undefined) return [];
+      return goughOperationsApi.operationLogs(productId, kind, operationId);
+    },
+    enabled: isEnabled && productId !== undefined && options.enabled,
+    refetchInterval: options.isTerminal ? false : OPERATION_POLL_MS,
+  });
+}
+
+/**
+ * Headline metrics for the tenant's Gough connection.
+ *
+ * The dashboard card reads `totals` from here rather than counting rows in the
+ * node/agent lists. Those lists are paginated, so their length is a page size,
+ * not a fleet size — a tenant with more nodes than one page would have seen a
+ * confidently wrong number.
+ */
+export function useGoughMetrics() {
+  const { tenantId, productId, isEnabled } = useGoughConnection();
+
+  return useQuery({
+    queryKey: queryKeys.goughMetrics(tenantId, productId),
+    queryFn: async (): Promise<GoughMetricsSummary | null> => {
+      if (productId === undefined) return null;
+      return goughOperationsApi.metricsSummary(productId);
+    },
+    enabled: isEnabled && productId !== undefined,
   });
 }
 

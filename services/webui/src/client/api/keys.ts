@@ -64,6 +64,8 @@ export const queryKeys = {
     tenantId: number | undefined,
     productId: number | undefined,
   ) => [...queryKeys.gough(), tenantId, productId, "operations"] as const,
+  goughMetrics: (tenantId: number | undefined, productId: number | undefined) =>
+    [...queryKeys.gough(), tenantId, productId, "metrics"] as const,
   goughOperation: (
     tenantId: number | undefined,
     productId: number | undefined,
@@ -75,6 +77,20 @@ export const queryKeys = {
       tenantId,
       productId,
       "operation",
+      kind,
+      operationId,
+    ] as const,
+  goughOperationLogs: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+    kind: string,
+    operationId: string,
+  ) =>
+    [
+      ...queryKeys.gough(),
+      tenantId,
+      productId,
+      "operation-logs",
       kind,
       operationId,
     ] as const,

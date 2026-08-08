@@ -34,6 +34,45 @@ components:
         - status
       title: ActionResourceView
       type: object
+    MetricPointView:
+      description: One sample in a series.
+      properties:
+        timestamp:
+          title: Timestamp
+          type: string
+        value:
+          title: Value
+          type: number
+      required:
+        - timestamp
+        - value
+      title: MetricPointView
+      type: object
+    MetricSeriesView:
+      description: A named, unit-carrying sequence of samples.
+      properties:
+        key:
+          title: Key
+          type: string
+        label:
+          title: Label
+          type: string
+        points:
+          items:
+            $ref: '#/components/schemas/MetricPointView'
+          maxItems: 10000
+          title: Points
+          type: array
+        unit:
+          title: Unit
+          type: string
+      required:
+        - key
+        - label
+        - unit
+        - points
+      title: MetricSeriesView
+      type: object
     OperationLogLineView:
       description: Wire shape for one log line.
       properties:
@@ -945,6 +984,81 @@ paths:
           description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
             so no schema is published for it; do not rely on a specific body until one is.
       summary: Get latest health status for a product.
+  /api/v1/products/{product_id}/metrics:
+    get:
+      description: '
+
+        The adapter has implemented and tested ``metrics_summary`` since Phase 4G,
+
+        but nothing exposed it — so the dashboard card counted rows from the
+
+        resource lists instead. That is not the same number: a list page is capped
+
+        (Gough''s ``page_size`` maxes at 500) and Gough''s own ``total`` is the
+
+        length of the page it just serialised, so a fleet larger than one page
+
+        rendered as the page size. ``totals`` here comes from the product''s
+
+        ``/metrics`` scrape and is the real figure.'
+      operationId: get_product_metrics
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Headline metrics for one product connection.
+
+
+                  ``series`` may legitimately be empty — Gough''s ``/metrics`` is an
+
+                  instantaneous scrape with no time dimension, and the adapter refuses to
+
+                  fabricate a two-point series from one sample. ``totals`` is the part the
+
+                  dashboard counter tiles read.'
+                properties:
+                  end:
+                    title: End
+                    type: string
+                  series:
+                    items:
+                      $ref: '#/components/schemas/MetricSeriesView'
+                    maxItems: 10000
+                    title: Series
+                    type: array
+                  start:
+                    title: Start
+                    type: string
+                  totals:
+                    additionalProperties:
+                      type: number
+                    title: Totals
+                    type: object
+                required:
+                  - start
+                  - end
+                  - series
+                  - totals
+                title: MetricsSummaryResponse
+                type: object
+          description: 'Headline metrics for one product connection.
+
+
+            ``series`` may legitimately be empty — Gough''s ``/metrics`` is an
+
+            instantaneous scrape with no time dimension, and the adapter refuses to
+
+            fabricate a two-point series from one sample. ``totals`` is the part the
+
+            dashboard counter tiles read.'
+      summary: Return the product's headline metrics.
   /api/v1/products/{product_id}/operations:
     get:
       description: ''

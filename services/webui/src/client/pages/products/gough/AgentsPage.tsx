@@ -11,7 +11,7 @@ import { agentColumns } from "./agentColumns";
 import { FactList, RowOpenButtons } from "./FactList";
 import { ActionButton } from "./ActionButton";
 import { useGoughAgents, useGoughMutation } from "./useGough";
-import type { GoughAgent } from "./types";
+import type { GoughAgent, GoughAgentRow } from "./types";
 
 type AgentVerb = "suspend" | "resume";
 
@@ -56,8 +56,8 @@ export default function AgentsPage() {
     >
       <OperationsPanel />
 
-      <DataTable<GoughAgent & { id: string }>
-        columns={agentColumns as never}
+      <DataTable<GoughAgentRow>
+        columns={agentColumns}
         data={rows}
         isLoading={isLoading}
         error={error as Error | null}

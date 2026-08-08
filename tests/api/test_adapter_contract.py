@@ -147,6 +147,59 @@ class TestPathNormalization:
         with pytest.raises(PathTraversalError):
             normalize_proxy_path(path)
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            # The original defect, verbatim. The segment scan splits on a
+            # LITERAL slash, so this is ONE segment ("..%2fadmin") to the
+            # portal and two to any product that decodes it.
+            "/users/..%2fadmin",
+            "/nodes/..%2Fadmin",
+            # Encoded backslash: same trick where the product treats "\" as a
+            # separator. Note the LITERAL backslash check cannot see this one.
+            "/users/..%5cadmin",
+            "/users/..%5Cadmin",
+            # Without any dot at all — proves the rejection is the separator
+            # itself, not a dot heuristic reaching it by luck.
+            "/nodes/foo%2fbar",
+            "/nodes/foo%5cbar",
+        ],
+    )
+    def test_encoded_separators_are_refused(self, path: str) -> None:
+        """I2: only ``_ENCODED_SEPARATOR`` can reject these — that is the point.
+
+        Every case here is chosen so that removing the encoded-separator check
+        makes it PASS, which is what a regression test for that check has to
+        do. Each one is deliberately invisible to every other guard in
+        ``normalize_proxy_path``:
+
+        * the dot-segment scan sees ``..%2fadmin``, which is not ``..``;
+        * the ``%2e`` check does not fire — there is no encoded dot;
+        * the literal-backslash check does not fire — ``%5c`` is encoded;
+        * the last two contain no dots at all.
+
+        The pre-existing coverage for this went through the Gough allowlist,
+        where ``_INT_ID`` refuses a non-numeric id regardless — so it stayed
+        green with the check deleted and could not detect its removal.
+        """
+        with pytest.raises(PathTraversalError):
+            normalize_proxy_path(path)
+
+    def test_encoded_separator_check_is_load_bearing(self) -> None:
+        """State the property directly: no other guard covers these.
+
+        If a future edit makes one of these reachable by a different check,
+        this still passes — but the parametrised cases above are what break
+        loudly if the encoded-separator guard is dropped outright.
+        """
+        # No control chars, no literal backslash, no %2e, no bare dot segment.
+        hostile = "/users/..%2fadmin"
+        assert "\\" not in hostile
+        assert "%2e" not in hostile.lower()
+        assert ".." not in hostile.split("/")
+        with pytest.raises(PathTraversalError):
+            normalize_proxy_path(hostile)
+
     def test_backslash_is_refused(self) -> None:
         """Some servers treat ``\\`` as a separator, making ``..\\`` traversal."""
         with pytest.raises(PathTraversalError):

@@ -1,4 +1,9 @@
-import { useCancelOperation, useGoughOperations } from "./useGoughOperations";
+import { useState } from "react";
+import {
+  useCancelOperation,
+  useGoughOperations,
+  useOperationLogs,
+} from "./useGoughOperations";
 import type { GoughOperation } from "./types";
 
 /**
@@ -62,8 +67,90 @@ function ProgressBar({ progress }: { progress?: number | null }) {
   );
 }
 
+/** Severity colours for a log line's product-reported level. */
+const LOG_LEVEL_CLASSES: Record<string, string> = {
+  error: "text-red-400",
+  warning: "text-amber-400",
+  warn: "text-amber-400",
+  debug: "text-slate-500",
+};
+
+/**
+ * The operation's log stream, fetched only once opened.
+ *
+ * This is the jobs-log surface the brief asked for. It is the reason
+ * `operationLogs` exists on the API client and `operation_logs` on the
+ * adapter — without it that whole chain was implemented, tested and
+ * unreachable.
+ */
+function OperationLogs({ operation }: { operation: GoughOperation }) {
+  const { data, isLoading, error } = useOperationLogs(
+    operation.kind,
+    operation.id,
+    { enabled: true, isTerminal: operation.is_terminal },
+  );
+
+  if (isLoading) {
+    return (
+      <div
+        className="mt-2 h-12 bg-slate-700 rounded animate-pulse"
+        data-testid={`gough-operation-logs-loading-${operation.id}`}
+      />
+    );
+  }
+
+  if (error) {
+    return (
+      <p
+        className="mt-2 text-xs text-red-400"
+        data-testid={`gough-operation-logs-error-${operation.id}`}
+      >
+        Could not load logs for this operation.
+      </p>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <p
+        className="mt-2 text-xs text-slate-400"
+        data-testid={`gough-operation-logs-empty-${operation.id}`}
+      >
+        No log lines yet.
+      </p>
+    );
+  }
+
+  return (
+    <ol
+      className="mt-2 max-h-48 overflow-y-auto bg-slate-900 rounded p-2 space-y-0.5"
+      data-testid={`gough-operation-logs-${operation.id}`}
+    >
+      {data.map((line, index) => (
+        <li
+          key={`${line.timestamp ?? "t"}-${index}`}
+          className="text-xs font-mono flex gap-2"
+        >
+          {line.timestamp && (
+            <span className="text-slate-500 shrink-0">{line.timestamp}</span>
+          )}
+          {/* `level` is optional on the wire; default before indexing. */}
+          <span
+            className={
+              LOG_LEVEL_CLASSES[line.level ?? "info"] ?? "text-slate-300"
+            }
+          >
+            {line.message}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function OperationRow({ operation }: { operation: GoughOperation }) {
   const cancel = useCancelOperation();
+  const [showLogs, setShowLogs] = useState(false);
 
   return (
     <li
@@ -85,6 +172,19 @@ function OperationRow({ operation }: { operation: GoughOperation }) {
             <p className="text-xs text-red-400 mt-1">{operation.error}</p>
           )}
           <ProgressBar progress={operation.progress} />
+
+          <button
+            type="button"
+            onClick={() => setShowLogs((open) => !open)}
+            aria-expanded={showLogs}
+            aria-controls={`gough-operation-logs-${operation.id}`}
+            data-testid={`gough-operation-logs-toggle-${operation.id}`}
+            className="mt-2 text-xs text-sky-400 hover:text-sky-300 transition-colors focus:ring-2 focus:ring-sky-500 focus:outline-none rounded"
+          >
+            {showLogs ? "Hide logs" : "Show logs"}
+          </button>
+
+          {showLogs && <OperationLogs operation={operation} />}
         </div>
 
         {!operation.is_terminal && (

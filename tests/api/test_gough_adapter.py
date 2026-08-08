@@ -38,6 +38,7 @@ from app.adapters.base import (
     ResourceConflictError,
     ResourceNotFoundError,
     UpstreamAuthError,
+    UpstreamError,
     UpstreamValidationError,
 )
 from app.adapters.gough import GoughAdapter, clear_token_cache
@@ -175,6 +176,7 @@ _GOUGH_REAL_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("/healthz", ("GET",)),
     ("/readyz", ("GET",)),
     ("/api/v1/status", ("GET",)),
+    ("/metrics", ("GET",)),
     ("/api/v1/auth/login", ("POST",)),
     ("/api/v1/auth/refresh", ("POST",)),
     # -- nodes ------------------------------------------------------------
@@ -1372,3 +1374,166 @@ class TestCollectionRouteShapes:
             httpx.Request("GET", "https://gough.test/api/v1/biomes/groups/")
         )
         assert response.status_code == 404
+
+
+class TestSessionLockIsolation:
+    """I8: one hanging Gough must not stall every other Gough connection.
+
+    The token cache was guarded by a single module-level ``asyncio.Lock`` held
+    ACROSS the network login. Because the await sat inside the critical
+    section, a slow or hanging product stalled every Gough request in the
+    portal — including other tenants' connections, which share nothing with it
+    but that lock. This module is the template Phase-4N and 4T copy from.
+    """
+
+    async def test_a_hanging_connection_does_not_block_a_different_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The load-bearing assertion: connection B completes while A hangs.
+
+        With one global lock this deadlocks until the timeout — B cannot even
+        begin its login while A holds the lock waiting on a socket that never
+        answers.
+        """
+        import asyncio
+
+        release_a = asyncio.Event()
+        a_is_hanging = asyncio.Event()
+
+        class HangingGough(FakeGough):
+            """Blocks connection 41's login until told to proceed."""
+
+            async def _ahandler(self, request: httpx.Request) -> httpx.Response:
+                if request.url.path == "/api/v1/auth/login" and b"hang@" in (
+                    request.content or b""
+                ):
+                    # Signal that the hang is IN PROGRESS — the lock is now
+                    # provably held across a network await. Without this the
+                    # test races: a bare `sleep(0)` can return before the first
+                    # task has acquired anything, so the second call sails
+                    # through even under a single global lock and the test
+                    # proves nothing. (It did exactly that on first writing.)
+                    a_is_hanging.set()
+                    await release_a.wait()
+                return self.handler(request)
+
+        fake = HangingGough({("GET", "/api/v1/nodes/"): _envelope({"nodes": []})})
+        transport = Transport()
+        transport._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(fake._ahandler),
+            timeout=httpx.Timeout(10.0),
+        )
+
+        async def _get_transport(*_a: Any, **_k: Any) -> Transport:
+            return transport
+
+        monkeypatch.setattr("app.adapters.gough.adapter.get_transport", _get_transport)
+        adapter = GoughAdapter()
+
+        stuck = asyncio.create_task(
+            adapter.list_resources(
+                "nodes", _ctx(connection_id=41, api_key="hang@penguintech.io")
+            )
+        )
+        # Wait until A is provably inside its login, holding its lock.
+        await asyncio.wait_for(a_is_hanging.wait(), timeout=2.0)
+
+        # A different connection must complete while the first is still stuck.
+        await asyncio.wait_for(
+            adapter.list_resources(
+                "nodes", _ctx(connection_id=99, api_key="other@penguintech.io")
+            ),
+            timeout=2.0,
+        )
+
+        assert not stuck.done(), "the hanging connection should still be blocked"
+        release_a.set()
+        await asyncio.wait_for(stuck, timeout=2.0)
+
+    async def test_concurrent_calls_on_one_connection_still_log_in_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The property the lock exists for, kept.
+
+        Per-key locking must not degrade into no locking: a burst of parallel
+        calls for the SAME connection must still perform exactly one login.
+        """
+        import asyncio
+
+        fake = FakeGough({("GET", "/api/v1/nodes/"): _envelope({"nodes": []})})
+        _wire(fake, monkeypatch)
+        adapter = GoughAdapter()
+
+        await asyncio.gather(
+            *(adapter.list_resources("nodes", _ctx()) for _ in range(8))
+        )
+
+        assert fake.login_count == 1
+
+    async def test_distinct_connections_get_distinct_locks(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Keying is by (connection_id, credential fingerprint), as documented."""
+        from app.adapters.gough.session import _KEY_LOCKS, _lock_for
+
+        first = await _lock_for((1, "fp-a"))
+        assert await _lock_for((1, "fp-a")) is first, "same key must reuse its lock"
+        assert await _lock_for((2, "fp-a")) is not first
+        assert await _lock_for((1, "fp-b")) is not first
+        assert len(_KEY_LOCKS) == 3
+
+
+class TestMetricsErrorTaxonomy:
+    """M12: /metrics failures use the same taxonomy as every other call.
+
+    ``metrics_summary`` cannot go through ``_call`` — ``/metrics`` answers
+    Prometheus text, not Gough's JSON envelope — but that is a reason to skip
+    ``unwrap``, not a reason to skip the error taxonomy. It previously
+    collapsed every 4xx/5xx into a bare ``UpstreamError``, so the dashboard
+    reported "upstream error" for a throttle the portal should have backed off
+    from and for a permission problem an operator could have fixed.
+    """
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (403, UpstreamAuthError),
+            (404, ResourceNotFoundError),
+            (429, RateLimitedError),
+            (500, UpstreamError),
+        ],
+    )
+    async def test_metrics_failure_maps_to_the_shared_taxonomy(
+        self,
+        status: int,
+        expected: type[Exception],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Same status -> same exception class as any other adapter call."""
+        fake = FakeGough()
+        fake.routes[("GET", "/metrics")] = _error(status, "boom", "metrics failed")
+        _wire(fake, monkeypatch)
+
+        with pytest.raises(expected):
+            await GoughAdapter().metrics_summary(_ctx())
+
+    async def test_metrics_429_carries_the_retry_hint(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A throttle must be distinguishable from an outage, with its delay.
+
+        This is the concrete cost of the old bare `UpstreamError`: the caller
+        could not back off correctly because the hint was thrown away.
+        """
+        fake = FakeGough()
+        fake.routes[("GET", "/metrics")] = httpx.Response(
+            429,
+            headers={"Retry-After": "17"},
+            json={"status": "error", "error": {"message": "slow down"}, "meta": {}},
+        )
+        _wire(fake, monkeypatch)
+
+        with pytest.raises(RateLimitedError) as caught:
+            await GoughAdapter().metrics_summary(_ctx())
+
+        assert caught.value.retry_after == 17

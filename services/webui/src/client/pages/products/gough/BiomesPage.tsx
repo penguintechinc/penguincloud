@@ -12,7 +12,7 @@ import { FactList, RowOpenButtons } from "./FactList";
 import { ActionButton } from "./ActionButton";
 import { useGoughBiomes } from "./useGough";
 import { useDeleteBiome, useSaveBiome } from "./useBiomeMutations";
-import type { GoughBiome } from "./types";
+import type { GoughBiome, GoughBiomeRow } from "./types";
 
 /**
  * Gough biomes — deployable workload definitions.
@@ -66,8 +66,8 @@ export default function BiomesPage() {
         />
       </div>
 
-      <DataTable<GoughBiome & { id: string }>
-        columns={biomeColumns as never}
+      <DataTable<GoughBiomeRow>
+        columns={biomeColumns}
         data={rows}
         isLoading={isLoading}
         error={error as Error | null}

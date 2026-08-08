@@ -1,5 +1,5 @@
 import type { ColumnConfig } from "../../../components/kit";
-import type { GoughAgent } from "./types";
+import type { GoughAgentRow } from "./types";
 
 const absent = <span className="text-slate-500">—</span>;
 
@@ -18,7 +18,7 @@ const STATUS_CLASSES: Record<string, string> = {
  * status field alone reports what the agent last claimed, not whether it is
  * still there.
  */
-export const agentColumns: ColumnConfig<GoughAgent>[] = [
+export const agentColumns: ColumnConfig<GoughAgentRow>[] = [
   {
     key: "hostname",
     label: "Hostname",

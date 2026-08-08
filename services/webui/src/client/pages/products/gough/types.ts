@@ -127,3 +127,42 @@ export interface GoughActionResult {
   resource?: GoughActionResource | null;
   message?: string | null;
 }
+
+/**
+ * Row shapes as the tables render them.
+ *
+ * `DataTable` keys its rows by a string `id`, while Gough numbers node and
+ * biome ids and identifies an agent by `agent_id`. The pages normalise that
+ * before rendering, so the COLUMN definitions must be typed against the
+ * normalised row — not the raw resource.
+ *
+ * Getting this wrong is what the `as never` casts were hiding. `ColumnConfig<T>`
+ * is invariant in `T` (`key: keyof T`, and `render` takes `T[keyof T]`), so
+ * `ColumnConfig<GoughNode>[]` genuinely is not assignable where
+ * `ColumnConfig<GoughNodeRow>[]` is required. `as never` silenced that by
+ * erasing the type instead of correcting it, which also disabled every real
+ * check on those column definitions — a typo in a `key` would have compiled.
+ */
+export type GoughNodeRow = GoughNode & { id: string };
+export type GoughBiomeRow = GoughBiome & { id: string };
+export type GoughAgentRow = GoughAgent & { id: string };
+
+/**
+ * Headline metrics for the connection, from the product's own /metrics scrape.
+ *
+ * `totals` is the part the dashboard counter tiles read. It is NOT the same as
+ * counting rows from a resource list: a list page is capped (Gough's
+ * `page_size` maxes at 500) and Gough's own `total` is the length of the page
+ * it just serialised, so a fleet larger than one page renders as the page size.
+ */
+export interface GoughMetricsSummary {
+  start: string;
+  end: string;
+  series: {
+    key: string;
+    label: string;
+    unit: string;
+    points: { timestamp: string; value: number }[];
+  }[];
+  totals: Record<string, number>;
+}

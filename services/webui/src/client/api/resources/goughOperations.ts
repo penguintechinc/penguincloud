@@ -12,6 +12,7 @@
 import api from "../../lib/api";
 import type {
   GoughActionResult,
+  GoughMetricsSummary,
   GoughOperation,
   GoughOperationLogLine,
 } from "../../pages/products/gough/types";
@@ -21,6 +22,12 @@ const seg = (value: string | number): string =>
   encodeURIComponent(String(value));
 
 export const goughOperationsApi = {
+  /** Headline metrics for the connection — the product's own scrape. */
+  metricsSummary: async (productId: number): Promise<GoughMetricsSummary> => {
+    const response = await api.get(`/products/${productId}/metrics`);
+    return response.data as GoughMetricsSummary;
+  },
+
   /**
    * Invoke a product action through the TYPED portal route.
    *

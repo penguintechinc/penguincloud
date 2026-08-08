@@ -699,6 +699,32 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/products/{product_id}/metrics": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Return the product's headline metrics.
+     * @description The adapter has implemented and tested ``metrics_summary`` since Phase 4G,
+     *     but nothing exposed it — so the dashboard card counted rows from the
+     *     resource lists instead. That is not the same number: a list page is capped
+     *     (Gough's ``page_size`` maxes at 500) and Gough's own ``total`` is the
+     *     length of the page it just serialised, so a fleet larger than one page
+     *     rendered as the page size. ``totals`` here comes from the product's
+     *     ``/metrics`` scrape and is the real figure.
+     */
+    get: operations["get_product_metrics"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/products/{product_id}/operations": {
     parameters: {
       query?: never;
@@ -1396,6 +1422,30 @@ export interface components {
       name: string;
       /** Status */
       status: string | null;
+    };
+    /**
+     * MetricPointView
+     * @description One sample in a series.
+     */
+    MetricPointView: {
+      /** Timestamp */
+      timestamp: string;
+      /** Value */
+      value: number;
+    };
+    /**
+     * MetricSeriesView
+     * @description A named, unit-carrying sequence of samples.
+     */
+    MetricSeriesView: {
+      /** Key */
+      key: string;
+      /** Label */
+      label: string;
+      /** Points */
+      points: components["schemas"]["MetricPointView"][];
+      /** Unit */
+      unit: string;
     };
     /**
      * OperationLogLineView
@@ -2376,6 +2426,46 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  get_product_metrics: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Headline metrics for one product connection.
+       *
+       *     ``series`` may legitimately be empty — Gough's ``/metrics`` is an
+       *     instantaneous scrape with no time dimension, and the adapter refuses to
+       *     fabricate a two-point series from one sample. ``totals`` is the part the
+       *     dashboard counter tiles read.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** End */
+            end: string;
+            /** Series */
+            series: components["schemas"]["MetricSeriesView"][];
+            /** Start */
+            start: string;
+            /** Totals */
+            totals: {
+              [key: string]: number;
+            };
+          };
+        };
       };
     };
   };
