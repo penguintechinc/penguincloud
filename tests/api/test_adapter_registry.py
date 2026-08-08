@@ -122,7 +122,7 @@ class TestAllowlists:
 
     def test_route_rule_matching_is_anchored_and_method_exact(self) -> None:
         """A rule matches its own method and path shape, and nothing near it."""
-        rule = RouteRule("GET", r"^/health(z)?$", "products:read")
+        rule = RouteRule("GET", r"^/health(z)?\Z", "products:read")
 
         assert rule.matches("GET", "/health") is True
         assert rule.matches("GET", "/healthz") is True
@@ -271,7 +271,7 @@ def test_route_rule_is_frozen_and_slotted() -> None:
     """Allowlist rules are shared class-level state — they must be immutable."""
     import dataclasses
 
-    rule = RouteRule("GET", r"^/x$", "products:read")
+    rule = RouteRule("GET", r"^/x\Z", "products:read")
     with pytest.raises(dataclasses.FrozenInstanceError):
         rule.required_scope = "products:manage"  # type: ignore[misc]
     assert not hasattr(rule, "__dict__")

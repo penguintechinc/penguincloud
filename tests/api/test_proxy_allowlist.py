@@ -616,12 +616,21 @@ class TestTenantSubstitution:
         editing the path.
         """
         from app.adapters import ADAPTER_REGISTRY
-        from app.adapters.base import RouteRule
+        from app.adapters.base import TENANT_PLACEHOLDER_PATTERN, RouteRule
 
+        # TENANT_PLACEHOLDER_PATTERN rather than a hand-escaped literal:
+        # the braces are regex repetition syntax, and getting the escaping
+        # wrong yields a rule that silently never matches.
         monkeypatch.setattr(
             ADAPTER_REGISTRY["gough"],
             "route_allowlist",
-            [RouteRule("GET", r"^/orgs/\{tenant\}/vms$", "products:read")],
+            [
+                RouteRule(
+                    "GET",
+                    rf"^/orgs/{TENANT_PLACEHOLDER_PATTERN}/vms\Z",
+                    "products:read",
+                )
+            ],
         )
 
         _, email = await _register(client)

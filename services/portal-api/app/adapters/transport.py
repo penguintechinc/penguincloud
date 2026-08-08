@@ -1,6 +1,14 @@
 """Async HTTP transport for adapters using httpx.
 
 All adapter network calls go through this module. No requests import anywhere.
+
+This module is the second half of the security boundary described in
+:mod:`app.adapters.base`: the proxy's ``route_allowlist`` decides which
+caller-supplied paths are forwarded, and the transport decides *where the
+connection's decrypted credential may go*. Every request is pinned to the
+origin of :attr:`AdapterContext.base_url` and redirects are never followed,
+so no adapter method — trusted or buggy — can send the stored secret to a
+host the operator did not configure.
 """
 
 from __future__ import annotations
@@ -8,16 +16,27 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
-from .base import AdapterContext, HealthResult
+from .base import AdapterContext, HealthResult, PathTraversalError, normalize_proxy_path
 
 logger = logging.getLogger(__name__)
 
 
 class ResponseTooLargeError(Exception):
     """Raised when a product's response body exceeds the configured cap."""
+
+
+class CredentialEgressError(Exception):
+    """Raised when a request would send the credential off the pinned origin.
+
+    Not a policy warning: the request is not made. It fires on a URL whose
+    scheme or host differs from the connection's ``base_url``, which is what
+    an SSRF through an adapter, a mis-built URL, or a redirect chased by
+    mistake would all look like at this layer.
+    """
 
 
 #: Default request timeout (seconds)
@@ -88,6 +107,11 @@ class Transport:
                     max_connections=100,
                     max_keepalive_connections=20,
                 ),
+                # A 302 to another host would carry the injected credential
+                # there, past the origin pin below. httpx defaults to False;
+                # stated explicitly because the default changing silently
+                # would reopen credential egress.
+                follow_redirects=False,
             )
 
     async def close(self) -> None:
@@ -179,17 +203,26 @@ class Transport:
             },
         )
 
+        self._assert_pinned_origin(url, ctx)
+
         attempts = MAX_ATTEMPTS if method.upper() in IDEMPOTENT_METHODS else 1
         last_error: Exception | None = None
 
         for attempt in range(1, attempts + 1):
+            outbound = client.build_request(
+                method,
+                url,
+                headers=headers,
+                timeout=timeout,
+                **kwargs,
+            )
             try:
-                response = await client.request(
-                    method,
-                    url,
-                    headers=headers,
-                    timeout=timeout,
-                    **kwargs,
+                # stream=True so status and headers are available before any
+                # body is read: a retryable 5xx is discarded without pulling
+                # its payload, and the cap below can refuse an oversized body
+                # instead of buffering it first.
+                response = await client.send(
+                    outbound, stream=True, follow_redirects=False
                 )
             except httpx.RequestError as exc:
                 # Connect errors, read timeouts and the like: no response was
@@ -199,8 +232,8 @@ class Transport:
                     raise
             else:
                 if response.status_code < RETRYABLE_STATUS_FLOOR or attempt == attempts:
-                    self._enforce_size_cap(response)
-                    return response
+                    return await self._read_capped(response)
+                await response.aclose()
                 logger.info(
                     "adapter_request_retry",
                     extra={
@@ -217,19 +250,96 @@ class Transport:
         raise last_error or RuntimeError("adapter request exhausted retries")
 
     @staticmethod
-    def _enforce_size_cap(response: httpx.Response) -> None:
-        """Reject a response body larger than the cap.
+    def _assert_pinned_origin(url: str, ctx: AdapterContext) -> None:
+        """Refuse a URL that is not on the connection's own origin.
 
-        Enforced here rather than only at the proxy so *every* adapter call
-        is covered — an adapter method reading a product's resource list
-        gets the same protection a proxied passthrough does, and a hostile
-        or broken product cannot exhaust memory through the path that
-        happens to lack the check.
+        The credential belongs to one product at one address. Pinning the
+        scheme and host to ``ctx.base_url`` means an adapter cannot send it
+        anywhere else — whether through a mis-built URL, a caller-influenced
+        value that reached a supposedly-trusted adapter method, or an
+        internal address probed for SSRF. It is the structural half of the
+        boundary decision documented in :mod:`app.adapters.base`: policy
+        says adapter methods are trusted, and this makes the blast radius of
+        that trust exactly one origin.
+
+        An empty ``base_url`` pins to nothing and is therefore refused
+        outright rather than treated as "no restriction".
         """
-        if len(response.content) > MAX_RESPONSE_SIZE:
-            raise ResponseTooLargeError(
-                f"Response body exceeds {MAX_RESPONSE_SIZE} bytes"
+        base = urlsplit(ctx.base_url)
+        if not base.scheme or not base.netloc:
+            raise CredentialEgressError(
+                "connection has no usable base_url to pin the request to"
             )
+        target = urlsplit(url)
+        if (target.scheme, target.netloc) != (base.scheme, base.netloc):
+            raise CredentialEgressError(
+                f"refusing to send connection {ctx.connection_id}'s credential to "
+                f"{target.scheme}://{target.netloc}; pinned to "
+                f"{base.scheme}://{base.netloc}"
+            )
+        try:
+            normalize_proxy_path(target.path or "/")
+        except PathTraversalError as exc:
+            raise CredentialEgressError(
+                f"refusing malformed request path: {exc}"
+            ) from exc
+
+    @staticmethod
+    async def _read_capped(response: httpx.Response) -> httpx.Response:
+        """Buffer a streamed body, refusing one that exceeds the cap.
+
+        Two checks, because either alone is insufficient. ``Content-Length``
+        is consulted first so an oversized body is refused before a single
+        chunk is read — but it is advisory (absent under chunked encoding,
+        and understated for a compressed body that inflates past the cap on
+        decode), so the incremental read enforces the real bound and stops
+        at the first chunk that crosses it.
+
+        This is what makes the memory-exhaustion guarantee true: the previous
+        implementation measured ``len(response.content)`` *after* httpx had
+        already buffered the entire body, so a hostile product had allocated
+        whatever it wanted before the check ran.
+
+        The rebuilt response drops ``content-length`` and ``content-encoding``:
+        the body here is decoded and its length recomputed, so carrying the
+        wire values forward would describe it wrongly.
+        """
+        declared = response.headers.get("content-length")
+        if declared is not None:
+            try:
+                if int(declared) > MAX_RESPONSE_SIZE:
+                    await response.aclose()
+                    raise ResponseTooLargeError(
+                        f"Response declares {declared} bytes, over the "
+                        f"{MAX_RESPONSE_SIZE} byte cap"
+                    )
+            except ValueError:
+                # Malformed header. The incremental read still bounds it.
+                pass
+
+        body = bytearray()
+        try:
+            async for chunk in response.aiter_bytes():
+                body.extend(chunk)
+                if len(body) > MAX_RESPONSE_SIZE:
+                    raise ResponseTooLargeError(
+                        f"Response body exceeds {MAX_RESPONSE_SIZE} bytes"
+                    )
+        finally:
+            await response.aclose()
+
+        headers = [
+            (name, value)
+            for name, value in response.headers.multi_items()
+            if name.lower() not in ("content-length", "content-encoding")
+        ]
+        return httpx.Response(
+            status_code=response.status_code,
+            headers=headers,
+            content=bytes(body),
+            request=response.request,
+            extensions=response.extensions,
+        )
 
     async def health_check(
         self, base_url: str, health_endpoint: str, ctx: AdapterContext

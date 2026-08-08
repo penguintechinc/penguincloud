@@ -23,6 +23,6 @@ class TobogganingAdapter(HealthOnlyAdapter):
     #: read-only liveness surfaces, so products:read is the correct floor —
     #: a viewer may confirm a product is up without holding manage rights.
     route_allowlist: list[RouteRule] = [
-        RouteRule("GET", r"^/health(z)?$", "products:read"),
-        RouteRule("GET", r"^/capabilities$", "products:read"),
+        RouteRule("GET", r"^/health(z)?\Z", "products:read"),
+        RouteRule("GET", r"^/capabilities\Z", "products:read"),
     ]

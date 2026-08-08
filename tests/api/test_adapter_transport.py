@@ -29,13 +29,20 @@ from app.adapters.transport import (
 def _ctx(
     auth_type: str = "bearer", key: str = "secret-key", secret: str = ""
 ) -> AdapterContext:
-    """Build a context for a transport call."""
+    """Build a context for a transport call.
+
+    ``base_url`` matches the host every test below calls: the transport pins
+    each request to the connection's own origin (see
+    ``Transport._assert_pinned_origin``), so a context pointing somewhere
+    else would be refused before the socket — which is the point of the pin,
+    and is asserted directly in TestOriginPinning.
+    """
     return AdapterContext(
         connection_id=7,
         portal_tenant_id=3,
         external_id="ext-9",
         external_kind="tenant_id",
-        base_url="https://product.invalid",
+        base_url="https://p.invalid",
         auth_type=auth_type,
         api_key=key,
         api_secret=secret,
