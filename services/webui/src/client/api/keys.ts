@@ -7,6 +7,8 @@
  * key — a cross-tenant data leak in the UI, not just a staleness bug.
  */
 
+import type { ApiPath } from "./portal";
+
 export const queryKeys = {
   all: () => ["api"] as const,
 
@@ -60,4 +62,24 @@ export const queryKeys = {
   teams: () => [...queryKeys.all(), "teams"] as const,
   teamList: (tenantId: number | undefined) =>
     [...queryKeys.teams(), "list", tenantId] as const,
+
+  /**
+   * Key for a call made through the generated typed client (`portal.ts`).
+   *
+   * `path` is constrained to `ApiPath`, so a key can only be built for an
+   * endpoint the OpenAPI document actually describes — a renamed or removed
+   * route becomes a compile error here rather than a cache entry that is
+   * never invalidated because nothing writes to it any more.
+   *
+   * The tenant id stays in the key for the same reason every other
+   * tenant-scoped key above carries it: without it, a tenant switch reuses
+   * the previous tenant's cached rows under an identical key, which is a
+   * cross-tenant data leak in the UI rather than a staleness bug.
+   */
+  endpoint: (
+    path: ApiPath,
+    tenantId: number | undefined,
+    params?: Readonly<Record<string, unknown>>,
+  ) =>
+    [...queryKeys.all(), "endpoint", path, tenantId, params ?? null] as const,
 };
