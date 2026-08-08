@@ -117,7 +117,7 @@ security = Security(app, user_datastore)
 
 @app.route('/healthz', methods=['GET'])
 def health():
-    return jsonify({'status': 'healthy', 'service': 'flask-backend'}), 200
+    return jsonify({'status': 'healthy', 'service': 'portal-api'}), 200
 
 @app.route('/api/v1/protected', methods=['GET'])
 @auth_required()

@@ -147,10 +147,10 @@ test_json_field() {
 }
 
 test_flask_backend() {
-    log_info "Testing flask-backend API endpoints..."
+    log_info "Testing portal-api API endpoints..."
 
-    if ! start_port_forward "flask-backend" 25000 5000; then
-        log_warn "Skipping flask-backend API tests (service not found)"
+    if ! start_port_forward "portal-api" 25000 5000; then
+        log_warn "Skipping portal-api API tests (service not found)"
         return 0
     fi
 
@@ -189,7 +189,7 @@ main() {
 
     local failed=0
 
-    # Test flask-backend
+    # Test portal-api
     if ! test_flask_backend; then
         ((failed++))
     fi

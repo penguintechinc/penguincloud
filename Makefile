@@ -473,10 +473,10 @@ info: ## Info - Show project information
 proto-compile: ## Build - Compile proto files to Go and Python
 	@echo "$(BLUE)Compiling proto files...$(RESET)"
 	@# Compile Flask backend protos
-	@python3 -m grpc_tools.protoc -I./services/flask-backend/app/grpc/protos \
-		--python_out=./services/flask-backend/app/grpc \
-		--grpc_python_out=./services/flask-backend/app/grpc \
-		./services/flask-backend/app/grpc/protos/template.proto || echo "Note: Python proto tools may need installation"
+	@python3 -m grpc_tools.protoc -I./services/portal-api/app/grpc/protos \
+		--python_out=./services/portal-api/app/grpc \
+		--grpc_python_out=./services/portal-api/app/grpc \
+		./services/portal-api/app/grpc/protos/template.proto || echo "Note: Python proto tools may need installation"
 	@echo "$(GREEN)Proto compilation complete$(RESET)"
 
 env: ## Info - Show environment variables

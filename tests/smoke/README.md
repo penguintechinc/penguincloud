@@ -123,7 +123,7 @@ exit 0
 ```
 
 Naming convention: `test-{service}-{category}.sh`
-- Example: `test-flask-backend-build.sh`
+- Example: `test-portal-api-build.sh`
 - Example: `test-webui-dependencies.sh`
 
 ### Runtime Tests
@@ -364,13 +364,13 @@ export SKIP_SMOKE_TESTS=1
 
 ```bash
 #!/bin/bash
-# tests/smoke/build/test-flask-backend-build.sh
+# tests/smoke/build/test-portal-api-build.sh
 
 set -e
 
 echo "Testing Flask backend build..."
 
-if ! docker build -t flask-backend:smoke services/flask-backend/; then
+if ! docker build -t portal-api:smoke services/portal-api/; then
   echo "FAILED: Flask backend build failed"
   exit 1
 fi
@@ -383,14 +383,14 @@ exit 0
 
 ```bash
 #!/bin/bash
-# tests/smoke/run/test-flask-backend-health.sh
+# tests/smoke/run/test-portal-api-health.sh
 
 set -e
 
 echo "Testing Flask backend health..."
 
 # Start service
-docker compose up -d flask-backend
+docker compose up -d portal-api
 
 # Wait for startup
 sleep 5
@@ -398,7 +398,7 @@ sleep 5
 # Check health
 if ! curl -sf http://localhost:5000/api/v1/health > /dev/null; then
   echo "FAILED: Flask backend health check failed"
-  docker compose logs flask-backend
+  docker compose logs portal-api
   exit 1
 fi
 

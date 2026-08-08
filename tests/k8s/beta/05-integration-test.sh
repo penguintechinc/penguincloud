@@ -94,7 +94,7 @@ log_info "Namespace: ${NAMESPACE}"
 
 # 1. Test Flask Backend
 log_info "=== Testing Flask Backend ==="
-if start_port_forward "flask-backend" 15000 5000; then
+if start_port_forward "portal-api" 15000 5000; then
     sleep 2
 
     # Test health endpoint
@@ -115,7 +115,7 @@ if start_port_forward "flask-backend" 15000 5000; then
         TEST_FAILURES=$((TEST_FAILURES + 1))
     fi
 else
-    log_fail "Failed to set up port-forward for flask-backend"
+    log_fail "Failed to set up port-forward for portal-api"
     TEST_FAILURES=$((TEST_FAILURES + 1))
 fi
 
@@ -190,7 +190,7 @@ fi
 
 # 5. Test Inter-Service Communication
 log_info "=== Testing Inter-Service Communication ==="
-FLASK_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=flask-backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+FLASK_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=portal-api -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
 if [[ -n "$FLASK_POD" ]]; then
     log_info "Testing service-to-service communication from Flask pod"

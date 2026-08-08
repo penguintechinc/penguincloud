@@ -41,7 +41,7 @@ netstat -tlnp
 **Quick Diagnosis**:
 ```bash
 docker-compose exec postgres psql -U postgres -d template1 -c "SELECT 1"
-docker-compose exec flask-backend env | grep DB_
+docker-compose exec portal-api env | grep DB_
 ```
 
 **Common Causes & Solutions**:
@@ -56,7 +56,7 @@ docker-compose exec flask-backend env | grep DB_
 **Verification Steps**:
 ```bash
 docker-compose ps postgres
-docker-compose exec flask-backend env | grep "^DB_"
+docker-compose exec portal-api env | grep "^DB_"
 docker-compose logs postgres
 ```
 
@@ -66,7 +66,7 @@ docker-compose logs postgres
 
 **Quick Diagnosis**:
 ```bash
-docker-compose exec flask-backend env | grep -i license
+docker-compose exec portal-api env | grep -i license
 curl -v https://license.penguintech.io/api/v2/validate
 ```
 
@@ -94,13 +94,13 @@ make license-debug
 ```bash
 docker --version
 docker buildx version
-docker-compose build --no-cache flask-backend
+docker-compose build --no-cache portal-api
 ```
 
 **Python/Flask**:
 ```bash
-docker-compose exec flask-backend pip list
-docker-compose exec flask-backend pip cache purge
+docker-compose exec portal-api pip list
+docker-compose exec portal-api pip cache purge
 make clean && make build
 ```
 
@@ -138,17 +138,17 @@ docker-compose logs | grep -i test
 ### Container Debugging
 
 ```bash
-docker-compose logs flask-backend
+docker-compose logs portal-api
 docker-compose logs --tail=100 webui       # Last 100 lines
-docker-compose logs -f --timestamps flask-backend
+docker-compose logs -f --timestamps portal-api
 
-docker-compose logs flask-backend | grep -i error
-docker-compose logs flask-backend | grep -i warning
+docker-compose logs portal-api | grep -i error
+docker-compose logs portal-api | grep -i warning
 
-docker-compose exec flask-backend /bin/bash
+docker-compose exec portal-api /bin/bash
 docker-compose exec postgres psql -U postgres
 
-docker-compose exec flask-backend ls -la /app
+docker-compose exec portal-api ls -la /app
 ```
 
 ### Application Debugging
@@ -169,7 +169,7 @@ curl http://localhost:8080/healthz          # Go
 make license-debug
 make license-validate
 make license-check-features
-docker-compose logs flask-backend | grep -i license
+docker-compose logs portal-api | grep -i license
 ```
 
 ---
@@ -179,9 +179,9 @@ docker-compose logs flask-backend | grep -i license
 ### Configuration Issues
 
 ```bash
-docker-compose exec flask-backend env | sort
-docker-compose exec flask-backend env | grep DB_
-docker-compose exec flask-backend env | grep SECRET_
+docker-compose exec portal-api env | sort
+docker-compose exec portal-api env | grep DB_
+docker-compose exec portal-api env | grep SECRET_
 ls -la .env
 ```
 
@@ -193,10 +193,10 @@ ls -la .env
 ### Python Environment Issues
 
 ```bash
-docker-compose exec flask-backend python3 --version
-docker-compose exec flask-backend which python3
-docker-compose exec flask-backend pip list
-docker-compose exec flask-backend pip check
+docker-compose exec portal-api python3 --version
+docker-compose exec portal-api which python3
+docker-compose exec portal-api pip list
+docker-compose exec portal-api pip check
 ```
 
 ### Node.js Environment Issues
@@ -215,11 +215,11 @@ docker-compose exec webui ls -la build/
 ### Container Communication
 
 ```bash
-docker-compose exec flask-backend curl http://webui:3000
-docker-compose exec webui curl http://flask-backend:5000/api/v1/health
+docker-compose exec portal-api curl http://webui:3000
+docker-compose exec webui curl http://portal-api:5000/api/v1/health
 
-docker-compose exec flask-backend ping webui
-docker-compose exec flask-backend getent hosts postgres
+docker-compose exec portal-api ping webui
+docker-compose exec portal-api getent hosts postgres
 
 docker network inspect project-template_default
 docker network ls
@@ -228,15 +228,15 @@ docker network ls
 ### DNS Resolution
 
 ```bash
-docker-compose exec flask-backend nslookup postgres
-docker-compose exec flask-backend getent hosts webui
-docker-compose exec flask-backend cat /etc/hosts
+docker-compose exec portal-api nslookup postgres
+docker-compose exec portal-api getent hosts webui
+docker-compose exec portal-api cat /etc/hosts
 ```
 
 ### Port Binding Issues
 
 ```bash
-docker-compose port flask-backend 5000
+docker-compose port portal-api 5000
 docker-compose port webui 3000
 netstat -tlnp | grep LISTEN
 ss -tlnp | grep LISTEN
@@ -249,17 +249,17 @@ ss -tlnp | grep LISTEN
 ### High CPU Usage
 
 ```bash
-docker stats flask-backend
-docker-compose exec flask-backend python3 -m cProfile app.py
-docker-compose exec flask-backend top -n 1
+docker stats portal-api
+docker-compose exec portal-api python3 -m cProfile app.py
+docker-compose exec portal-api top -n 1
 ```
 
 ### Memory Issues
 
 ```bash
-docker inspect project-template_flask-backend-1 | grep Memory
-docker stats flask-backend --no-stream=false
-docker-compose exec flask-backend ps aux --sort=-%mem
+docker inspect project-template_portal-api-1 | grep Memory
+docker stats portal-api --no-stream=false
+docker-compose exec portal-api ps aux --sort=-%mem
 ```
 
 ### Slow Queries
@@ -275,7 +275,7 @@ docker-compose exec postgres psql -U postgres -d your_db \
 ### Bottleneck Analysis
 
 ```bash
-docker stats --no-stream flask-backend
+docker stats --no-stream portal-api
 curl -w "@curl-format.txt" -o /dev/null -s http://localhost:5000/api/v1/users
 ```
 
@@ -288,7 +288,7 @@ curl -w "@curl-format.txt" -o /dev/null -s http://localhost:5000/api/v1/users
 ```bash
 docker-compose logs | grep -i error
 docker-compose logs | grep -B2 -A2 "error"
-docker-compose logs flask-backend | grep ERROR
+docker-compose logs portal-api | grep ERROR
 docker-compose logs | grep -i error | wc -l
 ```
 

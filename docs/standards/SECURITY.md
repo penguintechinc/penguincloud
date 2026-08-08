@@ -458,7 +458,7 @@ Run these regularly (especially before commits):
 pip install safety bandit
 safety check                    # CVE database check
 bandit -r .                    # Find security issues in code
-bandit -r services/flask-backend/
+bandit -r services/portal-api/
 ```
 
 ### Node.js Security

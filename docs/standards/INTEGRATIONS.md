@@ -39,7 +39,7 @@ Generate service definitions in `config/marchproxy/services.json`:
   "services": [
     {
       "name": "myapp-flask-api",
-      "ip_fqdn": "flask-backend",
+      "ip_fqdn": "portal-api",
       "port": 8080,
       "protocol": "http",
       "collection": "myapp",
@@ -153,7 +153,7 @@ if __name__ == "__main__":
     services = [
         MarchProxyService(
             name="myapp-flask-api",
-            ip_fqdn="flask-backend",
+            ip_fqdn="portal-api",
             port=8080,
             protocol="http",
             auth_type="jwt"
@@ -230,7 +230,7 @@ WaddleAI runs as a separate microservice in your Kubernetes cluster:
 k8s/
 ├── kustomize/
 │   └── overlays/alpha/
-│       ├── flask-backend-deployment.yaml
+│       ├── portal-api-deployment.yaml
 │       ├── webui-deployment.yaml
 │       ├── go-backend-deployment.yaml  # Optional
 │       └── waddleai-deployment.yaml    # Optional: if using AI
@@ -307,7 +307,7 @@ spec:
 ```yaml
 # In your Flask deployment
 containers:
-- name: flask-backend
+- name: portal-api
   env:
   - name: WADDLEAI_URL
     value: http://waddleai:8000  # Kubernetes DNS resolution

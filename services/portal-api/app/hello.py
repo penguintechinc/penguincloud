@@ -61,7 +61,7 @@ async def status() -> tuple[dict[str, Any], int]:
     return (
         {
             "status": "running",
-            "service": "flask-backend",
+            "service": "portal-api",
             "version": "1.0.0",
             "timestamp": datetime.now(UTC).isoformat(),
         },

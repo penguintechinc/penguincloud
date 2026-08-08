@@ -57,7 +57,7 @@ main() {
 
     # Check that expected pods exist
     log_info "Checking for expected service pods..."
-    local expected_pods=("flask-backend" "webui")
+    local expected_pods=("portal-api" "webui")
     local missing_pods=()
 
     for pod in "${expected_pods[@]}"; do

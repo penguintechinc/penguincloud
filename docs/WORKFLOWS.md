@@ -93,11 +93,11 @@ A build package is a single, independently deployable service or application. Fo
 ### Project Services
 
 **Project Template** includes two services (the `go-backend` service was retired —
-unused dead weight, never called by flask-backend):
+unused dead weight, never called by portal-api):
 
 | Service | Directory | Dockerfile | Architectures | Notes |
 |---------|-----------|-----------|---------------|-------|
-| flask-backend | `services/flask-backend/` | `services/flask-backend/Dockerfile` | amd64, arm64 | Python 3.13, Flask, PyDAL |
+| portal-api | `services/portal-api/` | `services/portal-api/Dockerfile` | amd64, arm64 | Python 3.13, Flask, PyDAL |
 | webui | `services/webui/` | `services/webui/Dockerfile` | amd64, arm64 | Node.js 18+, React frontend |
 
 ### Workflow Files
@@ -106,7 +106,7 @@ Each service has a corresponding workflow file:
 
 ```
 .github/workflows/
-├── build-flask-backend.yml    # Flask backend build pipeline
+├── build-portal-api.yml    # Flask backend build pipeline
 ├── build-webui.yml            # WebUI build pipeline
 └── version-release.yml        # Version-based pre-release creation
 ```
@@ -264,16 +264,16 @@ on:
 **Good ✅**:
 ```yaml
 paths:
-  - 'services/flask-backend/**'
+  - 'services/portal-api/**'
   - '.version'
-  - '.github/workflows/build-flask-backend.yml'
+  - '.github/workflows/build-portal-api.yml'
 ```
 
 **Bad ❌** (Missing .version):
 ```yaml
 paths:
-  - 'services/flask-backend/**'
-  - '.github/workflows/build-flask-backend.yml'
+  - 'services/portal-api/**'
+  - '.github/workflows/build-portal-api.yml'
 ```
 
 **Bad ❌** (Paths too broad):
@@ -316,7 +316,7 @@ Each workflow includes multiple security checks:
 
 ```yaml
 - name: Run bandit security check
-  working-directory: services/flask-backend
+  working-directory: services/portal-api
   run: bandit -r app -ll
 ```
 
@@ -569,9 +569,9 @@ Workflows only run when relevant paths change:
 
 ```yaml
 paths:
-  - 'services/flask-backend/**'  # Only run if Flask backend changes
+  - 'services/portal-api/**'  # Only run if Flask backend changes
   - '.version'                    # Only run if version changes
-  - '.github/workflows/build-flask-backend.yml'
+  - '.github/workflows/build-portal-api.yml'
 ```
 
 **Example savings**:
@@ -664,7 +664,7 @@ docker-compose down
 #### Python Service Testing
 
 ```bash
-cd services/flask-backend
+cd services/portal-api
 
 # Install dependencies
 pip install -r requirements.txt
@@ -1140,7 +1140,7 @@ docker build -t test . || docker run -it [image-id] /bin/bash
 
 | Service | Language | Path | Tests | Security | Notes |
 |---------|----------|------|-------|----------|-------|
-| flask-backend | Python | `services/flask-backend/` | pytest | bandit, safety check | Python 3.13, Flask, PyDAL |
+| portal-api | Python | `services/portal-api/` | pytest | bandit, safety check | Python 3.13, Flask, PyDAL |
 | webui | Node.js | `services/webui/` | jest | npm audit | React frontend, Node.js 18+ |
 
 ### Custom Variables
@@ -1170,7 +1170,7 @@ env:
 
 ```
 .github/workflows/
-├── build-flask-backend.yml
+├── build-portal-api.yml
 ├── build-webui.yml
 ├── [project-name]-special-ci.yml    # Project-specific
 └── version-release.yml
@@ -1205,7 +1205,7 @@ Customization should be minimal and follow the patterns established in this temp
 
 | Workflow | Avg Time | With Cache | Notes |
 |----------|----------|-----------|-------|
-| flask-backend | [time] | [time] | [Notes] |
+| portal-api | [time] | [time] | [Notes] |
 | webui | [time] | [time] | [Notes] |
 
 ### Support & Documentation
@@ -1359,7 +1359,7 @@ When workflow fails:
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0 | 2025-12-11 | Customized for Project Template: Three services (flask-backend, go-backend, webui), PenguinTech reference template |
+| 1.0.0 | 2025-12-11 | Customized for Project Template: Three services (portal-api, go-backend, webui), PenguinTech reference template |
 
 ---
 

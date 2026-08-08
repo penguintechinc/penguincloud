@@ -37,7 +37,7 @@ fi
 
 # Expected services/deployments
 EXPECTED_SERVICES=(
-    "flask-backend"
+    "portal-api"
     "webui"
     "postgresql"
     "redis-master"

@@ -241,10 +241,10 @@ Complete smoke test suite **MUST run in under 2 minutes** to provide fast feedba
 set -e
 
 echo "Testing Flask backend build..."
-cd services/flask-backend
+cd services/portal-api
 
 # Attempt to build the container
-if docker build -t flask-backend:test .; then
+if docker build -t portal-api:test .; then
     echo "✓ Flask backend builds successfully"
     exit 0
 else
@@ -341,7 +341,7 @@ Unit tests verify individual functions and methods in isolation with mocked depe
 
 ```
 tests/unit/
-├── flask-backend/
+├── portal-api/
 │   ├── test_auth.py
 │   ├── test_models.py
 │   └── test_api.py
@@ -380,7 +380,7 @@ Integration tests verify that components work together correctly, including real
 
 ```
 tests/integration/
-├── flask-backend/
+├── portal-api/
 │   ├── test_auth_flow.py
 │   ├── test_user_creation.py
 │   └── test_api_contracts.py
@@ -484,20 +484,20 @@ docker buildx use multiarch
 
 ```bash
 # Test current architecture (native, fast)
-docker build -t flask-backend:test services/flask-backend/
+docker build -t portal-api:test services/portal-api/
 
 # Or explicitly specify architecture
-docker build --platform linux/amd64 -t flask-backend:test services/flask-backend/
+docker build --platform linux/amd64 -t portal-api:test services/portal-api/
 ```
 
 ### Cross-Architecture Build (QEMU)
 
 ```bash
 # Test alternate architecture (uses QEMU emulation)
-docker buildx build --platform linux/arm64 -t flask-backend:test services/flask-backend/
+docker buildx build --platform linux/arm64 -t portal-api:test services/portal-api/
 
 # Or test both simultaneously
-docker buildx build --platform linux/amd64,linux/arm64 -t flask-backend:test services/flask-backend/
+docker buildx build --platform linux/amd64,linux/arm64 -t portal-api:test services/portal-api/
 ```
 
 ### Multi-Architecture Build Script
@@ -510,7 +510,7 @@ Create `scripts/build/test-multiarch.sh`:
 
 set -e
 
-SERVICES=("flask-backend" "webui")
+SERVICES=("portal-api" "webui")
 ARCHITECTURES=("linux/amd64" "linux/arm64")
 
 for service in "${SERVICES[@]}"; do

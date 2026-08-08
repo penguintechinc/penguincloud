@@ -27,7 +27,7 @@ NAMESPACE="${PROJECT_NAME}-beta"
 
 # Services to verify
 SERVICES=(
-    "flask-backend"
+    "portal-api"
     "webui"
     "postgresql"
     "redis-master"
@@ -38,7 +38,7 @@ log_info "Namespace: ${NAMESPACE}"
 
 # Get a pod to run DNS tests from
 log_info "Finding a pod to run DNS tests..."
-TEST_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=flask-backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+TEST_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=portal-api -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
 if [[ -z "$TEST_POD" ]]; then
     # Try webui

@@ -66,7 +66,7 @@ class KillKrillManager:
                 "@timestamp": datetime.utcnow().isoformat() + "Z",
                 "log.level": level.upper(),
                 "message": message,
-                "service.name": "flask-backend",
+                "service.name": "portal-api",
             }
             entry.update(kwargs)
             self._log_queue.append(entry)
@@ -90,7 +90,7 @@ class KillKrillManager:
                 "value": value,
                 "type": metric_type,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
-                "service": "flask-backend",
+                "service": "portal-api",
             }
             if labels:
                 entry["labels"] = labels

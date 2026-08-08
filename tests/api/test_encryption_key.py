@@ -14,9 +14,9 @@ from typing import Iterator
 
 import pytest
 
-# Add services/flask-backend to path so we can import app
+# Add services/portal-api to path so we can import app
 sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "../../services/flask-backend")
+    0, os.path.join(os.path.dirname(__file__), "../../services/portal-api")
 )
 
 

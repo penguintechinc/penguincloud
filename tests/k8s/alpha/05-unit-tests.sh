@@ -46,12 +46,12 @@ get_pod_for_service() {
 }
 
 run_flask_tests() {
-    log_info "Running Python unit tests for flask-backend..."
+    log_info "Running Python unit tests for portal-api..."
 
     local pod
-    pod=$(get_pod_for_service "flask-backend")
+    pod=$(get_pod_for_service "portal-api")
     if [[ -z "$pod" ]]; then
-        log_warn "No pod found for flask-backend, skipping tests"
+        log_warn "No pod found for portal-api, skipping tests"
         return 0
     fi
 
@@ -59,13 +59,13 @@ run_flask_tests() {
 
     # Check if tests directory exists
     if ! kubectl exec -n "$NAMESPACE" "$pod" -- test -d tests 2>/dev/null; then
-        log_warn "No tests directory found in flask-backend, skipping"
+        log_warn "No tests directory found in portal-api, skipping"
         return 0
     fi
 
     # Check if pytest is installed
     if ! kubectl exec -n "$NAMESPACE" "$pod" -- which pytest &>/dev/null; then
-        log_warn "pytest not found in flask-backend, skipping"
+        log_warn "pytest not found in portal-api, skipping"
         return 0
     fi
 

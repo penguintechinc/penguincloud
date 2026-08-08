@@ -109,7 +109,7 @@ cleanup_docker_images() {
     if [[ -n "$images" ]]; then
         log_info "Found alpha images (not deleting automatically):"
         echo "$images"
-        log_info "To clean up images manually, run: docker rmi ${PROJECT_NAME}/flask-backend:alpha ${PROJECT_NAME}/webui:alpha"
+        log_info "To clean up images manually, run: docker rmi ${PROJECT_NAME}/portal-api:alpha ${PROJECT_NAME}/webui:alpha"
     else
         log_info "No alpha Docker images found"
     fi

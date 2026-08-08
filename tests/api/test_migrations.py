@@ -21,21 +21,21 @@ class TestMigrationSetup:
         """Test Alembic configuration exists"""
         import os
 
-        alembic_ini = "services/flask-backend/alembic.ini"
+        alembic_ini = "services/portal-api/alembic.ini"
         assert os.path.exists(alembic_ini), "alembic.ini not found"
 
     def test_alembic_env_exists(self) -> None:
         """Test Alembic env.py exists"""
         import os
 
-        env_py = "services/flask-backend/alembic/env.py"
+        env_py = "services/portal-api/alembic/env.py"
         assert os.path.exists(env_py), "env.py not found"
 
     def test_versions_directory_exists(self) -> None:
         """Test versions directory exists"""
         import os
 
-        versions = "services/flask-backend/alembic/versions"
+        versions = "services/portal-api/alembic/versions"
         assert os.path.isdir(versions), "versions directory not found"
 
 
@@ -47,7 +47,7 @@ class TestMigrationHistory:
         # This would need actual DB setup
         # For now, just verify command structure
 
-        cfg = Config("services/flask-backend/alembic.ini")
+        cfg = Config("services/portal-api/alembic.ini")
         assert cfg is not None
 
     def test_migration_list(self, db: Any) -> None:
@@ -55,7 +55,7 @@ class TestMigrationHistory:
         # Verify migrations can be discovered
         import os
 
-        versions_dir = "services/flask-backend/alembic/versions"
+        versions_dir = "services/portal-api/alembic/versions"
         if os.path.isdir(versions_dir):
             migrations = [f for f in os.listdir(versions_dir) if f.endswith(".py")]
             assert len(migrations) >= 0  # Can have 0+ migrations
@@ -69,7 +69,7 @@ class TestMigrationUpgrade:
         # This would require actual database connection
         # Verify command structure is correct
 
-        cfg = Config("services/flask-backend/alembic.ini")
+        cfg = Config("services/portal-api/alembic.ini")
         assert cfg is not None
 
     def test_upgrade_specific_version(self, db: Any) -> None:
@@ -77,7 +77,7 @@ class TestMigrationUpgrade:
         # Verify command structure
         import os
 
-        versions_dir = "services/flask-backend/alembic/versions"
+        versions_dir = "services/portal-api/alembic/versions"
         assert os.path.isdir(versions_dir)
 
     def test_upgrade_creates_tables(self, db: Any) -> None:
@@ -93,7 +93,7 @@ class TestMigrationDowngrade:
         """Test downgrading by one revision"""
         # Verify command structure
 
-        cfg = Config("services/flask-backend/alembic.ini")
+        cfg = Config("services/portal-api/alembic.ini")
         assert cfg is not None
 
     def test_downgrade_to_version(self, db: Any) -> None:
@@ -110,7 +110,7 @@ class TestMigrationIntegrity:
         import os
         import py_compile
 
-        versions_dir = "services/flask-backend/alembic/versions"
+        versions_dir = "services/portal-api/alembic/versions"
         if os.path.isdir(versions_dir):
             for filename in os.listdir(versions_dir):
                 if filename.endswith(".py"):
@@ -124,7 +124,7 @@ class TestMigrationIntegrity:
         """Test migrations have upgrade and downgrade functions"""
         import os
 
-        versions_dir = "services/flask-backend/alembic/versions"
+        versions_dir = "services/portal-api/alembic/versions"
         if os.path.isdir(versions_dir):
             for filename in os.listdir(versions_dir):
                 if filename.endswith(".py") and not filename.startswith("_"):
@@ -142,7 +142,7 @@ class TestSQLAlchemyModels:
         """Test models.py exists"""
         import os
 
-        models_file = "services/flask-backend/app/models.py"
+        models_file = "services/portal-api/app/models.py"
         assert os.path.exists(models_file), "models.py not found"
 
     def test_models_imports(self) -> None:
@@ -171,7 +171,7 @@ class TestMigrationNaming:
         """Test migrations follow naming convention"""
         import os
 
-        versions_dir = "services/flask-backend/alembic/versions"
+        versions_dir = "services/portal-api/alembic/versions"
         if os.path.isdir(versions_dir):
             pattern = re.compile(r"^[0-9a-f]{12}_\w+\.py$")
             for filename in os.listdir(versions_dir):
@@ -188,7 +188,7 @@ class TestMigrationConflicts:
         """Test no duplicate version identifiers"""
         import os
 
-        versions_dir = "services/flask-backend/alembic/versions"
+        versions_dir = "services/portal-api/alembic/versions"
         version_ids = []
         if os.path.isdir(versions_dir):
             for filename in os.listdir(versions_dir):

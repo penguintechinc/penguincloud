@@ -2,7 +2,7 @@
   "services": [
     {
       "name": "projectname-flask-api",
-      "ip_fqdn": "flask-backend",
+      "ip_fqdn": "portal-api",
       "port": 8080,
       "protocol": "http",
       "collection": "projectname",

@@ -48,7 +48,7 @@ log_info "Found ${NETPOL_COUNT} NetworkPolicy resource(s)"
 kubectl get networkpolicies -n "$NAMESPACE"
 
 # Get test pods
-FLASK_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=flask-backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+FLASK_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=portal-api -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 WEBUI_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=webui -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
 # 1. Test DNS resolution works with network policies
@@ -69,7 +69,7 @@ log_info "=== Testing Allowed Traffic Flows ==="
 # WebUI -> Flask Backend (should be allowed)
 if [[ -n "$WEBUI_POD" ]]; then
     log_info "Testing WebUI -> Flask Backend (should be allowed)..."
-    if kubectl exec "$WEBUI_POD" -n "$NAMESPACE" -- timeout 5 curl -s -f "http://flask-backend:5000/healthz" > /dev/null 2>&1; then
+    if kubectl exec "$WEBUI_POD" -n "$NAMESPACE" -- timeout 5 curl -s -f "http://portal-api:5000/healthz" > /dev/null 2>&1; then
         log_pass "WebUI can reach Flask Backend"
     else
         log_fail "WebUI cannot reach Flask Backend (should be allowed)"
