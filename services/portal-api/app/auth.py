@@ -3,7 +3,7 @@
 import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final
 
 import bcrypt
 import pyotp
@@ -11,6 +11,7 @@ from quart import Blueprint, current_app, request
 
 from penguin_aaa.authn.oidc_provider import OIDCProvider
 from penguin_aaa.authn.types import Claims
+from penguintechinc_utils.logging import get_logger
 
 from .config import UNSCOPED_TENANT
 from .middleware import auth_required, get_current_user
@@ -28,6 +29,21 @@ from .models import (
 )
 
 auth_bp = Blueprint("auth", __name__)
+
+#: Sanitized structured logger. Redacts token/secret-shaped keys and email
+#: addresses, so a reset-flow log line cannot leak the very material the
+#: endpoint exists to keep out of band.
+log = get_logger(__name__)
+
+#: The single response /forgot-password ever produces, for every input.
+#:
+#: Returned verbatim whether or not the address resolves to a user: the body
+#: must not distinguish the two, or the endpoint becomes an unauthenticated
+#: account-enumeration oracle. It carries no reset token — the token leaves
+#: the system out of band only (see _deliver_password_reset_token).
+PASSWORD_RESET_ACK: Final[dict[str, str]] = {
+    "message": "If email exists, reset link sent"
+}
 
 
 def get_oidc_provider() -> OIDCProvider:
@@ -427,31 +443,58 @@ async def register() -> tuple[dict[str, Any], int]:
     )
 
 
+async def _deliver_password_reset_token(
+    user_id: int, token: str, expires_at: datetime
+) -> None:
+    """Deliver a reset token to the user out of band.
+
+    No SMTP transport is configured in this service, so delivery cannot
+    happen yet; the token is still created and persisted, so a reset link
+    issued by any future transport (or by an operator reading the table
+    directly) keeps working. The undeliverable request is recorded at WARN
+    so the gap is visible in logs rather than silently swallowed.
+
+    The token value and the user's email address are deliberately absent
+    from the log record — only the internal user id identifies the subject.
+    Logging either would reintroduce, in the log sink, exactly the leak this
+    endpoint was fixed to close.
+    """
+    log.warning(
+        "password_reset_token_undeliverable",
+        user_id=user_id,
+        expires_at=expires_at.isoformat(),
+        reason="no SMTP transport configured for this service",
+    )
+
+
 @auth_bp.route("/forgot-password", methods=["POST"])
 async def forgot_password() -> tuple[dict[str, Any], int]:
-    """Request password reset token."""
+    """Request a password reset link.
+
+    Unauthenticated. Always answers with :data:`PASSWORD_RESET_ACK` and 200,
+    whether or not the address is registered, and never returns the reset
+    token itself.
+
+    Both properties are load-bearing security controls, not cosmetics:
+    returning the token handed any anonymous caller a full account takeover
+    for any address they could name, and returning a distinct message for
+    the not-found case made the endpoint a user-enumeration oracle. Any
+    change here that reintroduces a branch-dependent body reintroduces one
+    of those two bugs.
+    """
     data = await request.get_json()
     if not data or not data.get("email"):
         return {"error": "Email required"}, 400
 
     email = data.get("email", "").strip().lower()
     user = await get_user_by_email(email)
-    if not user:
-        return {"message": "If email exists, reset link sent"}, 200
+    if user:
+        from .auth_features import create_password_reset_token
 
-    from .auth_features import create_password_reset_token
+        token, expires_at = await create_password_reset_token(user["id"])
+        await _deliver_password_reset_token(user["id"], token, expires_at)
 
-    # create_password_reset_token returns (token, expires_at) — unpack it
-    # rather than serialising the whole tuple into the response body.
-    token, expires_at = await create_password_reset_token(user["id"])
-    return (
-        {
-            "message": "Reset link sent",
-            "token": token,
-            "expires_at": expires_at.isoformat(),
-        },
-        200,
-    )
+    return dict(PASSWORD_RESET_ACK), 200
 
 
 @auth_bp.route("/reset-password", methods=["POST"])

@@ -6,11 +6,13 @@ session management. Includes regression tests for security fix.
 """
 
 import hashlib
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from typing import Any
 
 import pytest
+from quart import Quart
 
 from app.models import (
     create_user,
@@ -113,6 +115,117 @@ class TestRefreshTokenSecurity:
 
         is_valid = await is_refresh_token_valid(user_id, token_hash)
         assert is_valid
+
+
+class TestForgotPasswordTokenLeak:
+    """Regression: /forgot-password must leak neither the token nor user existence.
+
+    Vulnerability: the endpoint returned
+    ``{"message": "Reset link sent", "token": ..., "expires_at": ...}`` for a
+    registered address, so any unauthenticated caller could name a victim's
+    email, receive their live reset token, and complete /reset-password —
+    full account takeover. The not-found branch returned a *different*
+    message, which additionally made the endpoint a user-enumeration oracle.
+
+    An earlier attempt corrected only the response *shape* (unpacking the
+    ``(token, expires_at)`` tuple instead of serialising it) and kept the
+    leak, so these tests assert on the exact field set rather than on the
+    body merely being well-formed.
+    """
+
+    #: Every key the response is permitted to carry. Asserted as an exact
+    #: set, not with ``in``/``not in`` alone: an extra field — a re-added
+    #: token, an ``expires_at``, a debug aid — must fail loudly here rather
+    #: than slip past a check that only looks for the two known-bad names.
+    ACK_FIELDS = {"message"}
+
+    @pytest.mark.asyncio
+    async def test_known_and_unknown_email_get_identical_response(
+        self, client: Any
+    ) -> None:
+        """A registered address is indistinguishable from an unregistered one.
+
+        Covers both halves of the vulnerability at once: byte-identical
+        bodies mean no enumeration oracle, and the exact-field-set assertion
+        means no token or expiry rode along.
+        """
+        known_email = f"leak-known-{uuid.uuid4().hex[:8]}@example.com"
+        register = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": known_email,
+                "password": "testpass123",
+                "full_name": "Leak Known",
+            },
+        )
+        assert register.status_code in (200, 201), await register.get_json()
+
+        known = await client.post(
+            "/api/v1/auth/forgot-password", json={"email": known_email}
+        )
+        unknown = await client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": f"leak-unknown-{uuid.uuid4().hex[:8]}@example.com"},
+        )
+
+        assert known.status_code == 200
+        assert unknown.status_code == known.status_code
+        assert await known.get_data() == await unknown.get_data()
+
+        body = await known.get_json()
+        assert set(body) == self.ACK_FIELDS, f"unexpected fields in body: {body}"
+        assert "token" not in body
+        assert "expires_at" not in body
+
+    @pytest.mark.asyncio
+    async def test_reset_token_still_persisted_and_usable(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The token still reaches the DB, so a legitimately-obtained one works.
+
+        Paired with the rejection test above: suppressing the token from the
+        response would also "fix" the leak by breaking password reset
+        entirely. This proves the flow still completes end to end for a
+        holder who obtained the token out of band.
+        """
+        email = f"leak-usable-{uuid.uuid4().hex[:8]}@example.com"
+        register = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": email,
+                "password": "testpass123",
+                "full_name": "Leak Usable",
+            },
+        )
+        assert register.status_code in (200, 201), await register.get_json()
+        user_id = (await register.get_json())["user"]["id"]
+
+        response = await client.post(
+            "/api/v1/auth/forgot-password", json={"email": email}
+        )
+        assert response.status_code == 200
+
+        async with app.app_context():
+            from penguin_dal.quart_ext import get_db
+
+            db = get_db()
+            rows = await db(db.password_reset_tokens.user_id == user_id).select()
+
+        assert len(rows) == 1, "forgot-password must still create a reset token"
+        token = rows[0]["token"]
+        assert token not in (await response.get_data()).decode()
+
+        reset = await client.post(
+            "/api/v1/auth/reset-password",
+            json={"token": token, "password": "resetpass123"},
+        )
+        assert reset.status_code == 200, await reset.get_json()
+
+        login = await client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": "resetpass123"},
+        )
+        assert login.status_code == 200, await login.get_json()
 
 
 class TestPasswordReset:
