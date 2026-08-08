@@ -115,6 +115,12 @@ _ROLE_SCOPE_BUNDLES: Final[dict[str, tuple[str, ...]]] = {
         "tenants:read",
         "tenants:manage",
         "tenants:delete",
+        # Plan tier and activation are commercial levers, not day-to-day
+        # administration: an owner may change what the tenant is paying for,
+        # a delegated MSP admin managing it on their behalf may not. Naming
+        # it as its own scope is what lets that route stop asking
+        # `role == "owner"` without widening who can bill the customer.
+        "tenants:billing",
         "members:read",
         "members:manage",
         "products:read",
@@ -156,6 +162,45 @@ SCOPE_MANAGE_DESCENDANTS: Final[str] = "tenants:manage:descendants"
 #: Issued with a token that has no real active tenant (login, refresh). The
 #: holder can enumerate their tenants and switch into one; nothing else.
 UNSCOPED_SCOPES: Final[tuple[str, ...]] = ("tenants:read", "tenants:switch")
+
+# Platform-role scope bundles
+#
+# The bundles above expand a caller's authority *within a tenant*. Platform
+# administration (the `users` table, the audit trail) is not tenant-scoped:
+# it comes from the `role` column on the user row, which is why those routes
+# historically reached for `user["role"] == "admin"` instead of a scope.
+#
+# Expanding that role into scopes at issue time is what lets those routes
+# drop the role comparison. They are merged in regardless of whether the
+# token names an active tenant, because platform authority does not depend
+# on one — a platform admin who has not yet switched tenants is still a
+# platform admin, and gating user administration on tenant selection would
+# be an unrelated (and surprising) restriction.
+
+_PLATFORM_ROLE_SCOPES: Final[dict[str, tuple[str, ...]]] = {
+    "admin": (
+        "users:read",
+        "users:manage",
+        "audit:read",
+    ),
+    "maintainer": (
+        "users:read",
+        "audit:read",
+    ),
+    "viewer": (),
+}
+
+
+def platform_scopes(role: str | None) -> list[str]:
+    """Expand a user's platform role into its scope bundle.
+
+    Unknown or absent roles yield nothing: a role this service does not
+    recognise must not be treated as conferring authority, and an empty
+    bundle is the only safe reading of "we do not know what this is".
+    """
+    if not role:
+        return []
+    return sorted(_PLATFORM_ROLE_SCOPES.get(role, ()))
 
 
 async def resolve_scopes(user_id: int, tenant_id: int) -> list[str]:

@@ -5,13 +5,13 @@ from typing import Any
 from quart import Blueprint, request
 
 from .middleware import auth_required, get_current_user
+from .authz import SCOPE_TENANTS_READ, require_tenant_scope
 from .models import (
     get_db,
     get_tenant_by_id,
     get_tenant_member_count,
     get_tenant_product_connections,
     get_tenant_product_count,
-    get_user_tenant_role,
 )
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -49,9 +49,12 @@ async def dashboard_overview() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    # Scope, not direct membership: get_user_tenant_role answers "has a
+    # tenant_members row", which a delegated MSP admin never does, so the
+    # dashboard used to be blank for exactly the operator it exists for.
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_TENANTS_READ)
+    if denied:
+        return denied
 
     tenant = await get_tenant_by_id(tenant_id)
     connections = await get_tenant_product_connections(tenant_id)
@@ -108,9 +111,12 @@ async def dashboard_health() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    # Scope, not direct membership: get_user_tenant_role answers "has a
+    # tenant_members row", which a delegated MSP admin never does, so the
+    # dashboard used to be blank for exactly the operator it exists for.
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_TENANTS_READ)
+    if denied:
+        return denied
 
     connections = await get_tenant_product_connections(tenant_id)
 
@@ -142,9 +148,12 @@ async def dashboard_activity() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    # Scope, not direct membership: get_user_tenant_role answers "has a
+    # tenant_members row", which a delegated MSP admin never does, so the
+    # dashboard used to be blank for exactly the operator it exists for.
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_TENANTS_READ)
+    if denied:
+        return denied
 
     limit = request.args.get("limit", 20, type=int)
     limit = min(limit, 100)
@@ -173,9 +182,12 @@ async def dashboard_alerts() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    # Scope, not direct membership: get_user_tenant_role answers "has a
+    # tenant_members row", which a delegated MSP admin never does, so the
+    # dashboard used to be blank for exactly the operator it exists for.
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_TENANTS_READ)
+    if denied:
+        return denied
 
     connections = await get_tenant_product_connections(tenant_id)
 

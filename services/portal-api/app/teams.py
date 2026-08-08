@@ -6,6 +6,7 @@ from typing import Any
 
 from quart import Blueprint, request
 
+from .authz import SCOPE_TEAMS_MANAGE, SCOPE_TEAMS_READ, require_team_scope
 from .middleware import auth_required, get_current_user
 from .models import (
     add_team_member,
@@ -14,7 +15,6 @@ from .models import (
     get_team_by_id,
     get_team_members,
     get_user_by_id,
-    get_user_team_role,
     get_user_teams,
 )
 
@@ -96,9 +96,9 @@ async def get_team_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
     if not team:
         return {"error": "Team not found"}, 404
 
-    role = await get_user_team_role(user["id"], team_id)
-    if not role:
-        return {"error": "Not a member of this team"}, 403
+    denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_READ)
+    if denied:
+        return denied
 
     return team, 200
 
@@ -110,10 +110,9 @@ async def update_team_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
     user = get_current_user()
     if not user:
         return {"error": "User not authenticated"}, 401
-    role = await get_user_team_role(user["id"], team_id)
-
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
+    if denied:
+        return denied
 
     team = await get_team_by_id(team_id)
     if not team:
@@ -176,10 +175,9 @@ async def list_team_members(team_id: int) -> tuple[dict[str, Any], int]:
     user = get_current_user()
     if not user:
         return {"error": "User not authenticated"}, 401
-    role = await get_user_team_role(user["id"], team_id)
-
-    if not role:
-        return {"error": "Not a member of this team"}, 403
+    denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_READ)
+    if denied:
+        return denied
 
     members = await get_team_members(team_id)
     return {"members": members, "count": len(members)}, 200
@@ -192,10 +190,9 @@ async def add_team_member_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
     user = get_current_user()
     if not user:
         return {"error": "User not authenticated"}, 401
-    role = await get_user_team_role(user["id"], team_id)
-
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
+    if denied:
+        return denied
 
     data = await request.get_json()
     if not data:
@@ -235,10 +232,9 @@ async def update_member_role(
     user = get_current_user()
     if not user:
         return {"error": "User not authenticated"}, 401
-    role = await get_user_team_role(user["id"], team_id)
-
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
+    if denied:
+        return denied
 
     data = await request.get_json()
     if not data:
@@ -273,10 +269,9 @@ async def remove_team_member(
     user = get_current_user()
     if not user:
         return {"error": "User not authenticated"}, 401
-    role = await get_user_team_role(user["id"], team_id)
-
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
+    if denied:
+        return denied
 
     db = get_db()
     deleted = await db(
@@ -298,10 +293,9 @@ async def send_invitation(team_id: int) -> tuple[dict[str, Any], int]:
     user = get_current_user()
     if not user:
         return {"error": "User not authenticated"}, 401
-    role = await get_user_team_role(user["id"], team_id)
-
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
+    if denied:
+        return denied
 
     data = await request.get_json()
     if not data:
@@ -402,10 +396,9 @@ async def cancel_invitation(team_id: int, invite_id: int) -> tuple[dict[str, Any
     user = get_current_user()
     if not user:
         return {"error": "User not authenticated"}, 401
-    role = await get_user_team_role(user["id"], team_id)
-
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
+    if denied:
+        return denied
 
     db = get_db()
     invites = await db(db.team_invitations.id == invite_id).select()

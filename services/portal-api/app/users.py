@@ -1,11 +1,20 @@
-"""User Management Endpoints (Admin Only - async Quart)."""
+"""User Management Endpoints (platform-scope gated, async Quart).
+
+Platform user administration is gated on ``users:read`` / ``users:manage``
+rather than on the user row's role name. The scopes are expanded from
+that role at token issue time (app.tenancy.authz.platform_scopes), so the
+authority is identical while the decision here is made on a scope —
+security.md requires the latter, and the previous ``@admin_required``
+compared a role name inside the request.
+"""
 
 from typing import Any
 
 from quart import Blueprint, request
 
 from .auth import hash_password_async, verify_password_async
-from .middleware import admin_required, auth_required, get_current_user
+from .authz import SCOPE_AUDIT_READ, SCOPE_USERS_MANAGE, SCOPE_USERS_READ, require_scope
+from .middleware import auth_required, get_current_user
 from .models import (
     VALID_ROLES,
     create_user,
@@ -21,7 +30,7 @@ users_bp = Blueprint("users", __name__)
 
 @users_bp.route("", methods=["GET"])
 @auth_required
-@admin_required
+@require_scope(SCOPE_USERS_READ)
 async def get_users() -> tuple[dict[str, Any], int]:
     """List all users with pagination (Admin only)."""
     page = request.args.get("page", 1, type=int)
@@ -49,7 +58,7 @@ async def get_users() -> tuple[dict[str, Any], int]:
 
 @users_bp.route("/<int:user_id>", methods=["GET"])
 @auth_required
-@admin_required
+@require_scope(SCOPE_USERS_READ)
 async def get_user(user_id: int) -> tuple[dict[str, Any], int]:
     """Get single user by ID (Admin only)."""
     user = await get_user_by_id(user_id)
@@ -65,7 +74,7 @@ async def get_user(user_id: int) -> tuple[dict[str, Any], int]:
 
 @users_bp.route("", methods=["POST"])
 @auth_required
-@admin_required
+@require_scope(SCOPE_USERS_MANAGE)
 async def create_new_user() -> tuple[dict[str, Any], int]:
     """Create new user (Admin only)."""
     data = await request.get_json()
@@ -116,7 +125,7 @@ async def create_new_user() -> tuple[dict[str, Any], int]:
 
 @users_bp.route("/<int:user_id>", methods=["PUT"])
 @auth_required
-@admin_required
+@require_scope(SCOPE_USERS_MANAGE)
 async def update_existing_user(user_id: int) -> tuple[dict[str, Any], int]:
     """Update user by ID (Admin only)."""
     user = await get_user_by_id(user_id)
@@ -183,7 +192,7 @@ async def update_existing_user(user_id: int) -> tuple[dict[str, Any], int]:
 
 @users_bp.route("/<int:user_id>", methods=["DELETE"])
 @auth_required
-@admin_required
+@require_scope(SCOPE_USERS_MANAGE)
 async def delete_existing_user(user_id: int) -> tuple[dict[str, Any], int]:
     """Delete user by ID (Admin only)."""
     current_user = get_current_user()
@@ -209,7 +218,7 @@ async def delete_existing_user(user_id: int) -> tuple[dict[str, Any], int]:
 
 @users_bp.route("/roles", methods=["GET"])
 @auth_required
-@admin_required
+@require_scope(SCOPE_USERS_READ)
 async def get_roles() -> tuple[dict[str, Any], int]:
     """Get list of valid roles (Admin only)."""
     return {
@@ -368,7 +377,7 @@ async def delete_api_key(key_id: int) -> tuple[dict[str, Any], int]:
 
 @users_bp.route("/audit-logs", methods=["GET"])
 @auth_required
-@admin_required
+@require_scope(SCOPE_AUDIT_READ)
 async def get_audit_logs_endpoint() -> tuple[dict[str, Any], int]:
     """Get audit logs (Admin only)."""
     from .auth_features import get_audit_logs

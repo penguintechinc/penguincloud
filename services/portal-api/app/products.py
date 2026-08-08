@@ -29,10 +29,13 @@ from .models import (
     PRODUCT_TYPES,
     VALID_AUTH_TYPES,
 )
+from .authz import (
+    SCOPE_PRODUCTS_MANAGE,
+    SCOPE_PRODUCTS_READ,
+    require_tenant_scope,
+)
 from .tenancy import (
-    EFFECTIVE_ADMIN_ROLES,
     may_bind_tenant,
-    resolve_effective_role,
     tenancy_aware,
 )
 
@@ -105,9 +108,9 @@ async def register_product() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await resolve_effective_role(user["id"], tenant_id)
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_PRODUCTS_MANAGE)
+    if denied:
+        return denied
 
     # Check quota
     tenant = await get_tenant_by_id(tenant_id)
@@ -176,9 +179,9 @@ async def list_products() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await resolve_effective_role(user["id"], tenant_id)
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_PRODUCTS_READ)
+    if denied:
+        return denied
 
     connections = await get_tenant_product_connections(tenant_id)
     return {"products": connections, "count": len(connections)}, 200
@@ -197,9 +200,11 @@ async def get_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await resolve_effective_role(user["id"], conn["tenant_id"])
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    denied = await require_tenant_scope(
+        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ
+    )
+    if denied:
+        return denied
 
     return conn, 200
 
@@ -217,9 +222,11 @@ async def update_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await resolve_effective_role(user["id"], conn["tenant_id"])
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
+    denied = await require_tenant_scope(
+        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE
+    )
+    if denied:
+        return denied
 
     data = await request.get_json()
     if not data:
@@ -271,9 +278,11 @@ async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await resolve_effective_role(user["id"], conn["tenant_id"])
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
+    denied = await require_tenant_scope(
+        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE
+    )
+    if denied:
+        return denied
 
     db = get_db()
     await db(db.product_connections.id == product_id).delete()
@@ -304,9 +313,11 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
     if not conn_masked:
         return {"error": "Product connection not found"}, 404
 
-    role = await resolve_effective_role(user["id"], conn_masked["tenant_id"])
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    denied = await require_tenant_scope(
+        user["id"], conn_masked["tenant_id"], SCOPE_PRODUCTS_READ
+    )
+    if denied:
+        return denied
 
     conn_raw = await get_product_connection_raw(product_id)
     if not conn_raw:
@@ -370,9 +381,11 @@ async def get_product_health(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await resolve_effective_role(user["id"], conn["tenant_id"])
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    denied = await require_tenant_scope(
+        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ
+    )
+    if denied:
+        return denied
 
     return {
         "product_id": product_id,
@@ -394,9 +407,11 @@ async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    role = await resolve_effective_role(user["id"], conn["tenant_id"])
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    denied = await require_tenant_scope(
+        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ
+    )
+    if denied:
+        return denied
 
     conn_raw = await get_product_connection_raw(product_id)
     if not conn_raw:
@@ -470,9 +485,11 @@ async def get_product_tenant_mapping(
         return {"error": "Product connection not found"}, 404
 
     scope_tenant_id = int(conn["tenant_id"])
-    role = await resolve_effective_role(user["id"], scope_tenant_id)
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    denied = await require_tenant_scope(
+        user["id"], scope_tenant_id, SCOPE_PRODUCTS_READ
+    )
+    if denied:
+        return denied
 
     # The connection is authorized against ITS tenant, but the mapping being
     # read is named by a path parameter. Without this the parameter reads any
@@ -516,9 +533,11 @@ async def set_product_tenant_mapping(
         return ({"error": "Product connection not found"}, 404)
 
     scope_tenant_id = int(conn["tenant_id"])
-    role = await resolve_effective_role(user["id"], scope_tenant_id)
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return ({"error": "Admin access required"}, 403)
+    denied = await require_tenant_scope(
+        user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE
+    )
+    if denied:
+        return denied
 
     # Authorization above is against the CONNECTION's tenant; the row written
     # below is keyed by the tenant_id path parameter. Binding an unchecked
@@ -588,9 +607,11 @@ async def update_product_tenant_mapping(
         return ({"error": "Product connection not found"}, 404)
 
     scope_tenant_id = int(conn["tenant_id"])
-    role = await resolve_effective_role(user["id"], scope_tenant_id)
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return ({"error": "Admin access required"}, 403)
+    denied = await require_tenant_scope(
+        user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE
+    )
+    if denied:
+        return denied
 
     # Authorization above is against the CONNECTION's tenant; the row written
     # below is keyed by the tenant_id path parameter. Binding an unchecked
@@ -662,9 +683,11 @@ async def delete_product_tenant_mapping(
         return {"error": "Product connection not found"}, 404
 
     scope_tenant_id = int(conn["tenant_id"])
-    role = await resolve_effective_role(user["id"], scope_tenant_id)
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
+    denied = await require_tenant_scope(
+        user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE
+    )
+    if denied:
+        return denied
 
     if not await may_bind_tenant(user["id"], scope_tenant_id, tenant_id):
         return {"error": _TENANT_NOT_IN_SCOPE}, 403

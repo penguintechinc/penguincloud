@@ -5,6 +5,7 @@ All adapter network calls go through this module. No requests import anywhere.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -13,6 +14,11 @@ import httpx
 from .base import AdapterContext, HealthResult
 
 logger = logging.getLogger(__name__)
+
+
+class ResponseTooLargeError(Exception):
+    """Raised when a product's response body exceeds the configured cap."""
+
 
 #: Default request timeout (seconds)
 TIMEOUT_DEFAULT = 10.0
@@ -25,6 +31,24 @@ MAX_RESPONSE_SIZE = 10 * 1024 * 1024
 
 #: Correlation ID header name
 CORRELATION_ID_HEADER = "X-Correlation-ID"
+
+#: Total attempts for a retryable failure (1 initial + 2 retries).
+MAX_ATTEMPTS = 3
+
+#: Base for the exponential backoff between attempts, in seconds. Attempt n
+#: waits BACKOFF_BASE * 2**(n-1): 0.1s, then 0.2s.
+BACKOFF_BASE = 0.1
+
+#: Only these are retried. 5xx and transport-level failures are plausibly
+#: transient; 4xx are not — retrying a 401 or a 422 just multiplies a
+#: request that was answered correctly the first time, and against a
+#: rate-limited product it converts one rejection into three.
+RETRYABLE_STATUS_FLOOR = 500
+
+#: Methods that may be retried. A retried POST/PATCH can duplicate a
+#: non-idempotent side effect on a product that processed the first attempt
+#: and failed only while responding, so they get exactly one attempt.
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
 
 
 class Transport:
@@ -155,15 +179,57 @@ class Transport:
             },
         )
 
-        response = await client.request(
-            method,
-            url,
-            headers=headers,
-            timeout=timeout,
-            **kwargs,
-        )
+        attempts = MAX_ATTEMPTS if method.upper() in IDEMPOTENT_METHODS else 1
+        last_error: Exception | None = None
 
-        return response
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await client.request(
+                    method,
+                    url,
+                    headers=headers,
+                    timeout=timeout,
+                    **kwargs,
+                )
+            except httpx.RequestError as exc:
+                # Connect errors, read timeouts and the like: no response was
+                # produced, so nothing about the product's state is known.
+                last_error = exc
+                if attempt == attempts:
+                    raise
+            else:
+                if response.status_code < RETRYABLE_STATUS_FLOOR or attempt == attempts:
+                    self._enforce_size_cap(response)
+                    return response
+                logger.info(
+                    "adapter_request_retry",
+                    extra={
+                        "status_code": response.status_code,
+                        "attempt": attempt,
+                        "correlation_id": ctx.correlation_id,
+                    },
+                )
+
+            await asyncio.sleep(BACKOFF_BASE * (2 ** (attempt - 1)))
+
+        # Unreachable: the loop either returns or re-raises on its last
+        # attempt. Present so the function has no implicit None path.
+        raise last_error or RuntimeError("adapter request exhausted retries")
+
+    @staticmethod
+    def _enforce_size_cap(response: httpx.Response) -> None:
+        """Reject a response body larger than the cap.
+
+        Enforced here rather than only at the proxy so *every* adapter call
+        is covered — an adapter method reading a product's resource list
+        gets the same protection a proxied passthrough does, and a hostile
+        or broken product cannot exhaust memory through the path that
+        happens to lack the check.
+        """
+        if len(response.content) > MAX_RESPONSE_SIZE:
+            raise ResponseTooLargeError(
+                f"Response body exceeds {MAX_RESPONSE_SIZE} bytes"
+            )
 
     async def health_check(
         self, base_url: str, health_endpoint: str, ctx: AdapterContext

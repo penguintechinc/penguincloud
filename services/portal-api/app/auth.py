@@ -116,12 +116,20 @@ async def create_token_set_async(
     """
     from .models import get_user_teams
     from .tenancy import UNSCOPED_SCOPES
+    from .tenancy.authz import platform_scopes
 
     if teams is None:
         user_teams = await get_user_teams(user_id)
         teams = [str(t["id"]) for t in user_teams]
 
-    resolved_scopes = list(scopes) if scopes is not None else list(UNSCOPED_SCOPES)
+    tenant_scopes = list(scopes) if scopes is not None else list(UNSCOPED_SCOPES)
+
+    # Platform authority (user administration, audit trail) rides on the
+    # user row's role, not on tenant membership, so it is merged in here
+    # rather than resolved per-tenant. This is the single choke point every
+    # token in the service passes through — adding it anywhere else would
+    # leave some issuance path minting tokens without it.
+    resolved_scopes = sorted(set(tenant_scopes) | set(platform_scopes(role)))
 
     oidc = get_oidc_provider()
     now = datetime.now(UTC)

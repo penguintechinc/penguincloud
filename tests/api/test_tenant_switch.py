@@ -52,8 +52,19 @@ class TestTenantSwitch:
         # tenants and switch into one, nothing further. The full bundle for
         # an active tenant is asserted in test_hierarchical_tenancy.py.
         from app.tenancy import UNSCOPED_SCOPES
+        from app.tenancy.authz import platform_scopes
 
-        assert payload["scope"] == list(UNSCOPED_SCOPES)
+        # Two independent axes are merged into one claim, and both belong
+        # here. The TENANT axis is unscoped (no active tenant was resolved),
+        # so it contributes only "enumerate and switch". The PLATFORM axis
+        # comes from the user row's role — role="admin" above — and is not
+        # conditional on having selected a tenant, because administering the
+        # user table never was.
+        expected = sorted(set(UNSCOPED_SCOPES) | set(platform_scopes("admin")))
+        assert payload["scope"] == expected
+        assert "tenants:switch" in payload["scope"]
+        # The unscoped half must NOT have picked up tenant authority.
+        assert "tenants:manage" not in payload["scope"]
         assert "iat" in payload and "exp" in payload
 
         # The superseded claim names must not reappear.

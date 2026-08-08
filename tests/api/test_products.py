@@ -492,7 +492,13 @@ async def test_product_tenant_mapping_requires_admin_for_write(
         json={"external_id": "test-id"},
     )
     assert response.status_code == 403
-    assert (await response.get_json())["error"] == "Admin access required"
+    # The gate is a scope now, not a role-name comparison. Assert the scope
+    # that was demanded rather than a prose message: that is the part of the
+    # contract which must not silently widen, and a message string would
+    # keep passing if the required scope were downgraded to products:read.
+    body = await response.get_json()
+    assert body["error"] == "insufficient_scope"
+    assert body["required_scope"] == ["products:manage"]
 
     # Create as admin for delete test
     admin_create = await client.post(

@@ -14,14 +14,18 @@ Security model:
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 from quart import Blueprint, make_response, request
 
 from .adapters import get_adapter
 from .adapters.base import AdapterContext, RBACEnforcer
+from .adapters.transport import ResponseTooLargeError, get_transport
 from .encryption import decrypt_value
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -29,7 +33,7 @@ from .models import (
     get_product_connection_raw,
     get_product_tenant_map,
 )
-from .tenancy.authz import resolve_effective_role
+from .tenancy.authz import resolve_effective_role, resolve_scopes
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,108 @@ CORRELATION_ID_HEADER = "X-Correlation-ID"
 
 #: Maximum allowed response body size (10 MB)
 MAX_RESPONSE_SIZE = 10 * 1024 * 1024
+
+#: Maximum accepted request body size (10 MB). Enforced before the outbound
+#: call so an oversized upload is rejected by the portal rather than
+#: forwarded to the product and rejected there.
+MAX_REQUEST_SIZE = 10 * 1024 * 1024
+
+#: What replaces a product credential found in a response.
+REDACTION_MARKER = "[REDACTED]"
+
+#: A credential shorter than this cannot be redacted from a response body
+#: without also mangling unrelated content that happens to contain the same
+#: few bytes. Rather than choose between leaking it and corrupting the
+#: response, refuse to proxy at all: a 3-character API key is a
+#: misconfiguration, and failing closed is the only safe reading of it.
+MIN_REDACTABLE_CREDENTIAL_LEN = 4
+
+#: Response headers never passed back to the caller. hop-by-hop headers
+#: belong to this connection, and Set-Cookie would let a product plant a
+#: cookie on the portal's origin.
+_STRIPPED_RESPONSE_HEADERS = frozenset(
+    {
+        "transfer-encoding",
+        "connection",
+        "keep-alive",
+        "set-cookie",
+        "set-cookie2",
+        "proxy-authenticate",
+        "www-authenticate",
+        "content-length",
+        "content-encoding",
+    }
+)
+
+#: Request headers never forwarded to the product. `authorization` is the
+#: important one: the caller's portal JWT must not reach a third-party
+#: product, and the slot is about to be filled with the product's own
+#: credential anyway.
+_STRIPPED_REQUEST_HEADERS = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "host",
+        "connection",
+        "content-length",
+        "x-api-key",
+    }
+)
+
+
+#: Placeholder an adapter's route_allowlist uses to mark where the product's
+#: own tenant identifier belongs. The caller never supplies it — they address
+#: their portal tenant, and this is where the mapped external id is spliced in.
+TENANT_PLACEHOLDER = "{tenant}"
+
+
+def _substitute_tenant(fragment: str, ctx: AdapterContext) -> str:
+    """Replace the tenant placeholder with the mapped external identifier.
+
+    The portal's tenant ids are its own; a product knows its customers by
+    whatever ``product_tenant_map`` recorded (``external_id``). Substituting
+    server-side means the outbound identity is derived from the mapping row
+    rather than from anything the caller sent, so a caller cannot address
+    another customer's data inside the product by editing the path.
+    """
+    if TENANT_PLACEHOLDER not in fragment:
+        return fragment
+    return fragment.replace(TENANT_PLACEHOLDER, quote(ctx.external_id, safe=""))
+
+
+def _credential_material(ctx: AdapterContext) -> list[str]:
+    """Every literal string form of the credential injected outbound.
+
+    Includes the base64 blob for basic auth, because a product that echoes
+    the raw ``Authorization`` header back leaks the encoded form, and an
+    encoded credential is exactly as usable as a decoded one.
+    """
+    material = [value for value in (ctx.api_key, ctx.api_secret) if value]
+    if ctx.auth_type == "basic" and ctx.api_key:
+        encoded = base64.b64encode(f"{ctx.api_key}:{ctx.api_secret}".encode()).decode()
+        material.append(encoded)
+    return material
+
+
+def _redact(payload: bytes, material: list[str]) -> bytes:
+    """Strip every occurrence of the injected credential from a body.
+
+    The proxy hands back whatever the product returned, and some products
+    echo request headers on error ("unauthorized: Bearer sk-live-..."),
+    render them into debug pages, or reflect query parameters. Any of those
+    turns a proxied response into a credential disclosure to a caller who
+    is authorized to *use* the connection but never to *read* its secret —
+    which is the whole reason credentials are decrypted here and not handed
+    to the browser.
+
+    Applied unconditionally to every response on every path, including
+    errors. An allowlist of "endpoints that might echo" would have to be
+    right about a third party's behaviour forever.
+    """
+    for secret in material:
+        payload = payload.replace(secret.encode(), REDACTION_MARKER.encode())
+    return payload
 
 
 @proxy_bp.route(
@@ -104,8 +210,6 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
             return {"error": "Not a member of this tenant"}, 403
 
         # Resolve scopes from effective role
-        from .tenancy.authz import resolve_scopes
-
         scopes = await resolve_scopes(user["id"], portal_tenant_id)
 
         # Get product tenant mapping (external ID)
@@ -193,21 +297,53 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
             )
             return {"error": "Insufficient permissions"}, 403
 
-        # Build outbound URL
-        outbound_url = f"{base_url}{proxy_path}"
+        # A credential too short to redact safely means this connection
+        # cannot be proxied without risking disclosure — refuse it here,
+        # before any outbound call is made.
+        credential_material = _credential_material(ctx)
+        if any(
+            len(secret) < MIN_REDACTABLE_CREDENTIAL_LEN
+            for secret in credential_material
+        ):
+            logger.error(
+                "proxy_request",
+                extra={
+                    "event": "credential_too_short_to_redact",
+                    "connection_id": connection_id,
+                    "correlation_id": corr_id,
+                },
+            )
+            return {"error": "Product connection is misconfigured"}, 502
+
+        # Build outbound URL. The portal tenant is substituted for the
+        # product's own identifier from product_tenant_map: the caller
+        # addresses their portal tenant, the product only ever sees its own.
+        substituted_path = _substitute_tenant(proxy_path, ctx)
+        outbound_url = f"{base_url}{substituted_path}"
         if request.query_string:
-            outbound_url += f"?{request.query_string.decode()}"
+            query = _substitute_tenant(request.query_string.decode(), ctx)
+            outbound_url += f"?{query}"
 
         # Collect request body and headers (stripping auth)
         body = await request.get_data()
+        if len(body) > MAX_REQUEST_SIZE:
+            logger.warning(
+                "proxy_request",
+                extra={
+                    "event": "request_too_large",
+                    "size": len(body),
+                    "max_size": MAX_REQUEST_SIZE,
+                    "correlation_id": corr_id,
+                },
+            )
+            return {"error": "Request body too large"}, 413
+
         headers: dict[str, str] = {}
         for key, value in request.headers:
-            if key.lower() not in ("authorization", "cookie", "host", "connection"):
+            if key.lower() not in _STRIPPED_REQUEST_HEADERS:
                 headers[key] = value
 
         # Make the proxied request
-        from .adapters.transport import get_transport
-
         transport = await get_transport()
         try:
             outbound_response = await transport.request(
@@ -232,19 +368,26 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
                 )
                 return {"error": "Response too large"}, 502
 
-            # Build response, stripping sensitive headers
+            # Redact before anything is written to the response object, so
+            # there is no ordering in which the raw body reaches the caller.
             response = await make_response(
-                outbound_response.content, outbound_response.status_code
+                _redact(outbound_response.content, credential_material),
+                outbound_response.status_code,
             )
             for key, value in outbound_response.headers.items():
-                if key.lower() not in ("transfer-encoding", "connection", "set-cookie"):
-                    response.headers[key] = value
+                if key.lower() in _STRIPPED_RESPONSE_HEADERS:
+                    continue
+                # Header values get the same treatment as the body: a
+                # product that reflects its auth header into a response
+                # header leaks exactly as much as one that reflects it into
+                # the body.
+                response.headers[key] = _redact(
+                    value.encode(), credential_material
+                ).decode("utf-8", "replace")
 
             response.headers[CORRELATION_ID_HEADER] = corr_id
 
             # Audit log success
-            import json
-
             changes = json.dumps(
                 {
                     "product_type": product_type,
@@ -266,6 +409,19 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
 
             return response
 
+        except ResponseTooLargeError:
+            # Raised by the transport when the body blew the cap before
+            # the proxy's own check could see it.
+            logger.warning(
+                "proxy_request",
+                extra={
+                    "event": "response_too_large",
+                    "connection_id": connection_id,
+                    "correlation_id": corr_id,
+                },
+            )
+            return {"error": "Response too large"}, 502
+
         except Exception as e:
             logger.error(
                 "proxy_request",
@@ -278,8 +434,6 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
                     "correlation_id": corr_id,
                 },
             )
-            import json
-
             changes = json.dumps({"error": str(e)})
             await create_audit_log(
                 user_id=user["id"],

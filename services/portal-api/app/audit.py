@@ -7,8 +7,9 @@ from typing import Any
 
 from quart import Blueprint, Response, request
 
+from .authz import SCOPE_TENANTS_MANAGE, require_tenant_scope
 from .middleware import auth_required, get_current_user
-from .models import get_db, get_user_tenant_role
+from .models import get_db
 
 audit_bp = Blueprint("audit", __name__)
 
@@ -26,9 +27,14 @@ async def get_audit_logs() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    # The tenant audit trail is admin-only. Asked as a scope so a
+    # delegated admin (authority from an ancestor, no membership row
+    # here) is answered the same way the rest of the API answers them.
+    denied = await require_tenant_scope(
+        user["id"], tenant_id, SCOPE_TENANTS_MANAGE
+    )
+    if denied:
+        return denied
 
     # Pagination
     page = request.args.get("page", 1, type=int)
@@ -80,9 +86,14 @@ async def export_audit_logs() -> tuple[dict[str, Any], int] | dict[str, Any] | R
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    # The tenant audit trail is admin-only. Asked as a scope so a
+    # delegated admin (authority from an ancestor, no membership row
+    # here) is answered the same way the rest of the API answers them.
+    denied = await require_tenant_scope(
+        user["id"], tenant_id, SCOPE_TENANTS_MANAGE
+    )
+    if denied:
+        return denied
 
     fmt = request.args.get("format", "json")
     limit = min(request.args.get("limit", 1000, type=int), 10000)

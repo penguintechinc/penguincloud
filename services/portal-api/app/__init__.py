@@ -148,7 +148,12 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     app.register_blueprint(mfa_bp, url_prefix="/api/v1/mfa")
     app.register_blueprint(tenants_bp, url_prefix="/api/v1/tenants")
     app.register_blueprint(products_bp, url_prefix="/api/v1/products")
-    app.register_blueprint(proxy_bp, url_prefix="/api/v1/proxy")
+    # No url_prefix: proxy_bp's rule already carries its full path
+    # (/api/v1/products/<id>/proxy/<path>). Registering it under a prefix
+    # nested it at /api/v1/proxy/api/v1/products/... — every allowlist rule
+    # was intact and unreachable, which is a deny-by-default proxy failing
+    # in the safe direction and therefore silent.
+    app.register_blueprint(proxy_bp)
     app.register_blueprint(discovery_bp, url_prefix="/api/v1/discovery")
     app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
     app.register_blueprint(audit_bp, url_prefix="/api/v1/audit")
