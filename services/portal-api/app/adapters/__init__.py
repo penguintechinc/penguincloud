@@ -1,34 +1,63 @@
-"""Product Adapter Registry — v2 Contract.
+"""Product adapter registry — v2 contract.
 
-Phase 3: Core adapters (gough, nest, tobogganing) implement the v2 Adapter
-protocol; thin adapters are deprecated and marked as planned.
+Two tiers, deliberately distinguished in the API surface:
+
+* **Active** — a product with a real v2 adapter. It can be connected,
+  health-checked, and proxied to within its declared ``route_allowlist``.
+* **Planned** — a product the portal knows the name of and nothing else.
+  It appears in the catalogue with ``status: planned`` so the UI can show a
+  roadmap, but :func:`get_adapter` refuses it, which means no connection to
+  a planned product can be created, health-checked, or proxied.
+
+Phase 3 deleted the seventeen thin metadata adapters that used to back the
+planned tier. Each was ~40 lines of blocking ``requests`` calls and
+hand-rolled auth headers behind an interface no caller could rely on: they
+implemented different subsets of the old base class, so "the adapter exists"
+told you nothing about what would happen when you called it. Keeping them as
+registry *metadata* preserves everything they actually provided (a name and
+a category for the catalogue) and removes the implication that the portal
+can manage a product it cannot.
 """
 
 from __future__ import annotations
 
-from typing import Any, Type
+from typing import Any, Final, Type
 
 from .base import Adapter, AdapterContext
+from .generic_adapter import GenericAdapter
 from .gough_adapter import GoughAdapter
 from .nest_adapter import NestAdapter
 from .tobogganing_adapter import TobogganingAdapter
 
-__all__ = ["get_adapter", "get_adapter_metadata", "get_all_product_types"]
+__all__ = [
+    "ADAPTER_REGISTRY",
+    "PLANNED_PRODUCTS",
+    "STATUS_ACTIVE",
+    "STATUS_PLANNED",
+    "get_adapter",
+    "get_adapter_metadata",
+    "get_all_product_types",
+]
 
-#: Adapter registry — product_type string -> v2 Adapter class.
-#: Phase 3 includes only the three core products; thin adapters are
-#: deprecated and marked status:planned in the portal UI.
+STATUS_ACTIVE: Final[str] = "active"
+STATUS_PLANNED: Final[str] = "planned"
+STATUS_UNKNOWN: Final[str] = "unknown"
+
+#: product_type -> v2 adapter class. Membership here is what makes a product
+#: connectable; everything else is catalogue metadata.
 ADAPTER_REGISTRY: dict[str, Type[Adapter]] = {
     "gough": GoughAdapter,
     "nest": NestAdapter,
     "tobogganing": TobogganingAdapter,
+    # Health-only fallback with an empty proxy allowlist. Present so an
+    # operator can register and monitor an endpoint the portal has no
+    # specific integration for, without that endpoint becoming proxyable.
+    "generic": GenericAdapter,
 }
 
-#: Product metadata for planning/deprecated products.
-#: These products are no longer actively developed but appear in the portal
-#: with status:planned to show that connections may be created but will
-#: have limited functionality.
-PLANNED_PRODUCTS = {
+#: Products with no adapter. Catalogue entries only — get_adapter() raises
+#: for every key in here, so a connection to one cannot be exercised.
+PLANNED_PRODUCTS: Final[dict[str, dict[str, str]]] = {
     "marchproxy": {"display_name": "MarchProxy", "category": "networking"},
     "squawk": {"display_name": "Squawk", "category": "dns"},
     "license_server": {"display_name": "License Server", "category": "licensing"},
@@ -49,87 +78,72 @@ PLANNED_PRODUCTS = {
 
 
 def get_adapter(product_type: str, ctx: AdapterContext) -> Adapter:
-    """Get an adapter instance for the given product type.
+    """Instantiate the adapter for a product type.
 
     Args:
-        product_type: The product type string (e.g., 'gough')
-        ctx: AdapterContext with connection details and credentials
-
-    Returns:
-        An instance of the adapter
+        product_type: Registry key, e.g. ``"gough"``.
+        ctx: Context for the call. Held by the caller rather than the
+            adapter instance — adapters are stateless and take ``ctx`` per
+            method, so one cannot accidentally retain another tenant's
+            credentials between requests.
 
     Raises:
-        ValueError: If product_type is not in the active registry
+        ValueError: The product type has no adapter. Planned products land
+            here too: the catalogue lists them, but nothing may be executed
+            against them.
     """
     adapter_class = ADAPTER_REGISTRY.get(product_type)
     if adapter_class is None:
         raise ValueError(
-            f"Product {product_type} is not supported or is marked as planned. "
-            f"Active products: {sorted(ADAPTER_REGISTRY.keys())}"
+            f"Product '{product_type}' has no adapter "
+            f"(active: {sorted(ADAPTER_REGISTRY)})"
         )
     return adapter_class()
 
 
 def get_adapter_metadata(product_type: str) -> dict[str, Any]:
-    """Get metadata for a product type.
-
-    For active products, returns v2 adapter metadata.
-    For planned products, returns minimal metadata with status:planned.
-    """
-    if product_type in ADAPTER_REGISTRY:
-        adapter_class = ADAPTER_REGISTRY[product_type]
-        # Instantiate to get class attributes
-        display_name = getattr(adapter_class, "DISPLAY_NAME", product_type)
+    """Return catalogue metadata for one product type."""
+    adapter_class = ADAPTER_REGISTRY.get(product_type)
+    if adapter_class is not None:
         return {
             "product_type": product_type,
-            "display_name": display_name,
-            "status": "active",
+            "display_name": getattr(adapter_class, "DISPLAY_NAME", product_type),
+            "status": STATUS_ACTIVE,
         }
 
-    if product_type in PLANNED_PRODUCTS:
-        meta = PLANNED_PRODUCTS[product_type]
+    planned = PLANNED_PRODUCTS.get(product_type)
+    if planned is not None:
         return {
             "product_type": product_type,
-            "display_name": meta["display_name"],
-            "category": meta["category"],
-            "status": "planned",
+            "display_name": planned["display_name"],
+            "category": planned["category"],
+            "status": STATUS_PLANNED,
         }
 
     return {
         "product_type": product_type,
         "display_name": product_type,
-        "status": "unknown",
+        "status": STATUS_UNKNOWN,
     }
 
 
 def get_all_product_types() -> list[dict[str, Any]]:
-    """Get metadata for all product types (active + planned).
-
-    Active products have full v2 adapter implementation.
-    Planned products are available for connection but limited to basic ops.
-    """
-    result = []
-
-    # Active products
-    for ptype, cls in ADAPTER_REGISTRY.items():
-        display_name = getattr(cls, "DISPLAY_NAME", ptype)
-        result.append(
-            {
-                "product_type": ptype,
-                "display_name": display_name,
-                "status": "active",
-            }
-        )
-
-    # Planned products
-    for ptype, meta in PLANNED_PRODUCTS.items():
-        result.append(
-            {
-                "product_type": ptype,
-                "display_name": meta["display_name"],
-                "category": meta.get("category", "other"),
-                "status": "planned",
-            }
-        )
-
-    return sorted(result, key=lambda x: (x["status"], x["display_name"]))
+    """Return the full catalogue: active adapters plus planned products."""
+    catalogue = [
+        {
+            "product_type": ptype,
+            "display_name": getattr(cls, "DISPLAY_NAME", ptype),
+            "status": STATUS_ACTIVE,
+        }
+        for ptype, cls in ADAPTER_REGISTRY.items()
+    ]
+    catalogue.extend(
+        {
+            "product_type": ptype,
+            "display_name": meta["display_name"],
+            "category": meta.get("category", "other"),
+            "status": STATUS_PLANNED,
+        }
+        for ptype, meta in PLANNED_PRODUCTS.items()
+    )
+    return sorted(catalogue, key=lambda entry: (entry["status"], entry["display_name"]))

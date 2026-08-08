@@ -17,8 +17,7 @@ from typing import Any, Final, TypeAlias
 import aiohttp
 from quart import Blueprint, request
 
-from .adapters import ADAPTER_REGISTRY
-from .adapters.base_adapter import ProductAdapter
+from .adapters.discovery_profiles import DISCOVERY_PROFILES, DiscoveryProfile
 from .middleware import auth_required, get_current_user
 from .models import (
     create_audit_log,
@@ -271,7 +270,7 @@ def _format_host(host: str) -> str:
 async def _probe_endpoint(
     host: str,
     port: int,
-    adapter_cls: type[ProductAdapter],
+    profile: DiscoveryProfile,
     session: aiohttp.ClientSession,
 ) -> dict[str, Any] | None:
     """Probe a single host:port for a PenguinTech product (async).
@@ -281,7 +280,7 @@ async def _probe_endpoint(
     second name resolution can land somewhere the validation did not see.
     """
     base_url = f"http://{_format_host(host)}:{port}"
-    health_ep = adapter_cls.DEFAULT_HEALTH_ENDPOINT
+    health_ep = profile.health_endpoint
 
     try:
         async with asyncio.timeout(5):
@@ -294,12 +293,12 @@ async def _probe_endpoint(
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
 
                 # Check if any discovery signature matches
-                for sig in adapter_cls.DISCOVERY_SIGNATURES:
+                for sig in profile.signatures:
                     server = resp.headers.get("server", "").lower()
                     if sig.lower() in body or sig.lower() in server:
                         return {
-                            "product_type": adapter_cls.PRODUCT_TYPE,
-                            "display_name": adapter_cls.DISPLAY_NAME,
+                            "product_type": profile.product_type,
+                            "display_name": profile.display_name,
                             "base_url": base_url,
                             "health_endpoint": health_ep,
                             "status_code": status,
@@ -309,8 +308,8 @@ async def _probe_endpoint(
                 # Fallback: if health endpoint returns 200, still report as candidate
                 if status == 200:
                     return {
-                        "product_type": adapter_cls.PRODUCT_TYPE,
-                        "display_name": f"{adapter_cls.DISPLAY_NAME} (unconfirmed)",
+                        "product_type": profile.product_type,
+                        "display_name": f"{profile.display_name} (unconfirmed)",
                         "base_url": base_url,
                         "health_endpoint": health_ep,
                         "status_code": status,
@@ -330,11 +329,9 @@ async def _scan_network(network_ranges: list[str]) -> list[dict[str, Any]]:
 
     async with aiohttp.ClientSession() as session:
         for host in network_ranges:
-            for _ptype, adapter_cls in ADAPTER_REGISTRY.items():
-                if _ptype == "generic":
-                    continue
-                for port in adapter_cls.DISCOVERY_PORTS:
-                    tasks.append(_probe_endpoint(host, port, adapter_cls, session))
+            for profile in DISCOVERY_PROFILES.values():
+                for port in profile.ports:
+                    tasks.append(_probe_endpoint(host, port, profile, session))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 

@@ -203,6 +203,105 @@ class Adapter(Protocol):
         ...
 
 
+class HealthOnlyAdapter:
+    """Base for an adapter that can prove liveness and nothing else.
+
+    Phase 3 lands the contract, the transport and the deny-by-default proxy;
+    the per-product resource operations are Phase 4 tasks. Rather than have
+    each product's module repeat ten identical raising methods, they
+    subclass this and declare only what distinguishes them: the product
+    type, the display name, and their ``route_allowlist``.
+
+    Every unimplemented operation raises :class:`AdapterCapabilityError`,
+    which the API layer renders as 501. Notably it does NOT return an empty
+    ``Page`` — a caller cannot tell "this product has no widgets" from "this
+    portal cannot list widgets yet", and the first reading is the one that
+    silently ships a dashboard reporting zero of everything.
+    """
+
+    #: Registry key. Subclasses must override.
+    PRODUCT_TYPE: str = "unknown"
+
+    #: Human-facing product name. Subclasses must override.
+    DISPLAY_NAME: str = "Unknown Product"
+
+    #: Path this adapter's health probe hits on the product.
+    HEALTH_ENDPOINT: str = "/healthz"
+
+    #: Deny-by-default proxy allowlist. An empty list means the proxy
+    #: forwards nothing at all for this product, which is the correct
+    #: default for one whose surface has not been reviewed.
+    route_allowlist: list[RouteRule] = []
+
+    async def health(self, ctx: AdapterContext) -> HealthResult:
+        """Probe the product's health endpoint."""
+        from .transport import get_transport
+
+        transport = await get_transport()
+        return await transport.health_check(ctx.base_url, self.HEALTH_ENDPOINT, ctx)
+
+    async def capabilities(self, ctx: AdapterContext) -> list[str]:
+        """Report what this adapter can actually do today."""
+        return ["health"]
+
+    def _unsupported(self, operation: str) -> AdapterCapabilityError:
+        """Build the error for an operation this adapter does not implement."""
+        return AdapterCapabilityError(
+            f"{operation} is not implemented for {self.PRODUCT_TYPE}"
+        )
+
+    async def list_resources(
+        self,
+        kind: str,
+        ctx: AdapterContext,
+        filters: dict[str, Any] | None = None,
+        page: int = 1,
+        per_page: int = 20,
+    ) -> Page[Resource]:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"list_resources({kind})")
+
+    async def get_resource(
+        self, kind: str, resource_id: str, ctx: AdapterContext
+    ) -> Resource:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"get_resource({kind})")
+
+    async def create_resource(
+        self, kind: str, payload: dict[str, Any], ctx: AdapterContext
+    ) -> Resource:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"create_resource({kind})")
+
+    async def update_resource(
+        self, kind: str, resource_id: str, payload: dict[str, Any], ctx: AdapterContext
+    ) -> Resource:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"update_resource({kind})")
+
+    async def delete_resource(
+        self, kind: str, resource_id: str, ctx: AdapterContext
+    ) -> None:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"delete_resource({kind})")
+
+    async def metrics_summary(self, ctx: AdapterContext) -> dict[str, Any]:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported("metrics_summary()")
+
+    async def list_users(
+        self, ctx: AdapterContext, page: int = 1, per_page: int = 20
+    ) -> Page[dict[str, Any]]:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported("list_users()")
+
+    async def invite_user(
+        self, payload: dict[str, Any], ctx: AdapterContext
+    ) -> dict[str, Any]:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported("invite_user()")
+
+
 class RBACEnforcer:
     """Enforces role-based access control via scope matching.
 

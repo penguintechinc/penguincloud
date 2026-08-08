@@ -33,8 +33,11 @@ pydantic>=2.10.0
 
 # HTTP clients
 aiohttp>=3.11.0              # async probing in app/discovery.py
-requests>=2.32.0             # sync adapters + license server (async rewrite: Task 3)
-httpx>=0.28.0                # KillKrill REST fallback client (app/killkrill_client/rest_client.py)
+httpx>=0.28.0                # the ONLY HTTP client: adapter transport,
+                             # OAuth, license server, KillKrill REST.
+                             # `requests` was dropped in Task 3 — do not
+                             # reintroduce it; sync calls in an async
+                             # service is what that rewrite removed.
 
 # gRPC (KillKrill submission only — no gRPC service surface in this app; see app/grpc/__init__.py)
 grpcio>=1.82.0                # KillKrill gRPC client (app/killkrill_client/grpc_client.py)
@@ -53,6 +56,5 @@ black>=26.0.0
 flake8>=7.1.0
 isort>=5.13.0
 mypy>=1.14.0
-types-requests>=2.32.0       # stubs for `requests` (no inline types upstream)
 bandit>=1.8.0
 safety>=3.8.0
