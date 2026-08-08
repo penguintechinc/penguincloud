@@ -58,6 +58,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any, Final, Generic, Protocol, TypeVar
 
 __all__ = [
@@ -68,6 +69,10 @@ __all__ = [
     "MetricSeries",
     "MetricsSummary",
     "TimeRange",
+    "OperationState",
+    "Operation",
+    "OperationLogLine",
+    "ActionResult",
     "AdapterContext",
     "PathSubstitution",
     "RouteRule",
@@ -310,6 +315,138 @@ class MetricsSummary:
     range: TimeRange
     series: list[MetricSeries] = field(default_factory=list)
     totals: dict[str, float] = field(default_factory=dict)
+
+
+class OperationState(Enum):
+    """The portal's normalised view of where a long-running operation is.
+
+    This is the ONE place the contract normalises a product's vocabulary, and
+    the exception is deliberate. :attr:`Resource.status` is kept verbatim
+    because it is only ever *displayed* — collapsing it would lose the
+    distinction an operator opened the dashboard to see. An operation's state
+    is different in kind: the portal *branches* on it. It decides whether to
+    keep polling, whether to offer a cancel button, and whether to stop a
+    refetch loop. A caller that cannot tell "still running" from "finished"
+    either polls a completed operation forever or stops watching a live one.
+
+    So an adapter reports both: :attr:`Operation.state` for control flow and
+    :attr:`Operation.status` verbatim for display. Products disagree on
+    spelling — Gough deployments use ``pending``/``in_progress``/
+    ``succeeded``/``failed``/``cancelled`` while its upgrade runs carry a
+    separate ``phase`` — and mapping happens in the adapter, which is the only
+    layer that knows the product's vocabulary.
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @property
+    def is_terminal(self) -> bool:
+        """True when no further transition is possible.
+
+        The portal polls while this is False and stops when it is True. It is
+        also the correct gate for offering cancel: Gough answers 409 to a
+        cancel of an already-finished deployment, so a UI that offers the
+        button on a terminal operation is offering a guaranteed error.
+        """
+        return self in (
+            OperationState.SUCCEEDED,
+            OperationState.FAILED,
+            OperationState.CANCELLED,
+        )
+
+
+@dataclass(slots=True)
+class Operation:
+    """A long-running, product-side unit of work the portal can poll.
+
+    ``create_resource -> Resource`` describes only work that finishes inside
+    one request. Real product actions do not: Gough answers a node deploy with
+    ``202`` and a set of assignment ids, a biome upgrade with an
+    ``upgrade_run`` id to poll. Returning a ``Resource`` for those would mean
+    reporting a machine as deployed at the moment the deploy was *accepted*.
+
+    ``kind`` names the operation family, not the resource — ``deployment``
+    and ``biome_upgrade`` live at different poll routes with different
+    payloads, so the caller must hand it back on the next poll. It is also
+    what keeps polling a pure function of the returned object: given an
+    ``Operation``, ``get_operation(op.kind, op.id, ctx)`` refreshes it,
+    without the caller retaining knowledge of where it came from.
+
+    ``progress`` is ``None`` whenever the product does not report enough to
+    compute one, and adapters must NOT synthesise a value from ``state``.
+    Gough illustrates both halves: an upgrade run publishes
+    ``nodes_completed``/``nodes_total`` and yields a true fraction, while a
+    deployment publishes only an integer ``phase`` with no declared maximum
+    and therefore yields ``None``. A progress bar that advances on invented
+    numbers is read as fact, exactly as the fabricated ``Page.total`` this
+    contract already refuses.
+    """
+
+    id: str
+    #: Operation family — the poll route, not the resource kind.
+    kind: str
+    #: Normalised, for control flow. See :class:`OperationState`.
+    state: OperationState
+    #: The product's own status string, verbatim, for display.
+    status: str
+    #: What the operation acts on, so the UI can link back to the row.
+    resource_id: str | None = None
+    resource_kind: str | None = None
+    #: 0.0–1.0, or None when the product does not report enough to derive it.
+    progress: float | None = None
+    #: Human-facing detail — a phase name, the current step.
+    detail: str | None = None
+    #: Set only in the FAILED state; the product's reason.
+    error: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    completed_at: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True, frozen=True)
+class OperationLogLine:
+    """One line of an operation's log stream.
+
+    Typed rather than a raw string because the portal renders severity and
+    orders by time; a pre-formatted line would force the UI to re-parse text
+    an adapter had already parsed.
+    """
+
+    message: str
+    timestamp: datetime | None = None
+    #: Product's own level (``info``, ``error``). Not normalised — nothing
+    #: branches on it, it is styling.
+    level: str = "info"
+
+
+@dataclass(slots=True)
+class ActionResult:
+    """Outcome of a verb that is neither a plain read nor a plain write.
+
+    Power cycling a node, evacuating it, upgrading a biome: none of these is
+    CRUD, and each may or may not start background work.
+
+    ``operations`` is a LIST because a real product needs it to be. A single
+    Gough ``POST /nodes/{id}/deploy`` returns ``assignment_ids`` — one
+    deployment per assigned biome — so a singular ``operation`` field would
+    force that adapter to pick one and silently drop the rest, leaving the UI
+    polling a fraction of the work it started. It is empty for an action that
+    completed synchronously, which is how a caller tells "nothing to poll"
+    from "poll these".
+    """
+
+    action: str
+    #: False when the product accepted the request but declined the action.
+    accepted: bool = True
+    operations: list[Operation] = field(default_factory=list)
+    #: The affected resource's post-action state, when the product returned it.
+    resource: Resource | None = None
+    message: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -612,6 +749,85 @@ class Adapter(Protocol):
         """
         ...
 
+    async def perform_action(
+        self,
+        kind: str,
+        resource_id: str,
+        action: str,
+        payload: dict[str, Any] | None,
+        ctx: AdapterContext,
+    ) -> ActionResult:
+        """Invoke a non-CRUD verb on a resource.
+
+        ``action`` is drawn from a per-adapter vocabulary (Gough: ``deploy``,
+        ``evacuate``, ``reject``) and is matched against a literal set inside
+        the adapter — it is a selector, never a path fragment. An adapter that
+        interpolates it into a URL has taken a caller-supplied string into the
+        trusted path; see the module docstring.
+
+        Raise AdapterCapabilityError for an unknown action, so an unsupported
+        verb is a 501 rather than a request the product silently ignores.
+        """
+        ...
+
+    async def list_operations(
+        self,
+        ctx: AdapterContext,
+        kind: str | None = None,
+        resource_id: str | None = None,
+        state: OperationState | None = None,
+        page: int = 1,
+        per_page: int = 20,
+        cursor: str | None = None,
+    ) -> Page[Operation]:
+        """List long-running operations, most recent first.
+
+        Raise AdapterCapabilityError if the product has no operation surface.
+        """
+        ...
+
+    async def get_operation(
+        self, kind: str, operation_id: str, ctx: AdapterContext
+    ) -> Operation:
+        """Poll one operation. The portal's refetch loop calls exactly this.
+
+        Raise ResourceNotFoundError when the product has no such operation.
+        """
+        ...
+
+    async def cancel_operation(
+        self, kind: str, operation_id: str, ctx: AdapterContext
+    ) -> Operation:
+        """Request cancellation and return the operation's resulting state.
+
+        Returns the Operation rather than None so the caller learns the
+        outcome without a second poll — cancellation is frequently a request
+        rather than a guarantee, and an adapter returning nothing would leave
+        the UI unable to distinguish "cancelling" from "cancelled".
+
+        Raise ResourceConflictError when the operation is already terminal
+        (Gough answers 409), ResourceNotFoundError when it does not exist, and
+        AdapterCapabilityError when the product cannot cancel this kind.
+        """
+        ...
+
+    async def operation_logs(
+        self,
+        kind: str,
+        operation_id: str,
+        ctx: AdapterContext,
+        since: datetime | None = None,
+        tail: int = 100,
+    ) -> list[OperationLogLine]:
+        """Return an operation's log lines, oldest first.
+
+        ``since`` lets a poller fetch only what is new instead of re-reading
+        the whole stream every interval.
+
+        Raise AdapterCapabilityError if the product exposes no logs.
+        """
+        ...
+
     async def metrics_summary(self, ctx: AdapterContext) -> MetricsSummary:
         """Return a typed metrics summary the portal can render generically.
 
@@ -725,6 +941,53 @@ class HealthOnlyAdapter:
     ) -> None:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported(f"delete_resource({kind})")
+
+    async def perform_action(
+        self,
+        kind: str,
+        resource_id: str,
+        action: str,
+        payload: dict[str, Any] | None,
+        ctx: AdapterContext,
+    ) -> ActionResult:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"perform_action({kind}, {action})")
+
+    async def list_operations(
+        self,
+        ctx: AdapterContext,
+        kind: str | None = None,
+        resource_id: str | None = None,
+        state: OperationState | None = None,
+        page: int = 1,
+        per_page: int = 20,
+        cursor: str | None = None,
+    ) -> Page[Operation]:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported("list_operations()")
+
+    async def get_operation(
+        self, kind: str, operation_id: str, ctx: AdapterContext
+    ) -> Operation:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"get_operation({kind})")
+
+    async def cancel_operation(
+        self, kind: str, operation_id: str, ctx: AdapterContext
+    ) -> Operation:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"cancel_operation({kind})")
+
+    async def operation_logs(
+        self,
+        kind: str,
+        operation_id: str,
+        ctx: AdapterContext,
+        since: datetime | None = None,
+        tail: int = 100,
+    ) -> list[OperationLogLine]:
+        """Unsupported; raises AdapterCapabilityError."""
+        raise self._unsupported(f"operation_logs({kind})")
 
     async def metrics_summary(self, ctx: AdapterContext) -> MetricsSummary:
         """Unsupported; raises AdapterCapabilityError."""
