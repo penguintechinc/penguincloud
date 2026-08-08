@@ -652,6 +652,26 @@ ID_UUID: Final[str] = (
 #: red test rather than a silently allowlisted credential endpoint.
 ID_SLUG: Final[str] = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"
 
+#: The COMPLETE set of shapes a variable path segment may take, anywhere in
+#: any registered adapter's ``route_allowlist``.
+#:
+#: ``tests/api/test_adapter_registry.py`` enforces this as a POSITIVE check:
+#: every non-literal segment must be string-equal to one of these. That is
+#: deliberate, and it replaces a blocklist that did not work.
+#:
+#: The blocklist banned the substrings ``[^/]+``, ``[^/]*``, ``.+`` and ``.*``.
+#: It was trivially evadable — ``\w+``, ``[^/]{1,64}``, ``[A-Za-z0-9_-]+`` and
+#: ``\S+`` all pass it, and every one of them re-admits the word-shaped
+#: literals (``enroll``, ``refresh``, ``groups``, ``login``) that are exactly
+#: the class which allowlisted ``/api/v1/agents/enrollment-keys``. A blocklist
+#: can only refuse the spellings someone thought of; an allowlist refuses
+#: every spelling that is not deliberately approved.
+#:
+#: Adding a shape here is therefore a deliberate contract change, reviewed on
+#: its own merits — not something an adapter author can do by inventing a
+#: regex in their own module.
+APPROVED_ID_PATTERNS: Final[frozenset[str]] = frozenset({ID_INT, ID_UUID, ID_SLUG})
+
 #: Namespace shared by the coarse and per-product product scopes. Duplicated
 #: from ``app.tenancy.authz.PRODUCT_SCOPE_NAMESPACE`` rather than imported:
 #: ``app.authz`` imports this module, so importing the authz side here would
@@ -880,6 +900,30 @@ class Adapter(Protocol):
     #: consulted by the methods below.
     route_allowlist: list[RouteRule]
 
+    #: Routes the PRODUCT really registers that this adapter must NOT admit.
+    #:
+    #: This closes a blind spot the structural tests cannot close on their
+    #: own. The registry-wide id checks compare an id pattern only against the
+    #: literals THIS ADAPTER declares — so a route the product mounts and the
+    #: adapter deliberately omits is invisible to them. That is not a corner
+    #: case: ``GET /api/v1/agents/enrollment-keys`` (which lists agent
+    #: enrollment credentials) is precisely such a route, and a loose id
+    #: pattern silently allowlisted it. Nothing in the portal can enumerate a
+    #: product's route table, so the knowledge has to be declared.
+    #:
+    #: Each entry is ``(method, path)`` using a REAL id value, not a pattern —
+    #: it is a concrete request that must be refused.
+    #: ``tests/api/test_adapter_registry.py`` asserts no rule in
+    #: ``route_allowlist`` matches any of them, for every registered adapter.
+    #:
+    #: Populate it with the product's credential, auth, agent-side and
+    #: remote-execution endpoints first — those are where an over-matching id
+    #: pattern does real damage. An adapter that declares any variable id
+    #: segment MUST declare these; the test fails an adapter that has id
+    #: patterns and an empty declaration, so the gap is explicit rather than
+    #: silently absent.
+    unexposed_routes: tuple[tuple[str, str], ...]
+
     #: Placeholders this adapter's routes may carry, and the AdapterContext
     #: attribute supplying each value.
     path_substitutions: tuple[PathSubstitution, ...]
@@ -1093,6 +1137,10 @@ class HealthOnlyAdapter:
     #: forwards nothing at all for this product, which is the correct
     #: default for one whose surface has not been reviewed.
     route_allowlist: list[RouteRule] = []
+
+    #: Product routes this adapter must never admit. Empty is only correct
+    #: for an adapter with no variable id segments — see the protocol.
+    unexposed_routes: tuple[tuple[str, str], ...] = ()
 
     #: The tenant placeholder, unless a product addresses its customers by
     #: something else. Declared here so it is legible from the contract

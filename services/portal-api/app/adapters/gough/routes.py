@@ -101,7 +101,12 @@ from typing import Final
 
 from ..base import ID_INT, ID_SLUG, ID_UUID, RouteRule, product_scope
 
-__all__ = ["GOUGH_ROUTE_ALLOWLIST", "PRODUCT_TYPE", "SCOPES"]
+__all__ = [
+    "GOUGH_ROUTE_ALLOWLIST",
+    "GOUGH_UNEXPOSED_ROUTES",
+    "PRODUCT_TYPE",
+    "SCOPES",
+]
 
 #: The ``product_connections.product_type`` value this adapter serves. Also
 #: the middle segment of every scope below, so a connection of this type is
@@ -218,3 +223,67 @@ GOUGH_ROUTE_ALLOWLIST: Final[list[RouteRule]] = [
     RouteRule("POST", rf"^/api/v1/agents/{_UUID_ID}/suspend\Z", _WRITE),
     RouteRule("POST", rf"^/api/v1/agents/{_UUID_ID}/resume\Z", _WRITE),
 ]
+
+#: Routes Gough really registers that this adapter must NEVER admit.
+#:
+#: Transcribed from Gough's own blueprints (``~/code/gough/services/
+#: api-manager/app/``), not from its committed OpenAPI spec, which documents
+#: routes the service does not register.
+#:
+#: This exists because the registry-wide id checks are structurally blind to
+#: it: they compare an id pattern only against the literals THIS module
+#: declares, so a route Gough mounts and this allowlist deliberately omits
+#: cannot be seen by them. ``/api/v1/agents/enrollment-keys`` is exactly that
+#: — a real Gough route, never allowlisted here, and silently admitted by a
+#: loose ``[^/]+`` agent-id pattern until it was typed. Declaring these turns
+#: "the id patterns look tight" into an assertion that names the endpoint it
+#: is protecting.
+#:
+#: Concrete paths with REAL id values, not patterns: each is a request the
+#: proxy must refuse, and ``test_adapter_registry`` asserts no rule matches
+#: any of them.
+GOUGH_UNEXPOSED_ROUTES: Final[tuple[tuple[str, str], ...]] = (
+    # -- credential and auth surfaces -------------------------------------
+    # Proxying any of these would let a caller holding a portal scope drive
+    # Gough's own auth: mint an enrollment key, enrol an agent, or trade the
+    # service account's session for a fresh token.
+    ("POST", "/api/v1/auth/login"),
+    ("POST", "/api/v1/auth/refresh"),
+    ("POST", "/api/v1/auth/logout"),
+    ("GET", "/api/v1/auth/me"),
+    ("POST", "/api/v1/auth/register"),
+    ("POST", "/api/v1/auth/token"),
+    ("POST", "/api/v1/auth/device"),
+    ("GET", "/api/v1/agents/enrollment-keys"),
+    ("POST", "/api/v1/agents/enrollment-keys"),
+    ("DELETE", "/api/v1/agents/enrollment-keys/7"),
+    ("POST", "/api/v1/agents/enroll"),
+    ("POST", "/api/v1/agents/refresh"),
+    ("POST", "/api/v1/agents/heartbeat"),
+    ("GET", "/api/v1/secrets"),
+    ("GET", "/api/v1/vault/status"),
+    ("GET", "/api/v1/ssh-ca/ca"),
+    ("POST", "/api/v1/shell/exec"),
+    ("GET", "/api/v1/joiner-secrets"),
+    # -- remote execution and cluster surgery -----------------------------
+    ("POST", "/api/v1/clusters/cl-1/adopt"),
+    ("POST", "/api/v1/clusters/cl-1/lxd/join"),
+    ("POST", "/api/v1/clusters/cl-1/storage/switch-primary"),
+    ("POST", "/api/v1/nodes/12/lxd/join"),
+    ("GET", "/api/v1/nodes/12/cloud-init"),
+    ("POST", "/api/v1/nodes/12/events"),
+    ("POST", "/api/v1/nodes/discover"),
+    ("POST", "/api/v1/primary/replace"),
+    # -- identity the portal models itself --------------------------------
+    ("GET", "/api/v1/users"),
+    ("GET", "/api/v1/teams"),
+    # -- operation-starting actions: typed route only (see above) ---------
+    ("POST", "/api/v1/nodes/12/deploy"),
+    ("POST", "/api/v1/biomes/5/upgrade"),
+    # -- biome surfaces outside the reviewed set --------------------------
+    ("POST", "/api/v1/biomes/5/upload"),
+    ("POST", "/api/v1/biomes/5/sign"),
+    ("POST", "/api/v1/biomes/render-cloud-init"),
+    # -- scraped by the adapter, never proxied verbatim -------------------
+    ("GET", "/metrics"),
+)

@@ -50,43 +50,6 @@ export function useGoughOperations() {
 }
 
 /**
- * Polls a single operation until it reaches a terminal state.
- *
- * The poll stops on `is_terminal` rather than on a status string, so an
- * unrecognised Gough status keeps the loop alive instead of freezing the UI
- * on a stale frame that never corrects itself.
- */
-export function useGoughOperation(
-  kind: string | undefined,
-  operationId: string | undefined,
-) {
-  const { tenantId, productId, isEnabled } = useGoughConnection();
-  const enabled =
-    isEnabled &&
-    productId !== undefined &&
-    Boolean(kind) &&
-    Boolean(operationId);
-
-  return useQuery({
-    queryKey: queryKeys.goughOperation(
-      tenantId,
-      productId,
-      kind ?? "",
-      operationId ?? "",
-    ),
-    queryFn: async (): Promise<GoughOperation | null> => {
-      if (productId === undefined || !kind || !operationId) return null;
-      return goughOperationsApi.getOperation(productId, kind, operationId);
-    },
-    enabled,
-    refetchInterval: (query) =>
-      query.state.data && !query.state.data.is_terminal
-        ? OPERATION_POLL_MS
-        : false,
-  });
-}
-
-/**
  * Log lines for one operation, polled while it is still live.
  *
  * `enabled` is what makes the disclosure cheap: the query does not run until

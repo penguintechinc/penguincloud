@@ -23,6 +23,15 @@ class TobogganingAdapter(HealthOnlyAdapter):
     #: read-only liveness surfaces, so products:read is the correct floor —
     #: a viewer may confirm a product is up without holding manage rights.
     route_allowlist: list[RouteRule] = [
-        RouteRule("GET", r"^/health(z)?\Z", "products:read"),
+        # Two explicit literal rules rather than one `^/health(z)?\Z`.
+        # The registry-wide id check is a POSITIVE check: every
+        # non-literal segment must be string-equal to an approved id
+        # shape. An optional-literal group is neither a plain literal
+        # nor an id, so it would need the checker to classify regex
+        # shapes heuristically — and a checker that has to guess is
+        # the thing that let `[^/]+` through. Spelling both out keeps
+        # the rule exact and the check mechanical.
+        RouteRule("GET", r"^/health\Z", "products:read"),
+        RouteRule("GET", r"^/healthz\Z", "products:read"),
         RouteRule("GET", r"^/capabilities\Z", "products:read"),
     ]

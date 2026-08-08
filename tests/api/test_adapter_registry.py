@@ -21,6 +21,7 @@ from app.adapters import (
     get_all_product_types,
 )
 from app.adapters.base import (
+    APPROVED_ID_PATTERNS,
     ID_INT,
     ID_SLUG,
     ID_UUID,
@@ -340,18 +341,50 @@ def _rule_segments(rule: RouteRule) -> list[str]:
     """Split a ``path_regex`` into its path segments.
 
     Strips the mandatory ``^`` / ``\\Z`` anchors and the optional trailing
-    ``/?`` some collection rules carry, then splits on the literal ``/`` that
-    separates segments. Adapter patterns never contain a ``/`` inside a
-    character class or group, so a plain split is exact for this corpus — and
-    ``test_segment_split_matches_rule_text`` re-derives the original from the
-    pieces to keep that assumption honest rather than assumed.
+    ``/?`` some collection rules carry, then splits on the ``/`` characters
+    that genuinely separate segments.
+
+    Character-class aware, and that is not decorative: ``[^/]+`` — the exact
+    pattern this whole check exists to refuse — contains a ``/`` INSIDE a
+    character class. A naive ``body.split("/")`` tears it into ``['[^', ']+']``
+    and reports two nonsense segments, so the one input the checker must
+    describe correctly is the one it got wrong. Backslash escapes are honoured
+    for the same reason (``\\/`` is a literal slash, not a separator).
     """
     body = rule.path_regex
     assert body.startswith("^") and body.endswith(r"\Z")
     body = body[1:-2]
     if body.endswith("/?"):
         body = body[:-2]
-    return [segment for segment in body.split("/") if segment]
+
+    segments: list[str] = []
+    current: list[str] = []
+    in_class = False
+    escaped = False
+
+    for char in body:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            current.append(char)
+            escaped = True
+            continue
+        if char == "[":
+            in_class = True
+        elif char == "]":
+            in_class = False
+        if char == "/" and not in_class:
+            if current:
+                segments.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+
+    if current:
+        segments.append("".join(current))
+    return segments
 
 
 #: A segment made only of these characters is a literal path component, not a
@@ -448,22 +481,82 @@ class TestTypedIdPatterns:
     @pytest.mark.parametrize(
         "product_type", sorted(p for p, _ in _adapters_with_rules())
     )
-    def test_no_rule_uses_an_untyped_id_slot(self, product_type: str) -> None:
-        """Ban the specific pattern that caused the defect.
+    def test_every_variable_segment_is_an_approved_id_shape(
+        self, product_type: str
+    ) -> None:
+        """POSITIVE check: a variable segment must BE an approved id shape.
 
-        ``[^/]+`` and ``.+`` match every word-shaped literal a product could
-        ever mount. There is no product whose ids are genuinely "any
-        non-slash byte sequence", so a slot this wide is always a mistake —
-        :data:`ID_SLUG` is the loosest justifiable form and is still bounded.
+        This replaces a blocklist of ``("[^/]+", "[^/]*", ".+", ".*")`` matched
+        as substrings against the whole ``path_regex``. That check was
+        evadable and therefore gave 4N/4T documentation rather than
+        enforcement: ``\\w+``, ``[^/]{1,64}``, ``[A-Za-z0-9_-]+`` and ``\\S+``
+        all pass it, and every one of them re-admits the word-shaped literals
+        (``enroll``, ``refresh``, ``groups``, ``login``) that are the exact
+        class which allowlisted ``/api/v1/agents/enrollment-keys``.
+
+        A blocklist can only refuse the spellings someone thought of. This
+        refuses everything that is not deliberately approved, whatever it is
+        spelled as — adding a shape means editing
+        :data:`~app.adapters.base.APPROVED_ID_PATTERNS`, which is a reviewed
+        contract change rather than a regex invented in an adapter module.
+
+        Segments are parsed and compared individually, not substring-matched:
+        a check against the whole string cannot tell which part of a rule the
+        offending text belongs to.
         """
-        banned = ("[^/]+", "[^/]*", ".+", ".*")
         for rule in dict(_adapters_with_rules())[product_type]:
-            for token in banned:
-                assert token not in rule.path_regex, (
-                    f"{product_type}: {rule.path_regex!r} uses the untyped id "
-                    f"slot {token!r}; use ID_INT / ID_UUID / ID_SLUG from "
-                    f"app.adapters.base instead"
+            for segment in _rule_segments(rule):
+                if _is_literal(segment):
+                    continue
+                assert segment in APPROVED_ID_PATTERNS, (
+                    f"{product_type}: segment {segment!r} in "
+                    f"{rule.path_regex!r} is neither a plain literal nor an "
+                    f"approved id shape. Use ID_INT / ID_UUID / ID_SLUG from "
+                    f"app.adapters.base, or add a new shared constant to "
+                    f"APPROVED_ID_PATTERNS deliberately."
                 )
+
+    @pytest.mark.parametrize(
+        "evasion",
+        [
+            r"\w+",
+            r"[^/]{1,64}",
+            r"[A-Za-z0-9_-]+",
+            r"\S+",
+            r"[^/]+",
+            r".+",
+            r"[a-z]+",
+            r".{1,32}",
+        ],
+    )
+    def test_the_check_rejects_the_evasions_that_motivated_it(
+        self, evasion: str
+    ) -> None:
+        """Each of these passed the old substring blocklist. None may pass now.
+
+        The first four are the specific evasions named in review. They are not
+        theoretical: every one matches ``enroll``, ``refresh`` and ``groups``,
+        so any of them in an agent-id slot re-opens the enrollment-keys hole.
+        """
+        rule = RouteRule("GET", rf"^/api/v1/agents/{evasion}\Z", "products:read")
+        segments = _rule_segments(rule)
+        variable = [seg for seg in segments if not _is_literal(seg)]
+
+        assert variable == [evasion], "the evasion must be seen as one segment"
+        assert evasion not in APPROVED_ID_PATTERNS, (
+            f"{evasion!r} must not be an approved id shape — it matches "
+            f"word-shaped literals such as 'enroll' and 'groups'"
+        )
+        # And it really does admit the hazardous literals, which is why.
+        assert re.fullmatch(evasion, "enroll") is not None
+
+    def test_approved_shapes_are_exactly_the_shared_constants(self) -> None:
+        """The approved set is small and explicit — assert it by equality.
+
+        Set equality, not membership: widening it must be a deliberate edit to
+        this test, because every entry is a shape every adapter may then use.
+        """
+        assert APPROVED_ID_PATTERNS == frozenset({ID_INT, ID_UUID, ID_SLUG})
 
     def test_shared_id_constants_reject_word_shaped_literals(self) -> None:
         """The constants themselves must hold the property they promise."""
@@ -499,3 +592,107 @@ class TestTypedIdPatterns:
         assert re.fullmatch(ID_SLUG, "7f3a-b21c")
         for rejected in ("..", "a/b", "a\\b", "", "-leading", "a" * 200):
             assert re.fullmatch(ID_SLUG, rejected) is None, rejected
+
+
+class TestUnexposedRoutes:
+    """Declared product routes the proxy must refuse.
+
+    The id checks above are structurally blind to this class. They compare an
+    id pattern against the literals an adapter DECLARES, so a route the
+    product mounts and the adapter deliberately omits cannot be seen by them —
+    and ``GET /api/v1/agents/enrollment-keys`` is exactly that route. It was
+    admitted by a loose agent-id pattern, and no amount of analysing the
+    allowlist in isolation would have found it, because the allowlist never
+    mentioned it.
+
+    Nothing in the portal can enumerate a product's route table, so the gap
+    cannot be closed by inference. It is closed by declaration:
+    ``Adapter.unexposed_routes`` names concrete requests that must be refused,
+    and these tests hold every registered adapter to them. 4N and 4T inherit
+    the mechanism by being registered; they still have to supply their own
+    product knowledge, which is irreducible.
+    """
+
+    def test_every_registered_adapter_declares_the_attribute(self) -> None:
+        """Absent means "not considered", which must not look like "none"."""
+        for product_type, adapter_cls in ADAPTER_REGISTRY.items():
+            assert hasattr(adapter_cls, "unexposed_routes"), product_type
+            assert isinstance(
+                adapter_cls.unexposed_routes, tuple
+            ), f"{product_type}: unexposed_routes must be a tuple"
+
+    @pytest.mark.parametrize(
+        "product_type", sorted(p for p, _ in _adapters_with_rules())
+    )
+    def test_no_rule_admits_a_declared_unexposed_route(self, product_type: str) -> None:
+        """The assertion the whole declaration exists for."""
+        adapter_cls = ADAPTER_REGISTRY[product_type]
+        rules = list(adapter_cls.route_allowlist)
+
+        for method, path in adapter_cls.unexposed_routes:
+            offenders = [
+                rule.path_regex for rule in rules if rule.matches(method, path)
+            ]
+            assert not offenders, (
+                f"{product_type}: {method} {path} is declared unexposed but is "
+                f"admitted by {offenders!r}. Either the rule's id pattern is "
+                f"too loose, or the route genuinely should be allowlisted and "
+                f"the declaration is stale."
+            )
+
+    @pytest.mark.parametrize(
+        "product_type", sorted(p for p, _ in _adapters_with_rules())
+    )
+    def test_an_adapter_with_id_patterns_must_declare_unexposed_routes(
+        self, product_type: str
+    ) -> None:
+        """Where the hazard is possible, the declaration is mandatory.
+
+        A variable id segment is exactly the condition under which a product
+        literal can be swallowed. An adapter whose rules are all literals
+        (the Nest/Tobogganing stubs today) has no such hazard and is correctly
+        exempt — requiring a declaration from them would be noise that teaches
+        the next author the field is ceremonial.
+        """
+        adapter_cls = ADAPTER_REGISTRY[product_type]
+        has_variable_segment = any(
+            not _is_literal(segment)
+            for rule in adapter_cls.route_allowlist
+            for segment in _rule_segments(rule)
+        )
+        if not has_variable_segment:
+            pytest.skip(f"{product_type} declares no variable id segments")
+
+        assert adapter_cls.unexposed_routes, (
+            f"{product_type} uses variable id segments but declares no "
+            f"unexposed_routes. An id pattern can only be shown to be tight "
+            f"against the product routes it must not match — declare them."
+        )
+
+    def test_gough_declares_the_route_that_caused_the_defect(self) -> None:
+        """Regression: the enrollment-keys endpoint must be named explicitly.
+
+        This is the route a loose ``[^/]+`` agent-id pattern allowlisted — it
+        lists agent enrollment credentials. Naming it in the contract is what
+        turns "the pattern looks tight" into an assertion about the specific
+        endpoint at risk.
+        """
+        declared = set(ADAPTER_REGISTRY["gough"].unexposed_routes)
+        assert ("GET", "/api/v1/agents/enrollment-keys") in declared
+        assert ("POST", "/api/v1/agents/enroll") in declared
+        assert ("POST", "/api/v1/auth/login") in declared
+
+    def test_a_loose_id_pattern_is_caught_by_the_declaration(self) -> None:
+        """Prove the mechanism catches the original defect.
+
+        Rebuilds Gough's allowlist with the untyped agent-id slot it used to
+        have and asserts the declaration refuses it. Without this, the
+        declaration could be a list nothing ever reads.
+        """
+        loose = [RouteRule("GET", r"^/api/v1/agents/[^/]+\Z", "products:gough:read")]
+        hazard = ("GET", "/api/v1/agents/enrollment-keys")
+
+        assert any(rule.matches(*hazard) for rule in loose), (
+            "the loose pattern must admit the hazard — otherwise this test "
+            "proves nothing about the check that refuses it"
+        )

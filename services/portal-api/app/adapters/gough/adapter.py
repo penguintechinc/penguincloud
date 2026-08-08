@@ -45,7 +45,7 @@ from ..transport import Transport, get_transport
 from . import mapping
 from .mapping import OP_BIOME_UPGRADE, OP_DEPLOYMENT, OPERATION_KINDS
 from .responses import GoughResponse, raise_for_status, unwrap
-from .routes import GOUGH_ROUTE_ALLOWLIST
+from .routes import GOUGH_ROUTE_ALLOWLIST, GOUGH_UNEXPOSED_ROUTES
 from .session import GoughSession
 
 __all__ = ["GoughAdapter"]
@@ -85,6 +85,7 @@ _COLLECTION_ROUTES: Final[dict[str, str]] = {
     "agents": "/api/v1/agents/",
 }
 
+
 #: Which key inside Gough's response envelope holds the array, per kind.
 _ITEM_KEYS: Final[dict[str, str]] = {
     "nodes": "nodes",
@@ -99,6 +100,36 @@ _MAPPERS: Final[dict[str, Callable[[dict[str, Any]], Resource]]] = {
     "biome_groups": mapping.map_biome_group,
     "agents": mapping.map_agent,
 }
+
+#: Every table keyed by resource kind. They MUST agree.
+#:
+#: ``_require_kind`` validates a caller's kind against ``_COLLECTIONS`` only,
+#: and the call sites then index ``_COLLECTION_ROUTES``, ``_ITEM_KEYS`` and
+#: ``_MAPPERS`` unguarded. A kind present in one table and missing from
+#: another therefore passes validation and raises ``KeyError`` — surfacing as
+#: a 500, where the contract promises ``AdapterCapabilityError`` (501, a
+#: *declared* absence the caller can act on).
+#:
+#: Checked at import, so a mistake here is an ImportError in CI rather than a
+#: 500 on whichever resource kind nobody wrote a test for — the same choice
+#: :class:`~app.adapters.base.RouteRule` makes about anchoring.
+_KIND_TABLES: Final[dict[str, dict[str, Any]]] = {
+    "_COLLECTIONS": _COLLECTIONS,
+    "_COLLECTION_ROUTES": _COLLECTION_ROUTES,
+    "_ITEM_KEYS": _ITEM_KEYS,
+    "_MAPPERS": _MAPPERS,
+}
+
+_KINDS: Final[frozenset[str]] = frozenset(_COLLECTIONS)
+for _table_name, _table in _KIND_TABLES.items():
+    if frozenset(_table) != _KINDS:
+        raise RuntimeError(
+            f"gough adapter: {_table_name} does not cover the same resource "
+            f"kinds as _COLLECTIONS; symmetric difference = "
+            f"{sorted(frozenset(_table) ^ _KINDS)}. A kind missing from one "
+            f"table passes _require_kind and then raises KeyError (500) "
+            f"instead of AdapterCapabilityError (501)."
+        )
 
 #: Non-CRUD verbs, per kind. A literal table rather than string formatting:
 #: ``action`` arrives from the caller, and a table lookup cannot become a
@@ -126,6 +157,9 @@ class GoughAdapter(HealthOnlyAdapter):
     HEALTH_ENDPOINT: str = "/healthz"
 
     route_allowlist: list[RouteRule] = GOUGH_ROUTE_ALLOWLIST
+
+    #: Real Gough routes this adapter must never admit. See routes.py.
+    unexposed_routes: tuple[tuple[str, str], ...] = GOUGH_UNEXPOSED_ROUTES
 
     async def capabilities(self, ctx: AdapterContext) -> list[str]:
         """Report the operations this adapter actually implements."""

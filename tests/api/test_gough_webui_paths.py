@@ -85,12 +85,37 @@ def test_webui_constant_file_exists() -> None:
     assert _WEBUI_PATHS_TS.is_file(), f"missing {_WEBUI_PATHS_TS}"
 
 
-def test_webui_and_adapter_cover_the_same_collections() -> None:
-    """Neither side may carry a collection the other does not know about."""
-    assert set(_webui_collection_paths()) == set(_COLLECTION_ROUTES)
+def test_webui_collections_are_a_subset_the_adapter_knows() -> None:
+    """Every collection the browser requests must exist adapter-side.
+
+    A subset, not equality. The webui constant lists only what the BROWSER
+    actually fetches; the adapter also addresses ``biome_groups``
+    server-side, which no screen requests. Declaring it on the webui side
+    would be a guard over a request that is never made — coverage a reader
+    would reasonably mistake for the real thing.
+
+    The direction that matters is still asserted: a webui path with no
+    adapter counterpart is a path nothing validates.
+    """
+    webui = set(_webui_collection_paths())
+    assert webui, "the webui must declare at least one collection"
+    assert webui <= set(_COLLECTION_ROUTES), (
+        f"webui declares collections the adapter does not know: "
+        f"{sorted(webui - set(_COLLECTION_ROUTES))}"
+    )
 
 
-@pytest.mark.parametrize("kind", sorted(_COLLECTION_ROUTES))
+def test_webui_declares_exactly_the_collections_its_screens_fetch() -> None:
+    """Pin the set, so an unused constant cannot quietly reappear.
+
+    ``biome_groups`` was declared here and never requested. Asserting the
+    exact set means adding one is a deliberate edit to this test rather than
+    a dead guard nobody notices.
+    """
+    assert set(_webui_collection_paths()) == {"nodes", "biomes", "agents"}
+
+
+@pytest.mark.parametrize("kind", sorted(_webui_collection_paths()))
 def test_webui_path_matches_adapter_path(kind: str) -> None:
     """The browser and the adapter must address a collection identically.
 

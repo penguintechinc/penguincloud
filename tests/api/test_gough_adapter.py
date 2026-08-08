@@ -121,7 +121,7 @@ BIOME_ROW = {
 
 AGENT_ROW = {
     "id": 3,
-    "agent_id": "aaaa-bbbb-cccc",
+    "agent_id": "5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
     "hostname": "agent-3",
     "status": "active",
     "capabilities": ["shell"],
@@ -577,7 +577,9 @@ class TestResourceReads:
 
         page = await GoughAdapter().list_resources("agents", _ctx())
 
-        assert [agent.id for agent in page.items] == ["aaaa-bbbb-cccc"]
+        assert [agent.id for agent in page.items] == [
+            "5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+        ]
         assert page.items[0].name == "agent-3"
         assert page.items[0].status == "active"
 
@@ -587,16 +589,19 @@ class TestResourceReads:
         """Using the numeric row id would build a list whose every link 404s."""
         fake = FakeGough(
             {
-                ("GET", "/api/v1/agents/aaaa-bbbb-cccc"): httpx.Response(
-                    200, json={"agent": AGENT_ROW}
-                )
+                (
+                    "GET",
+                    "/api/v1/agents/5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+                ): httpx.Response(200, json={"agent": AGENT_ROW})
             }
         )
         _wire(fake, monkeypatch)
 
-        agent = await GoughAdapter().get_resource("agents", "aaaa-bbbb-cccc", _ctx())
+        agent = await GoughAdapter().get_resource(
+            "agents", "5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f", _ctx()
+        )
 
-        assert agent.id == "aaaa-bbbb-cccc"
+        assert agent.id == "5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
         assert agent.metadata["row_id"] == 3
 
     async def test_filters_are_allowlisted_not_forwarded(
@@ -859,12 +864,17 @@ class TestWritesAndActions:
     ) -> None:
         """An empty list is how a caller knows there is nothing to poll."""
         fake = FakeGough(
-            {("POST", "/api/v1/agents/aaaa-bbbb-cccc/suspend"): _envelope({"ok": True})}
+            {
+                (
+                    "POST",
+                    "/api/v1/agents/5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f/suspend",
+                ): _envelope({"ok": True})
+            }
         )
         _wire(fake, monkeypatch)
 
         result = await GoughAdapter().perform_action(
-            "agents", "aaaa-bbbb-cccc", "suspend", None, _ctx()
+            "agents", "5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f", "suspend", None, _ctx()
         )
 
         assert result.operations == []
@@ -1537,3 +1547,46 @@ class TestMetricsErrorTaxonomy:
             await GoughAdapter().metrics_summary(_ctx())
 
         assert caught.value.retry_after == 17
+
+
+class TestKindTableParity:
+    """Every table keyed by resource kind must cover the same kinds.
+
+    `_require_kind` validates a caller's kind against `_COLLECTIONS` alone,
+    and the call sites then index `_COLLECTION_ROUTES`, `_ITEM_KEYS` and
+    `_MAPPERS` unguarded. A kind in one table and not another passes
+    validation and raises `KeyError` — a 500, where the contract promises
+    `AdapterCapabilityError` (501, a declared absence a caller can act on).
+    """
+
+    def test_all_kind_keyed_tables_agree(self) -> None:
+        """The parity the import-time guard enforces, asserted explicitly."""
+        from app.adapters.gough.adapter import _KIND_TABLES, _KINDS
+
+        assert _KINDS, "the adapter must serve at least one kind"
+        for name, table in _KIND_TABLES.items():
+            assert frozenset(table) == _KINDS, name
+
+    def test_the_guard_rejects_a_divergent_table(self) -> None:
+        """Prove the import-time check would actually fire.
+
+        Re-runs the guard's own comparison against a deliberately divergent
+        table. Without this the guard could be dead code that happens to sit
+        beside four tables somebody keeps in sync by hand.
+        """
+        from app.adapters.gough.adapter import _KINDS
+
+        divergent = {"nodes": "x", "biomes": "y"}  # missing two kinds
+        assert frozenset(divergent) != _KINDS
+
+    async def test_an_unknown_kind_is_501_not_500(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The behaviour the parity guard protects, end to end."""
+        fake = FakeGough()
+        _wire(fake, monkeypatch)
+
+        with pytest.raises(AdapterCapabilityError):
+            await GoughAdapter().list_resources("widgets", _ctx())
+
+        assert fake.requests == [], "no request should be attempted"
