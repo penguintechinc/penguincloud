@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, UTC
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
+import httpx
 from quart import Blueprint, current_app, redirect, request, session
 
 from .auth import issue_and_store_token_set
@@ -137,7 +137,10 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
         return {"error": "No authorization code received"}, 400
 
     try:
-        # Exchange code for tokens (wrap sync requests in async)
+        # Exchange code for tokens. Native async: the previous form ran
+        # blocking `requests` calls through asyncio.to_thread, which works
+        # but burns a worker thread per in-flight OAuth callback for the
+        # entire round trip to the identity provider.
         token_data: dict[str, str] = {
             "client_id": config["client_id"],
             "client_secret": config["client_secret"],
@@ -146,23 +149,19 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
             "grant_type": "authorization_code",
         }
 
-        def _post_token() -> Any:
-            return requests.post(config["token_url"], data=token_data, timeout=10)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            token_response = await client.post(
+                config["token_url"], data=token_data
+            )
+            token_response.raise_for_status()
+            tokens: dict[str, Any] = token_response.json()
 
-        token_response = await asyncio.to_thread(_post_token)
-        token_response.raise_for_status()
-        tokens: dict[str, Any] = token_response.json()
-
-        # Get user info from provider
-        def _get_userinfo() -> Any:
-            headers: dict[str, str] = {
-                "Authorization": f"Bearer {tokens['access_token']}"
-            }
-            return requests.get(config["userinfo_url"], headers=headers, timeout=10)
-
-        userinfo_response = await asyncio.to_thread(_get_userinfo)
-        userinfo_response.raise_for_status()
-        userinfo = userinfo_response.json()
+            userinfo_response = await client.get(
+                config["userinfo_url"],
+                headers={"Authorization": f"Bearer {tokens['access_token']}"},
+            )
+            userinfo_response.raise_for_status()
+            userinfo = userinfo_response.json()
 
         # Extract user info (provider-specific)
         provider_user_id = _extract_provider_user_id(provider, userinfo)
@@ -254,7 +253,7 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
             200,
         )
 
-    except requests.RequestException as e:
+    except httpx.HTTPError as e:
         current_app.logger.error(f"OAuth callback error: {e}")
         return {"error": "Failed to complete OAuth flow"}, 500
 

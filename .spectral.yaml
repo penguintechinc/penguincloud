@@ -1,0 +1,54 @@
+# Spectral ruleset for the portal's OpenAPI document.
+#
+# Run by `make openapi-lint` (and by `make lint`) against openapi/v1.yaml.
+# The document is generated, never hand-written, so these rules are really
+# checking the CODE that produces it: a missing operation description here
+# means a route with no docstring, and a duplicated operationId means two
+# views that will collide in every generated client SDK.
+
+---
+extends: ["spectral:oas"]
+
+rules:
+  # --- Kept as errors --------------------------------------------------
+  # Structural correctness. A document failing any of these is not a valid
+  # OpenAPI 3.x document and will break generated clients.
+  oas3-schema: error
+  operation-operationId: error
+  operation-operationId-unique: error
+  duplicated-entry-in-enum: error
+  no-eval-in-markdown: error
+  no-script-tags-in-markdown: error
+  path-params: error
+
+  # --- Deliberately relaxed --------------------------------------------
+  # `info.contact` and `info.license` describe a PUBLISHED API product.
+  # This document is generated for SDK generation and internal review; the
+  # licence is LICENSE.md at the repo root, and duplicating it into a
+  # generated file just creates a second copy to keep in sync.
+  info-contact: "off"
+  license-url: "off"
+  info-license: "off"
+
+  # Every operation carries a summary derived from its docstring. Requiring
+  # BOTH summary and description would make an already-documented route fail
+  # for want of a second paragraph, which encourages padding rather than
+  # clarity.
+  operation-description: "off"
+
+  # Tags are not yet assigned per-blueprint. Warn so the gap stays visible
+  # without failing the build on an organisational nicety.
+  operation-tags: warn
+  openapi-tags: "off"
+
+  # quart-schema emits a response schema only where @validate_response
+  # is applied. Warn rather than error: routes still returning bare
+  # dicts are a known migration gap, and failing the build on them
+  # would block the spec from being committed at all.
+  operation-success-response: warn
+
+  # Path segments come from Quart's own route rules; casing is already
+  # consistent and enforcing a second convention here would fight the
+  # framework rather than the code.
+  path-keys-no-trailing-slash: error
+  no-$ref-siblings: error

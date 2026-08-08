@@ -17,16 +17,18 @@ from typing import Any, Final, TypeAlias
 import aiohttp
 from quart import Blueprint, request
 
-from .adapters import ADAPTER_REGISTRY
-from .adapters.base_adapter import ProductAdapter
+from .adapters.discovery_profiles import DISCOVERY_PROFILES, DiscoveryProfile
+from .authz import (
+    SCOPE_PRODUCTS_MANAGE,
+    SCOPE_PRODUCTS_READ,
+    require_tenant_scope,
+)
 from .middleware import auth_required, get_current_user
 from .models import (
     create_audit_log,
     create_product_connection,
     get_product_connection_by_id,
-    get_user_tenant_role,
 )
-from .tenancy import EFFECTIVE_ADMIN_ROLES, resolve_effective_role
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +273,7 @@ def _format_host(host: str) -> str:
 async def _probe_endpoint(
     host: str,
     port: int,
-    adapter_cls: type[ProductAdapter],
+    profile: DiscoveryProfile,
     session: aiohttp.ClientSession,
 ) -> dict[str, Any] | None:
     """Probe a single host:port for a PenguinTech product (async).
@@ -281,7 +283,7 @@ async def _probe_endpoint(
     second name resolution can land somewhere the validation did not see.
     """
     base_url = f"http://{_format_host(host)}:{port}"
-    health_ep = adapter_cls.DEFAULT_HEALTH_ENDPOINT
+    health_ep = profile.health_endpoint
 
     try:
         async with asyncio.timeout(5):
@@ -294,12 +296,12 @@ async def _probe_endpoint(
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
 
                 # Check if any discovery signature matches
-                for sig in adapter_cls.DISCOVERY_SIGNATURES:
+                for sig in profile.signatures:
                     server = resp.headers.get("server", "").lower()
                     if sig.lower() in body or sig.lower() in server:
                         return {
-                            "product_type": adapter_cls.PRODUCT_TYPE,
-                            "display_name": adapter_cls.DISPLAY_NAME,
+                            "product_type": profile.product_type,
+                            "display_name": profile.display_name,
                             "base_url": base_url,
                             "health_endpoint": health_ep,
                             "status_code": status,
@@ -309,8 +311,8 @@ async def _probe_endpoint(
                 # Fallback: if health endpoint returns 200, still report as candidate
                 if status == 200:
                     return {
-                        "product_type": adapter_cls.PRODUCT_TYPE,
-                        "display_name": f"{adapter_cls.DISPLAY_NAME} (unconfirmed)",
+                        "product_type": profile.product_type,
+                        "display_name": f"{profile.display_name} (unconfirmed)",
                         "base_url": base_url,
                         "health_endpoint": health_ep,
                         "status_code": status,
@@ -330,11 +332,9 @@ async def _scan_network(network_ranges: list[str]) -> list[dict[str, Any]]:
 
     async with aiohttp.ClientSession() as session:
         for host in network_ranges:
-            for _ptype, adapter_cls in ADAPTER_REGISTRY.items():
-                if _ptype == "generic":
-                    continue
-                for port in adapter_cls.DISCOVERY_PORTS:
-                    tasks.append(_probe_endpoint(host, port, adapter_cls, session))
+            for profile in DISCOVERY_PROFILES.values():
+                for port in profile.ports:
+                    tasks.append(_probe_endpoint(host, port, profile, session))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -353,9 +353,10 @@ async def _scan_network(network_ranges: list[str]) -> list[dict[str, Any]]:
 async def trigger_scan() -> tuple[dict[str, Any], int]:
     """Trigger a network scan for PenguinTech products.
 
-    Requires owner/admin authority on the tenant, and scans only addresses
-    inside the operator's DISCOVERY_RANGES allowlist. Caller-supplied
-    ``ranges`` narrow that allowlist; they can never widen it.
+    Requires ``products:manage`` on the target tenant — a scan exists to
+    produce product connections, so it is gated as the write it leads to.
+    Scans only addresses inside the operator's DISCOVERY_RANGES allowlist;
+    caller-supplied ``ranges`` narrow that allowlist and can never widen it.
     """
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
@@ -366,9 +367,11 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await resolve_effective_role(user["id"], tenant_id)
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
+    denied = await require_tenant_scope(
+        user["id"], tenant_id, SCOPE_PRODUCTS_MANAGE
+    )
+    if denied:
+        return denied
 
     from .config import Config
 
@@ -418,7 +421,13 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
 @discovery_bp.route("/results", methods=["GET"])
 @auth_required
 async def get_scan_results() -> tuple[dict[str, Any], int]:
-    """Get latest scan results."""
+    """Get latest scan results for a tenant.
+
+    Gated on ``products:read`` for the target tenant. The previous
+    ``get_user_tenant_role`` check required a direct membership row, which
+    denied a delegated MSP admin their own customer's scan results — the
+    same defect this phase fixed in the dashboard and audit routes.
+    """
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
@@ -427,9 +436,9 @@ async def get_scan_results() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_PRODUCTS_READ)
+    if denied:
+        return denied
 
     results = _scan_results.get(tenant_id, [])
     return {"discovered": results, "count": len(results)}, 200
@@ -438,7 +447,14 @@ async def get_scan_results() -> tuple[dict[str, Any], int]:
 @discovery_bp.route("/accept/<int:discovery_id>", methods=["POST"])
 @auth_required
 async def accept_discovered_product(discovery_id: int) -> tuple[dict[str, Any], int]:
-    """Accept a discovered product and create a connection."""
+    """Accept a discovered product and create a connection.
+
+    Gated on ``products:manage`` for the target tenant. The previous check
+    compared a direct membership row against the literals ``owner``/``admin``
+    — both halves wrong under this phase's model: it branched on role names,
+    and it refused a delegated admin who holds no membership row in the
+    tenant they administer.
+    """
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
@@ -448,9 +464,11 @@ async def accept_discovered_product(discovery_id: int) -> tuple[dict[str, Any], 
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    role = await get_user_tenant_role(user["id"], tenant_id)
-    if role not in ["owner", "admin"]:
-        return {"error": "Admin access required"}, 403
+    denied = await require_tenant_scope(
+        user["id"], tenant_id, SCOPE_PRODUCTS_MANAGE
+    )
+    if denied:
+        return denied
 
     results = _scan_results.get(tenant_id, [])
     discovered = next((r for r in results if r.get("id") == discovery_id), None)

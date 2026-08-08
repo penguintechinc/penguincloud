@@ -1,34 +1,28 @@
-"""Nest Adapter — Development environments."""
+"""Nest adapter — v2, health-only.
 
-from typing import Any
+Phase 3 lands the contract and the deny-by-default proxy; Nest's
+resource operations are a Phase 4 task. Everything beyond health and
+capabilities raises AdapterCapabilityError (501) rather than returning an
+empty result that would read as "nothing there".
+"""
 
-from .base_adapter import ProductAdapter
+from __future__ import annotations
+
+from .base import HealthOnlyAdapter, RouteRule
+
+__all__ = ["NestAdapter"]
 
 
-class NestAdapter(ProductAdapter):
-    PRODUCT_TYPE = "nest"
-    DISPLAY_NAME = "Nest"
-    CATEGORY = "development"
-    ICON = "code"
-    DEFAULT_HEALTH_ENDPOINT = "/healthz"
-    DEFAULT_API_VERSION = "v1"
-    DISCOVERY_PORTS = [8080, 3000]
-    DISCOVERY_SIGNATURES = ["nest", "Nest"]
+class NestAdapter(HealthOnlyAdapter):
+    """Nest data/storage adapter (health + capabilities only)."""
 
-    def get_capabilities(self) -> list[str]:
-        return ["health_check", "proxy", "environments", "templates"]
+    PRODUCT_TYPE: str = "nest"
+    DISPLAY_NAME: str = "Nest"
 
-    def get_management_schema(self) -> dict[str, Any]:
-        return {
-            "product_type": self.PRODUCT_TYPE,
-            "display_name": self.DISPLAY_NAME,
-            "sections": [
-                {"id": "overview", "label": "Overview", "type": "dashboard"},
-                {
-                    "id": "environments",
-                    "label": "Environments",
-                    "endpoint": "/environments",
-                },
-                {"id": "templates", "label": "Templates", "endpoint": "/templates"},
-            ],
-        }
+    #: Deny-by-default: only these exact routes are proxied. Both are
+    #: read-only liveness surfaces, so products:read is the correct floor —
+    #: a viewer may confirm a product is up without holding manage rights.
+    route_allowlist: list[RouteRule] = [
+        RouteRule("GET", r"^/health(z)?\Z", "products:read"),
+        RouteRule("GET", r"^/capabilities\Z", "products:read"),
+    ]

@@ -518,9 +518,15 @@ class TestDelegatedAuthority:
         assert payload["scope"] == body["scope"]
         assert "tenants:manage" in payload["scope"]
         assert "products:manage" in payload["scope"]
-        # Owner of a tenant that HAS descendants gets the delegation scope,
-        # and it names the capability -- never the descendant id list.
-        assert "tenants:manage:descendants" in payload["scope"]
+        # No scope names a tenant id. Delegated authority is answered per
+        # target tenant by resolve_scopes at request time, so the claim
+        # stays a fixed size regardless of how large the subtree is.
+        #
+        # A `tenants:manage:descendants` capability scope used to be issued
+        # here. Nothing consumed it, and any consumer would have been asking
+        # a strictly weaker question than the per-tenant check that already
+        # exists -- see app/tenancy/authz.py.
+        assert "tenants:manage:descendants" not in payload["scope"]
         assert not any(str(provider_id) in s for s in payload["scope"])
 
     @pytest.mark.asyncio

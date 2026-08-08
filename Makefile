@@ -2,6 +2,10 @@
 # This Makefile provides common development tasks for multi-language projects
 
 .PHONY: help setup dev test build clean lint format docker deploy
+# openapi/ is also a DIRECTORY in this repo. Without an explicit .PHONY,
+# make sees the target as satisfied by the directory's existence and
+# silently reports "up to date" instead of regenerating the spec.
+.PHONY: openapi openapi-check openapi-lint
 
 # Default target
 .DEFAULT_GOAL := help
@@ -243,6 +247,20 @@ docker-clean: ## Docker - Clean up Docker resources
 	@docker system prune -f
 
 # Code Quality Commands
+openapi: ## API - Regenerate openapi/v1.yaml from the live route table
+	@echo "$(BLUE)=== Exporting OpenAPI specification ===$(RESET)"
+	@python3 scripts/export-openapi.py
+
+openapi-check: ## API - Fail if the committed spec is stale (CI gate)
+	@echo "$(BLUE)=== Checking OpenAPI specification is current ===$(RESET)"
+	@python3 scripts/export-openapi.py --check
+
+openapi-lint: ## API - Lint openapi/v1.yaml with spectral
+	@echo "$(BLUE)=== Linting OpenAPI specification ===$(RESET)"
+	@npx --yes @stoplight/spectral-cli lint openapi/v1.yaml \
+		--ruleset .spectral.yaml --fail-severity=error
+
+
 lint: ## Code Quality - Run linting for all languages
 	@echo "$(BLUE)=== Linting ===$(RESET)"
 	@if command -v flake8 >/dev/null 2>&1; then echo "$(YELLOW)-- flake8 --$(RESET)"; python3 -m flake8 . --max-line-length=120 --exclude=.git,__pycache__,venv,node_modules || true; fi
@@ -255,6 +273,7 @@ lint: ## Code Quality - Run linting for all languages
 	@if [ -f "web/package.json" ]; then echo "$(YELLOW)-- eslint (web) --$(RESET)"; cd web && npm run lint || true; fi
 	@if [ -f "package.json" ]; then echo "$(YELLOW)-- eslint (root) --$(RESET)"; npm run lint || true; fi
 	@if [ -d "services/mobile" ]; then echo "$(YELLOW)-- flutter analyze --$(RESET)"; cd services/mobile && flutter analyze || true; fi
+	@$(MAKE) --no-print-directory openapi-lint
 
 lint-go: ## Code Quality - Run Go linting
 	@echo "$(BLUE)Linting Go code...$(RESET)"

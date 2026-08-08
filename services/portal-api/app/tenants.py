@@ -41,8 +41,18 @@ from .models import (
     VALID_TENANT_KINDS,
     VALID_TENANT_ROLES,
 )
+from .authz import (
+    SCOPE_MEMBERS_MANAGE,
+    SCOPE_MEMBERS_READ,
+    SCOPE_TENANTS_BILLING,
+    SCOPE_TENANTS_DELETE,
+    SCOPE_TENANTS_MANAGE,
+    SCOPE_TENANTS_READ,
+    SCOPE_TENANTS_SWITCH,
+    has_tenant_scope,
+    require_scope,
+)
 from .tenancy import (
-    EFFECTIVE_ADMIN_ROLES,
     get_hierarchy,
     invalidate_tenant,
     may_switch_to_tenant,
@@ -277,6 +287,17 @@ async def _member_with_identity(
     return to_member(row)
 
 
+async def _display_role(user: dict[str, Any], tenant_id: int) -> str | None:
+    """Resolve the caller's effective role for DISPLAY in a response DTO.
+
+    Never an authorization input — security.md keeps `roles`
+    informational and decisions on `scope`. Kept as a named helper so
+    that distinction is visible at each call site rather than looking
+    like a leftover authorization check.
+    """
+    return await resolve_effective_role(user["id"], tenant_id)
+
+
 def validate_tenant_slug(slug: str) -> bool:
     """Validate tenant slug format (lowercase alphanumeric + hyphens)."""
     if not slug or len(slug) < 3 or len(slug) > 63:
@@ -405,7 +426,13 @@ async def list_user_tenants() -> tuple[Any, int]:
             tenant_id_val = tenant.get("id")
             if not isinstance(tenant_id_val, int):
                 continue
-            if tenant.get("user_role") not in EFFECTIVE_ADMIN_ROLES:
+            # Descendants are disclosed only to a caller who administers the
+            # parent. Asked as a scope against that tenant, not as a
+            # comparison on the joined `user_role` column, so a delegated
+            # admin (no membership row here at all) is answered identically.
+            if not await has_tenant_scope(
+                user["id"], tenant_id_val, SCOPE_TENANTS_MANAGE
+            ):
                 continue
             try:
                 hierarchy = await get_hierarchy(tenant_id_val)
@@ -425,17 +452,19 @@ async def list_user_tenants() -> tuple[Any, int]:
 @tenants_bp.route("/<int:tenant_id>", methods=["GET"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_TENANTS_READ, tenant_arg="tenant_id")
 async def get_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
     """Get tenant details (members and delegated admins only)."""
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
 
-    # Authorize before disclosing existence: a 404 that only an unauthorized
-    # caller can distinguish from a 403 enumerates the tenant id space.
+    # Authorization already happened in @require_scope, before this body ran
+    # — that ordering is what keeps a 404 from being distinguishable by an
+    # unauthorized caller and turning the path parameter into a tenant-id
+    # oracle. The role resolved here is for DISPLAY in the response DTO
+    # only (security.md: `roles` is informational, decisions are on scope).
     role = await resolve_effective_role(user["id"], tenant_id)
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
 
     tenant = await get_tenant_by_id(tenant_id)
     if not tenant:
@@ -447,15 +476,12 @@ async def get_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
 @tenants_bp.route("/<int:tenant_id>", methods=["PUT"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_TENANTS_MANAGE, tenant_arg="tenant_id")
 async def update_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
-    """Update tenant (admin/owner, directly or by delegation)."""
+    """Update tenant (holders of tenants:manage, incl. delegated admins)."""
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-    role = await resolve_effective_role(user["id"], tenant_id)
-
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
 
     tenant = await get_tenant_by_id(tenant_id)
     if not tenant:
@@ -479,11 +505,17 @@ async def update_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
     if "settings" in data:
         update_data["settings"] = json.dumps(data["settings"])
 
-    if "plan" in data and role == "owner":
+    # Plan tier and activation are owner-only, asked as a scope rather than
+    # as `role == "owner"`. tenants:billing is in the owner bundle alone, so
+    # a delegated MSP admin can rename and reconfigure a customer tenant
+    # while still being unable to change what that customer is billed.
+    may_bill = await has_tenant_scope(user["id"], tenant_id, SCOPE_TENANTS_BILLING)
+
+    if "plan" in data and may_bill:
         if data["plan"] in VALID_PLANS:
             update_data["plan_tier"] = data["plan"]
 
-    if "is_active" in data and role == "owner":
+    if "is_active" in data and may_bill:
         update_data["is_active"] = bool(data["is_active"])
 
     if update_data:
@@ -502,12 +534,14 @@ async def update_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
     updated = await get_tenant_by_id(tenant_id)
     if not updated:  # pragma: no cover - row read moments ago
         return {"error": "Tenant not found"}, 404
-    return asdict(to_detail(updated, role)), 200
+    # Display only — `roles` is informational in every response DTO.
+    return asdict(to_detail(updated, await _display_role(user, tenant_id))), 200
 
 
 @tenants_bp.route("/<int:tenant_id>/parent", methods=["PUT"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_TENANTS_MANAGE, tenant_arg="tenant_id")
 @validate_request(ReparentRequest)
 async def reparent_tenant_endpoint(
     tenant_id: int, data: ReparentRequest
@@ -523,10 +557,6 @@ async def reparent_tenant_endpoint(
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-
-    role = await resolve_effective_role(user["id"], tenant_id)
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
 
     tenant = await get_tenant_by_id(tenant_id)
     if not tenant:
@@ -561,17 +591,24 @@ async def reparent_tenant_endpoint(
     moved = await get_tenant_by_id(tenant_id)
     if not moved:  # pragma: no cover - row updated moments ago
         return {"error": "Tenant not found"}, 404
-    return asdict(to_detail(moved, role)), 200
+    # Display only — `roles` is informational in every response DTO.
+    return asdict(to_detail(moved, await _display_role(user, tenant_id))), 200
 
 
 @tenants_bp.route("/<int:tenant_id>", methods=["DELETE"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_TENANTS_DELETE, tenant_arg="tenant_id")
 async def delete_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
     """Delete tenant (owner only).
 
-    Stays strictly owner-gated: delegated admin confers management, not
-    destruction of a tenant somebody else owns.
+    Stays strictly owner-gated at both layers. ``tenants:delete`` appears in
+    the owner bundle alone — notably NOT in the delegated-admin bundle,
+    which is what keeps delegation conferring management rather than
+    destruction of a tenant somebody else owns. The ownership check below
+    is retained on top: the scope answers "an owner of this tenant", the
+    row check answers "*the* owner", and only the second is authoritative
+    for an irreversible delete.
     """
     user = get_current_user()
     if not user:  # pragma: no cover
@@ -610,6 +647,7 @@ async def delete_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
 @tenants_bp.route("/<int:tenant_id>/switch", methods=["POST"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_TENANTS_SWITCH, tenant_arg="tenant_id")
 @validate_response(TenantSwitchResponse)
 async def switch_tenant(tenant_id: int) -> tuple[Any, int]:
     """Switch active tenant — returns a new JWT scoped to it.
@@ -671,6 +709,7 @@ async def switch_tenant(tenant_id: int) -> tuple[Any, int]:
 @tenants_bp.route("/<int:tenant_id>/members", methods=["GET"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_MEMBERS_READ, tenant_arg="tenant_id")
 @validate_response(TenantMemberListResponse)
 async def list_tenant_members(tenant_id: int) -> tuple[Any, int]:
     """List tenant members.
@@ -683,10 +722,6 @@ async def list_tenant_members(tenant_id: int) -> tuple[Any, int]:
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-    role = await resolve_effective_role(user["id"], tenant_id)
-
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
 
     members = [to_member(row) for row in await get_tenant_members(tenant_id)]
     return TenantMemberListResponse(members=members, count=len(members)), 200
@@ -695,16 +730,13 @@ async def list_tenant_members(tenant_id: int) -> tuple[Any, int]:
 @tenants_bp.route("/<int:tenant_id>/members", methods=["POST"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_MEMBERS_MANAGE, tenant_arg="tenant_id")
 @validate_response(TenantMemberResponse, status_code=201)
 async def add_tenant_member_endpoint(tenant_id: int) -> tuple[Any, int]:
-    """Add member to tenant (admin/owner, directly or by delegation)."""
+    """Add member to tenant (holders of members:manage, incl. delegated)."""
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-    role = await resolve_effective_role(user["id"], tenant_id)
-
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
 
     # Check quota
     tenant = await get_tenant_by_id(tenant_id)
@@ -763,18 +795,15 @@ async def add_tenant_member_endpoint(tenant_id: int) -> tuple[Any, int]:
 @tenants_bp.route("/<int:tenant_id>/members/<int:member_user_id>", methods=["PUT"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_MEMBERS_MANAGE, tenant_arg="tenant_id")
 @validate_response(TenantMemberResponse)
 async def update_tenant_member_role(
     tenant_id: int, member_user_id: int
 ) -> tuple[Any, int]:
-    """Update member role (admin/owner, directly or by delegation)."""
+    """Update member role (holders of members:manage, incl. delegated)."""
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-    role = await resolve_effective_role(user["id"], tenant_id)
-
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
 
     data = await request.get_json()
     new_role = data.get("role") if data else None
@@ -799,17 +828,14 @@ async def update_tenant_member_role(
 @tenants_bp.route("/<int:tenant_id>/members/<int:member_user_id>", methods=["DELETE"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_MEMBERS_MANAGE, tenant_arg="tenant_id")
 async def remove_tenant_member(
     tenant_id: int, member_user_id: int
 ) -> tuple[dict[str, Any], int]:
-    """Remove member from tenant (admin/owner, directly or by delegation)."""
+    """Remove member from tenant (holders of members:manage, incl. delegated)."""
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-    role = await resolve_effective_role(user["id"], tenant_id)
-
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
 
     # Cannot remove the owner
     tenant = await get_tenant_by_id(tenant_id)
@@ -842,15 +868,12 @@ async def remove_tenant_member(
 @tenants_bp.route("/<int:tenant_id>/usage", methods=["GET"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_TENANTS_READ, tenant_arg="tenant_id")
 async def get_tenant_usage(tenant_id: int) -> tuple[dict[str, Any], int]:
     """Get tenant resource usage and quotas."""
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-    role = await resolve_effective_role(user["id"], tenant_id)
-
-    if not role:
-        return {"error": "Not a member of this tenant"}, 403
 
     tenant = await get_tenant_by_id(tenant_id)
     if not tenant:
@@ -878,21 +901,19 @@ async def get_tenant_usage(tenant_id: int) -> tuple[dict[str, Any], int]:
 @tenants_bp.route("/<int:tenant_id>/dashboard/rollup", methods=["GET"])
 @auth_required
 @tenancy_aware
+@require_scope(SCOPE_TENANTS_MANAGE, tenant_arg="tenant_id")
 @validate_response(RollupResponse)
 async def get_dashboard_rollup(tenant_id: int) -> tuple[Any, int]:
     """Get per-child-tenant × per-product rollup for provider dashboard.
 
-    Available to admin/owner in this tenant, directly or by delegation.
-    Product health is stubbed until the Phase 4 adapters land; the product
-    identity is not — it comes from ``product_type``.
+    Available to holders of ``tenants:manage`` here, which includes admins
+    acting by delegation from an ancestor. Product health is stubbed until
+    the Phase 4 adapters land; the product identity is not — it comes from
+    ``product_type``.
     """
     user = get_current_user()
     if not user:  # pragma: no cover
         return {"error": "User not authenticated"}, 401
-
-    role = await resolve_effective_role(user["id"], tenant_id)
-    if role not in EFFECTIVE_ADMIN_ROLES:
-        return {"error": "Admin access required"}, 403
 
     tenant = await get_tenant_by_id(tenant_id)
     if not tenant:

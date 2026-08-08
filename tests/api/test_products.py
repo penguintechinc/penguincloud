@@ -24,9 +24,9 @@ async def _register_product(
     """Register a product connection carrying real credentials."""
     payload: dict[str, Any] = {
         "tenant_id": tenant,
-        "product_type": "squawk",
+        "product_type": "nest",
         "display_name": "Masking Test Product",
-        "base_url": "https://squawk.example.com",
+        "base_url": "https://nest.example.com",
         "auth_type": "bearer",
         "api_key": PLAINTEXT_KEY,
         "api_secret": PLAINTEXT_SECRET,
@@ -158,13 +158,15 @@ async def test_health_check_records_status_and_timestamp(
     """
     created = await _register_product(client, admin_headers, tenant_id)
 
-    from app.adapters.base_adapter import ProductAdapter
+    from app.adapters.base import HealthResult, AdapterContext
+    from app.adapters.nest_adapter import NestAdapter
 
-    monkeypatch.setattr(
-        ProductAdapter,
-        "health_check",
-        lambda self: {"status": "healthy", "status_code": 200, "response_time_ms": 7},
-    )
+    async def mock_health(self: Any, ctx: AdapterContext) -> HealthResult:
+        return HealthResult(
+            status="healthy", status_code=200, response_time_ms=7, error=None
+        )
+
+    monkeypatch.setattr(NestAdapter, "health", mock_health)
 
     response = await client.post(
         f"/api/v1/products/{created['id']}/test", headers=admin_headers
@@ -192,13 +194,15 @@ async def test_health_endpoint_reports_recorded_check(
     """GET /products/<id>/health surfaces what the test run recorded."""
     created = await _register_product(client, admin_headers, tenant_id)
 
-    from app.adapters.base_adapter import ProductAdapter
+    from app.adapters.base import HealthResult, AdapterContext
+    from app.adapters.nest_adapter import NestAdapter
 
-    monkeypatch.setattr(
-        ProductAdapter,
-        "health_check",
-        lambda self: {"status": "degraded", "status_code": 429},
-    )
+    async def mock_health(self: Any, ctx: AdapterContext) -> HealthResult:
+        return HealthResult(
+            status="degraded", status_code=429, response_time_ms=0, error=None
+        )
+
+    monkeypatch.setattr(NestAdapter, "health", mock_health)
     await client.post(f"/api/v1/products/{created['id']}/test", headers=admin_headers)
 
     response = await client.get(
@@ -488,7 +492,13 @@ async def test_product_tenant_mapping_requires_admin_for_write(
         json={"external_id": "test-id"},
     )
     assert response.status_code == 403
-    assert (await response.get_json())["error"] == "Admin access required"
+    # The gate is a scope now, not a role-name comparison. Assert the scope
+    # that was demanded rather than a prose message: that is the part of the
+    # contract which must not silently widen, and a message string would
+    # keep passing if the required scope were downgraded to products:read.
+    body = await response.get_json()
+    assert body["error"] == "insufficient_scope"
+    assert body["required_scope"] == ["products:manage"]
 
     # Create as admin for delete test
     admin_create = await client.post(

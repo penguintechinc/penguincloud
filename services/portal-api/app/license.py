@@ -1,4 +1,16 @@
-"""PenguinTech License Server Integration."""
+"""PenguinTech License Server Integration.
+
+Uses httpx's synchronous client rather than ``requests``: the portal has one
+HTTP library (see app/adapters/transport.py), and carrying a second one just
+for three calls meant shipping — and patching — an extra dependency, plus a
+second set of exception types for callers to know about.
+
+These three calls are deliberately still SYNCHRONOUS. They run at startup
+(validate) and from the background refresh path (features, keepalive), not
+on a request path, so they do not block the event loop where it matters.
+Making them async would change LicenseManager's public signatures and every
+caller with them; that belongs in the licensing work, not here.
+"""
 
 import logging
 import os
@@ -7,7 +19,7 @@ from datetime import datetime
 from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, Optional, ParamSpec, TypeVar
 
-import requests
+import httpx
 from quart import jsonify
 
 logger = logging.getLogger(__name__)
@@ -66,7 +78,7 @@ class LicenseManager:
             return False
 
         try:
-            response = requests.post(
+            response = httpx.post(
                 f"{self.server_url}/api/v2/validate",
                 json={
                     "license_key": self.license_key,
@@ -117,7 +129,7 @@ class LicenseManager:
     def _refresh_features(self) -> None:
         """Refresh feature cache from server."""
         try:
-            response = requests.post(
+            response = httpx.post(
                 f"{self.server_url}/api/v2/features",
                 json={
                     "license_key": self.license_key,
@@ -165,7 +177,7 @@ class LicenseManager:
             if usage_stats:
                 payload["usage_stats"] = usage_stats
 
-            response = requests.post(
+            response = httpx.post(
                 f"{self.server_url}/api/v2/keepalive",
                 json=payload,
                 timeout=5,

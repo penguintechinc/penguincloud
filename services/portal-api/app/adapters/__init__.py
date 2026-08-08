@@ -1,89 +1,149 @@
-"""Product Adapter Registry."""
+"""Product adapter registry — v2 contract.
 
-from typing import Any
+Two tiers, deliberately distinguished in the API surface:
 
-from .base_adapter import ProductAdapter
+* **Active** — a product with a real v2 adapter. It can be connected,
+  health-checked, and proxied to within its declared ``route_allowlist``.
+* **Planned** — a product the portal knows the name of and nothing else.
+  It appears in the catalogue with ``status: planned`` so the UI can show a
+  roadmap, but :func:`get_adapter` refuses it, which means no connection to
+  a planned product can be created, health-checked, or proxied.
+
+Phase 3 deleted the seventeen thin metadata adapters that used to back the
+planned tier. Each was ~40 lines of blocking ``requests`` calls and
+hand-rolled auth headers behind an interface no caller could rely on: they
+implemented different subsets of the old base class, so "the adapter exists"
+told you nothing about what would happen when you called it. Keeping them as
+registry *metadata* preserves everything they actually provided (a name and
+a category for the catalogue) and removes the implication that the portal
+can manage a product it cannot.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Final, Type
+
+from .base import Adapter, AdapterContext
 from .generic_adapter import GenericAdapter
-from .marchproxy_adapter import MarchProxyAdapter
-from .squawk_adapter import SquawkAdapter
-from .license_server_adapter import LicenseServerAdapter
-from .skauswatch_adapter import SkausWatchAdapter
-from .waddleai_adapter import WaddleAIAdapter
-from .articdbm_adapter import ArticDBMAdapter
-from .cerberus_adapter import CerberusAdapter
-from .waddlebot_adapter import WaddleBotAdapter
-from .waddleperf_adapter import WaddlePerfAdapter
-from .iceshelves_adapter import IceShelvesAdapter
-from .icecharts_adapter import IceChartsAdapter
-from .killkrill_adapter import KillKrillAdapter
-from .tobogganing_adapter import TobogganingAdapter
-from .nest_adapter import NestAdapter
-from .darwin_adapter import DarwinAdapter
 from .gough_adapter import GoughAdapter
-from .current_adapter import CurrentAdapter
-from .elder_adapter import ElderAdapter
-from .admin_adapter import AdminAdapter
+from .nest_adapter import NestAdapter
+from .tobogganing_adapter import TobogganingAdapter
 
-# Registry mapping product_type string -> adapter class
-ADAPTER_REGISTRY: dict[str, type[ProductAdapter]] = {
-    "marchproxy": MarchProxyAdapter,
-    "squawk": SquawkAdapter,
-    "license_server": LicenseServerAdapter,
-    "skauswatch": SkausWatchAdapter,
-    "waddleai": WaddleAIAdapter,
-    "articdbm": ArticDBMAdapter,
-    "cerberus": CerberusAdapter,
-    "waddlebot": WaddleBotAdapter,
-    "waddleperf": WaddlePerfAdapter,
-    "iceshelves": IceShelvesAdapter,
-    "icecharts": IceChartsAdapter,
-    "killkrill": KillKrillAdapter,
-    "tobogganing": TobogganingAdapter,
-    "nest": NestAdapter,
-    "darwin": DarwinAdapter,
+__all__ = [
+    "ADAPTER_REGISTRY",
+    "PLANNED_PRODUCTS",
+    "STATUS_ACTIVE",
+    "STATUS_PLANNED",
+    "get_adapter",
+    "get_adapter_metadata",
+    "get_all_product_types",
+]
+
+STATUS_ACTIVE: Final[str] = "active"
+STATUS_PLANNED: Final[str] = "planned"
+STATUS_UNKNOWN: Final[str] = "unknown"
+
+#: product_type -> v2 adapter class. Membership here is what makes a product
+#: connectable; everything else is catalogue metadata.
+ADAPTER_REGISTRY: dict[str, Type[Adapter]] = {
     "gough": GoughAdapter,
-    "current": CurrentAdapter,
-    "elder": ElderAdapter,
-    "admin": AdminAdapter,
+    "nest": NestAdapter,
+    "tobogganing": TobogganingAdapter,
+    # Health-only fallback with an empty proxy allowlist. Present so an
+    # operator can register and monitor an endpoint the portal has no
+    # specific integration for, without that endpoint becoming proxyable.
     "generic": GenericAdapter,
 }
 
+#: Products with no adapter. Catalogue entries only — get_adapter() raises
+#: for every key in here, so a connection to one cannot be exercised.
+PLANNED_PRODUCTS: Final[dict[str, dict[str, str]]] = {
+    "marchproxy": {"display_name": "MarchProxy", "category": "networking"},
+    "squawk": {"display_name": "Squawk", "category": "dns"},
+    "license_server": {"display_name": "License Server", "category": "licensing"},
+    "skauswatch": {"display_name": "SkausWatch", "category": "monitoring"},
+    "waddleai": {"display_name": "WaddleAI", "category": "ai"},
+    "articdbm": {"display_name": "ArticDBM", "category": "database"},
+    "cerberus": {"display_name": "Cerberus", "category": "security"},
+    "waddlebot": {"display_name": "Waddles", "category": "community"},
+    "waddleperf": {"display_name": "WaddlePerf", "category": "monitoring"},
+    "iceshelves": {"display_name": "IceShelves", "category": "storage"},
+    "icecharts": {"display_name": "IceCharts", "category": "analytics"},
+    "killkrill": {"display_name": "KillKrill", "category": "logging"},
+    "darwin": {"display_name": "Darwin", "category": "security"},
+    "current": {"display_name": "Current", "category": "networking"},
+    "elder": {"display_name": "Elder", "category": "crm"},
+    "admin": {"display_name": "Admin", "category": "admin"},
+}
 
-def get_adapter(product_type: str, connection: dict[str, Any]) -> ProductAdapter:
-    """Get an adapter instance for the given product type and connection."""
-    adapter_class = ADAPTER_REGISTRY.get(product_type, GenericAdapter)
-    return adapter_class(connection)
+
+def get_adapter(product_type: str, ctx: AdapterContext) -> Adapter:
+    """Instantiate the adapter for a product type.
+
+    Args:
+        product_type: Registry key, e.g. ``"gough"``.
+        ctx: Context for the call. Held by the caller rather than the
+            adapter instance — adapters are stateless and take ``ctx`` per
+            method, so one cannot accidentally retain another tenant's
+            credentials between requests.
+
+    Raises:
+        ValueError: The product type has no adapter. Planned products land
+            here too: the catalogue lists them, but nothing may be executed
+            against them.
+    """
+    adapter_class = ADAPTER_REGISTRY.get(product_type)
+    if adapter_class is None:
+        raise ValueError(
+            f"Product '{product_type}' has no adapter "
+            f"(active: {sorted(ADAPTER_REGISTRY)})"
+        )
+    return adapter_class()
 
 
 def get_adapter_metadata(product_type: str) -> dict[str, Any]:
-    """Get metadata for a product type without a connection."""
-    adapter_class = ADAPTER_REGISTRY.get(product_type, GenericAdapter)
+    """Return catalogue metadata for one product type."""
+    adapter_class = ADAPTER_REGISTRY.get(product_type)
+    if adapter_class is not None:
+        return {
+            "product_type": product_type,
+            "display_name": getattr(adapter_class, "DISPLAY_NAME", product_type),
+            "status": STATUS_ACTIVE,
+        }
+
+    planned = PLANNED_PRODUCTS.get(product_type)
+    if planned is not None:
+        return {
+            "product_type": product_type,
+            "display_name": planned["display_name"],
+            "category": planned["category"],
+            "status": STATUS_PLANNED,
+        }
+
     return {
-        "product_type": adapter_class.PRODUCT_TYPE,
-        "display_name": adapter_class.DISPLAY_NAME,
-        "category": adapter_class.CATEGORY,
-        "icon": adapter_class.ICON,
-        "default_health_endpoint": adapter_class.DEFAULT_HEALTH_ENDPOINT,
-        "default_api_version": adapter_class.DEFAULT_API_VERSION,
-        "discovery_ports": adapter_class.DISCOVERY_PORTS,
+        "product_type": product_type,
+        "display_name": product_type,
+        "status": STATUS_UNKNOWN,
     }
 
 
 def get_all_product_types() -> list[dict[str, Any]]:
-    """Get metadata for all registered product types."""
-    result = []
-    for ptype, cls in ADAPTER_REGISTRY.items():
-        if ptype == "generic":
-            continue
-        result.append(
-            {
-                "product_type": cls.PRODUCT_TYPE,
-                "display_name": cls.DISPLAY_NAME,
-                "category": cls.CATEGORY,
-                "icon": cls.ICON,
-                "default_health_endpoint": cls.DEFAULT_HEALTH_ENDPOINT,
-                "default_api_version": cls.DEFAULT_API_VERSION,
-                "discovery_ports": cls.DISCOVERY_PORTS,
-            }
-        )
-    return sorted(result, key=lambda x: (x["category"], x["display_name"]))
+    """Return the full catalogue: active adapters plus planned products."""
+    catalogue = [
+        {
+            "product_type": ptype,
+            "display_name": getattr(cls, "DISPLAY_NAME", ptype),
+            "status": STATUS_ACTIVE,
+        }
+        for ptype, cls in ADAPTER_REGISTRY.items()
+    ]
+    catalogue.extend(
+        {
+            "product_type": ptype,
+            "display_name": meta["display_name"],
+            "category": meta.get("category", "other"),
+            "status": STATUS_PLANNED,
+        }
+        for ptype, meta in PLANNED_PRODUCTS.items()
+    )
+    return sorted(catalogue, key=lambda entry: (entry["status"], entry["display_name"]))

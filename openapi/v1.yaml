@@ -1,0 +1,1951 @@
+# GENERATED FILE — DO NOT EDIT.
+# Regenerate with: make openapi
+# Source: services/portal-api route table (API v1).
+components:
+  schemas:
+    RollupEntry:
+      description: Per-tenant rollup row.
+      properties:
+        products:
+          items:
+            $ref: '#/components/schemas/RollupProduct'
+          maxItems: 10000
+          title: Products
+          type: array
+        tenant_id:
+          title: Tenant Id
+          type: integer
+        tenant_name:
+          title: Tenant Name
+          type: string
+      required:
+        - tenant_id
+        - tenant_name
+        - products
+      title: RollupEntry
+      type: object
+    RollupProduct:
+      description: One product connection's status inside a rollup row.
+      properties:
+        connection_id:
+          title: Connection Id
+          type: integer
+        product:
+          title: Product
+          type: string
+        status:
+          title: Status
+          type: string
+      required:
+        - connection_id
+        - product
+        - status
+      title: RollupProduct
+      type: object
+    TenantDetail:
+      description: The projection a member (or delegated admin) may see.
+      properties:
+        depth:
+          title: Depth
+          type: integer
+        display_name:
+          title: Display Name
+          type: string
+        id:
+          title: Id
+          type: integer
+        kind:
+          title: Kind
+          type: string
+        max_products:
+          title: Max Products
+          type: integer
+        max_users:
+          title: Max Users
+          type: integer
+        name:
+          title: Name
+          type: string
+        owner_id:
+          title: Owner Id
+          type: integer
+        parent_tenant_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: Parent Tenant Id
+        plan:
+          title: Plan
+          type: string
+        slug:
+          title: Slug
+          type: string
+        status:
+          title: Status
+          type: string
+        user_role:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: User Role
+      required:
+        - id
+        - name
+        - slug
+        - display_name
+        - kind
+        - status
+        - plan
+        - parent_tenant_id
+        - depth
+        - owner_id
+        - max_users
+        - max_products
+        - user_role
+      title: TenantDetail
+      type: object
+    TenantMemberResponse:
+      description: 'A tenant membership row plus the member''s contact identity.
+
+
+        PII policy (deliberate, not incidental): ``user_email`` and
+
+        ``user_full_name`` ARE included, because administering a tenant means
+
+        administering its member accounts and an MSP admin cannot do that
+
+        against opaque user ids. NO other column from the users table is
+
+        exposed here — not role, not is_active, not timestamps, not
+
+        password_hash — and this DTO is the only path membership data takes to a
+
+        response body. Adding a column to `users` must not widen this.
+
+
+        Field set is reconciled with the webui''s TenantMember interface
+
+        (services/webui/src/client/types/index.ts).'
+      properties:
+        id:
+          title: Id
+          type: integer
+        invited_by_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: Invited By Id
+        joined_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Joined At
+        role:
+          title: Role
+          type: string
+        tenant_id:
+          title: Tenant Id
+          type: integer
+        user_email:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: User Email
+        user_full_name:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: User Full Name
+        user_id:
+          title: User Id
+          type: integer
+      required:
+        - id
+        - tenant_id
+        - user_id
+        - role
+        - invited_by_id
+        - joined_at
+        - user_email
+        - user_full_name
+      title: TenantMemberResponse
+      type: object
+  securitySchemes:
+    bearerAuth:
+      bearerFormat: JWT
+      scheme: bearer
+      type: http
+info:
+  title: PenguinCloud Portal API
+  version: 1.0.0
+openapi: 3.1.0
+paths:
+  /api/v1/audit/export:
+    get:
+      description: ''
+      operationId: get_export_audit_logs
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Export audit logs as CSV or JSON.
+  /api/v1/audit/logs:
+    get:
+      description: ''
+      operationId: get_get_audit_logs
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get audit logs with filtering and pagination.
+  /api/v1/auth/confirm-email/{token}:
+    post:
+      description: '
+
+        Both helpers are async coroutines; awaiting them directly (rather than
+
+        scheduling them on an executor, which would just hand back an
+
+        un-awaited coroutine object) is what actually runs the DB work.'
+      operationId: post_confirm_email_endpoint
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Confirm a user's email address with a confirmation token.
+  /api/v1/auth/forgot-password:
+    post:
+      description: '
+
+        Unauthenticated. Always answers with :data:`PASSWORD_RESET_ACK` and 200,
+
+        whether or not the address is registered, and never returns the reset
+
+        token itself.
+
+
+        Both properties are load-bearing security controls, not cosmetics:
+
+        returning the token handed any anonymous caller a full account takeover
+
+        for any address they could name, and returning a distinct message for
+
+        the not-found case made the endpoint a user-enumeration oracle. Any
+
+        change here that reintroduces a branch-dependent body reintroduces one
+
+        of those two bugs.'
+      operationId: post_forgot_password
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Request a password reset link.
+  /api/v1/auth/login:
+    post:
+      description: ''
+      operationId: post_login
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Login endpoint - returns access and refresh tokens.
+  /api/v1/auth/logout:
+    post:
+      description: ''
+      operationId: post_logout
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Logout endpoint - revokes all refresh tokens for user.
+  /api/v1/auth/me:
+    get:
+      description: ''
+      operationId: get_get_me
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get current user profile.
+  /api/v1/auth/oauth/connections:
+    get:
+      description: ''
+      operationId: get_get_oauth_connections
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get OAuth connections for current user.
+  /api/v1/auth/oauth/{provider}:
+    get:
+      description: ''
+      operationId: get_oauth_redirect
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Redirect to OAuth provider for authorization.
+  /api/v1/auth/oauth/{provider}/callback:
+    get:
+      description: ''
+      operationId: get_oauth_callback
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Handle OAuth2 callback and create/link user account.
+  /api/v1/auth/oauth/{provider}/disconnect:
+    post:
+      description: ''
+      operationId: post_disconnect_oauth
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Disconnect OAuth connection for current user.
+  /api/v1/auth/refresh:
+    post:
+      description: '
+
+        Rotation is one-use: the presented token is revoked before its
+
+        replacement is issued, so replaying it afterwards fails even if
+
+        issuance errors partway through.'
+      operationId: post_refresh
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Exchange a refresh token for a new token pair, rotating the old one.
+  /api/v1/auth/register:
+    post:
+      description: ''
+      operationId: post_register
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Register new user (creates viewer role by default + personal team).
+  /api/v1/auth/reset-password:
+    post:
+      description: ''
+      operationId: post_reset_password
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Reset password with token.
+  /api/v1/auth/sessions:
+    get:
+      description: ''
+      operationId: get_list_sessions
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: List active sessions for the authenticated user.
+  /api/v1/auth/sessions/{session_id}:
+    delete:
+      description: ''
+      operationId: delete_revoke_session_endpoint
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Revoke one of the authenticated user's sessions.
+  /api/v1/dashboard/activity:
+    get:
+      description: ''
+      operationId: get_dashboard_activity
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Recent audit events for the tenant.
+  /api/v1/dashboard/alerts:
+    get:
+      description: ''
+      operationId: get_dashboard_alerts
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Aggregated alerts — products with non-healthy status.
+  /api/v1/dashboard/health:
+    get:
+      description: ''
+      operationId: get_dashboard_health
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Health matrix for all products.
+  /api/v1/dashboard/overview:
+    get:
+      description: ''
+      operationId: get_dashboard_overview
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Aggregated stats for all products in the current tenant.
+  /api/v1/discovery/accept/{discovery_id}:
+    post:
+      description: '
+
+        Gated on ``products:manage`` for the target tenant. The previous check
+
+        compared a direct membership row against the literals ``owner``/``admin``
+
+        — both halves wrong under this phase''s model: it branched on role names,
+
+        and it refused a delegated admin who holds no membership row in the
+
+        tenant they administer.'
+      operationId: post_accept_discovered_product
+      parameters:
+        - in: path
+          name: discovery_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Accept a discovered product and create a connection.
+  /api/v1/discovery/results:
+    get:
+      description: '
+
+        Gated on ``products:read`` for the target tenant. The previous
+
+        ``get_user_tenant_role`` check required a direct membership row, which
+
+        denied a delegated MSP admin their own customer''s scan results — the
+
+        same defect this phase fixed in the dashboard and audit routes.'
+      operationId: get_get_scan_results
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get latest scan results for a tenant.
+  /api/v1/discovery/scan:
+    post:
+      description: '
+
+        Requires ``products:manage`` on the target tenant — a scan exists to
+
+        produce product connections, so it is gated as the write it leads to.
+
+        Scans only addresses inside the operator''s DISCOVERY_RANGES allowlist;
+
+        caller-supplied ``ranges`` narrow that allowlist and can never widen it.'
+      operationId: post_trigger_scan
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Trigger a network scan for PenguinTech products.
+  /api/v1/hello:
+    get:
+      description: ''
+      operationId: get_hello
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Hello world endpoint - requires authentication.
+  /api/v1/hello/protected:
+    get:
+      description: '
+
+        ``platform:read`` is carried by the platform admin and maintainer
+
+        bundles and by nothing else, so this admits exactly the callers the
+
+        previous ``@maintainer_or_admin_required`` did, decided on the token''s
+
+        scope claim instead of a role-name comparison.'
+      operationId: get_hello_protected
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Protected hello — requires the ``platform:read`` scope.
+  /api/v1/license/status:
+    get:
+      description: "\nGated on the ``license:read`` scope, which the platform-admin bundle\ncarries and no other role does\
+        \ — the same authority the previous\n``@admin_required`` conferred, expressed as a scope so the decision is\nmade\
+        \ on the token claim rather than on a role-name comparison\n(security.md: authorization decisions on scope, never\
+        \ role names).\n\nReturns:\n    JSON response with license details."
+      operationId: get_get_license_status
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get license status.
+  /api/v1/mfa/backup-codes:
+    get:
+      description: ''
+      operationId: get_get_backup_codes
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: View backup codes.
+  /api/v1/mfa/backup-codes/regenerate:
+    post:
+      description: ''
+      operationId: post_regenerate_backup_codes
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Regenerate backup codes.
+  /api/v1/mfa/disable:
+    post:
+      description: ''
+      operationId: post_disable_mfa_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Disable MFA (requires password and TOTP verification).
+  /api/v1/mfa/setup:
+    post:
+      description: ''
+      operationId: post_setup_mfa
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Generate TOTP secret and QR code for 2FA setup.
+  /api/v1/mfa/verify:
+    post:
+      description: ''
+      operationId: post_verify_mfa
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Verify TOTP code and enable MFA.
+  /api/v1/products:
+    get:
+      description: ''
+      operationId: get_list_products
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: List connected products for current tenant.
+    post:
+      description: ''
+      operationId: post_register_product
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Register a new product connection (manual).
+  /api/v1/products/types:
+    get:
+      description: ''
+      operationId: get_list_product_types
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: List all available product types with metadata.
+  /api/v1/products/{connection_id}/proxy/{proxy_path}:
+    delete:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: delete_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Forward request to a connected product's API.
+    get:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: get_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Forward request to a connected product's API.
+    options:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: options_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Forward request to a connected product's API.
+    patch:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: patch_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Forward request to a connected product's API.
+    post:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: post_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Forward request to a connected product's API.
+    put:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: put_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Forward request to a connected product's API.
+  /api/v1/products/{product_id}:
+    delete:
+      description: ''
+      operationId: delete_delete_product
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Remove product connection.
+    get:
+      description: ''
+      operationId: get_get_product
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get product connection details.
+    put:
+      description: ''
+      operationId: put_update_product
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Update product connection config.
+  /api/v1/products/{product_id}/health:
+    get:
+      description: ''
+      operationId: get_get_product_health
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get latest health status for a product.
+  /api/v1/products/{product_id}/schema:
+    get:
+      description: ''
+      operationId: get_get_product_schema
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get management schema (available actions) for a product.
+  /api/v1/products/{product_id}/tenants/{tenant_id}/map:
+    delete:
+      description: ''
+      operationId: delete_delete_product_tenant_mapping
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Delete product tenant external mapping.
+    get:
+      description: ''
+      operationId: get_get_product_tenant_mapping
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Response DTO for product tenant mapping.
+                properties:
+                  connection_id:
+                    title: Connection Id
+                    type: integer
+                  created_at:
+                    title: Created At
+                    type: string
+                  external_id:
+                    title: External Id
+                    type: string
+                  external_kind:
+                    title: External Kind
+                    type: string
+                  id:
+                    title: Id
+                    type: integer
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  updated_at:
+                    title: Updated At
+                    type: string
+                required:
+                  - id
+                  - connection_id
+                  - tenant_id
+                  - external_kind
+                  - external_id
+                  - created_at
+                  - updated_at
+                title: ProductTenantMapResponse
+                type: object
+          description: Response DTO for product tenant mapping.
+      summary: Get product tenant external mapping.
+    post:
+      description: ''
+      operationId: post_set_product_tenant_mapping
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: Request DTO for product tenant mapping.
+              properties:
+                external_id:
+                  title: External Id
+                  type: string
+              required:
+                - external_id
+              title: ProductTenantMapRequest
+              type: object
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: Response DTO for product tenant mapping.
+                properties:
+                  connection_id:
+                    title: Connection Id
+                    type: integer
+                  created_at:
+                    title: Created At
+                    type: string
+                  external_id:
+                    title: External Id
+                    type: string
+                  external_kind:
+                    title: External Kind
+                    type: string
+                  id:
+                    title: Id
+                    type: integer
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  updated_at:
+                    title: Updated At
+                    type: string
+                required:
+                  - id
+                  - connection_id
+                  - tenant_id
+                  - external_kind
+                  - external_id
+                  - created_at
+                  - updated_at
+                title: ProductTenantMapResponse
+                type: object
+          description: Response DTO for product tenant mapping.
+      summary: Set product tenant external mapping.
+    put:
+      description: ''
+      operationId: put_update_product_tenant_mapping
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: Request DTO for product tenant mapping.
+              properties:
+                external_id:
+                  title: External Id
+                  type: string
+              required:
+                - external_id
+              title: ProductTenantMapRequest
+              type: object
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Response DTO for product tenant mapping.
+                properties:
+                  connection_id:
+                    title: Connection Id
+                    type: integer
+                  created_at:
+                    title: Created At
+                    type: string
+                  external_id:
+                    title: External Id
+                    type: string
+                  external_kind:
+                    title: External Kind
+                    type: string
+                  id:
+                    title: Id
+                    type: integer
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  updated_at:
+                    title: Updated At
+                    type: string
+                required:
+                  - id
+                  - connection_id
+                  - tenant_id
+                  - external_kind
+                  - external_id
+                  - created_at
+                  - updated_at
+                title: ProductTenantMapResponse
+                type: object
+          description: Response DTO for product tenant mapping.
+      summary: Update product tenant external mapping.
+  /api/v1/products/{product_id}/test:
+    post:
+      description: ''
+      operationId: post_test_product_connection
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Test a product connection.
+  /api/v1/status:
+    get:
+      description: ''
+      operationId: get_status
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Public status endpoint - no authentication required.
+  /api/v1/teams:
+    get:
+      description: ''
+      operationId: get_list_user_teams
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: List user's teams.
+    post:
+      description: ''
+      operationId: post_create_team_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Create new team (authenticated users).
+  /api/v1/teams/invitations/{token}/accept:
+    post:
+      description: ''
+      operationId: post_accept_invitation
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Accept team invitation.
+  /api/v1/teams/{team_id}:
+    delete:
+      description: ''
+      operationId: delete_delete_team_endpoint
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Delete team (owner only).
+    get:
+      description: ''
+      operationId: get_get_team_endpoint
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get team details (team members only).
+    put:
+      description: ''
+      operationId: put_update_team_endpoint
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Update team (team admin only).
+  /api/v1/teams/{team_id}/invitations:
+    post:
+      description: ''
+      operationId: post_send_invitation
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Send team invitation via email.
+  /api/v1/teams/{team_id}/invitations/{invite_id}:
+    delete:
+      description: ''
+      operationId: delete_cancel_invitation
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: invite_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Cancel team invitation (team admin only).
+  /api/v1/teams/{team_id}/members:
+    get:
+      description: ''
+      operationId: get_list_team_members
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: List team members.
+    post:
+      description: ''
+      operationId: post_add_team_member_endpoint
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Add member to team (team admin only).
+  /api/v1/teams/{team_id}/members/{member_user_id}:
+    delete:
+      description: ''
+      operationId: delete_remove_team_member
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: member_user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Remove member from team (team admin only).
+    put:
+      description: ''
+      operationId: put_update_member_role
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: member_user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Update member role (team admin only).
+  /api/v1/tenants:
+    get:
+      description: "\nQuery params:\n  - include_children=true: also list tenants in subtrees the caller\n    administers.\
+        \ Those rows come back as TenantSummary, not\n    TenantDetail: holding admin over an ancestor grants the right to\n\
+        \    know a descendant exists, not to read its plan, quotas or owner\n    without switching into it."
+      operationId: get_list_user_tenants
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for tenant listings; rows are mixed detail/summary.
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  tenants:
+                    items:
+                      additionalProperties: true
+                      type: object
+                    maxItems: 10000
+                    title: Tenants
+                    type: array
+                required:
+                  - tenants
+                  - count
+                title: TenantListResponse
+                type: object
+          description: Envelope for tenant listings; rows are mixed detail/summary.
+      summary: List user's tenants (with optional subtree expansion).
+    post:
+      description: '
+
+        ``parent_tenant_id`` is what makes a hierarchy constructible at all: with
+
+        no way to set it at creation, every tenant is a root and the delegated
+
+        admin model has nothing to delegate over. The parent is validated for
+
+        existence, caller authority, and depth before any row is written.'
+      operationId: post_create_tenant_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Create new tenant, optionally beneath an existing parent tenant.
+  /api/v1/tenants/{tenant_id}:
+    delete:
+      description: '
+
+        Stays strictly owner-gated at both layers. ``tenants:delete`` appears in
+
+        the owner bundle alone — notably NOT in the delegated-admin bundle,
+
+        which is what keeps delegation conferring management rather than
+
+        destruction of a tenant somebody else owns. The ownership check below
+
+        is retained on top: the scope answers "an owner of this tenant", the
+
+        row check answers "*the* owner", and only the second is authoritative
+
+        for an irreversible delete.'
+      operationId: delete_delete_tenant_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Delete tenant (owner only).
+    get:
+      description: ''
+      operationId: get_get_tenant_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get tenant details (members and delegated admins only).
+    put:
+      description: ''
+      operationId: put_update_tenant_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Update tenant (holders of tenants:manage, incl. delegated admins).
+  /api/v1/tenants/{tenant_id}/dashboard/rollup:
+    get:
+      description: '
+
+        Available to holders of ``tenants:manage`` here, which includes admins
+
+        acting by delegation from an ancestor. Product health is stubbed until
+
+        the Phase 4 adapters land; the product identity is not — it comes from
+
+        ``product_type``.'
+      operationId: get_get_dashboard_rollup
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Provider dashboard rollup envelope.
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  rollup:
+                    items:
+                      $ref: '#/components/schemas/RollupEntry'
+                    maxItems: 10000
+                    title: Rollup
+                    type: array
+                required:
+                  - rollup
+                  - count
+                title: RollupResponse
+                type: object
+          description: Provider dashboard rollup envelope.
+      summary: Get per-child-tenant × per-product rollup for provider dashboard.
+  /api/v1/tenants/{tenant_id}/members:
+    get:
+      description: '
+
+        Now reachable by delegated admins as well as direct members, which is
+
+        precisely why the rows go through TenantMemberResponse: get_tenant_members
+
+        returns raw joined rows, so a wider audience on the endpoint would have
+
+        meant a wider audience for every column that join happens to carry.'
+      operationId: get_list_tenant_members
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for a tenant's membership list.
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  members:
+                    items:
+                      $ref: '#/components/schemas/TenantMemberResponse'
+                    maxItems: 10000
+                    title: Members
+                    type: array
+                required:
+                  - members
+                  - count
+                title: TenantMemberListResponse
+                type: object
+          description: Envelope for a tenant's membership list.
+      summary: List tenant members.
+    post:
+      description: ''
+      operationId: post_add_tenant_member_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: 'A tenant membership row plus the member''s contact identity.
+
+
+                  PII policy (deliberate, not incidental): ``user_email`` and
+
+                  ``user_full_name`` ARE included, because administering a tenant means
+
+                  administering its member accounts and an MSP admin cannot do that
+
+                  against opaque user ids. NO other column from the users table is
+
+                  exposed here — not role, not is_active, not timestamps, not
+
+                  password_hash — and this DTO is the only path membership data takes to a
+
+                  response body. Adding a column to `users` must not widen this.
+
+
+                  Field set is reconciled with the webui''s TenantMember interface
+
+                  (services/webui/src/client/types/index.ts).'
+                properties:
+                  id:
+                    title: Id
+                    type: integer
+                  invited_by_id:
+                    anyOf:
+                      - type: integer
+                      - type: 'null'
+                    title: Invited By Id
+                  joined_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Joined At
+                  role:
+                    title: Role
+                    type: string
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  user_email:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: User Email
+                  user_full_name:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: User Full Name
+                  user_id:
+                    title: User Id
+                    type: integer
+                required:
+                  - id
+                  - tenant_id
+                  - user_id
+                  - role
+                  - invited_by_id
+                  - joined_at
+                  - user_email
+                  - user_full_name
+                title: TenantMemberResponse
+                type: object
+          description: 'A tenant membership row plus the member''s contact identity.
+
+
+            PII policy (deliberate, not incidental): ``user_email`` and
+
+            ``user_full_name`` ARE included, because administering a tenant means
+
+            administering its member accounts and an MSP admin cannot do that
+
+            against opaque user ids. NO other column from the users table is
+
+            exposed here — not role, not is_active, not timestamps, not
+
+            password_hash — and this DTO is the only path membership data takes to a
+
+            response body. Adding a column to `users` must not widen this.
+
+
+            Field set is reconciled with the webui''s TenantMember interface
+
+            (services/webui/src/client/types/index.ts).'
+      summary: Add member to tenant (holders of members:manage, incl. delegated).
+  /api/v1/tenants/{tenant_id}/members/{member_user_id}:
+    delete:
+      description: ''
+      operationId: delete_remove_tenant_member
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: member_user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Remove member from tenant (holders of members:manage, incl. delegated).
+    put:
+      description: ''
+      operationId: put_update_tenant_member_role
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: member_user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'A tenant membership row plus the member''s contact identity.
+
+
+                  PII policy (deliberate, not incidental): ``user_email`` and
+
+                  ``user_full_name`` ARE included, because administering a tenant means
+
+                  administering its member accounts and an MSP admin cannot do that
+
+                  against opaque user ids. NO other column from the users table is
+
+                  exposed here — not role, not is_active, not timestamps, not
+
+                  password_hash — and this DTO is the only path membership data takes to a
+
+                  response body. Adding a column to `users` must not widen this.
+
+
+                  Field set is reconciled with the webui''s TenantMember interface
+
+                  (services/webui/src/client/types/index.ts).'
+                properties:
+                  id:
+                    title: Id
+                    type: integer
+                  invited_by_id:
+                    anyOf:
+                      - type: integer
+                      - type: 'null'
+                    title: Invited By Id
+                  joined_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Joined At
+                  role:
+                    title: Role
+                    type: string
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  user_email:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: User Email
+                  user_full_name:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: User Full Name
+                  user_id:
+                    title: User Id
+                    type: integer
+                required:
+                  - id
+                  - tenant_id
+                  - user_id
+                  - role
+                  - invited_by_id
+                  - joined_at
+                  - user_email
+                  - user_full_name
+                title: TenantMemberResponse
+                type: object
+          description: 'A tenant membership row plus the member''s contact identity.
+
+
+            PII policy (deliberate, not incidental): ``user_email`` and
+
+            ``user_full_name`` ARE included, because administering a tenant means
+
+            administering its member accounts and an MSP admin cannot do that
+
+            against opaque user ids. NO other column from the users table is
+
+            exposed here — not role, not is_active, not timestamps, not
+
+            password_hash — and this DTO is the only path membership data takes to a
+
+            response body. Adding a column to `users` must not widen this.
+
+
+            Field set is reconciled with the webui''s TenantMember interface
+
+            (services/webui/src/client/types/index.ts).'
+      summary: Update member role (holders of members:manage, incl. delegated).
+  /api/v1/tenants/{tenant_id}/parent:
+    put:
+      description: '
+
+        Requires admin authority in BOTH the tenant being moved and the
+
+        destination parent — moving a subtree under a parent you administer is
+
+        a grant of authority over that subtree, so authority over only one side
+
+        is not enough. Rejects cycles, maintains ``depth`` for the whole moved
+
+        subtree, and invalidates caches on both the old and new ancestor chains.'
+      operationId: put_reparent_tenant_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: Request body for moving a tenant within the hierarchy.
+              properties:
+                parent_tenant_id:
+                  anyOf:
+                    - type: integer
+                    - type: 'null'
+                  title: Parent Tenant Id
+              title: ReparentRequest
+              type: object
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Move a tenant (and its subtree) under a new parent, or to a root.
+  /api/v1/tenants/{tenant_id}/switch:
+    post:
+      description: '
+
+        Allowed if the caller is a direct member of the tenant, or holds
+
+        admin/owner in one of its ancestors (delegated MSP admin).
+
+
+        Authorization runs BEFORE the existence/active check on purpose. The
+
+        other order answers "does tenant 4127 exist?" for any authenticated
+
+        user, because a non-existent tenant 404s while a real one they cannot
+
+        reach 403s. Now every unauthorized caller sees the same 403 regardless.'
+      operationId: post_switch_tenant
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Token re-issue result for a tenant switch.
+
+
+                  ``tenant`` is a full TenantDetail, not a TenantSummary. The caller has
+
+                  just been authorized into this tenant, so they are entitled to exactly
+
+                  what GET /tenants/<id> would hand them — and the webui populates its
+
+                  entire ``currentTenant`` from this one object (tenantStore.ts), so a
+
+                  summary here starves every consumer that reads it. LicenseGate.tsx falls
+
+                  back to "free" on a missing ``plan``, which silently hides every licensed
+
+                  feature from every user rather than failing visibly.'
+                properties:
+                  access_token:
+                    title: Access Token
+                    type: string
+                  scope:
+                    items:
+                      type: string
+                    maxItems: 10000
+                    title: Scope
+                    type: array
+                  tenant:
+                    $ref: '#/components/schemas/TenantDetail'
+                  tenant_role:
+                    title: Tenant Role
+                    type: string
+                required:
+                  - access_token
+                  - tenant
+                  - tenant_role
+                  - scope
+                title: TenantSwitchResponse
+                type: object
+          description: 'Token re-issue result for a tenant switch.
+
+
+            ``tenant`` is a full TenantDetail, not a TenantSummary. The caller has
+
+            just been authorized into this tenant, so they are entitled to exactly
+
+            what GET /tenants/<id> would hand them — and the webui populates its
+
+            entire ``currentTenant`` from this one object (tenantStore.ts), so a
+
+            summary here starves every consumer that reads it. LicenseGate.tsx falls
+
+            back to "free" on a missing ``plan``, which silently hides every licensed
+
+            feature from every user rather than failing visibly.'
+      summary: Switch active tenant — returns a new JWT scoped to it.
+  /api/v1/tenants/{tenant_id}/usage:
+    get:
+      description: ''
+      operationId: get_get_tenant_usage
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get tenant resource usage and quotas.
+  /api/v1/users:
+    get:
+      description: ''
+      operationId: get_get_users
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: List all users with pagination (Admin only).
+    post:
+      description: ''
+      operationId: post_create_new_user
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Create new user (Admin only).
+  /api/v1/users/api-keys:
+    get:
+      description: ''
+      operationId: get_list_api_keys
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: List user's API keys.
+    post:
+      description: ''
+      operationId: post_create_api_key_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Create new API key.
+  /api/v1/users/api-keys/{key_id}:
+    delete:
+      description: ''
+      operationId: delete_delete_api_key
+      parameters:
+        - in: path
+          name: key_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Revoke an API key.
+  /api/v1/users/audit-logs:
+    get:
+      description: ''
+      operationId: get_get_audit_logs_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get audit logs (Admin only).
+  /api/v1/users/me:
+    get:
+      description: ''
+      operationId: get_get_profile
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get own profile.
+    put:
+      description: ''
+      operationId: put_update_profile
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Update own profile.
+  /api/v1/users/me/password:
+    put:
+      description: ''
+      operationId: put_change_password
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Change own password.
+  /api/v1/users/roles:
+    get:
+      description: ''
+      operationId: get_get_roles
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get list of valid roles (Admin only).
+  /api/v1/users/{user_id}:
+    delete:
+      description: ''
+      operationId: delete_delete_existing_user
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Delete user by ID (Admin only).
+    get:
+      description: ''
+      operationId: get_get_user
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Get single user by ID (Admin only).
+    put:
+      description: ''
+      operationId: put_update_existing_user
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Update user by ID (Admin only).
+  /healthz:
+    get:
+      description: '
+
+        Tests database connectivity by attempting a simple query.'
+      operationId: get_health_check
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Health check endpoint.
+  /readyz:
+    get:
+      description: ''
+      operationId: get_readiness_check
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
+            so no schema is published for it; do not rely on a specific body until one is.
+      summary: Readiness check endpoint.
+security:
+  - bearerAuth: []

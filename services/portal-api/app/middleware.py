@@ -227,47 +227,15 @@ def auth_required(
     return decorated
 
 
-def role_required(
-    *allowed_roles: str,
-) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[Any]]]:
-    """Build a decorator restricting a view to the given roles."""
-
-    def decorator(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
-        @wraps(f)
-        async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
-            user = get_current_user()
-
-            if not user:
-                return {"error": "Authentication required"}, 401
-
-            user_role = user.get("role", "")
-            if user_role not in allowed_roles:
-                return (
-                    {
-                        "error": "Insufficient permissions",
-                        "required_roles": list(allowed_roles),
-                        "your_role": user_role,
-                    },
-                    403,
-                )
-
-            return await f(*args, **kwargs)
-
-        return decorated
-
-    return decorator
-
-
-def admin_required(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
-    """Restrict a view to users holding the admin role."""
-    return role_required("admin")(f)
-
-
-def maintainer_or_admin_required(
-    f: Callable[P, Awaitable[R]],
-) -> Callable[P, Awaitable[Any]]:
-    """Restrict a view to users holding the maintainer or admin role."""
-    return role_required("admin", "maintainer")(f)
+# `role_required`, `admin_required` and `maintainer_or_admin_required` were
+# removed here. They compared `user["role"]` against a name list, which
+# security.md forbids ("authorization decisions on scope, never role
+# names") and which this phase eliminated everywhere else. Their last two
+# callers — license_api.get_license_status and hello.hello_protected — now
+# use `@require_scope(SCOPE_LICENSE_READ)` and
+# `@require_scope(SCOPE_PLATFORM_READ)`, each admitting exactly the callers
+# the decorator did. Leaving the decorators behind as unused helpers would
+# leave the next author a working, forbidden shortcut.
 
 
 def _coerce_team_id(raw: Any) -> int | None:
