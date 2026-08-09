@@ -260,3 +260,108 @@ Worth raising with that repo's owners; none blocks this integration:
    `/api/v1/{module}` again (`registry/registry.py:58-62`).
 4. **`GET /api/v1/sdwan/status`** is unauthenticated and tenant-blind (see
    above) — arguably the most consequential of the four.
+
+---
+
+## Session 2 — screens
+
+Seven commits, all pushed to `feature/tobogganing-integration`.
+
+### What landed
+
+| Commit | Content |
+|---|---|
+| `efb968e0` | `refactor(webui)`: ActionButton/FactList/RowOpenButtons promoted into `components/kit` |
+| `fd8310cb` | `feat(4T)`: paths + envelope keys + api module + hooks + the binding guard |
+| `d6c0e058` | SD-WAN Clients + the first sidebar entry |
+| `3c7ed82d` | SD-WAN Clusters |
+| `4eb03139` | WireGuard Peers |
+| `56fd17b2` | SASE Block Pages (the only screen with writes) |
+| `e33bdda3` | SASE SWG Policy |
+
+All five §Handoff screens shipped, on the routes and envelope keys measured in
+session 1. **Firewall and Headend were not built and have no sidebar entry** —
+the audience mismatch is unchanged and is now asserted in three places
+(`menuCategories.test.ts`, `App.tsx`'s comment, and
+`test_no_machine_plane_path_reached_the_webui`).
+
+| Screen | Route | Backing route | Envelope |
+|---|---|---|---|
+| SD-WAN Clients | `/products/tobogganing/clients` | `GET /api/v1/sdwan/clients` | `clients` |
+| SD-WAN Clusters | `/products/tobogganing/clusters` | `GET /api/v1/sdwan/clusters` | `clusters` |
+| WireGuard Peers | `/products/tobogganing/peers` | `GET /api/v1/sdwan/wireguard/peers` | `peers` |
+| SASE Block Pages | `/products/tobogganing/block-pages` | `GET/POST …/blockpages/pages` (+ `PUT`/`preview`/`publish`) | `pages` |
+| SASE SWG Policy | `/products/tobogganing/swg-policy` | `GET/PUT /api/v1/sase/swg/policy` | `policies` |
+
+### The bad test this session shipped and then caught
+
+Worth recording plainly, because it is the phase's own defect class appearing
+inside the work meant to prevent it.
+
+`PeersPage.test.tsx` originally asserted a **row count** to prove the table
+keys on `node_id` (a peer carries no `id`), with a comment claiming a wrong key
+"renders a single peer". Injecting the bug proved the claim false:
+`String(undefined)` is `"undefined"`, which is **truthy**, so `DataTable`'s
+`row.id || idx` fallback never fires, every row collides on one key — and they
+all still render. **The test stayed green against the exact defect it was
+written for.**
+
+Replaced with an assertion on React's duplicate-key warning, which is the real
+symptom, and re-verified by injection (1 failed / 7 passed with the bug in,
+8 passed with it out). The lesson generalises: a test written from a predicted
+symptom is not evidence until the symptom has been observed.
+
+### Guards falsified before being trusted
+
+Every load-bearing assertion was made to fail first:
+
+| Injected defect | Result |
+|---|---|
+| Envelope key → `items` (the 4N defect) | 2 tests red |
+| Trailing slash on a strict route (the 4G defect) | 3 tests red |
+| Machine-plane peer path (`/api/v1/wireguard/peers`) | 3 tests red |
+| Peer row keyed on the absent `id` | 1 test red (after the rewrite above; **0 before**) |
+| Re-add the Firewall sidebar entry | 2 tests red, incl. `Dead links found: /products/tobogganing/firewall` |
+| Drop the SWG upsert-collision confirm | 3 tests red |
+| Render a tenant `scope_id` as a dash | 1 test red |
+
+### Decisions worth knowing
+
+- **Writes go through the PROXY, not typed adapter methods** — the opposite of
+  Nest, and it follows `app/adapters/base.py` rather than diverging from it.
+  Nest needed typed methods because every write answers `202` with an
+  `operationId`; no Tobogganing user-plane handler returns 202, so there is no
+  `Operation` to poll and the proxy's byte-pipe behaviour loses nothing.
+  Consequently Tobogganing has no operations panel while Gough and Nest do.
+- **The block-page preview renders product HTML in `sandbox=""`** — empty,
+  granting nothing back — never inline. The HTML is authored by whoever can
+  write SASE config for a tenant and arrives through a proxied connection;
+  inline it would run with the portal operator's session. The test asserts the
+  attribute is EMPTY rather than present, because `allow-scripts` +
+  `allow-same-origin` lets a frame remove its own sandbox and is strictly worse
+  than no sandbox at all.
+- **Two menu tests were rewritten, not extended.** "omits a product category
+  that has no screens yet" used Tobogganing as its subject; every product now
+  has items, so the rule would have been exercised by nothing. It now empties a
+  category and restores it, so the code path still runs.
+- **Kit promotion.** `ActionButton`/`FactList`/`RowOpenButtons` moved into
+  `components/kit`, as both former copies instructed on the third product
+  needing them. `FactList`'s `testId` became required rather than hardcoded.
+
+### Evidence
+
+- **webui: 39 suites / 530 passed** (baseline 32/450). `tsc --noEmit`, `eslint`,
+  `prettier --check` all clean.
+- **Coverage** (thresholded scope — `api`, `components/kit`, `lib`; pages are
+  outside it by the config's own deliberate scoping, as they are for Gough and
+  Nest): `api` 100/100/100/100, `api/resources` 100/97.82/100/100,
+  `components/kit` 99.59/96.61/100/100, all files 99.83/97.49/100/100.
+  `tobogganing.ts` and `tobogganingPaths.ts` are at 100% on all four.
+- **backend `tests/api`: 992 passed / 12 skipped / 19 xfailed** (baseline
+  962/12/19; +30 from the new binding guard). `flake8`, `black` clean.
+- **Not verified:** no screen has run against a live Tobogganing. The fakes are
+  built from the product's real payload shapes cited to `file:line`, and the
+  paths and envelopes are graded against a live boot — but an end-to-end
+  round-trip lands with the alpha deploy, as session 1 noted for the adapter.
+- **Flag remains OFF** (`featureGates.ts` → `tobogganing: false`), so none of
+  this is reachable in a deployed portal until it is turned on.
