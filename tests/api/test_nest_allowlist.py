@@ -32,7 +32,7 @@ from app.adapters.nest.routes import (
     SCOPE_READ,
 )
 
-from nest_route_source import missing_reason, nest_api_module, route_table
+from nest_route_source import effective_route_table
 
 #: A tenant id of the shape ``product_tenant_map`` supplies.
 _TENANT: Final[str] = "acme-prod"
@@ -74,13 +74,20 @@ def nest_router() -> Map:
     Using Nest's source rather than a hand-written description is what makes
     this able to falsify the adapter: a fake keyed on what the adapter sends
     is correct by construction and proves nothing.
+
+    ``effective_route_table`` parses a checkout when one exists and otherwise
+    falls back to the copy vendored at ``tests/api/fixtures/nest_source.json``,
+    so this **never skips**. It used to: the parser defaulted to
+    ``/home/penguin/code/nest`` and nothing in ``.github/``, the Makefile or
+    ``scripts/`` ever set ``$NEST_SOURCE_ROOT``, so the two checks below — the
+    ones aimed squarely at the phantom-route and trailing-slash classes — ran
+    on exactly one machine. ``test_nest_source_fixture.py`` keeps the vendored
+    copy honest wherever a checkout does exist.
     """
-    if nest_api_module() is None:
-        pytest.skip(missing_reason())
     return Map(
         [
             Rule(path, endpoint=path, methods=sorted(methods))
-            for path, methods in route_table().items()
+            for path, methods in effective_route_table().items()
         ]
     )
 

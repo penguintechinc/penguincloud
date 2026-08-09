@@ -536,6 +536,14 @@ helm-lint: ## Helm - Lint chart
 helm-template: ## Helm - Render templates (dry-run)
 	@helm template $(PROJECT_NAME) ./$(HELM_DIR) --values ./$(HELM_DIR)/values-alpha.yaml
 
+refresh-product-source-fixtures: ## Testing - Re-vendor Gough/Nest route tables from their checkouts
+	@echo "$(BLUE)Refreshing vendored product source fixtures...$(RESET)"
+	@python3 scripts/refresh_product_source_fixtures.py
+
+test-api-live: ## Testing - Run the API suite with product checkouts REQUIRED (no silent skips)
+	@echo "$(BLUE)Running API tests with REQUIRE_PRODUCT_SOURCE=1...$(RESET)"
+	@REQUIRE_PRODUCT_SOURCE=1 python3 -m pytest tests/api -q
+
 # Missing Standard Targets (added for standards compliance)
 test-unit: ## Testing - Run unit tests
 	@echo "$(BLUE)Running unit tests...$(RESET)"

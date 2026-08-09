@@ -28,6 +28,11 @@ from typing import Final
 import pytest
 
 from app.adapters.base import TENANT_PLACEHOLDER
+from app.adapters.nest.mapping import (
+    COLLECTION_ENVELOPE_KEYS,
+    KIND_DATABASE,
+    KIND_SNAPSHOT,
+)
 from app.adapters.nest.routes import (
     COLLECTION_COST_REPORT,
     COLLECTION_DATA_RESOURCES,
@@ -67,26 +72,45 @@ _EXPECTED: Final[dict[str, str]] = {
 }
 
 
-def _webui_collection_paths() -> dict[str, str]:
-    """Parse ``NEST_COLLECTION_PATHS`` out of the TypeScript source."""
+#: Which portal kind each webui collection key corresponds to. Only the two
+#: the screens fetch as collections appear — cost report and summary are not
+#: resource collections and carry a different envelope entirely.
+_WEBUI_KEY_KINDS: Final[dict[str, str]] = {
+    "databases": KIND_DATABASE,
+    "snapshots": KIND_SNAPSHOT,
+}
+
+
+def _ts_object(name: str) -> dict[str, str]:
+    """Parse one exported ``as const`` string object out of the TypeScript."""
     source = _WEBUI_PATHS_TS.read_text(encoding="utf-8")
     match = re.search(
-        r"export const NEST_COLLECTION_PATHS\s*=\s*\{(?P<body>.*?)\}\s*as const;",
+        rf"export const {name}\s*=\s*\{{(?P<body>.*?)\}}\s*as const;",
         source,
         re.DOTALL,
     )
     assert match is not None, (
-        f"NEST_COLLECTION_PATHS object literal not found in {_WEBUI_PATHS_TS}. "
-        f"If it was renamed or restructured, update this parser — do not delete "
-        f"the assertion, it is the only thing tying the two sides together."
+        f"{name} object literal not found in {_WEBUI_PATHS_TS}. If it was "
+        f"renamed or restructured, update this parser — do not delete the "
+        f"assertion, it is the only thing tying the two sides together."
     )
-    paths: dict[str, str] = {}
+    entries: dict[str, str] = {}
     for line in match.group("body").splitlines():
         entry = _ENTRY_RE.match(line)
         if entry:
-            paths[entry.group("key")] = entry.group("value")
-    assert paths, "parsed NEST_COLLECTION_PATHS but found no entries"
-    return paths
+            entries[entry.group("key")] = entry.group("value")
+    assert entries, f"parsed {name} but found no entries"
+    return entries
+
+
+def _webui_collection_paths() -> dict[str, str]:
+    """Parse ``NEST_COLLECTION_PATHS`` out of the TypeScript source."""
+    return _ts_object("NEST_COLLECTION_PATHS")
+
+
+def _webui_envelope_keys() -> dict[str, str]:
+    """Parse ``NEST_COLLECTION_ENVELOPE_KEYS`` out of the TypeScript source."""
+    return _ts_object("NEST_COLLECTION_ENVELOPE_KEYS")
 
 
 def test_webui_constant_file_exists() -> None:
@@ -138,6 +162,36 @@ def test_every_webui_path_is_allowlisted_for_the_proxy(key: str) -> None:
     assert any(
         rule.matches("GET", path) for rule in NEST_ROUTE_ALLOWLIST
     ), f"no GET RouteRule admits the {key!r} path {path!r}"
+
+
+@pytest.mark.parametrize("key", sorted(_WEBUI_KEY_KINDS))
+def test_webui_envelope_key_matches_the_adapters(key: str) -> None:
+    """The browser and the adapter must unwrap a collection identically.
+
+    Nest names a different key per collection and only data-resources uses
+    ``items``. Both sides read ``items`` for everything and fell back to an
+    empty list, so the Snapshots tab reported "No snapshots have been taken
+    from this resource" whatever Nest answered — with nothing failing. The
+    adapter's table is bound to Nest's own handlers in
+    ``test_nest_source_fixture.py``; this ties the browser's to the adapter's,
+    so the chain terminates at Nest on both sides.
+    """
+    webui = _webui_envelope_keys()
+
+    assert key in webui, f"the webui declares no envelope key for {key!r}"
+    assert webui[key] == COLLECTION_ENVELOPE_KEYS[_WEBUI_KEY_KINDS[key]], (
+        f"webui unwraps {key!r} from {webui[key]!r} but the adapter uses "
+        f"{COLLECTION_ENVELOPE_KEYS[_WEBUI_KEY_KINDS[key]]!r}"
+    )
+
+
+def test_webui_declares_an_envelope_key_for_every_collection_it_lists() -> None:
+    """A fetched collection with no declared key would decode as nothing.
+
+    Pinned as an exact set so a new collection cannot be added on one side
+    only — which is how the two sides drifted the first time.
+    """
+    assert set(_webui_envelope_keys()) == set(_WEBUI_KEY_KINDS)
 
 
 def test_a_named_data_resource_is_allowlisted() -> None:

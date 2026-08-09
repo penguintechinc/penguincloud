@@ -19,9 +19,14 @@ ones the adapter depends on), so these tests assert *subset agreement* — every
 transcribed route must still exist in Gough exactly as written. Routes Gough
 adds elsewhere are not the fake's business and do not fail anything.
 
-Skipping: CI runners have no Gough checkout, so every test here skips with a
-reason naming the path it looked for and the environment variable that
-redirects it. A silent pass would be worse than no test at all.
+Where the table comes from: a Gough checkout when one exists, otherwise the
+copy vendored at ``tests/api/fixtures/gough_source.json``. It used to be the
+checkout or nothing — the whole module was ``skipif``-ed on a hardcoded
+``/home/penguin/code/gough``, and nothing in ``.github/``, the Makefile or
+``scripts/`` ever set ``$GOUGH_SOURCE_ROOT``. So the drift check that exists
+because a hand transcription rots silently was itself running on exactly one
+machine. :class:`TestVendoredFixture` below keeps the vendored copy honest
+wherever a checkout does exist.
 """
 
 from __future__ import annotations
@@ -33,16 +38,18 @@ import pytest
 from app.adapters.gough.adapter import _COLLECTION_ROUTES
 
 from gough_route_source import (
+    FIXTURE_NAME,
+    effective_gough_routes,
     gough_app_root,
     gough_source_routes,
     missing_reason,
+    vendored_gough_routes,
 )
+from product_source_fixtures import fixture_path, source_required
 from test_gough_adapter import _GOUGH_REAL_ROUTES
 
-pytestmark = pytest.mark.skipif(
-    gough_app_root() is None,
-    reason=missing_reason(),
-)
+#: Refresh instruction, quoted in every drift message.
+_REFRESH: Final[str] = "make refresh-product-source-fixtures"
 
 #: Below this, assume the parser broke rather than that Gough shrank. Without
 #: it, a parser returning ``{}`` would make every "is this route still there?"
@@ -54,8 +61,40 @@ _MIN_PLAUSIBLE_ROUTES: Final[int] = 100
 
 @pytest.fixture(scope="module")
 def gough_routes() -> dict[str, frozenset[str]]:
-    """Gough's registered routes, parsed from its source tree."""
-    return gough_source_routes()
+    """Gough's registered routes: from a checkout if present, else vendored."""
+    return effective_gough_routes()
+
+
+class TestVendoredFixture:
+    """The fallback table must stay both present and truthful."""
+
+    def test_the_fixture_is_committed(self) -> None:
+        """Without it this whole module degrades to a skip again."""
+        assert fixture_path(FIXTURE_NAME).is_file(), (
+            f"{fixture_path(FIXTURE_NAME)} is missing — run `{_REFRESH}`"
+        )
+
+    def test_the_vendored_table_is_plausible(self) -> None:
+        """A truncated fixture would make every check below vacuous."""
+        assert len(vendored_gough_routes()) >= _MIN_PLAUSIBLE_ROUTES
+
+    def test_vendored_routes_match_a_live_parse(self) -> None:
+        """Wherever a checkout exists, the committed copy must equal it.
+
+        This is what stops the vendored table becoming a second, staler
+        transcription — the exact failure mode the drift check exists for, one
+        level up.
+        """
+        if gough_app_root() is None:
+            reason = missing_reason()
+            if source_required():
+                pytest.fail(reason)
+            pytest.skip(reason)
+
+        assert vendored_gough_routes() == gough_source_routes(), (
+            f"the vendored gough route table no longer matches Gough's source. "
+            f"Run `{_REFRESH}` and review the diff."
+        )
 
 
 def test_parser_finds_a_plausible_route_table(
