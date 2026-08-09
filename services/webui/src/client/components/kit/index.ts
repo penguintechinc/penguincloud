@@ -22,6 +22,9 @@ export {
   type DetailDrawerProps,
   type DetailDrawerTab,
 } from "./DetailDrawer";
+export { ActionButton } from "./ActionButton";
+export { FactList, type Fact } from "./FactList";
+export { RowOpenButtons } from "./RowOpenButtons";
 
 // Note: Breadcrumbs, TenantScopeSwitcher, and ActingAsBanner are exported from their own files
 // directly, not through this barrel, since they have router/store dependencies

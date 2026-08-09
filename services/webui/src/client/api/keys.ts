@@ -109,6 +109,22 @@ export const queryKeys = {
       operationId,
     ] as const,
 
+  // Tobogganing resources, all reached through the proxy.
+  //
+  // Tenant-scoped like every other product key. Tobogganing makes the reason
+  // unusually direct: it takes no tenant in any path and scopes every read
+  // from the `tenant` claim in the credential the portal presents, so two
+  // tenants' rows arrive from an IDENTICAL upstream URL. Without the tenant id
+  // in the key, a tenant switch would serve the previous tenant's clients and
+  // peers from cache under a key that is correct in every other respect — a
+  // cross-tenant leak in the UI with nothing in the URL to reveal it.
+  tobogganing: () => [...queryKeys.all(), "tobogganing"] as const,
+  tobogganingResource: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+    kind: string,
+  ) => [...queryKeys.tobogganing(), tenantId, productId, kind] as const,
+
   // Users
   users: () => [...queryKeys.all(), "users"] as const,
   userList: (page: number, perPage: number) =>

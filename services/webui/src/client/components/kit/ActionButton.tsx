@@ -1,8 +1,24 @@
+/**
+ * Button used by product drawers and toolbars.
+ *
+ * Promoted here from `pages/products/gough/ActionButton.tsx` and
+ * `pages/products/nest/NestUi.tsx`, which were byte-identical apart from a
+ * docstring. Both files said the duplication was "deliberate and bounded: on a
+ * THIRD product needing them these belong in `components/kit`, where the
+ * variant styles and the absent-value rendering can be asserted once". This is
+ * that third product.
+ *
+ * The variant styles are the reason it is a component rather than a className:
+ * `danger` is what visually separates "publish this block page to every user"
+ * from "open details", and a hand-written class per call site is how that
+ * distinction quietly stops being applied on the next screen.
+ */
+
 interface ActionButtonProps {
   label: string;
   onClick: () => void;
   testId: string;
-  /** `danger` for anything that destroys, drains or cuts off a resource. */
+  /** `danger` for anything that destroys, overwrites or cuts off a resource. */
   variant?: "primary" | "danger" | "ghost";
   disabled?: boolean;
 }
@@ -16,14 +32,6 @@ const VARIANTS: Record<string, string> = {
     "border border-slate-600 text-amber-500 hover:text-amber-400 focus:ring-sky-500 px-2 py-1 text-xs",
 };
 
-/**
- * Button used by the Gough drawers and toolbars.
- *
- * Exists so the three screens share one set of variant styles: the danger
- * variant is what visually separates "deploy this rack" from "open details",
- * and a hand-written className per call site is how that distinction quietly
- * stops being applied on the fourth screen.
- */
 export function ActionButton({
   label,
   onClick,

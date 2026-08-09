@@ -1,5 +1,4 @@
-import type { DetailDrawerTab } from "../../../components/kit";
-import { FactList } from "./NestUi";
+import { FactList, type DetailDrawerTab } from "../../../components/kit";
 import { useNestSnapshots } from "./useNest";
 import type { NestDatabase } from "./types";
 
@@ -98,6 +97,7 @@ export function DatabaseTabs(database: NestDatabase | null): DetailDrawerTab[] {
       label: "Overview",
       content: (
         <FactList
+          testId="nest-facts"
           facts={[
             ["Phase", database.phase],
             ["Type", database.resourceType],
@@ -121,6 +121,7 @@ export function DatabaseTabs(database: NestDatabase | null): DetailDrawerTab[] {
       label: "Health",
       content: (
         <FactList
+          testId="nest-facts"
           facts={[
             ["State", database.healthState],
             ["Message", database.healthMessage],

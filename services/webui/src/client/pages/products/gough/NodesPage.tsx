@@ -3,13 +3,14 @@ import {
   ConfirmDialog,
   DataTable,
   DetailDrawer,
+  ActionButton,
+  FactList,
+  RowOpenButtons,
 } from "../../../components/kit";
 import { goughOperationsApi } from "../../../api/resources/goughOperations";
 import { GoughScreen } from "./GoughScreen";
 import { OperationsPanel } from "./OperationsPanel";
 import { nodeColumns } from "./nodeColumns";
-import { FactList, RowOpenButtons } from "./FactList";
-import { ActionButton } from "./ActionButton";
 import { NODE_ACTIONS, type NodeAction } from "./nodeActions";
 import { useGoughMutation, useGoughNodes } from "./useGough";
 import type { GoughNode, GoughNodeRow } from "./types";
@@ -96,6 +97,7 @@ export default function NodesPage() {
             label: "Overview",
             content: selected ? (
               <FactList
+                testId="gough-facts"
                 facts={[
                   ["State", selected.state],
                   ["Posture", selected.posture],

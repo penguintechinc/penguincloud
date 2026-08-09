@@ -59,6 +59,9 @@ export const Shield = (props: IconProps) => (
 export const Radio = (props: IconProps) => (
   <svg data-testid="icon-radio" {...props} />
 );
+export const FileText = (props: IconProps) => (
+  <svg data-testid="icon-filetext" {...props} />
+);
 export const Gauge = (props: IconProps) => (
   <svg data-testid="icon-gauge" {...props} />
 );

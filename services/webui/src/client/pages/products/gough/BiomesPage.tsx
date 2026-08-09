@@ -4,12 +4,13 @@ import {
   ConfirmDialog,
   DataTable,
   DetailDrawer,
+  ActionButton,
+  FactList,
+  RowOpenButtons,
 } from "../../../components/kit";
 import { GoughScreen } from "./GoughScreen";
 import { OperationsPanel } from "./OperationsPanel";
 import { biomeColumns, biomeFields } from "./biomeColumns";
-import { FactList, RowOpenButtons } from "./FactList";
-import { ActionButton } from "./ActionButton";
 import { useGoughBiomes } from "./useGough";
 import { useDeleteBiome, useSaveBiome } from "./useBiomeMutations";
 import type { GoughBiome, GoughBiomeRow } from "./types";
@@ -99,6 +100,7 @@ export default function BiomesPage() {
             label: "Overview",
             content: selected ? (
               <FactList
+                testId="gough-facts"
                 facts={[
                   ["Kind", selected.biome_kind],
                   ["Workload", selected.workload_type],

@@ -134,8 +134,18 @@ _PORTAL_URL_LITERAL_RE: Final[re.Pattern[str]] = re.compile(
 #: resolution check, which is a superset of the ban rule: a literal outside
 #: ``_GUARDED_PREFIXES`` is still allowed to BE a literal, but it must still
 #: name a route the portal registers.
+#:
+#: ``request`` is in the list and was NOT originally. The ban rule above has
+#: always covered it, but this resolution check — the one that does the finding
+#: — did not, so ``api.request("/…")`` with a literal URL evaded the only
+#: assertion that compares a call site against ``url_map``. Nothing exploited
+#: the gap (``proxyApi`` passes ``url`` as an object property, which neither
+#: pattern matches), but Phase 4T is the first product to route ALL of its
+#: traffic through ``api.request``, so the gap went from theoretical to one
+#: refactor away. See ``test_the_resolution_check_covers_every_axios_verb``.
 _ANY_API_LITERAL_RE: Final[re.Pattern[str]] = re.compile(
-    r"""\bapi\.(?P<verb>get|post|put|patch|delete)\(\s*["'`](?P<path>/[^"'`]*)["'`]""",
+    r"""\bapi\.(?P<verb>get|post|put|patch|delete|request)\(\s*["'`]"""
+    r"""(?P<path>/[^"'`]*)["'`]""",
 )
 
 #: ``${expr}`` in a template literal — a parameter, whatever it is named.
@@ -429,6 +439,13 @@ class TestTypedRoutes:
                     unresolved.append(
                         f"{where}  {verb} {raw} -> {shape}  NO SUCH ROUTE"
                     )
+                elif verb == "REQUEST":
+                    # `api.request("/x")` names no method, so there is nothing
+                    # to compare against `rules[shape]`. The PATH still has to
+                    # resolve (checked above) — this branch exists so adding
+                    # `request` to the matcher does not report every such call
+                    # as a 405 for a method that is not an HTTP method.
+                    continue
                 elif verb not in rules[shape]:
                     unresolved.append(
                         f"{where}  {verb} {raw} -> {shape}  405, serves "
@@ -445,6 +462,67 @@ class TestTypedRoutes:
             + "\n\nFix the call site, or say plainly that the route should "
             "exist and does not — do not bend the caller to a path that is "
             "merely nearby."
+        )
+
+    async def test_the_resolution_check_covers_every_axios_verb(self) -> None:
+        """``api.request`` was the hole. Pinned so it cannot reopen.
+
+        The ban rule has always matched ``request``; this resolution check —
+        the one that does the FINDING rather than the enforcing — did not, so a
+        literal URL handed to ``api.request`` resolved against nothing. Nothing
+        exploited it: ``proxyApi.request`` passes ``url`` as an object property
+        (``api.request({method, url, data})``), which neither pattern matches by
+        design, because that URL is built by ``proxyRequestUrl`` and is covered
+        by the proxy rule test instead.
+
+        Phase 4T is the first product routing ALL of its traffic through
+        ``api.request``, which is what turned a theoretical gap into one
+        refactor away from a silent 404 — so the verb set is asserted rather
+        than trusted to a regex nobody re-reads.
+        """
+        for line in (
+            '    const r = await api.request("/products/types");',
+            "    const r = await api.request('/dashboard/overview');",
+            "    const r = await api.request(`/tenants/${id}`);",
+        ):
+            assert _ANY_API_LITERAL_RE.search(line), (
+                f"{line!r} evades the resolution check — a literal URL handed "
+                f"to api.request must still resolve against url_map"
+            )
+
+        # The object form must NOT match: its `url` comes from a builder, and
+        # demanding a literal there would be a false positive on every proxy
+        # call in the app.
+        assert not _ANY_API_LITERAL_RE.search(
+            '    const r = await api.request({ method, url: "/products/1" });'
+        )
+
+        # Every axios verb the client could reach for is in the matcher.
+        for verb in ("get", "post", "put", "patch", "delete", "request"):
+            assert _ANY_API_LITERAL_RE.search(f'api.{verb}("/products")'), verb
+
+    async def test_no_call_site_currently_evades_the_verb_set(self, app: Quart) -> None:
+        """Confirms the widened matcher found nothing already broken.
+
+        Widening a finder is only safe to claim if the wider net comes back
+        empty; otherwise the check above would be pinning a gap that is
+        currently being exploited. Asserted separately from the resolution
+        test so a future failure says which of the two happened.
+        """
+        offenders: list[str] = []
+        for path, text in _client_sources():
+            for match in _ANY_API_LITERAL_RE.finditer(text):
+                if match.group("verb").lower() != "request":
+                    continue
+                line = text.count("\n", 0, match.start()) + 1
+                offenders.append(
+                    f"{path.relative_to(_REPO_ROOT)}:{line} {match.group('path')}"
+                )
+
+        assert not offenders, (
+            f"literal URLs handed to api.request: {offenders}. These evaded "
+            f"the resolution check before the verb set was widened — resolve "
+            f"each against url_map or route it through a portalUrl builder."
         )
 
     async def test_the_resolution_check_can_see_a_wrong_method(

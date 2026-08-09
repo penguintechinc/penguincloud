@@ -3,13 +3,14 @@ import {
   ConfirmDialog,
   DataTable,
   DetailDrawer,
+  ActionButton,
+  FactList,
+  RowOpenButtons,
 } from "../../../components/kit";
 import { goughOperationsApi } from "../../../api/resources/goughOperations";
 import { GoughScreen } from "./GoughScreen";
 import { OperationsPanel } from "./OperationsPanel";
 import { agentColumns } from "./agentColumns";
-import { FactList, RowOpenButtons } from "./FactList";
-import { ActionButton } from "./ActionButton";
 import { useGoughAgents, useGoughMutation } from "./useGough";
 import type { GoughAgent, GoughAgentRow } from "./types";
 
@@ -91,6 +92,7 @@ export default function AgentsPage() {
             label: "Overview",
             content: selected ? (
               <FactList
+                testId="gough-facts"
                 facts={[
                   ["Status", selected.status],
                   ["IP address", selected.ip_address],
