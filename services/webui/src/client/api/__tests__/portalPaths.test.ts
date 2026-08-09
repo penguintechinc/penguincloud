@@ -14,6 +14,7 @@
 import {
   API_BASE_PATH,
   PORTAL_PROXY_RULE,
+  portalUrl,
   proxyRequestUrl,
 } from "../portalPaths";
 
@@ -53,6 +54,48 @@ describe("proxyRequestUrl", () => {
     );
     expect(proxyRequestUrl(3, "api/v1/biomes/groups")).toBe(
       "/products/3/proxy/api/v1/biomes/groups",
+    );
+  });
+});
+
+describe("portalUrl builders", () => {
+  // Every builder is bound to a Quart endpoint by
+  // `tests/api/test_webui_portal_paths.py`; these assert the TEXT each one
+  // produces, which that guard compares only structurally. Both matter: a
+  // builder can have the right shape and the wrong literal segment.
+
+  it("addresses own profile and own password as SEPARATE routes", () => {
+    // `PUT /auth/me` was a 405 — auth serves GET only. And the password is not
+    // a field on the profile: it needs the current password and is verified
+    // separately, which is why the portal splits them.
+    expect(portalUrl.ownProfile()).toBe("/users/me");
+    expect(portalUrl.ownPassword()).toBe("/users/me/password");
+  });
+
+  it("addresses tenants, members and the provider rollup", () => {
+    expect(portalUrl.tenants()).toBe("/tenants");
+    expect(portalUrl.tenant(4)).toBe("/tenants/4");
+    expect(portalUrl.tenantSwitch(4)).toBe("/tenants/4/switch");
+    expect(portalUrl.tenantUsage(4)).toBe("/tenants/4/usage");
+    expect(portalUrl.tenantMembers(4)).toBe("/tenants/4/members");
+    expect(portalUrl.tenantMember(4, 9)).toBe("/tenants/4/members/9");
+    // TENANT-scoped, not /dashboard/rollup — see dashboard.ts.
+    expect(portalUrl.tenantDashboardRollup(4)).toBe(
+      "/tenants/4/dashboard/rollup",
+    );
+  });
+
+  it("addresses the four dashboard reads", () => {
+    expect(portalUrl.dashboardOverview()).toBe("/dashboard/overview");
+    expect(portalUrl.dashboardHealth()).toBe("/dashboard/health");
+    expect(portalUrl.dashboardActivity()).toBe("/dashboard/activity");
+    expect(portalUrl.dashboardAlerts()).toBe("/dashboard/alerts");
+  });
+
+  it("encodes a member id rather than letting it compose a path", () => {
+    expect(portalUrl.tenantMember(4, 9)).toBe("/tenants/4/members/9");
+    expect(portalUrl.resource(1, "database", "a b")).toBe(
+      "/products/1/resources/database/a%20b",
     );
   });
 });

@@ -13,13 +13,13 @@ import type {
 
 export const dashboardApi = {
   overview: async (tenantId: number): Promise<DashboardOverview> => {
-    const response = await api.get("/dashboard/overview", {
+    const response = await api.get(portalUrl.dashboardOverview(), {
       params: { tenant_id: tenantId },
     });
     return response.data;
   },
   health: async (tenantId: number): Promise<Record<string, unknown>> => {
-    const response = await api.get("/dashboard/health", {
+    const response = await api.get(portalUrl.dashboardHealth(), {
       params: { tenant_id: tenantId },
     });
     return response.data;
@@ -28,13 +28,13 @@ export const dashboardApi = {
     tenantId: number,
     limit = 20,
   ): Promise<{ activity: AuditLog[]; count: number }> => {
-    const response = await api.get("/dashboard/activity", {
+    const response = await api.get(portalUrl.dashboardActivity(), {
       params: { tenant_id: tenantId, limit },
     });
     return response.data;
   },
   alerts: async (tenantId: number): Promise<Record<string, unknown>> => {
-    const response = await api.get("/dashboard/alerts", {
+    const response = await api.get(portalUrl.dashboardAlerts(), {
       params: { tenant_id: tenantId },
     });
     return response.data;

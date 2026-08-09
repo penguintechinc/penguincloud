@@ -113,9 +113,51 @@ _WEBUI_SRC: Final[Path] = _REPO_ROOT / "services" / "webui" / "src" / "client"
 #: this rule saw only the backtick form, under ``api/*.ts`` only — which is how
 #: three quoted literals in ``products.ts`` sat unguarded beside the guard
 #: written for that file.
-_PORTAL_URL_LITERAL_RE: Final[re.Pattern[str]] = re.compile(
-    r"""\bapi\.(?:get|post|put|patch|delete|request)\(\s*["'`](/products)""",
+#: Prefixes whose call sites must go through a ``portalUrl`` builder. Grown
+#: from ``/products`` alone: the ``/tenants`` and ``/dashboard`` groups were
+#: named as a known gap in round 2, and the one dead route found that round
+#: (``/dashboard/rollup``) came out of exactly that group — so the gap was the
+#: same unguarded class, not a smaller one.
+_GUARDED_PREFIXES: Final[tuple[str, ...]] = (
+    "products",
+    "tenants",
+    "dashboard",
+    "users/me",
 )
+
+_PORTAL_URL_LITERAL_RE: Final[re.Pattern[str]] = re.compile(
+    r"""\bapi\.(?:get|post|put|patch|delete|request)\(\s*["'`]"""
+    r"""(/(?:""" + "|".join(_GUARDED_PREFIXES) + r""")(?:[/"'`]|\$))""",
+)
+
+#: ANY literal URL handed to an axios verb, whatever its prefix. Used by the
+#: resolution check, which is a superset of the ban rule: a literal outside
+#: ``_GUARDED_PREFIXES`` is still allowed to BE a literal, but it must still
+#: name a route the portal registers.
+_ANY_API_LITERAL_RE: Final[re.Pattern[str]] = re.compile(
+    r"""\bapi\.(?P<verb>get|post|put|patch|delete)\(\s*["'`](?P<path>/[^"'`]*)["'`]""",
+)
+
+#: ``${expr}`` in a template literal — a parameter, whatever it is named.
+_TS_INTERP_RE: Final[re.Pattern[str]] = re.compile(r"\$\{[^}]+\}")
+
+#: Methods Werkzeug synthesises; never what a handler declares.
+_IMPLICIT_METHODS: Final[frozenset[str]] = frozenset({"HEAD", "OPTIONS"})
+
+
+def _client_sources() -> list[tuple[Path, str]]:
+    """Every non-test client source, as ``(path, text)``.
+
+    Tests are excluded because a fixture URL is a deliberate stand-in — a test
+    asserting a 404 path is not a defect. Nothing else is excluded: a page or a
+    store can call ``api.get`` directly, and both did.
+    """
+    files = sorted(_WEBUI_SRC.rglob("*.ts")) + sorted(_WEBUI_SRC.rglob("*.tsx"))
+    return [
+        (path, path.read_text(encoding="utf-8"))
+        for path in files
+        if "__tests__" not in path.parts and "tests" not in path.parts
+    ]
 
 
 def _typed_rules() -> dict[str, str]:
@@ -179,6 +221,22 @@ def _builder_shapes() -> dict[str, str]:
     }
     assert builders, "parsed portalUrl but found no builders"
     return builders
+
+
+def _declared_methods_by_shape(app: Quart) -> dict[str, set[str]]:
+    """``{path shape: declared methods}`` from the live ``url_map``.
+
+    ``rule.methods`` is ``set[str] | None`` in Werkzeug's typing, so the
+    ``None`` case is handled once here rather than at each call site — a
+    ``or set()`` scattered through two tests is how one of them ends up
+    comparing against nothing.
+    """
+    shapes: dict[str, set[str]] = {}
+    for rule in app.url_map.iter_rules():
+        shape = _shape(_WERKZEUG_PARAM_RE.sub(r"{\1}", str(rule)))
+        declared = (rule.methods or set()) - _IMPLICIT_METHODS
+        shapes.setdefault(shape, set()).update(declared)
+    return shapes
 
 
 def _rule_for(app: Quart, endpoint: str) -> str:
@@ -273,14 +331,9 @@ class TestTypedRoutes:
         ratchet that hides them; they are named in the report instead.
         """
         offenders: list[str] = []
-        for path in sorted(_WEBUI_SRC.rglob("*.ts")) + sorted(
-            _WEBUI_SRC.rglob("*.tsx")
-        ):
+        for path, text in _client_sources():
             if path == _PORTAL_PATHS_TS:
                 continue
-            if "__tests__" in path.parts or "tests" in path.parts:
-                continue
-            text = path.read_text(encoding="utf-8")
             for match in _PORTAL_URL_LITERAL_RE.finditer(text):
                 number = text.count("\n", 0, match.start()) + 1
                 offenders.append(f"{path.relative_to(_REPO_ROOT)}:{number}")
@@ -334,6 +387,86 @@ class TestTypedRoutes:
         assert builders["products"] == "/products"
         assert builders["product"] == "/products/{}"
         assert builders["resourceAction"] == "/products/{}/resources/{}/{}/actions/{}"
+
+    async def test_every_literal_api_url_resolves_to_a_registered_route(
+        self, app: Quart
+    ) -> None:
+        """The finder. Every literal URL, every prefix, method included.
+
+        The ban rule only covers ``_GUARDED_PREFIXES``; this covers ALL of
+        them, because a literal outside those groups is still allowed to be a
+        literal but is not allowed to name a route that does not exist. It is
+        the check that does the finding rather than the enforcing, and it has
+        found one dead route per round it has been widened:
+
+        * round 2 — ``/dashboard/rollup``, with a ``tenant_id`` query
+          parameter. The rule is ``/api/v1/tenants/{tenant_id}/dashboard/
+          rollup``; the provider rollup matrix had never worked.
+        * round 3 — ``PUT /auth/me``. The auth blueprint serves GET only
+          (``auth.get_me``), so saving a profile was a 405. The writable
+          profile is ``PUT /users/me`` plus ``PUT /users/me/password``.
+        * round 3 — ``/go/status``, ``/go/numa/info``, ``/go/memory/stats``,
+          removed rather than repaired (see ``platform.ts``).
+
+        **The method is checked, not just the path.** ``PUT /auth/me`` matched
+        a real rule and would have passed a path-only comparison; it is a 405
+        that no amount of path correctness catches.
+        """
+        rules = _declared_methods_by_shape(app)
+
+        base = _ts_const("API_BASE_PATH")
+        unresolved: list[str] = []
+        checked = 0
+        for path, text in _client_sources():
+            for match in _ANY_API_LITERAL_RE.finditer(text):
+                verb = match.group("verb").upper()
+                raw = match.group("path")
+                line = text.count("\n", 0, match.start()) + 1
+                where = f"{path.relative_to(_REPO_ROOT)}:{line}"
+                shape = _shape(f"{base}{_TS_INTERP_RE.sub('{}', raw)}")
+                checked += 1
+                if shape not in rules:
+                    unresolved.append(
+                        f"{where}  {verb} {raw} -> {shape}  NO SUCH ROUTE"
+                    )
+                elif verb not in rules[shape]:
+                    unresolved.append(
+                        f"{where}  {verb} {raw} -> {shape}  405, serves "
+                        f"{sorted(rules[shape])}"
+                    )
+
+        assert checked > 0, (
+            "found no literal api.* call sites at all — the matcher has "
+            "stopped working and this check is passing vacuously"
+        )
+        assert not unresolved, (
+            "webui calls URLs the portal does not serve:\n  "
+            + "\n  ".join(unresolved)
+            + "\n\nFix the call site, or say plainly that the route should "
+            "exist and does not — do not bend the caller to a path that is "
+            "merely nearby."
+        )
+
+    async def test_the_resolution_check_can_see_a_wrong_method(
+        self, app: Quart
+    ) -> None:
+        """Falsifies the method half, which is the half that found the 405.
+
+        A path-only comparison would have passed ``PUT /auth/me`` — the rule
+        exists, it just does not serve PUT. Asserted directly so a future
+        simplification to path-only equality fails here instead of silently
+        halving the check.
+        """
+        rules = _declared_methods_by_shape(app)
+
+        assert "/api/v1/auth/me" in rules, "auth.get_me is gone; update this test"
+        assert rules["/api/v1/auth/me"] == {"GET"}, (
+            "auth/me now serves more than GET — if PUT was added, Profile.tsx "
+            "could go back to one call, but check the password split first"
+        )
+        assert "/api/v1/users/me" in rules
+        assert "PUT" in rules["/api/v1/users/me"]
+        assert "PUT" in rules["/api/v1/users/me/password"]
 
     async def test_the_ban_rule_can_see_every_quote_style(self) -> None:
         """Falsifies the matcher itself — it is a negative assertion.

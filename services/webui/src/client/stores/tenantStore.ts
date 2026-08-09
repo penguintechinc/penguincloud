@@ -10,6 +10,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import api, { setTokens } from "../lib/api";
+import { portalUrl } from "../api/portalPaths";
 import type { Tenant } from "../types";
 
 interface TenantStore {
@@ -35,7 +36,7 @@ export const useTenantStore = create<TenantStore>()(
       switchTenant: async (tenantId: number): Promise<boolean> => {
         set({ isSwitching: true });
         try {
-          const response = await api.post(`/tenants/${tenantId}/switch`);
+          const response = await api.post(portalUrl.tenantSwitch(tenantId));
           const { access_token, refresh_token, tenant, tenant_role } =
             response.data;
 

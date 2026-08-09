@@ -97,8 +97,21 @@ export const PORTAL_TYPED_RULES = {
     "operations.perform_resource_action",
   "/api/v1/products/{product_id}/schema": "products.get_product_schema",
   "/api/v1/products/{product_id}/test": "products.test_product_connection",
+  "/api/v1/tenants": "tenants.list_user_tenants",
+  "/api/v1/tenants/{tenant_id}": "tenants.get_tenant_endpoint",
   "/api/v1/tenants/{tenant_id}/dashboard/rollup":
     "tenants.get_dashboard_rollup",
+  "/api/v1/tenants/{tenant_id}/members": "tenants.list_tenant_members",
+  "/api/v1/tenants/{tenant_id}/members/{member_user_id}":
+    "tenants.update_tenant_member_role",
+  "/api/v1/tenants/{tenant_id}/switch": "tenants.switch_tenant",
+  "/api/v1/tenants/{tenant_id}/usage": "tenants.get_tenant_usage",
+  "/api/v1/dashboard/activity": "dashboard.dashboard_activity",
+  "/api/v1/dashboard/alerts": "dashboard.dashboard_alerts",
+  "/api/v1/dashboard/health": "dashboard.dashboard_health",
+  "/api/v1/dashboard/overview": "dashboard.dashboard_overview",
+  "/api/v1/users/me": "users.update_profile",
+  "/api/v1/users/me/password": "users.change_password",
 } as const;
 
 /** Encoded path segment — an id never composes a new path. */
@@ -170,4 +183,36 @@ export const portalUrl = {
    */
   tenantDashboardRollup: (tenantId: number): string =>
     `/tenants/${tenantId}/dashboard/rollup`,
+
+  /** Collection: list (GET) and create (POST) share one rule. */
+  tenants: (): string => "/tenants",
+
+  tenant: (tenantId: number): string => `/tenants/${tenantId}`,
+
+  tenantSwitch: (tenantId: number): string => `/tenants/${tenantId}/switch`,
+
+  tenantUsage: (tenantId: number): string => `/tenants/${tenantId}/usage`,
+
+  /** Collection: list (GET) and add (POST) share one rule. */
+  tenantMembers: (tenantId: number): string => `/tenants/${tenantId}/members`,
+
+  tenantMember: (tenantId: number, userId: number): string =>
+    `/tenants/${tenantId}/members/${seg(userId)}`,
+
+  dashboardOverview: (): string => "/dashboard/overview",
+
+  dashboardHealth: (): string => "/dashboard/health",
+
+  dashboardActivity: (): string => "/dashboard/activity",
+
+  dashboardAlerts: (): string => "/dashboard/alerts",
+
+  /**
+   * Own profile. `PUT /auth/me` is a 405 — the auth blueprint serves GET only
+   * (`auth.get_me`); the writable profile lives on the users blueprint.
+   */
+  ownProfile: (): string => "/users/me",
+
+  /** Own password. A SEPARATE route from the profile, not a field on it. */
+  ownPassword: (): string => "/users/me/password",
 } as const;

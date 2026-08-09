@@ -12,7 +12,7 @@ import { usersApi } from "../resources/users";
 import { tenantsApi } from "../resources/tenants";
 import { productsApi, discoveryApi, proxyApi } from "../resources/products";
 import { dashboardApi, auditApi } from "../resources/dashboard";
-import { helloApi, goApi } from "../resources/platform";
+import { helloApi } from "../resources/platform";
 
 jest.mock("../../lib/api");
 
@@ -308,16 +308,5 @@ describe("platform endpoints", () => {
 
     await helloApi.getProtected();
     expect(mockApi.get).toHaveBeenCalledWith("/hello/protected");
-  });
-
-  it("reads the Go backend diagnostics", async () => {
-    await goApi.status();
-    expect(mockApi.get).toHaveBeenCalledWith("/go/status");
-
-    await goApi.numaInfo();
-    expect(mockApi.get).toHaveBeenCalledWith("/go/numa/info");
-
-    await goApi.memoryStats();
-    expect(mockApi.get).toHaveBeenCalledWith("/go/memory/stats");
   });
 });

@@ -11,4 +11,4 @@ export { usersApi } from "../api/resources/users";
 export { tenantsApi } from "../api/resources/tenants";
 export { productsApi, discoveryApi, proxyApi } from "../api/resources/products";
 export { dashboardApi, auditApi } from "../api/resources/dashboard";
-export { helloApi, goApi } from "../api/resources/platform";
+export { helloApi } from "../api/resources/platform";
