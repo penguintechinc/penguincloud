@@ -81,6 +81,34 @@ export const queryKeys = {
       operationId,
     ] as const,
 
+  // Nest resources, reached through the proxy (reads) and the typed portal
+  // routes (writes, operation polling).
+  //
+  // Tenant-scoped for the same reason every other key here is: without the
+  // tenant id a tenant switch reuses the previous tenant's rows under an
+  // identical key, which is a cross-tenant leak in the UI rather than
+  // staleness. Nest makes that sharper than most — a Nest connection is
+  // addressed by a tenant-substituted path, so two tenants' rows genuinely
+  // come from different upstream URLs under an otherwise identical key.
+  nest: () => [...queryKeys.all(), "nest"] as const,
+  nestResource: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+    kind: string,
+  ) => [...queryKeys.nest(), tenantId, productId, kind] as const,
+  nestOperation: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+    operationId: string,
+  ) =>
+    [
+      ...queryKeys.nest(),
+      tenantId,
+      productId,
+      "operation",
+      operationId,
+    ] as const,
+
   // Users
   users: () => [...queryKeys.all(), "users"] as const,
   userList: (page: number, perPage: number) =>

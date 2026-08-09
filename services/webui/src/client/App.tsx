@@ -23,6 +23,7 @@ import Teams from "./pages/Teams";
 import NodesPage from "./pages/products/gough/NodesPage";
 import BiomesPage from "./pages/products/gough/BiomesPage";
 import AgentsPage from "./pages/products/gough/AgentsPage";
+import DatabasesPage from "./pages/products/nest/DatabasesPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -129,6 +130,13 @@ function App() {
         <Route path="/products/gough/nodes" element={<NodesPage />} />
         <Route path="/products/gough/biomes" element={<BiomesPage />} />
         <Route path="/products/gough/agents" element={<AgentsPage />} />
+
+        {/* Nest. No RoleGuard, for the same reason as Gough: authority is a
+            scope question answered server-side, and flag + connection gating
+            live in NestScreen. No Servers/Cloud/Workflows routes — those
+            services are not reachable at a Nest connection's origin, see
+            menuCategories.ts. */}
+        <Route path="/products/nest/databases" element={<DatabasesPage />} />
 
         {/* Settings - Maintainer and Admin */}
         <Route

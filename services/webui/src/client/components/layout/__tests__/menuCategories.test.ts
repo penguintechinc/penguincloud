@@ -7,7 +7,7 @@
 
 import { buildMenuCategories } from "../menuCategories";
 import { isProductEnabled } from "../../../lib/featureGates";
-import { MENU_ITEM_ROUTES } from "../../../config/routes";
+import { APP_ROUTES, MENU_ITEM_ROUTES } from "../../../config/routes";
 import type { ProductConnection } from "../../../types";
 
 jest.mock("../../../lib/featureGates");
@@ -77,18 +77,15 @@ describe("buildMenuCategories", () => {
   });
 
   it("keeps product categories in a stable order", () => {
+    // Tobogganing is absent despite being connected and gated on: it declares
+    // no items until Phase 4T ships screens, and an empty category is not
+    // rendered. Ordering is still asserted across the ones that do.
     const headers = buildMenuCategories(
       [connection("tobogganing"), connection("nest"), connection("gough")],
       allowAll,
     ).map((c) => c.header);
 
-    expect(headers).toEqual([
-      "Home",
-      "Gough",
-      "Nest",
-      "Tobogganing",
-      "Organization",
-    ]);
+    expect(headers).toEqual(["Home", "Gough", "Nest", "Organization"]);
   });
 
   it("filters items by role", () => {
@@ -131,12 +128,21 @@ describe("buildMenuCategories", () => {
   });
 
   it("all menu items have valid hrefs (regression test for dead links)", () => {
-    const categories = buildMenuCategories([], allowAll);
+    // Built WITH connections for every product that declares a category. The
+    // previous version passed `[]`, so no product category was ever
+    // constructed and the assertion only ever saw Home and Organization —
+    // which is how five Nest and five Tobogganing entries sat here as dead
+    // links while a test named "regression test for dead links" stayed green.
+    const categories = buildMenuCategories(
+      [connection("gough"), connection("nest"), connection("tobogganing")],
+      allowAll,
+    );
 
     // Valid routes are derived from MENU_ITEM_ROUTES config to prevent silent drift
     const validRoutes = new Set<string>(MENU_ITEM_ROUTES);
 
     const allItems = categories.flatMap((c) => c.items);
+    expect(allItems.length).toBeGreaterThan(0);
     const deadLinks = allItems.filter((item) => !validRoutes.has(item.href));
 
     if (deadLinks.length > 0) {
@@ -144,5 +150,42 @@ describe("buildMenuCategories", () => {
       throw new Error(`Dead links found: ${deadLinksList}`);
     }
     expect(deadLinks).toHaveLength(0);
+  });
+
+  it("every declared menu route is a route the app actually serves", () => {
+    // The check above compares the menu against MENU_ITEM_ROUTES, which is a
+    // list of hrefs — so on its own it only proves the two lists agree, not
+    // that anything answers them. This ties MENU_ITEM_ROUTES to APP_ROUTES,
+    // which App.tsx is kept in sync with, so a nav entry cannot be added
+    // without the route that serves it.
+    const served = new Set<string>(APP_ROUTES);
+
+    const unserved = MENU_ITEM_ROUTES.filter((href) => !served.has(href));
+
+    expect(unserved).toEqual([]);
+  });
+
+  it("offers only the Nest screens that a Nest connection can reach", () => {
+    // Nest is four services behind a gateway that routes all of /api to
+    // nest-api, and the portal transport pins a connection to one origin. So
+    // Servers and Cloud (apps/manager) and Workflows (saga-engine) are not
+    // reachable at a Nest connection at all — asserted rather than left
+    // implicit because their removal is a decision, not an omission.
+    // See task-4N-report.md and penguintechinc/nest#25.
+    const nest = buildMenuCategories([connection("nest")], allowAll).find(
+      (category) => category.header === "Nest",
+    );
+
+    expect(nest?.items.map((item) => item.name)).toEqual(["Databases"]);
+  });
+
+  it("omits a product category that has no screens yet", () => {
+    // A header with nothing under it reads as a screen that failed to load.
+    const headers = buildMenuCategories(
+      [connection("tobogganing")],
+      allowAll,
+    ).map((c) => c.header);
+
+    expect(headers).not.toContain("Tobogganing");
   });
 });

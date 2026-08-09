@@ -801,6 +801,52 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/products/{product_id}/resources/{kind}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Create one resource in the connected product.
+     * @description ``201`` even when the product answered ``202``: from the portal's side the
+     *     resource now exists and is addressable. Whether it is finished provisioning
+     *     is what ``operation_id`` is for — collapsing the two into a ``202`` here
+     *     would leave a client that ignores the body unable to tell a created
+     *     resource from a rejected one.
+     */
+    post: operations["post_create_resource"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/products/{product_id}/resources/{kind}/{resource_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Delete one resource from the connected product.
+     * @description A product that refuses because the resource is still referenced surfaces as
+     *     ``409`` through the shared taxonomy, which is the distinction a confirm
+     *     dialog needs — see the module docstring.
+     */
+    delete: operations["delete_delete_resource"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/products/{product_id}/resources/{kind}/{resource_id}/actions/{action}": {
     parameters: {
       query?: never;
@@ -2654,6 +2700,103 @@ export interface operations {
             logs: components["schemas"]["OperationLogLineView"][];
             /** Operation Id */
             operation_id: string;
+          };
+        };
+      };
+    };
+  };
+  post_create_resource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Wire shape for one resource.
+       *
+       *     A named projection rather than the dataclass itself, for the reason
+       *     :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+       *     adapter's free-form bag with no declared schema, so publishing it wholesale
+       *     would make every key an adapter happens to stash there part of the portal's
+       *     wire contract by accident.
+       *
+       *     ``operation_id`` is the one thing lifted out of it, and only because the
+       *     contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+       *     for exactly this purpose — a create the product completes asynchronously.
+       *     ``None`` means the create finished synchronously, which is how the UI tells
+       *     "nothing to poll" from "poll this".
+       */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Created At */
+            created_at: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Operation Id */
+            operation_id: string | null;
+            /** Parent Id */
+            parent_id: string | null;
+            /** Parent Kind */
+            parent_kind: string | null;
+            /** Status */
+            status: string | null;
+            /** Updated At */
+            updated_at: string | null;
+          };
+        };
+      };
+    };
+  };
+  delete_delete_resource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        resource_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Acknowledgement that a resource was deleted.
+       *
+       *     A body rather than a bare ``204`` because the deletion may be the start of
+       *     teardown rather than the end of it, and the UI needs somewhere to read that
+       *     from. ``kind`` and ``id`` are echoed so a client handling several deletions
+       *     can attribute the answer without tracking request order.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /**
+             * Deleted
+             * @default true
+             */
+            deleted: boolean;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
           };
         };
       };

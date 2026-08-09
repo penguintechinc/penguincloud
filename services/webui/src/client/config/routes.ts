@@ -26,11 +26,20 @@ export const APP_ROUTES = [
   "/products/gough/nodes",
   "/products/gough/biomes",
   "/products/gough/agents",
+  "/products/nest/databases",
 ] as const;
 
 /**
  * Menu item href routes (subset of APP_ROUTES, specific to sidebar navigation).
- * These should all be present in APP_ROUTES or parameterized routes should match.
+ *
+ * Every entry MUST also appear in `APP_ROUTES` — `menuCategories.test.ts`
+ * asserts the subset relation, so a nav entry added here without a route in
+ * `App.tsx` fails rather than shipping as a dead link.
+ *
+ * That assertion is why the Nest category lost its Servers, Workflows and
+ * Cloud entries: they were listed here with no route behind them. The
+ * dead-link test could not see it, because it only built the categories for a
+ * tenant with NO product connections — so no product entry was ever checked.
  */
 export const MENU_ITEM_ROUTES = [
   "/",
@@ -46,13 +55,4 @@ export const MENU_ITEM_ROUTES = [
   "/products/gough/biomes",
   "/products/gough/agents",
   "/products/nest/databases",
-  "/products/nest/servers",
-  "/products/nest/workflows",
-  "/products/nest/billing",
-  "/products/nest/cloud",
-  "/products/tobogganing/sase",
-  "/products/tobogganing/sdwan",
-  "/products/tobogganing/firewall",
-  "/products/tobogganing/wireguard",
-  "/products/tobogganing/headend",
 ] as const;
