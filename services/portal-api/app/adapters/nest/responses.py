@@ -1,15 +1,37 @@
 """Nest response decoding and status-to-taxonomy mapping.
 
-Nest answers in two shapes and one error envelope, and this module is the
-only place that difference is handled so no call site has to remember which
-family an endpoint belongs to.
+Collections
+===========
+**Nest has no single collection envelope.** Each collection names its own key
+and only data-resources uses ``items``:
 
-Collections answer ``{"items": [...], "meta": {"count": N, "version": 1}}``
-(``apps/api/handlers/dataresource.py:47``); single resources answer the bare
-object. Errors — at every status — answer a consistent envelope::
+===========================  ===============  =============================
+collection                   key              handler
+===========================  ===============  =============================
+``data-resources``           ``items``        ``dataresource.py:47``
+``snapshots``                ``snapshots``    ``protection.py:26``
+``protection-policies``      ``policies``     ``protection.py:206``
+``search-pools``             ``searchPools``  ``searchpool.py:25``
+===========================  ===============  =============================
+
+``meta`` (``{"count": N, "version": 1}``) is the one part that is uniform.
+Single resources answer the bare object with no envelope at all.
+
+The caller therefore passes the key it expects
+(:data:`~.mapping.COLLECTION_ENVELOPE_KEYS`), and an absent key is an error
+rather than an empty list — see :meth:`NestResponse.items`.
+
+Errors
+======
+Every non-2xx answers an envelope of the form::
 
     {"code": "nest.dataresource.not_found", "message": "...",
-     "requestId": "...", "docsUrl": "..."}
+     "requestId": "..."}
+
+``code``, ``message`` and ``requestId`` are present throughout. ``docsUrl`` is
+added by *some* handlers only — the auth, not-found and cost paths
+(``apps/api/app.py:108``, ``:206``, ``handlers/cost.py:69``) — and is absent
+from the generic ``nest.internal`` 500s, so nothing here depends on it.
 
 ``code`` is the field worth surfacing: it is stable and machine-readable,
 whereas ``message`` is prose. It is carried into the raised
@@ -35,8 +57,7 @@ from ..base import (
 
 __all__ = ["NestResponse", "unwrap", "raise_for_status"]
 
-#: Nest's collection envelope keys.
-_ITEMS_KEY: Final[str] = "items"
+#: The one envelope key that IS uniform across Nest's collections.
 _META_KEY: Final[str] = "meta"
 
 #: Nest's error envelope keys.
@@ -72,23 +93,35 @@ class NestResponse:
             raise UpstreamError("nest returned a non-object where one was required")
         return self.data
 
-    def items(self) -> list[dict[str, Any]]:
-        """Return the collection's items, or raise if the shape is wrong.
+    def items(self, key: str) -> list[dict[str, Any]]:
+        """Return the collection's rows from under ``key``, or raise.
 
-        An absent ``items`` key yields an empty list rather than an error:
-        Nest omits it for a genuinely empty collection on some handlers, and
-        treating that as a failure would render "no databases yet" as an
-        outage.
+        ``key`` is the collection's own envelope key — see the module
+        docstring; there is no shared one to default to.
+
+        **An absent key raises rather than returning an empty list.** Every
+        Nest list handler builds its key unconditionally
+        (``[x.to_dict() for x in ...]``), so an empty collection still arrives
+        as ``{"snapshots": []}``: a missing key means the response is not the
+        shape this adapter was written against, and the only reading a caller
+        can give an empty list is the factual "there are none". That fallback
+        is what let three of four kinds decode as permanently empty behind a
+        screen that stated it as fact.
         """
         data = self.data
-        if isinstance(data, dict):
-            raw = data.get(_ITEMS_KEY)
-        else:
-            raw = data
-        if raw is None:
-            return []
+        if not isinstance(data, dict):
+            raise UpstreamError(
+                f"nest returned {type(data).__name__} where a collection "
+                f"envelope carrying {key!r} was expected"
+            )
+        if key not in data:
+            raise UpstreamError(
+                f"nest returned a collection with no {key!r} key "
+                f"(got {sorted(data)!r}) — refusing to report it as empty"
+            )
+        raw = data[key]
         if not isinstance(raw, list):
-            raise UpstreamError("nest returned a non-list collection")
+            raise UpstreamError(f"nest returned a non-list under {key!r}")
         return [item for item in raw if isinstance(item, dict)]
 
 

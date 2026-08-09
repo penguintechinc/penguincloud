@@ -61,6 +61,7 @@ from .mapping import (
     OP_KIND,
     OPERATION_KINDS,
     RESOURCE_KINDS,
+    envelope_key,
     to_create_payload,
     to_operation,
     to_resource,
@@ -207,8 +208,14 @@ class NestAdapter(HealthOnlyAdapter):
         ``has_more`` is derived by asking for one row more than requested and
         reporting whether it arrived. That is the only honest answer
         available from an endpoint with no count, and it costs nothing.
+
+        The rows are read from the key **this collection** uses. Nest has no
+        shared envelope — only data-resources answers ``items`` — so the key
+        comes from :data:`~.mapping.COLLECTION_ENVELOPE_KEYS`, and a response
+        that does not carry it raises rather than listing nothing.
         """
         path = self._collection_path(kind, ctx)
+        key = envelope_key(kind)
         offset = max(page - 1, 0) * per_page
         params: dict[str, Any] = {"limit": per_page + 1, "offset": offset}
         if filters:
@@ -217,7 +224,7 @@ class NestAdapter(HealthOnlyAdapter):
             )
 
         payload = await self._call("GET", path, ctx, f"list {kind}", params=params)
-        items = payload.items()
+        items = payload.items(key)
         has_more = len(items) > per_page
         rows = [to_resource(kind, item) for item in items[:per_page]]
 

@@ -34,13 +34,24 @@ export const NEST_COLLECTION_PATHS = {
 } as const;
 
 /**
- * Path of one data-resource, addressed by NAME.
+ * The key each collection's rows arrive under.
  *
- * Nest identifies a DataResource by `name` in every route — `/{name}`, never
- * `/{id}` — even though the record also carries a UUID. Feeding the UUID back
- * would build a detail link that 404s, which is why the adapter maps
- * `Resource.id` to the name and keeps the UUID in metadata.
+ * There is no shared envelope. Only data-resources answers `items`; snapshots
+ * answer `snapshots`, protection policies `policies`, search pools
+ * `searchPools` (`~/code/nest/apps/api/handlers/protection.py:26,206`,
+ * `handlers/searchpool.py:25`, `handlers/dataresource.py:47`).
+ *
+ * Reading `items` for all of them — and returning `[]` when it was absent —
+ * is what made the Snapshots tab state "No snapshots have been taken from this
+ * resource" no matter what Nest answered. An unrecognised shape now throws
+ * instead, because the only reading an operator can give an empty list is
+ * "there are none".
+ *
+ * `tests/api/test_nest_webui_paths.py` compares this table to
+ * `COLLECTION_ENVELOPE_KEYS` in `app/adapters/nest/mapping.py`, which is in
+ * turn bound to Nest's own handlers, so neither side can drift alone.
  */
-export function nestDatabasePath(name: string): string {
-  return `${NEST_COLLECTION_PATHS.databases}/${encodeURIComponent(name)}`;
-}
+export const NEST_COLLECTION_ENVELOPE_KEYS = {
+  databases: "items",
+  snapshots: "snapshots",
+} as const;

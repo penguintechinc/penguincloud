@@ -12,7 +12,10 @@
  */
 
 import { proxyApi } from "./products";
-import { NEST_COLLECTION_PATHS, nestDatabasePath } from "./nestPaths";
+import {
+  NEST_COLLECTION_ENVELOPE_KEYS,
+  NEST_COLLECTION_PATHS,
+} from "./nestPaths";
 import type {
   NestBillingResult,
   NestCostSummary,
@@ -22,21 +25,35 @@ import type {
 } from "../../pages/products/nest/types";
 
 /**
- * Pull the items out of a Nest collection envelope.
+ * Pull a collection's rows out from under ITS OWN envelope key.
  *
- * Nest answers `{items: [...], meta: {...}}` for collections and a bare object
- * for a single resource. This mirrors `NestResponse.items` in
- * `app/adapters/nest/responses.py`: an absent `items` key yields an empty list
- * rather than an error, because Nest omits it for a genuinely empty collection
- * and treating that as a failure renders "no databases yet" as an outage.
+ * Nest has no shared envelope — see `NEST_COLLECTION_ENVELOPE_KEYS`. Reading
+ * `items` for every collection and returning `[]` when it was absent made
+ * snapshots decode as permanently empty, which the Snapshots tab then stated
+ * as fact ("No snapshots have been taken from this resource").
+ *
+ * So an absent key throws. Every Nest list handler builds its key
+ * unconditionally, so an empty collection still arrives as `{"snapshots": []}`
+ * — a missing key means the response is not the shape this client was written
+ * against, and the only reading an operator can give `[]` is "there are none".
+ * Mirrors `NestResponse.items` in `app/adapters/nest/responses.py`.
  */
-function items<T>(payload: unknown): T[] {
-  if (Array.isArray(payload)) return payload as T[];
-  if (payload && typeof payload === "object" && "items" in payload) {
-    const rows = (payload as { items: unknown }).items;
-    if (Array.isArray(rows)) return rows as T[];
+function items<T>(payload: unknown, key: string): T[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`nest returned no collection envelope carrying "${key}"`);
   }
-  return [];
+  const record = payload as Record<string, unknown>;
+  if (!(key in record)) {
+    throw new Error(
+      `nest returned a collection with no "${key}" key (got ` +
+        `${JSON.stringify(Object.keys(record))}) — refusing to report it as empty`,
+    );
+  }
+  const rows = record[key];
+  if (!Array.isArray(rows)) {
+    throw new Error(`nest returned a non-list under "${key}"`);
+  }
+  return rows as T[];
 }
 
 /**
@@ -79,25 +96,13 @@ export const nestApi = {
   listDatabases: async (productId: number): Promise<NestDatabase[]> =>
     items<NestDatabase>(
       await proxyApi.request(productId, "GET", NEST_COLLECTION_PATHS.databases),
+      NEST_COLLECTION_ENVELOPE_KEYS.databases,
     ),
-
-  getDatabase: async (
-    productId: number,
-    name: string,
-  ): Promise<NestDatabase | null> => {
-    const payload = await proxyApi.request(
-      productId,
-      "GET",
-      nestDatabasePath(name),
-    );
-    return payload && typeof payload === "object"
-      ? (payload as NestDatabase)
-      : null;
-  },
 
   listSnapshots: async (productId: number): Promise<NestSnapshot[]> =>
     items<NestSnapshot>(
       await proxyApi.request(productId, "GET", NEST_COLLECTION_PATHS.snapshots),
+      NEST_COLLECTION_ENVELOPE_KEYS.snapshots,
     ),
 
   costReport: async (

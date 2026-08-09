@@ -8,8 +8,11 @@
  *    external id, so a path with the placeholder filled in — or with a
  *    trailing slash Nest does not register — is refused or 404s. The
  *    assertions name the exact path string for that reason.
- * 2. **Nest's collection envelope is unwrapped.** `{items: [...]}`, with an
- *    absent key meaning empty rather than broken.
+ * 2. **Each collection is unwrapped from ITS OWN key.** There is no shared
+ *    envelope — only data-resources answers `items`; snapshots answer
+ *    `snapshots`. Reading `items` for both and defaulting to `[]` is what made
+ *    the Snapshots tab report "No snapshots have been taken from this
+ *    resource" whatever Nest returned, so an absent key now throws.
  * 3. **A 503 from the cost routes is not an error.** It means
  *    `nest-cost-calculator` is not deployed, which is a deployment state; any
  *    other status is a real failure and must still throw.
@@ -69,41 +72,55 @@ describe("proxied reads", () => {
   it("sends no trailing slash", async () => {
     // Nest registers every route without one; Werkzeug answers an extra slash
     // with a flat 404 and no redirect back, which reads as an empty table.
+    mockApi.request.mockResolvedValue({ data: { items: [] } });
+
     await nestApi.listDatabases(PRODUCT_ID);
 
     expect(forwardedPath().endsWith("/")).toBe(false);
   });
 
-  it("addresses one data-resource by name", async () => {
-    await nestApi.getDatabase(PRODUCT_ID, "orders-primary");
-
-    expect(forwardedPath()).toBe(
-      "api/v1/tenants/{tenant}/data-resources/orders-primary",
-    );
-  });
-
-  it("encodes a name rather than letting it compose a path", async () => {
-    await nestApi.getDatabase(PRODUCT_ID, "../../auth/login");
-
-    expect(forwardedPath()).toBe(
-      "api/v1/tenants/{tenant}/data-resources/..%2F..%2Fauth%2Flogin",
-    );
-  });
-
-  it("returns an empty list rather than throwing when items is absent", async () => {
-    // Nest omits `items` for a genuinely empty collection; treating that as a
-    // failure renders "no databases yet" as an outage.
-    mockApi.request.mockResolvedValue({ data: { meta: { count: 0 } } });
-
-    expect(await nestApi.listDatabases(PRODUCT_ID)).toEqual([]);
-  });
-
-  it("accepts a bare array as well as the envelope", async () => {
-    mockApi.request.mockResolvedValue({ data: [{ name: "snap-1" }] });
+  it("reads snapshots from the `snapshots` key, not `items`", async () => {
+    // `~/code/nest/apps/api/handlers/protection.py:26`. Only data-resources
+    // answers `items`. The literal key is written out rather than imported
+    // from the table so this cannot agree with a wrong table by construction.
+    mockApi.request.mockResolvedValue({
+      data: { snapshots: [{ name: "snap-1" }], meta: { count: 1 } },
+    });
 
     expect(await nestApi.listSnapshots(PRODUCT_ID)).toEqual([
       { name: "snap-1" },
     ]);
+    expect(forwardedPath()).toBe("api/v1/tenants/{tenant}/snapshots");
+  });
+
+  it("refuses to report an unrecognised shape as an empty collection", async () => {
+    // The shipped behaviour returned [] here, and the Snapshots tab rendered
+    // "No snapshots have been taken from this resource" — a false statement to
+    // the operator with nothing anywhere reporting a problem.
+    mockApi.request.mockResolvedValue({ data: { items: [{ name: "s" }] } });
+
+    await expect(nestApi.listSnapshots(PRODUCT_ID)).rejects.toThrow(
+      /no "snapshots" key/,
+    );
+  });
+
+  it("still reports a genuinely empty collection as empty", async () => {
+    // Strictness must not turn "none yet" into an error: Nest's list handlers
+    // build their key unconditionally, so an empty collection arrives with the
+    // key present and an empty list.
+    mockApi.request.mockResolvedValue({
+      data: { snapshots: [], meta: { count: 0 } },
+    });
+
+    expect(await nestApi.listSnapshots(PRODUCT_ID)).toEqual([]);
+  });
+
+  it("rejects a bare array, which is not a shape Nest answers", async () => {
+    mockApi.request.mockResolvedValue({ data: [{ name: "snap-1" }] });
+
+    await expect(nestApi.listSnapshots(PRODUCT_ID)).rejects.toThrow(
+      /no collection envelope/,
+    );
   });
 });
 
@@ -200,19 +217,23 @@ describe("billing reads", () => {
 });
 
 describe("collection unwrapping", () => {
-  it("returns an empty list when items is present but not a list", async () => {
-    // A shape this wrong is a product bug, but rendering an empty table is
-    // still truthful about what arrived — and it keeps one malformed response
-    // from throwing inside a screen that has no way to explain it.
-    mockApi.request.mockResolvedValue({ data: { items: "nope" } });
+  it("throws when the key is present but not a list", async () => {
+    // A shape this wrong is a product bug. Rendering an empty table would be
+    // the screen asserting "there are none", which is not what arrived — the
+    // caller's error boundary can say "could not read snapshots" instead.
+    mockApi.request.mockResolvedValue({ data: { snapshots: "nope" } });
 
-    expect(await nestApi.listSnapshots(PRODUCT_ID)).toEqual([]);
+    await expect(nestApi.listSnapshots(PRODUCT_ID)).rejects.toThrow(
+      /non-list under "snapshots"/,
+    );
   });
 
-  it("returns null for a single resource that is not an object", async () => {
+  it("throws on a null body rather than reporting no rows", async () => {
     mockApi.request.mockResolvedValue({ data: null });
 
-    expect(await nestApi.getDatabase(PRODUCT_ID, "db-1")).toBeNull();
+    await expect(nestApi.listDatabases(PRODUCT_ID)).rejects.toThrow(
+      /no collection envelope/,
+    );
   });
 });
 

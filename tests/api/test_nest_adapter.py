@@ -42,6 +42,7 @@ from app.adapters.nest.mapping import to_create_payload, to_operation, to_resour
 from app.adapters.transport import Transport
 
 from nest_route_source import missing_reason, nest_api_module
+from product_source_fixtures import source_required
 
 _TENANT = "acme-prod"
 
@@ -341,12 +342,118 @@ class TestAgainstMockTransport:
     ) -> None:
         """The caller never supplies a tenant; the mapping does."""
         path = f"/api/v1/tenants/{_TENANT}/snapshots"
-        recorder = _Recorder({("GET", path): httpx.Response(200, json={"items": []})})
+        recorder = _Recorder(
+            {("GET", path): httpx.Response(200, json={"snapshots": []})}
+        )
         adapter = _adapter_with(recorder, monkeypatch)
 
         await adapter.list_resources("snapshot", _ctx())
 
         assert f"/tenants/{_TENANT}/" in recorder.requests[0].url.path
+
+    @pytest.mark.parametrize(
+        ("kind", "collection", "key"),
+        [
+            ("database", "data-resources", "items"),
+            ("snapshot", "snapshots", "snapshots"),
+            ("protection_policy", "protection-policies", "policies"),
+            ("search_pool", "search-pools", "searchPools"),
+        ],
+    )
+    async def test_each_kind_is_read_from_its_own_envelope_key(
+        self,
+        kind: str,
+        collection: str,
+        key: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Nest names a different key per collection; only one is ``items``.
+
+        The literal key is written out here rather than taken from
+        ``COLLECTION_ENVELOPE_KEYS`` on purpose: a test that feeds the table
+        back into itself passes while the table is wrong, which is exactly how
+        three of four kinds shipped decoding as permanently empty. These four
+        strings come from Nest's handlers (``protection.py:26``, ``:206``,
+        ``searchpool.py:25``, ``dataresource.py:47``), and
+        ``test_nest_envelopes.py`` asserts them against that source directly.
+        """
+        path = f"/api/v1/tenants/{_TENANT}/{collection}"
+        rows = [{"name": "row-a"}, {"name": "row-b"}]
+        recorder = _Recorder({("GET", path): httpx.Response(200, json={key: rows})})
+        adapter = _adapter_with(recorder, monkeypatch)
+
+        page = await adapter.list_resources(kind, _ctx())
+
+        assert [row.id for row in page.items] == ["row-a", "row-b"]
+
+    @pytest.mark.parametrize(
+        ("kind", "collection"),
+        [
+            ("snapshot", "snapshots"),
+            ("protection_policy", "protection-policies"),
+            ("search_pool", "search-pools"),
+        ],
+    )
+    async def test_the_data_resource_envelope_does_not_decode_other_kinds(
+        self, kind: str, collection: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reading ``items`` everywhere is the defect; prove it now fails.
+
+        Before the per-kind table this body decoded to ``[]`` and the screen
+        stated "No snapshots have been taken from this resource" as fact. An
+        unrecognised shape must surface, not render as "none".
+        """
+        path = f"/api/v1/tenants/{_TENANT}/{collection}"
+        recorder = _Recorder(
+            {("GET", path): httpx.Response(200, json={"items": [{"name": "x"}]})}
+        )
+        adapter = _adapter_with(recorder, monkeypatch)
+
+        with pytest.raises(UpstreamError) as excinfo:
+            await adapter.list_resources(kind, _ctx())
+        assert "refusing to report it as empty" in str(excinfo.value)
+
+    async def test_an_absent_envelope_key_is_never_an_empty_collection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A shape this adapter was not written against is an error.
+
+        Every Nest list handler builds its key unconditionally, so an empty
+        collection still arrives as ``{"snapshots": []}``. A missing key
+        therefore cannot mean "none" — and reporting it as none is a false
+        statement to the operator, not a graceful degradation.
+        """
+        path = f"/api/v1/tenants/{_TENANT}/snapshots"
+        recorder = _Recorder(
+            {("GET", path): httpx.Response(200, json={"meta": {"count": 0}})}
+        )
+        adapter = _adapter_with(recorder, monkeypatch)
+
+        with pytest.raises(UpstreamError):
+            await adapter.list_resources("snapshot", _ctx())
+
+    async def test_a_genuinely_empty_collection_is_still_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Strictness must not turn "none yet" into an error.
+
+        The key present with an empty list is Nest's real answer for an empty
+        collection, and it has to keep rendering as an empty table.
+        """
+        path = f"/api/v1/tenants/{_TENANT}/snapshots"
+        recorder = _Recorder(
+            {
+                ("GET", path): httpx.Response(
+                    200, json={"snapshots": [], "meta": {"count": 0}}
+                )
+            }
+        )
+        adapter = _adapter_with(recorder, monkeypatch)
+
+        page = await adapter.list_resources("snapshot", _ctx())
+
+        assert page.items == []
+        assert page.has_more is False
 
     async def test_unsupported_kinds_and_actions_raise_501(
         self, monkeypatch: pytest.MonkeyPatch
@@ -419,8 +526,17 @@ class TestAgainstLiveNest:
         Nest validates RS256 tokens against a JWKS URL and fails closed
         without one, so a single-key JWKS is served on a real socket — its
         fetch is blocking ``requests``, which no in-process stub intercepts.
+
+        This class is the one thing that genuinely cannot be vendored: it
+        EXECUTES Nest's Quart app, so it needs Nest's dependencies installed
+        and not merely its source. It therefore still skips without a
+        checkout — but ``REQUIRE_PRODUCT_SOURCE=1`` (``make test-api-live``)
+        turns that skip into a failure, so a job that is supposed to have the
+        checkout reports its absence instead of quietly covering less.
         """
         if nest_api_module() is None:
+            if source_required():
+                pytest.fail(missing_reason())
             pytest.skip(missing_reason())
         pytest.importorskip("quart")
         pytest.importorskip("opentelemetry")
@@ -604,6 +720,22 @@ class TestAgainstLiveNest:
 
         await live.delete_resource("database", "orders", ctx)
         assert await live.list_resources("database", ctx) is not None
+
+    @pytest.mark.parametrize(
+        "kind", ["database", "snapshot", "protection_policy", "search_pool"]
+    )
+    async def test_every_kind_decodes_against_the_real_handlers(
+        self, kind: str, live: NestAdapter
+    ) -> None:
+        """Each collection is read from the key its OWN handler emits.
+
+        Against the real service, so the envelope key is graded by Nest rather
+        than by a mock built from the same assumption. Reading ``items`` for
+        all four (the shipped behaviour) raises here for three of them.
+        """
+        page = await live.list_resources(kind, self._live_ctx())
+
+        assert page.items == [] or all(row.kind == kind for row in page.items)
 
     async def test_missing_resource_is_a_not_found_not_an_outage(
         self, live: NestAdapter

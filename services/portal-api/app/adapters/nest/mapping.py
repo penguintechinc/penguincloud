@@ -32,6 +32,9 @@ __all__ = [
     "OP_KIND",
     "OPERATION_KINDS",
     "CREATE_FIELD_ALIASES",
+    "COLLECTION_ENVELOPE_KEYS",
+    "NEST_LIST_HANDLERS",
+    "envelope_key",
     "parse_timestamp",
     "to_create_payload",
     "to_resource",
@@ -99,6 +102,55 @@ _PROMOTED: Final[frozenset[str]] = frozenset(
 CREATE_FIELD_ALIASES: Final[dict[str, dict[str, str]]] = {
     KIND_DATABASE: {"resourceType": "type", "storageClass": "class"},
 }
+
+
+#: Which key each collection's rows arrive under. **Nest has no single
+#: collection envelope** — only data-resources uses ``items``:
+#:
+#: ===================  ===============  =========================================
+#: kind                 envelope key     Nest handler
+#: ===================  ===============  =========================================
+#: ``database``         ``items``        ``handlers/dataresource.py:47``
+#: ``snapshot``         ``snapshots``    ``handlers/protection.py:26``
+#: ``protection_policy``  ``policies``   ``handlers/protection.py:206``
+#: ``search_pool``      ``searchPools``  ``handlers/searchpool.py:25``
+#: ===================  ===============  =========================================
+#:
+#: Reading ``items`` for all four and falling back to ``[]`` shipped a screen
+#: that told the operator "No snapshots have been taken from this resource"
+#: whatever Nest answered — three of the four kinds decoded as permanently
+#: empty, with no error anywhere. A silent fallback turns an unrecognised shape
+#: into a factual-looking "none", so :meth:`NestResponse.items` raises for an
+#: absent key instead; see the note there.
+COLLECTION_ENVELOPE_KEYS: Final[dict[str, str]] = {
+    KIND_DATABASE: "items",
+    KIND_SNAPSHOT: "snapshots",
+    KIND_PROTECTION_POLICY: "policies",
+    KIND_SEARCH_POOL: "searchPools",
+}
+
+#: The Nest list handler each kind is served by, so the table above can be
+#: bound to Nest's own source rather than to this comment.
+#: ``tests/api/test_nest_source_fixture.py`` parses these functions out of
+#: ``apps/api/handlers/*.py`` and asserts the key each one emits.
+NEST_LIST_HANDLERS: Final[dict[str, str]] = {
+    KIND_DATABASE: "list_data_resources",
+    KIND_SNAPSHOT: "list_snapshots",
+    KIND_PROTECTION_POLICY: "list_protection_policies",
+    KIND_SEARCH_POOL: "list_search_pools",
+}
+
+
+def envelope_key(kind: str) -> str:
+    """Return the key a kind's rows arrive under.
+
+    Raises:
+        KeyError: for a kind with no declared key. Deliberately not a default
+            of ``"items"`` — a new kind whose envelope nobody looked up would
+            then decode as empty forever, which is the defect this table
+            replaces.
+    """
+    return COLLECTION_ENVELOPE_KEYS[kind]
 
 
 def to_create_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
