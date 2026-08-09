@@ -74,24 +74,36 @@ class _Recorder:
     adapter sent, not only what it did with the reply.
     """
 
-    def __init__(self, replies: dict[tuple[str, str], httpx.Response]) -> None:
-        """Store the ``(method, path) -> response`` script."""
+    def __init__(
+        self,
+        replies: dict[tuple[str, str], httpx.Response],
+        default: httpx.Response | None = None,
+    ) -> None:
+        """Store the ``(method, path) -> response`` script.
+
+        ``default`` answers anything unscripted. It exists for the tests that
+        assert on the URL the adapter BUILT rather than on what came back —
+        scripting those by path would require writing the very string under
+        test, so the reply could only ever agree with it.
+        """
         self.replies = replies
+        self.default = default
         self.requests: list[httpx.Request] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         """Record the request and return its scripted reply, or a 404."""
         self.requests.append(request)
         key = (request.method.upper(), request.url.path)
-        return self.replies.get(
-            key,
-            httpx.Response(
-                404,
-                json={
-                    "code": "nest.api.not_found",
-                    "message": "Not found",
-                },
-            ),
+        if key in self.replies:
+            return self.replies[key]
+        if self.default is not None:
+            return self.default
+        return httpx.Response(
+            404,
+            json={
+                "code": "nest.api.not_found",
+                "message": "Not found",
+            },
         )
 
 
@@ -462,6 +474,54 @@ class TestAgainstMockTransport:
 
         assert page.items == []
         assert page.has_more is False
+
+    @pytest.mark.parametrize(
+        ("raw", "encoded"),
+        [
+            ("db?tenant=other", "db%3Ftenant%3Dother"),
+            ("db#frag", "db%23frag"),
+        ],
+    )
+    async def test_an_id_cannot_restructure_the_url_it_lands_in(
+        self, raw: str, encoded: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ADAPTER encodes its path segments; nothing below it does.
+
+        `resources_api` used to claim the transport encoded these. It does
+        not — it hands the built URL to httpx and only refuses traversal via
+        the origin pin. Werkzeug percent-DECODES `<resource_id>` before the
+        route handler sees it, so a `%3F` an operator sent arrives here as a
+        literal `?` and, interpolated raw, would end the path and start a
+        query string at Nest.
+        """
+        recorder = _Recorder({}, default=httpx.Response(204))
+        adapter = _adapter_with(recorder, monkeypatch)
+
+        await adapter.delete_resource("database", raw, _ctx())
+
+        assert recorder.requests[0].url.raw_path.decode().endswith(
+            f"/data-resources/{encoded}"
+        )
+        assert not recorder.requests[0].url.query
+
+    async def test_a_separator_in_an_id_is_refused_outright(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Encoding is not the only control, and the second one is stricter.
+
+        A ``/`` encodes to ``%2F``, which the origin pin's
+        ``normalize_proxy_path`` refuses as a percent-encoded separator before
+        anything is sent. So an id that would traverse is not merely neutered,
+        it never leaves — asserted so the two layers are not confused for one.
+        """
+        from app.adapters.transport import CredentialEgressError
+
+        recorder = _Recorder({}, default=httpx.Response(204))
+        adapter = _adapter_with(recorder, monkeypatch)
+
+        with pytest.raises(CredentialEgressError):
+            await adapter.delete_resource("database", "a/b", _ctx())
+        assert recorder.requests == []
 
     async def test_unsupported_kinds_and_actions_raise_501(
         self, monkeypatch: pytest.MonkeyPatch

@@ -69,16 +69,20 @@ async def _create_tenant(client: Any, headers: dict[str, str]) -> int:
 
 
 async def _create_connection(
-    app: Quart, tenant_id: int, *, is_active: bool = True
+    app: Quart,
+    tenant_id: int,
+    *,
+    is_active: bool = True,
+    product_type: str = "nest",
 ) -> int:
-    """Create a Nest connection plus its tenant mapping."""
+    """Create a product connection plus its tenant mapping."""
     async with app.app_context():
         from app.models import create_product_connection, get_db, set_product_tenant_map
 
         conn_id = await create_product_connection(
             tenant_id=tenant_id,
-            product_type="nest",
-            display_name="Res Nest",
+            product_type=product_type,
+            display_name=f"Res {product_type}",
             base_url="https://product.invalid",
             auth_type="bearer",
             api_key=PRODUCT_SECRET,
@@ -162,13 +166,19 @@ def _stub_adapter(monkeypatch: pytest.MonkeyPatch) -> Any:
 
 
 async def _setup(
-    client: Any, app: Quart, *, is_active: bool = True
+    client: Any,
+    app: Quart,
+    *,
+    is_active: bool = True,
+    product_type: str = "nest",
 ) -> tuple[int, dict[str, str]]:
     """Register, create a tenant and a connection; return (conn_id, headers)."""
     _, email = await _register(client)
     headers = await _headers(client, email)
     tenant_id = await _create_tenant(client, headers)
-    conn_id = await _create_connection(app, tenant_id, is_active=is_active)
+    conn_id = await _create_connection(
+        app, tenant_id, is_active=is_active, product_type=product_type
+    )
     return conn_id, headers
 
 
@@ -497,3 +507,210 @@ class TestAuthorisation:
         )
 
         assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+class TestProductCoverage:
+    """These routes are open to EVERY adapter, not only the one they were for.
+
+    ``resources_bp`` is registered once and matches ``/products/<id>/...`` for
+    any connection, so shipping it for Nest simultaneously exposed a typed
+    create and delete for Gough, Tobogganing and the generic fallback — none of
+    which this phase exercised.
+
+    ``test_adapter_registry`` has the registry-wide counterpart of the first
+    half of this ("only integrated products may PROXY a mutating verb"), but
+    that guard reads ``route_allowlist`` and says nothing about a typed route,
+    which does not consult it at all.
+    """
+
+    #: Products whose adapter has a reviewed write path. Kept as a literal, in
+    #: the same spirit as the proxy guard's own list: adding a product here is
+    #: the reviewed act, and doing so without covering its writes is what the
+    #: tests below are meant to make uncomfortable.
+    INTEGRATED = ("gough", "nest")
+
+    async def test_the_route_exists_for_every_registered_product(self) -> None:
+        """Establishes the premise the rest of this class rests on.
+
+        If these routes were somehow product-scoped, everything below would be
+        testing a situation that cannot arise — and would pass while covering
+        nothing.
+        """
+        from app.adapters import ADAPTER_REGISTRY
+
+        assert set(ADAPTER_REGISTRY) - set(self.INTEGRATED), (
+            "every registered product is integrated, so there is no "
+            "non-integrated case left to guard — narrow or delete this class "
+            "rather than leaving it passing vacuously"
+        )
+
+    @pytest.mark.parametrize("product_type", ["tobogganing", "generic"])
+    async def test_a_non_integrated_product_refuses_a_typed_write(
+        self, product_type: str, client: Any, app: Quart
+    ) -> None:
+        """501, and specifically not 200, 404 or 500.
+
+        A product with no write implementation must answer "this portal cannot
+        do that for this product" — the same fail-closed default the proxy
+        allowlist gives, asserted at the layer that does not read it. A 500
+        would read as an outage; a 200 would mean something wrote.
+        """
+        conn_id, headers = await _setup(client, app, product_type=product_type)
+
+        created = await client.post(
+            f"/api/v1/products/{conn_id}/resources/thing",
+            headers=headers,
+            json={"name": "x"},
+        )
+        deleted = await client.delete(
+            f"/api/v1/products/{conn_id}/resources/thing/x", headers=headers
+        )
+
+        assert created.status_code == 501, await created.get_json()
+        assert deleted.status_code == 501, await deleted.get_json()
+
+    @pytest.mark.parametrize("product_type", ["tobogganing", "generic"])
+    async def test_a_non_integrated_product_still_enforces_scope_first(
+        self, product_type: str, client: Any, app: Quart
+    ) -> None:
+        """Authorisation is not skipped on the way to a 501.
+
+        A 501 reached BEFORE the scope check would be a route that tells an
+        unauthorised caller which products the portal cannot write to — minor
+        on its own, and an ordering bug that a future implementation of that
+        adapter would turn into a real one.
+        """
+        conn_id, headers = await _setup(client, app, product_type=product_type)
+
+        async def _read_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:read"]
+
+        with _patched_scopes(_read_only):
+            response = await client.post(
+                f"/api/v1/products/{conn_id}/resources/thing",
+                headers=headers,
+                json={"name": "x"},
+            )
+
+        assert response.status_code == 403, await response.get_json()
+
+
+@pytest.mark.asyncio
+class TestGoughThroughTheTypedRoutes:
+    """Gough's create and delete, which this route exposed and 4N never drove.
+
+    Gough's adapter had `create_resource`/`delete_resource` before these routes
+    existed; adding them made both reachable over HTTP for the first time. The
+    adapter itself is covered in ``test_gough_adapter.py`` — what is asserted
+    here is the route layer for a SECOND product, so the coupling between
+    ``ResourceView`` and any one adapter's metadata conventions shows up.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _gough_stub(self, monkeypatch: pytest.MonkeyPatch) -> Any:
+        """Swap Gough's adapter for the recording stub."""
+        StubAdapter.resource = _resource(
+            id="biome-1", kind="biomes", name="edge", status="active", metadata={}
+        )
+        StubAdapter.raises = None
+        StubAdapter.seen_create = None
+        StubAdapter.seen_delete = None
+        monkeypatch.setitem(
+            __import__("app.adapters", fromlist=["ADAPTER_REGISTRY"]).ADAPTER_REGISTRY,
+            "gough",
+            StubAdapter,
+        )
+        return StubAdapter
+
+    async def test_create_reaches_the_gough_adapter_with_its_own_kind(
+        self, client: Any, app: Quart
+    ) -> None:
+        """``kind`` is the product's vocabulary and is passed through as-is."""
+        conn_id, headers = await _setup(client, app, product_type="gough")
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/biomes",
+            headers=headers,
+            json={"name": "edge"},
+        )
+
+        assert response.status_code == 201, await response.get_json()
+        assert StubAdapter.seen_create == ("biomes", {"name": "edge"})
+        assert (await response.get_json())["kind"] == "biomes"
+
+    async def test_a_synchronous_create_reports_no_handle_for_gough_either(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Gough's creates are synchronous, so ``operation_id`` must be null.
+
+        ``ResourceView`` lifts the poll handle out of ``metadata`` under a key
+        the CONTRACT names. A second product proves that projection is not
+        wired to Nest's conventions: Gough sets no such key and must report
+        ``None`` rather than inventing a handle or 500ing on a missing one.
+        """
+        conn_id, headers = await _setup(client, app, product_type="gough")
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/biomes",
+            headers=headers,
+            json={"name": "edge"},
+        )
+
+        assert (await response.get_json())["operation_id"] is None
+
+    async def test_delete_reaches_the_gough_adapter(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The delete path is equally live for Gough, and equally untested."""
+        conn_id, headers = await _setup(client, app, product_type="gough")
+
+        response = await client.delete(
+            f"/api/v1/products/{conn_id}/resources/biomes/biome-1", headers=headers
+        )
+
+        assert response.status_code == 200, await response.get_json()
+        assert StubAdapter.seen_delete == ("biomes", "biome-1")
+
+    async def test_an_unsupported_gough_kind_is_a_501_not_a_write(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Gough refuses to "create" a node — they are discovered, not made.
+
+        Reached through the route rather than the adapter, because the route is
+        what an operator can call.
+        """
+        conn_id, headers = await _setup(client, app, product_type="gough")
+        StubAdapter.raises = AdapterCapabilityError("gough does not create nodes")
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/nodes",
+            headers=headers,
+            json={"name": "n1"},
+        )
+
+        assert response.status_code == 501
+
+    async def test_read_scope_cannot_create_or_delete_for_gough(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The manage requirement is per-route, not per-product."""
+        conn_id, headers = await _setup(client, app, product_type="gough")
+
+        async def _read_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:gough:read"]
+
+        with _patched_scopes(_read_only):
+            created = await client.post(
+                f"/api/v1/products/{conn_id}/resources/biomes",
+                headers=headers,
+                json={"name": "edge"},
+            )
+            deleted = await client.delete(
+                f"/api/v1/products/{conn_id}/resources/biomes/b1", headers=headers
+            )
+
+        assert created.status_code == 403
+        assert deleted.status_code == 403
+        assert StubAdapter.seen_create is None
+        assert StubAdapter.seen_delete is None

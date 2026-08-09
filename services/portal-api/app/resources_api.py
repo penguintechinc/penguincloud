@@ -47,14 +47,24 @@ deletes both require ``manage``.
 ``kind`` is never interpolated into a product URL here — the adapter validates
 it against its own literal table and raises
 :class:`~app.adapters.base.AdapterCapabilityError` (501) for anything else.
-``resource_id`` reaches the adapter as an opaque value and is encoded by the
-transport when it becomes a path segment.
+
+``resource_id`` reaches the adapter as an opaque value, and **the adapter**
+encodes it where it becomes a path segment
+(:func:`~app.adapters.base.quote_path_segment`). This paragraph previously said
+the *transport* did that; it does not. ``Transport.request`` takes a built URL
+string and hands it to httpx, and its only path check is
+:func:`~app.adapters.base.normalize_proxy_path` inside the origin pin, which
+refuses traversal rather than encoding anything. The distinction matters
+because Werkzeug percent-DECODES ``<resource_id>`` before this handler sees it,
+so ``%3F`` arrives as a literal ``?`` — interpolated raw, that would start a
+query string at the product. Any adapter reached through these routes owns that
+encoding; do not assume a layer below has done it.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from quart import Blueprint, request
@@ -138,14 +148,6 @@ class ResourceDeletedResponse:
     kind: str
     id: str
     deleted: bool = True
-
-
-@dataclass(slots=True, frozen=True)
-class ErrorResponse:
-    """Product-neutral failure, as rendered by the shared error taxonomy."""
-
-    error: str
-    allowed: list[str] = field(default_factory=list)
 
 
 @resources_bp.route("/<int:product_id>/resources/<kind>", methods=["POST"])

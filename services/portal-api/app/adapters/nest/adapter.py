@@ -51,6 +51,7 @@ from ..base import (
     Resource,
     RouteRule,
     UpstreamError,
+    quote_path_segment,
 )
 from ..transport import Transport, get_transport
 from .mapping import (
@@ -184,8 +185,18 @@ class NestAdapter(HealthOnlyAdapter):
         return tenant_path(ctx.external_id, self._require_kind(kind))
 
     def _item_path(self, kind: str, name: str, ctx: AdapterContext) -> str:
-        """Path of one named item for this connection's tenant."""
-        return tenant_path(ctx.external_id, self._require_kind(kind), name)
+        """Path of one named item for this connection's tenant.
+
+        ``name`` is caller-supplied and is the only non-literal segment here,
+        so it is encoded. The transport does not do it — it hands the built
+        URL straight to httpx — and Werkzeug has already percent-decoded the
+        typed route's segment by the time it reaches this method, so a ``%3F``
+        an operator sent arrives as a literal ``?`` and would otherwise start a
+        query string at Nest. See :func:`~app.adapters.base.quote_path_segment`.
+        """
+        return tenant_path(
+            ctx.external_id, self._require_kind(kind), quote_path_segment(name)
+        )
 
     # -- resources --------------------------------------------------------
 
@@ -320,7 +331,10 @@ class NestAdapter(HealthOnlyAdapter):
             )
 
         path = tenant_path(
-            ctx.external_id, COLLECTION_DATA_RESOURCES, resource_id, action
+            ctx.external_id,
+            COLLECTION_DATA_RESOURCES,
+            quote_path_segment(resource_id),
+            action,
         )
         response = await self._call(
             "POST",
@@ -376,7 +390,9 @@ class NestAdapter(HealthOnlyAdapter):
         through :attr:`Operation.result`.
         """
         self._require_operation_kind(kind)
-        path = tenant_path(ctx.external_id, COLLECTION_OPERATIONS, operation_id)
+        path = tenant_path(
+            ctx.external_id, COLLECTION_OPERATIONS, quote_path_segment(operation_id)
+        )
         payload = await self._call("GET", path, ctx, f"get operation {operation_id}")
         data = payload.dict_data()
         operation = to_operation(data)

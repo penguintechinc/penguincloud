@@ -111,6 +111,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Final, Generic, Protocol, TypeVar
+from urllib.parse import quote
 
 __all__ = [
     "HealthResult",
@@ -145,6 +146,7 @@ __all__ = [
     "PathTraversalError",
     "adapter_error_status",
     "normalize_proxy_path",
+    "quote_path_segment",
     "TENANT_PLACEHOLDER",
     "TENANT_PLACEHOLDER_PATTERN",
     "HealthOnlyAdapter",
@@ -705,6 +707,31 @@ def product_scope(product_type: str, action: str) -> str:
     see "Per-product scopes" in the module docstring for the model.
     """
     return f"{PRODUCT_SCOPE_NAMESPACE}:{product_type}:{action}"
+
+
+def quote_path_segment(value: str) -> str:
+    """Percent-encode one value that is about to become a path segment.
+
+    **The transport does not do this for you.** It takes a fully-built URL
+    string and hands it to httpx (``transport.py:154``); the only path check it
+    performs is :func:`normalize_proxy_path` inside the origin pin, which
+    *refuses* traversal rather than encoding anything. So an adapter that
+    interpolates an id into an f-string owns the encoding, and this is the
+    helper to do it with.
+
+    What it protects against, concretely: a typed portal route takes its id
+    from a URL segment, and Werkzeug percent-DECODES that segment before the
+    handler sees it — so ``%3F`` arrives as a literal ``?``. Interpolated raw,
+    that ends the path and starts a query string at the product, turning
+    ``DELETE /data-resources/x?y`` into a delete of ``x`` with a stray
+    parameter. ``#`` and ``/`` behave similarly. ``safe=""`` because a path
+    segment has no legitimate separator inside it.
+
+    Not a substitute for typing an id in a ``RouteRule`` — that governs the
+    caller-supplied PROXY path. This governs the typed-method path an adapter
+    builds itself, which no allowlist ever sees.
+    """
+    return quote(str(value), safe="")
 
 
 def normalize_proxy_path(raw: str) -> str:
