@@ -47,6 +47,7 @@ from ..base import (
     Operation,
     OperationState,
     Page,
+    RESOURCE_OPERATION_ID_KEY,
     Resource,
     RouteRule,
     UpstreamError,
@@ -102,8 +103,13 @@ _ACTIONS: Final[frozenset[str]] = frozenset(
     {"snapshot", "restore", "introspect", "migrate"}
 )
 
-#: Nest's key for the operation id it returns from every 202.
-_OPERATION_ID_KEY: Final[str] = "operationId"
+#: Nest's key for the operation id it returns from every 202 — and, as it
+#: happens, the contract's own spelling. Aliased to the shared constant rather
+#: than re-declared: :mod:`app.resources_api` reads this key off
+#: ``Resource.metadata`` to publish a typed ``operation_id``, so a private
+#: copy that drifted would leave the create response reporting no handle at
+#: all while the adapter believed it had set one.
+_OPERATION_ID_KEY: Final[str] = RESOURCE_OPERATION_ID_KEY
 
 
 class NestAdapter(HealthOnlyAdapter):

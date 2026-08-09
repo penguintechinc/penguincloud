@@ -160,6 +160,7 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     from .products import products_bp
     from .operations_api import operations_bp
     from .proxy import proxy_bp
+    from .resources_api import resources_bp
     from .teams import teams_bp
     from .tenants import tenants_bp
     from .users import users_bp
@@ -176,6 +177,10 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     # Long-running operation polling shares the products prefix: an
     # operation is always addressed through the connection that owns it.
     app.register_blueprint(operations_bp, url_prefix="/api/v1/products")
+    # Typed resource writes share the same prefix for the same reason: a
+    # resource is only addressable through the connection that owns it.
+    # Reads are NOT here — those go through the proxy allowlist.
+    app.register_blueprint(resources_bp, url_prefix="/api/v1/products")
     # No url_prefix: proxy_bp's rule already carries its full path
     # (/api/v1/products/<id>/proxy/<path>). Registering it under a prefix
     # nested it at /api/v1/proxy/api/v1/products/... — every allowlist rule

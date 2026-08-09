@@ -1,0 +1,499 @@
+"""Typed resource create/delete: the routes Nest's writes had no path to.
+
+Nest's proxy allowlist is deliberately GET-only — every Nest write answers
+``202`` with an ``operationId``, which :mod:`app.adapters.base` puts on a typed
+adapter method rather than the byte-pipe proxy. ``create_resource`` and
+``delete_resource`` were therefore implemented and verified against a live
+Nest in Session 1, and reachable by nothing: no HTTP route exposed them, so a
+Databases screen could list and act but not create or delete.
+
+These tests cover the route layer only. What the adapter does with Nest is
+covered exhaustively in ``test_nest_adapter.py`` (including against a live
+service); repeating it here would test httpx twice and the route logic once.
+"""
+
+from __future__ import annotations
+
+import uuid
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from typing import Any, Iterator
+from unittest import mock
+
+import pytest
+from quart import Quart
+
+from app.adapters.base import (
+    AdapterCapabilityError,
+    RESOURCE_OPERATION_ID_KEY,
+    Resource,
+    ResourceConflictError,
+)
+
+PRODUCT_SECRET = "-".join(("not", "a", "real", "resources", "credential"))
+
+#: Patch target for scope resolution — the binding ``has_tenant_scope`` looks
+#: up at call time. See the note in ``test_operations_api.py``.
+_AUTHZ_MODULE = "app.authz"
+
+
+async def _register(client: Any) -> tuple[int, str]:
+    """Register a user; return (id, email)."""
+    email = f"res-{uuid.uuid4().hex[:8]}@example.com"
+    response = await client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "testpass123", "full_name": "Res User"},
+    )
+    assert response.status_code in (200, 201), await response.get_json()
+    return int((await response.get_json())["user"]["id"]), email
+
+
+async def _headers(client: Any, email: str) -> dict[str, str]:
+    """Log in and build Authorization headers."""
+    response = await client.post(
+        "/api/v1/auth/login", json={"email": email, "password": "testpass123"}
+    )
+    assert response.status_code == 200, await response.get_json()
+    return {"Authorization": f"Bearer {(await response.get_json())['access_token']}"}
+
+
+async def _create_tenant(client: Any, headers: dict[str, str]) -> int:
+    """Create a tenant owned by the caller."""
+    response = await client.post(
+        "/api/v1/tenants",
+        headers=headers,
+        json={"name": "Res", "slug": f"res-{uuid.uuid4().hex[:6]}", "plan": "free"},
+    )
+    assert response.status_code == 201, await response.get_json()
+    return int((await response.get_json())["id"])
+
+
+async def _create_connection(
+    app: Quart, tenant_id: int, *, is_active: bool = True
+) -> int:
+    """Create a Nest connection plus its tenant mapping."""
+    async with app.app_context():
+        from app.models import create_product_connection, get_db, set_product_tenant_map
+
+        conn_id = await create_product_connection(
+            tenant_id=tenant_id,
+            product_type="nest",
+            display_name="Res Nest",
+            base_url="https://product.invalid",
+            auth_type="bearer",
+            api_key=PRODUCT_SECRET,
+            api_secret="",
+        )
+        assert conn_id is not None
+        await set_product_tenant_map(conn_id, tenant_id, "tenant_id", "ext-res")
+        if not is_active:
+            db = get_db()
+            await db(db.product_connections.id == conn_id).update(is_active=False)
+            await db.commit()
+        return int(conn_id)
+
+
+@contextmanager
+def _patched_scopes(replacement: Any) -> Iterator[None]:
+    """Run a block with a specific scope set granted to every caller."""
+    with mock.patch(f"{_AUTHZ_MODULE}.resolve_scopes", replacement):
+        yield
+
+
+def _resource(**overrides: Any) -> Resource:
+    """A Nest data-resource as the adapter returns it."""
+    defaults: dict[str, Any] = {
+        "id": "orders-primary",
+        "kind": "database",
+        "name": "orders-primary",
+        "status": "pending",
+        "created_at": datetime(2026, 8, 8, 12, 0, tzinfo=UTC),
+        "metadata": {"nest_id": "uuid-1", "resourceType": "postgres"},
+    }
+    defaults.update(overrides)
+    return Resource(**defaults)
+
+
+class StubAdapter:
+    """Adapter double recording what the route handed it."""
+
+    seen_ctx: Any = None
+    seen_create: Any = None
+    seen_delete: Any = None
+    resource: Resource | None = None
+    raises: Exception | None = None
+
+    def __init__(self) -> None:
+        """Match the registry's zero-argument construction."""
+
+    async def create_resource(
+        self, kind: str, payload: dict[str, Any], ctx: Any
+    ) -> Resource:
+        """Return the staged resource or raise the staged error."""
+        StubAdapter.seen_ctx = ctx
+        StubAdapter.seen_create = (kind, payload)
+        if StubAdapter.raises is not None:
+            raise StubAdapter.raises
+        assert StubAdapter.resource is not None
+        return StubAdapter.resource
+
+    async def delete_resource(self, kind: str, resource_id: str, ctx: Any) -> None:
+        """Record the delete or raise the staged error."""
+        StubAdapter.seen_ctx = ctx
+        StubAdapter.seen_delete = (kind, resource_id)
+        if StubAdapter.raises is not None:
+            raise StubAdapter.raises
+
+
+@pytest.fixture(autouse=True)
+def _stub_adapter(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Swap the Nest adapter for the stub, and reset staged state."""
+    StubAdapter.resource = _resource()
+    StubAdapter.raises = None
+    StubAdapter.seen_ctx = None
+    StubAdapter.seen_create = None
+    StubAdapter.seen_delete = None
+    monkeypatch.setitem(
+        __import__("app.adapters", fromlist=["ADAPTER_REGISTRY"]).ADAPTER_REGISTRY,
+        "nest",
+        StubAdapter,
+    )
+    return StubAdapter
+
+
+async def _setup(
+    client: Any, app: Quart, *, is_active: bool = True
+) -> tuple[int, dict[str, str]]:
+    """Register, create a tenant and a connection; return (conn_id, headers)."""
+    _, email = await _register(client)
+    headers = await _headers(client, email)
+    tenant_id = await _create_tenant(client, headers)
+    conn_id = await _create_connection(app, tenant_id, is_active=is_active)
+    return conn_id, headers
+
+
+@pytest.mark.asyncio
+class TestCreate:
+    """What a create publishes, and what it must not."""
+
+    async def test_create_returns_the_row_and_its_poll_handle(
+        self, client: Any, app: Quart
+    ) -> None:
+        """An async create hands back something to poll.
+
+        Nest answers ``202`` and keeps provisioning. Without the handle the UI
+        can only render the row as ready the moment creation was accepted,
+        which is provisioning state it never checked.
+        """
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.resource = _resource(
+            metadata={RESOURCE_OPERATION_ID_KEY: "op-9", "nest_id": "uuid-1"}
+        )
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "orders-primary", "resourceType": "postgres"},
+        )
+
+        assert response.status_code == 201
+        body = await response.get_json()
+        assert body["id"] == "orders-primary"
+        assert body["kind"] == "database"
+        assert body["status"] == "pending"
+        assert body["operation_id"] == "op-9"
+
+    async def test_a_synchronous_create_reports_no_handle(
+        self, client: Any, app: Quart
+    ) -> None:
+        """``None`` is how the UI tells "nothing to poll" from "poll this"."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.resource = _resource(metadata={})
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "orders-primary"},
+        )
+
+        assert response.status_code == 201
+        assert (await response.get_json())["operation_id"] is None
+
+    async def test_response_publishes_only_declared_fields(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The wire shape is an explicit DTO, not the dataclass.
+
+        ``metadata`` is the adapter's free-form bag with no declared schema.
+        Publishing it wholesale would make every key an adapter happens to
+        stash there part of the portal's wire contract by accident — here that
+        would leak Nest's internal ``nest_id`` and its raw record fields.
+        """
+        conn_id, headers = await _setup(client, app)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "orders-primary"},
+        )
+
+        body = await response.get_json()
+        assert set(body) == {
+            "id",
+            "kind",
+            "name",
+            "status",
+            "parent_id",
+            "parent_kind",
+            "operation_id",
+            "created_at",
+            "updated_at",
+        }
+        assert "metadata" not in body
+        assert "nest_id" not in body
+
+    async def test_the_handle_is_read_under_the_contract_key(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The route and the adapter must agree on one spelling.
+
+        Asserted through the constant rather than the literal: an adapter that
+        stashed the handle under its own private key would publish
+        ``operation_id: null`` while believing it had set one, and nothing else
+        in the suite would notice.
+        """
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.resource = _resource(
+            metadata={RESOURCE_OPERATION_ID_KEY: "op-contract"}
+        )
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "n"},
+        )
+
+        assert (await response.get_json())["operation_id"] == "op-contract"
+
+    async def test_payload_reaches_the_adapter_unmodified(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The route does not rewrite a create body.
+
+        Nest's create/read field-name asymmetry is normalised in the ADAPTER
+        (``mapping.to_create_payload``), which is the layer that knows the
+        product. A second rewrite here would apply it twice.
+        """
+        conn_id, headers = await _setup(client, app)
+
+        await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "orders", "resourceType": "postgres"},
+        )
+
+        assert StubAdapter.seen_create == (
+            "database",
+            {"name": "orders", "resourceType": "postgres"},
+        )
+
+    async def test_a_non_object_body_is_refused(
+        self, client: Any, app: Quart
+    ) -> None:
+        """A list or a bare string is not a create payload."""
+        conn_id, headers = await _setup(client, app)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json=["not", "an", "object"],
+        )
+
+        assert response.status_code == 400
+        assert StubAdapter.seen_create is None
+
+    async def test_an_unsupported_kind_is_not_implemented(
+        self, client: Any, app: Quart
+    ) -> None:
+        """501, from the adapter's own literal table — never a built URL."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.raises = AdapterCapabilityError("nest does not serve 'widget'")
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/widget",
+            headers=headers,
+            json={"name": "w"},
+        )
+
+        assert response.status_code == 501
+
+
+@pytest.mark.asyncio
+class TestDelete:
+    """Deletion, and the conflict a confirm dialog has to distinguish."""
+
+    async def test_delete_acknowledges_the_resource_it_removed(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Echoed kind and id let a client attribute concurrent deletions."""
+        conn_id, headers = await _setup(client, app)
+
+        response = await client.delete(
+            f"/api/v1/products/{conn_id}/resources/database/orders-primary",
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        body = await response.get_json()
+        assert body == {"kind": "database", "id": "orders-primary", "deleted": True}
+        assert StubAdapter.seen_delete == ("database", "orders-primary")
+
+    async def test_a_still_referenced_resource_answers_409(
+        self, client: Any, app: Quart
+    ) -> None:
+        """"Still referenced" and "already gone" are different answers.
+
+        This is why delete is typed rather than proxied: the adapter maps
+        Nest's 409 onto ``ResourceConflictError`` and the shared taxonomy
+        renders it product-neutrally. A proxied 409 body is product-specific,
+        so the dialog cannot tell the two apart.
+        """
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.raises = ResourceConflictError("resource is still referenced")
+
+        response = await client.delete(
+            f"/api/v1/products/{conn_id}/resources/database/orders-primary",
+            headers=headers,
+        )
+
+        assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+class TestAuthorisation:
+    """Membership, scope and the kill switch, in that order."""
+
+    async def test_a_non_member_gets_404_not_403(
+        self, client: Any, app: Quart
+    ) -> None:
+        """403 would confirm the id exists in someone else's tenant.
+
+        A caller could then walk product_ids and map every connection in the
+        deployment. The answer is byte-identical to "no such connection".
+        """
+        _, owner_email = await _register(client)
+        owner_headers = await _headers(client, owner_email)
+        tenant_id = await _create_tenant(client, owner_headers)
+        conn_id = await _create_connection(app, tenant_id)
+
+        _, other_email = await _register(client)
+        other_headers = await _headers(client, other_email)
+
+        created = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=other_headers,
+            json={"name": "n"},
+        )
+        deleted = await client.delete(
+            f"/api/v1/products/{conn_id}/resources/database/n",
+            headers=other_headers,
+        )
+
+        assert created.status_code == 404
+        assert deleted.status_code == 404
+        assert StubAdapter.seen_create is None
+        assert StubAdapter.seen_delete is None
+
+    async def test_read_scope_cannot_create_or_delete(
+        self, client: Any, app: Quart
+    ) -> None:
+        """Both verbs change product state, so both require ``manage``."""
+        conn_id, headers = await _setup(client, app)
+
+        async def _read_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:nest:read"]
+
+        with _patched_scopes(_read_only):
+            created = await client.post(
+                f"/api/v1/products/{conn_id}/resources/database",
+                headers=headers,
+                json={"name": "n"},
+            )
+            deleted = await client.delete(
+                f"/api/v1/products/{conn_id}/resources/database/n", headers=headers
+            )
+
+        assert created.status_code == 403, "read scope reached a mutating route"
+        assert deleted.status_code == 403, "read scope reached a mutating route"
+
+    async def test_a_nest_only_manage_scope_is_sufficient(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The per-product model must not stop at the proxy.
+
+        The principal these scopes exist for holds ``products:nest:manage`` and
+        no coarse grant. Requiring ``products:manage`` here would refuse them
+        the ability to create the very resource they were authorised to manage.
+        """
+        conn_id, headers = await _setup(client, app)
+
+        async def _nest_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:nest:manage"]
+
+        with _patched_scopes(_nest_only):
+            created = await client.post(
+                f"/api/v1/products/{conn_id}/resources/database",
+                headers=headers,
+                json={"name": "n"},
+            )
+
+        assert created.status_code == 201
+
+    async def test_another_products_scope_cannot_write_to_nest(
+        self, client: Any, app: Quart
+    ) -> None:
+        """A Gough grant is not a Nest grant."""
+        conn_id, headers = await _setup(client, app)
+
+        async def _gough_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:gough:manage"]
+
+        with _patched_scopes(_gough_only):
+            created = await client.post(
+                f"/api/v1/products/{conn_id}/resources/database",
+                headers=headers,
+                json={"name": "n"},
+            )
+
+        assert created.status_code == 403
+
+    async def test_a_deactivated_connection_is_refused(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The kill switch the proxy honours applies here too.
+
+        A deactivated connection must not have its credential decrypted, let
+        alone used — so the adapter is never reached.
+        """
+        conn_id, headers = await _setup(client, app, is_active=False)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "n"},
+        )
+
+        assert response.status_code == 403
+        assert StubAdapter.seen_create is None
+
+    async def test_an_anonymous_caller_is_rejected(
+        self, client: Any, app: Quart
+    ) -> None:
+        """No token, no route."""
+        conn_id, _ = await _setup(client, app)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database", json={"name": "n"}
+        )
+
+        assert response.status_code == 401

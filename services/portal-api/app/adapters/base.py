@@ -115,6 +115,7 @@ from typing import Any, Final, Generic, Protocol, TypeVar
 __all__ = [
     "HealthResult",
     "Resource",
+    "RESOURCE_OPERATION_ID_KEY",
     "Page",
     "MetricPoint",
     "MetricSeries",
@@ -281,6 +282,22 @@ class HealthResult:
     status_code: int
     response_time_ms: int
     error: str | None = None
+
+
+#: ``Resource.metadata`` key carrying the poll handle for a create that the
+#: product completes asynchronously.
+#:
+#: ``create_resource`` returns a :class:`Resource`, not an
+#: :class:`ActionResult`, so it has no ``operations`` list to put the handle
+#: in — but a product like Nest answers every create with ``202`` and an
+#: operation id, and a UI that reports the row as ready the moment creation
+#: was *accepted* is showing provisioning state it never checked.
+#:
+#: Named here rather than spelled in each adapter because
+#: :mod:`app.resources_api` promotes it to a typed ``operation_id`` field on
+#: the create response. Two spellings of the key means the route silently
+#: publishes ``None`` for the adapter that picked the other one.
+RESOURCE_OPERATION_ID_KEY: Final[str] = "operationId"
 
 
 @dataclass(slots=True)

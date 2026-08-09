@@ -48,7 +48,10 @@ cancel the very deploy they had just been authorised to start. The coarse
 scopes still work: :class:`~app.adapters.base.RBACEnforcer` treats them as
 satisfying the per-product form.
 
-A non-member gets **404, not 403** — see the oracle note in :func:`_resolve`.
+A non-member gets **404, not 403** — see the oracle note in
+:func:`app.product_access.resolve_product_context`, which owns the
+membership/scope/decrypt ordering these routes and
+:mod:`app.resources_api` both depend on.
 
 Nothing here accepts a caller-supplied path: ``kind`` is validated by the
 adapter against a literal set, and ``operation_id`` is validated before it can
@@ -60,7 +63,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Final
+from typing import Any
 
 from quart import Blueprint, request
 from quart_schema import validate_response
@@ -68,7 +71,6 @@ from quart_schema import validate_response
 from .adapters import get_adapter
 from .adapters.base import (
     ActionResult,
-    AdapterContext,
     AdapterError,
     MetricPoint,
     MetricSeries,
@@ -76,19 +78,17 @@ from .adapters.base import (
     Operation,
     OperationState,
     Resource,
-    adapter_error_status,
-    product_scope,
 )
-from .authz import require_tenant_scope
-from .encryption import decrypt_value
-from .middleware import auth_required, get_current_user
-from .models import (
-    get_product_connection_by_id,
-    get_product_connection_raw,
-    get_product_tenant_map,
+from .middleware import auth_required
+from .product_access import (
+    ACTION_MANAGE,
+    ACTION_READ,
+    NOT_FOUND,
+    adapter_failure,
+    iso,
+    resolve_product_context,
 )
 from .tenancy import tenancy_aware
-from .tenancy.authz import resolve_effective_role
 
 logger = logging.getLogger(__name__)
 
@@ -100,19 +100,6 @@ _MAX_PER_PAGE = 100
 
 #: Upper bound on log lines per request, matching Gough's own cap.
 _MAX_TAIL = 1000
-
-#: The single "you get nothing" answer. Shared so that "no such connection"
-#: and "not your tenant" are byte-identical — see the oracle note in
-#: :func:`_resolve`.
-_NOT_FOUND: Final[tuple[dict[str, Any], int]] = (
-    {"error": "Product connection not found"},
-    404,
-)
-
-#: Scope actions these routes require. Reads poll and tail logs; cancel
-#: changes what the product is doing to real hardware, so it is a mutation.
-_ACTION_READ: Final[str] = "read"
-_ACTION_MANAGE: Final[str] = "manage"
 
 
 @dataclass(slots=True, frozen=True)
@@ -171,9 +158,9 @@ class OperationView:
             detail=operation.detail,
             error=operation.error,
             result=operation.result,
-            created_at=_iso(operation.created_at),
-            updated_at=_iso(operation.updated_at),
-            completed_at=_iso(operation.completed_at),
+            created_at=iso(operation.created_at),
+            updated_at=iso(operation.updated_at),
+            completed_at=iso(operation.completed_at),
         )
 
 
@@ -324,118 +311,15 @@ class MetricsSummaryResponse:
         )
 
 
-def _iso(value: datetime | None) -> str | None:
-    """Render a timestamp for the wire, or None."""
-    return value.isoformat() if value is not None else None
-
-
-async def _resolve(
-    product_id: int, action: str
-) -> tuple[AdapterContext, str, None] | tuple[None, None, tuple[dict[str, Any], int]]:
-    """Authorise the caller and build the adapter context.
-
-    ``action`` is ``read`` or ``manage``; the required scope is derived from
-    it and the connection's product type, so these routes participate in the
-    per-product scope model rather than stopping at the coarse grant. See
-    "Per-product scopes" in :mod:`app.adapters.base`.
-
-    Returns ``(ctx, product_type, None)`` on success or
-    ``(None, None, error_response)``. Ordering is deliberate and matches the
-    proxy: membership first, then scope, so a non-member learns nothing about
-    the connection, and credential decryption last, so an unauthorised request
-    never causes a secret to be decrypted at all.
-    """
-    user = get_current_user()
-    if not user:
-        return None, None, ({"error": "User not authenticated"}, 401)
-
-    conn = await get_product_connection_by_id(product_id)
-    if not conn:
-        return None, None, _NOT_FOUND
-
-    # Membership before anything that distinguishes this connection from a
-    # non-existent one, and a 404 rather than a 403 when it fails.
-    #
-    # A 403 here would answer "this id exists, in a tenant that is not yours"
-    # while a 404 answers "no such id" — so a caller in any tenant could walk
-    # product_ids and map every connection in the deployment, including how
-    # many other tenants exist and roughly when each was created. The scope
-    # check below still answers 403, which is correct and not an oracle: it
-    # is only reachable by someone already established as a member of that
-    # tenant, so it discloses nothing they did not already have.
-    portal_tenant_id = conn["tenant_id"]
-    if await resolve_effective_role(user["id"], portal_tenant_id) is None:
-        return None, None, _NOT_FOUND
-
-    product_type_for_scope = str(conn.get("product_type", ""))
-    denied = await require_tenant_scope(
-        user["id"],
-        portal_tenant_id,
-        product_scope(product_type_for_scope, action),
-    )
-    if denied:
-        return None, None, denied
-
-    conn_raw = await get_product_connection_raw(product_id)
-    if not conn_raw:
-        return None, None, _NOT_FOUND
-
-    if not conn_raw.get("is_active", True):
-        # Same kill switch the proxy honours: a deactivated connection must
-        # not have its credential decrypted, let alone used.
-        return None, None, ({"error": "Product connection is deactivated"}, 403)
-
-    mapping = await get_product_tenant_map(product_id, conn["tenant_id"])
-    ctx = AdapterContext(
-        connection_id=product_id,
-        portal_tenant_id=conn["tenant_id"],
-        external_id=(mapping or {}).get("external_id", ""),
-        external_kind=(mapping or {}).get("external_kind", ""),
-        base_url=conn_raw.get("base_url", ""),
-        auth_type=conn_raw.get("auth_type", "bearer"),
-        api_key=(
-            decrypt_value(conn_raw.get("api_key", ""))
-            if conn_raw.get("api_key")
-            else ""
-        ),
-        api_secret=(
-            decrypt_value(conn_raw.get("api_secret", ""))
-            if conn_raw.get("api_secret")
-            else ""
-        ),
-        correlation_id=request.headers.get("X-Correlation-ID", ""),
-    )
-    return ctx, str(conn_raw["product_type"]), None
-
-
-def _failure(
-    exc: AdapterError, product_id: int, operation: str
-) -> tuple[dict[str, Any], int]:
-    """Render an adapter error using the taxonomy's shared status mapping.
-
-    The product's URL and headers never reach the response — only the
-    adapter's own message, which the taxonomy exists to keep product-neutral.
-    """
-    logger.info(
-        "operation_request_failed",
-        extra={
-            "product_id": product_id,
-            "operation": operation,
-            "error_type": type(exc).__name__,
-        },
-    )
-    return {"error": str(exc)}, adapter_error_status(exc)
-
-
 @operations_bp.route("/<int:product_id>/operations", methods=["GET"])
 @auth_required
 @tenancy_aware
 @validate_response(OperationListResponse)
 async def list_operations(product_id: int) -> tuple[Any, int]:
     """List a product's long-running operations, newest first."""
-    ctx, product_type, error = await _resolve(product_id, _ACTION_READ)
+    ctx, product_type, error = await resolve_product_context(product_id, ACTION_READ)
     if error is not None or ctx is None or product_type is None:
-        return error or _NOT_FOUND
+        return error or NOT_FOUND
 
     args = request.args
     try:
@@ -466,7 +350,7 @@ async def list_operations(product_id: int) -> tuple[Any, int]:
             per_page=per_page,
         )
     except AdapterError as exc:
-        return _failure(exc, product_id, "list_operations")
+        return adapter_failure(exc, product_id, "list_operations")
 
     return (
         OperationListResponse(
@@ -490,15 +374,15 @@ async def get_operation(
     product_id: int, kind: str, operation_id: str
 ) -> tuple[Any, int]:
     """Poll one operation. This is the route the UI's refetch loop calls."""
-    ctx, product_type, error = await _resolve(product_id, _ACTION_READ)
+    ctx, product_type, error = await resolve_product_context(product_id, ACTION_READ)
     if error is not None or ctx is None or product_type is None:
-        return error or _NOT_FOUND
+        return error or NOT_FOUND
 
     adapter = get_adapter(product_type, ctx)
     try:
         operation = await adapter.get_operation(kind, operation_id, ctx)
     except AdapterError as exc:
-        return _failure(exc, product_id, "get_operation")
+        return adapter_failure(exc, product_id, "get_operation")
 
     return OperationView.of(operation), 200
 
@@ -517,15 +401,15 @@ async def cancel_operation(
     Requires ``products:manage``: cancelling a deploy mid-flight changes what
     the product does with real hardware, which is not a read.
     """
-    ctx, product_type, error = await _resolve(product_id, _ACTION_MANAGE)
+    ctx, product_type, error = await resolve_product_context(product_id, ACTION_MANAGE)
     if error is not None or ctx is None or product_type is None:
-        return error or _NOT_FOUND
+        return error or NOT_FOUND
 
     adapter = get_adapter(product_type, ctx)
     try:
         operation = await adapter.cancel_operation(kind, operation_id, ctx)
     except AdapterError as exc:
-        return _failure(exc, product_id, "cancel_operation")
+        return adapter_failure(exc, product_id, "cancel_operation")
 
     return OperationView.of(operation), 200
 
@@ -544,9 +428,9 @@ async def operation_logs(
     ``since`` lets the DetailDrawer's log tab fetch only what is new on each
     poll instead of re-reading the whole stream every interval.
     """
-    ctx, product_type, error = await _resolve(product_id, _ACTION_READ)
+    ctx, product_type, error = await resolve_product_context(product_id, ACTION_READ)
     if error is not None or ctx is None or product_type is None:
-        return error or _NOT_FOUND
+        return error or NOT_FOUND
 
     args = request.args
     try:
@@ -568,7 +452,7 @@ async def operation_logs(
             kind, operation_id, ctx, since=since, tail=tail
         )
     except AdapterError as exc:
-        return _failure(exc, product_id, "operation_logs")
+        return adapter_failure(exc, product_id, "operation_logs")
 
     return (
         OperationLogsResponse(
@@ -576,7 +460,7 @@ async def operation_logs(
                 OperationLogLineView(
                     message=line.message,
                     level=line.level,
-                    timestamp=_iso(line.timestamp),
+                    timestamp=iso(line.timestamp),
                 )
                 for line in lines
             ],
@@ -616,9 +500,9 @@ async def perform_resource_action(
     ``kind`` and ``action`` are validated by the adapter against literal
     tables before any URL is built — neither is interpolated into a path here.
     """
-    ctx, product_type, error = await _resolve(product_id, _ACTION_MANAGE)
+    ctx, product_type, error = await resolve_product_context(product_id, ACTION_MANAGE)
     if error is not None or ctx is None or product_type is None:
-        return error or _NOT_FOUND
+        return error or NOT_FOUND
 
     payload: dict[str, Any] = {}
     if await request.get_data():
@@ -631,7 +515,7 @@ async def perform_resource_action(
     try:
         outcome = await adapter.perform_action(kind, resource_id, action, payload, ctx)
     except AdapterError as exc:
-        return _failure(exc, product_id, f"perform_action:{action}")
+        return adapter_failure(exc, product_id, f"perform_action:{action}")
 
     return ActionResultResponse.of(outcome), 200
 
@@ -651,14 +535,14 @@ async def product_metrics(product_id: int) -> tuple[Any, int]:
     rendered as the page size. ``totals`` here comes from the product's
     ``/metrics`` scrape and is the real figure.
     """
-    ctx, product_type, error = await _resolve(product_id, _ACTION_READ)
+    ctx, product_type, error = await resolve_product_context(product_id, ACTION_READ)
     if error is not None or ctx is None or product_type is None:
-        return error or _NOT_FOUND
+        return error or NOT_FOUND
 
     adapter = get_adapter(product_type, ctx)
     try:
         summary = await adapter.metrics_summary(ctx)
     except AdapterError as exc:
-        return _failure(exc, product_id, "metrics_summary")
+        return adapter_failure(exc, product_id, "metrics_summary")
 
     return MetricsSummaryResponse.of(summary), 200
