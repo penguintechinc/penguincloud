@@ -27,7 +27,7 @@ from .base import Adapter, AdapterContext
 from .generic_adapter import GenericAdapter
 from .gough import GoughAdapter
 from .nest import NestAdapter
-from .tobogganing_adapter import TobogganingAdapter
+from .tobogganing import TobogganingAdapter
 
 __all__ = [
     "ADAPTER_REGISTRY",

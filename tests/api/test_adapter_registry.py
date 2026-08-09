@@ -126,30 +126,38 @@ class TestAllowlists:
     def test_stub_adapters_expose_only_read_only_liveness(self) -> None:
         """Products with no Phase-4 integration allow liveness and nothing more.
 
-        Gough and Nest are deliberately absent: 4G and 4N gave each a real
-        allowlist. Their matrices live in ``test_gough_allowlist.py`` and
-        ``test_nest_allowlist.py``, which assert both what each admits and
-        what it must not.
+        Gough, Nest and Tobogganing are deliberately absent: 4G, 4N and 4T gave
+        each a real allowlist. Their matrices live in ``test_gough_allowlist.py``,
+        ``test_nest_allowlist.py`` and ``test_tobogganing_allowlist.py``, which
+        assert both what each admits and what it must not.
 
-        Nest's allowlist is still GET-only — every Nest write is a
-        202-with-operation and therefore a typed method, never proxied — but
-        it names per-product scopes and far more than liveness, so it is no
-        longer what this test describes.
+        ``generic`` is the only remaining stub, and its allowlist is EMPTY
+        rather than liveness-only — it exists so an operator can register and
+        monitor an endpoint the portal has no integration for, without that
+        endpoint becoming proxyable at all.
         """
-        for product_type in ("tobogganing",):
-            rules = ADAPTER_REGISTRY[product_type].route_allowlist
-            assert {rule.method for rule in rules} == {"GET"}
-            assert {rule.required_scope for rule in rules} == {"products:read"}
+        rules = ADAPTER_REGISTRY["generic"].route_allowlist
+        assert rules == [], (
+            "the generic adapter must proxy nothing — it is the fallback for "
+            "products the portal has no integration for"
+        )
 
     def test_only_integrated_products_may_proxy_a_mutating_verb(self) -> None:
         """Write access is a per-integration decision, never a default.
 
         Structural guard on the registry as a whole: a product picks up a
-        mutating proxy rule only by being integrated and reviewed. Nest and
-        Tobogganing land next, and this fails the moment one of them ships a
-        write rule without its own allowlist matrix.
+        mutating proxy rule only by being integrated and reviewed. Each entry
+        below has its own allowlist matrix asserting what it admits and what it
+        refuses; this fails the moment a product ships a write rule without one.
+
+        Nest is NOT listed despite being integrated: every Nest write answers
+        202 with an operation, so all of them are typed methods and its
+        allowlist stays GET-only. Tobogganing is listed because its
+        user-reachable mutations are all synchronous (no 202 anywhere on that
+        surface), which is what makes proxying them legitimate — see
+        ``app/adapters/tobogganing/routes.py``.
         """
-        integrated = {"gough"}
+        integrated = {"gough", "tobogganing"}
         for product_type, adapter_class in ADAPTER_REGISTRY.items():
             methods = {rule.method.upper() for rule in adapter_class.route_allowlist}
             mutating = methods - {"GET", "HEAD", "OPTIONS"}
@@ -175,7 +183,7 @@ class TestAllowlists:
 class TestHealthOnlyBehaviour:
     """Unimplemented operations raise rather than returning empty results."""
 
-    @pytest.mark.parametrize("product_type", ["tobogganing", "generic"])
+    @pytest.mark.parametrize("product_type", ["generic"])
     async def test_capabilities_reports_health_only(self, product_type: str) -> None:
         """capabilities() tells the truth about what is implemented.
 

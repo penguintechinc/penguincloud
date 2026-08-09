@@ -88,10 +88,13 @@ __all__ = [
     "boot_failure",
     "route_table",
     "auth_table",
+    "envelope_table",
     "vendored_route_table",
     "vendored_auth_table",
+    "vendored_envelope_table",
     "effective_route_table",
     "effective_auth_table",
+    "effective_envelope_table",
     "machine_only_paths",
     "build_fixture",
     "refresh_fixture",
@@ -148,6 +151,15 @@ _USER_DECORATORS: Final[frozenset[str]] = frozenset(
     }
 )
 
+#: Keys that ride ALONGSIDE a collection rather than being one. Subtracted
+#: before deciding which single key names the collection, so
+#: ``{"peers": [...], "total": 3, "meta": {...}}`` still resolves to ``peers``.
+#: ``count``/``version``/``timestamp`` appear nested inside ``meta`` in this
+#: product but are listed for the handlers that flatten them.
+_ENVELOPE_SIDECAR_KEYS: Final[frozenset[str]] = frozenset(
+    {"meta", "total", "count", "version", "timestamp", "tenant"}
+)
+
 #: Handler-body markers for inline node-credential auth. These handlers carry no
 #: decorator, so a decorator scan alone would misreport them as public — and two
 #: of them (``POST /sdwan/clients``, ``POST /sdwan/clusters``) return a freshly
@@ -163,11 +175,65 @@ _NODE_AUTH_MARKERS: Final[tuple[str, ...]] = (
 # file on disk so there is nothing to leave behind, and nothing another
 # concurrently-running agent could collide with.
 _BOOT_PROGRAM: Final[str] = r'''
-import asyncio, inspect, json, sys
+import asyncio, ast, inspect, json, sys, textwrap
 
 USER_DECORATORS = %(user_decorators)r
 NODE_MARKERS = %(node_markers)r
 MACHINE_DECORATOR = "require_machine_jwt"
+ENVELOPE_SIDECARS = %(envelope_sidecars)r
+
+
+def _unwrap(view):
+    """Peel functools.wraps layers back to the handler actually written."""
+    inner, seen = view, set()
+    while hasattr(inner, "__wrapped__") and id(inner) not in seen:
+        seen.add(id(inner))
+        inner = inner.__wrapped__
+    return inner
+
+
+def envelope_key(view):
+    """Return the collection envelope key one handler emits, or None.
+
+    Tobogganing has NO shared collection envelope: /sase/blockpages/pages
+    answers {"pages": [...]}, /sdwan/clients answers {"clients": [...],
+    "meta": ...}, /sdwan/wireguard/peers answers {"peers": [...], "total": N}.
+    Nothing anywhere answers "items". Assuming one key would render every
+    collection empty, which is precisely the defect Phase 4N shipped against
+    Nest, so the key is read off the handler rather than transcribed.
+
+    A success dict is identified by NOT carrying an "error" key; sidecar
+    metadata keys are subtracted; exactly one key must remain, otherwise the
+    shape is not recognisable and None is returned (a caller must fail loudly
+    rather than guess).
+    """
+    inner = _unwrap(view)
+    try:
+        src = textwrap.dedent(inspect.getsource(inner))
+        tree = ast.parse(src)
+    except (OSError, TypeError, SyntaxError):
+        return None
+    candidates = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        keys = []
+        for k in node.keys:
+            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                keys.append(k.value)
+        if not keys or "error" in keys:
+            continue
+        payload = [k for k in keys if k not in ENVELOPE_SIDECARS]
+        if len(payload) != 1:
+            continue
+        # The value must be list-shaped for this to be a COLLECTION envelope:
+        # a Name bound earlier (clients=[...]) or an inline comprehension.
+        value = node.values[keys.index(payload[0])]
+        if isinstance(value, (ast.ListComp, ast.List, ast.Name)):
+            candidates.append(payload[0])
+    if len(set(candidates)) == 1:
+        return candidates[0]
+    return None
 
 
 def classify(view):
@@ -219,6 +285,7 @@ async def main():
                 "auth": kind,
                 "decorators": decorators,
                 "strict_slashes": bool(rule.strict_slashes),
+                "envelope": envelope_key(view) if view else None,
             })
     json.dump(out, sys.stdout)
     return 0
@@ -228,6 +295,7 @@ sys.exit(asyncio.run(main()))
 ''' % {
     "user_decorators": sorted(_USER_DECORATORS),
     "node_markers": list(_NODE_AUTH_MARKERS),
+    "envelope_sidecars": sorted(_ENVELOPE_SIDECAR_KEYS),
 }
 
 
@@ -370,17 +438,38 @@ def auth_table(root: Path | None = None) -> dict[str, str]:
     return table
 
 
+def envelope_table(root: Path | None = None) -> dict[str, str]:
+    """Return ``{"METHOD /path": collection_envelope_key}`` from a live boot.
+
+    Only routes whose handler emits a recognisable collection envelope appear.
+    A route that answers a single object, or whose shape the reader could not
+    resolve to exactly one payload key, is absent — which a caller must treat
+    as "unknown", never as ``items``.
+    """
+    table: dict[str, str] = {}
+    for entry in _rules(root):
+        key = entry.get("envelope")
+        if not key:
+            continue
+        for method in entry["methods"]:
+            table[f"{method} {entry['rule']}"] = str(key)
+    return table
+
+
 def build_fixture(root: Path | None = None) -> dict[str, Any]:
     """Assemble the vendored payload from a live boot."""
     rules = _rules(root)
     table: dict[str, set[str]] = {}
     auth: dict[str, str] = {}
+    envelopes: dict[str, str] = {}
     for entry in rules:
         table.setdefault(str(entry["rule"]), set()).update(
             str(m) for m in entry["methods"]
         )
         for method in entry["methods"]:
             auth[f"{method} {entry['rule']}"] = str(entry["auth"])
+            if entry.get("envelope"):
+                envelopes[f"{method} {entry['rule']}"] = str(entry["envelope"])
     frozen = {path: frozenset(methods) for path, methods in table.items()}
     return {
         **provenance(_resolve_root(root)),
@@ -401,6 +490,7 @@ def build_fixture(root: Path | None = None) -> dict[str, Any]:
         "rule_count": len(rules),
         "routes": unmethod_map(frozen),
         "auth": auth,
+        "envelopes": envelopes,
     }
 
 
@@ -417,6 +507,12 @@ def vendored_route_table() -> dict[str, frozenset[str]]:
 def vendored_auth_table() -> dict[str, str]:
     """Tobogganing's per-route auth classes, as vendored."""
     raw = load_fixture(FIXTURE_NAME)["auth"]
+    return {str(key): str(value) for key, value in raw.items()}
+
+
+def vendored_envelope_table() -> dict[str, str]:
+    """Tobogganing's per-route collection envelope keys, as vendored."""
+    raw = load_fixture(FIXTURE_NAME).get("envelopes", {})
     return {str(key): str(value) for key, value in raw.items()}
 
 
@@ -442,6 +538,16 @@ def effective_auth_table(root: Path | None = None) -> dict[str, str]:
         return auth_table(root)
     except BootError:
         return vendored_auth_table()
+
+
+def effective_envelope_table(root: Path | None = None) -> dict[str, str]:
+    """Envelope keys from a live boot if one is possible, else from the fixture."""
+    if tobogganing_app_module(root) is None:
+        return vendored_envelope_table()
+    try:
+        return envelope_table(root)
+    except BootError:
+        return vendored_envelope_table()
 
 
 def machine_only_paths(root: Path | None = None) -> frozenset[str]:
