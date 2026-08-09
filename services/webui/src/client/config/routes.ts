@@ -36,6 +36,7 @@ export const APP_ROUTES = [
   "/products/nest/billing",
   "/products/tobogganing/clients",
   "/products/tobogganing/clusters",
+  "/products/tobogganing/peers",
 ] as const;
 
 /**
@@ -67,4 +68,5 @@ export const MENU_ITEM_ROUTES = [
   "/products/nest/billing",
   "/products/tobogganing/clients",
   "/products/tobogganing/clusters",
+  "/products/tobogganing/peers",
 ] as const;

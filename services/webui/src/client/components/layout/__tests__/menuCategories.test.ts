@@ -242,7 +242,7 @@ describe("buildMenuCategories", () => {
     ).find((category) => category.header === "Tobogganing");
     const names = tobogganing?.items.map((item) => item.name);
 
-    expect(names).toEqual(["Clients", "Clusters"]);
+    expect(names).toEqual(["Clients", "Clusters", "WireGuard Peers"]);
     expect(names).not.toContain("Firewall");
     expect(names).not.toContain("Headend");
   });

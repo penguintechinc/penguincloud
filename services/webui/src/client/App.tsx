@@ -27,6 +27,7 @@ import DatabasesPage from "./pages/products/nest/DatabasesPage";
 import BillingPage from "./pages/products/nest/BillingPage";
 import ClientsPage from "./pages/products/tobogganing/ClientsPage";
 import ClustersPage from "./pages/products/tobogganing/ClustersPage";
+import PeersPage from "./pages/products/tobogganing/PeersPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -154,6 +155,7 @@ function App() {
           path="/products/tobogganing/clusters"
           element={<ClustersPage />}
         />
+        <Route path="/products/tobogganing/peers" element={<PeersPage />} />
 
         {/* Settings - Maintainer and Admin */}
         <Route

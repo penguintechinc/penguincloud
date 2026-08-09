@@ -114,6 +114,11 @@ export const PRODUCT_ITEMS: Record<
         href: "/products/tobogganing/clusters",
         icon: Building,
       },
+      {
+        name: "WireGuard Peers",
+        href: "/products/tobogganing/peers",
+        icon: Shield,
+      },
     ],
   },
 };
