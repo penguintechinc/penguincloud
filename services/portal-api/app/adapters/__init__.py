@@ -26,7 +26,7 @@ from typing import Any, Final, Type
 from .base import Adapter, AdapterContext
 from .generic_adapter import GenericAdapter
 from .gough import GoughAdapter
-from .nest_adapter import NestAdapter
+from .nest import NestAdapter
 from .tobogganing_adapter import TobogganingAdapter
 
 __all__ = [

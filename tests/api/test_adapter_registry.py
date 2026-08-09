@@ -25,6 +25,7 @@ from app.adapters.base import (
     ID_INT,
     ID_SLUG,
     ID_UUID,
+    TENANT_PLACEHOLDER_PATTERN,
     AdapterCapabilityError,
     AdapterContext,
     RouteRule,
@@ -125,11 +126,17 @@ class TestAllowlists:
     def test_stub_adapters_expose_only_read_only_liveness(self) -> None:
         """Products with no Phase-4 integration allow liveness and nothing more.
 
-        Gough is deliberately absent: Phase 4G gave it a real allowlist with
-        write rules. Its matrix lives in ``test_gough_allowlist.py``, which
-        asserts both what it admits and what it must not.
+        Gough and Nest are deliberately absent: 4G and 4N gave each a real
+        allowlist. Their matrices live in ``test_gough_allowlist.py`` and
+        ``test_nest_allowlist.py``, which assert both what each admits and
+        what it must not.
+
+        Nest's allowlist is still GET-only — every Nest write is a
+        202-with-operation and therefore a typed method, never proxied — but
+        it names per-product scopes and far more than liveness, so it is no
+        longer what this test describes.
         """
-        for product_type in ("nest", "tobogganing"):
+        for product_type in ("tobogganing",):
             rules = ADAPTER_REGISTRY[product_type].route_allowlist
             assert {rule.method for rule in rules} == {"GET"}
             assert {rule.required_scope for rule in rules} == {"products:read"}
@@ -168,16 +175,36 @@ class TestAllowlists:
 class TestHealthOnlyBehaviour:
     """Unimplemented operations raise rather than returning empty results."""
 
-    @pytest.mark.parametrize("product_type", ["nest", "tobogganing", "generic"])
+    @pytest.mark.parametrize("product_type", ["tobogganing", "generic"])
     async def test_capabilities_reports_health_only(self, product_type: str) -> None:
         """capabilities() tells the truth about what is implemented.
 
-        Gough is excluded because 4G implemented it; ``capabilities()`` must
-        now list what it really does, and that list is asserted in
-        ``test_gough_adapter.py``.
+        Gough and Nest are excluded because 4G and 4N implemented them;
+        ``capabilities()`` must now list what each really does, asserted in
+        ``test_gough_adapter.py`` and ``test_nest_adapter.py``.
         """
         adapter = get_adapter(product_type, _ctx())
         assert await adapter.capabilities(_ctx()) == ["health"]
+
+    async def test_nest_reports_the_operations_it_implements(self) -> None:
+        """An integrated product must not still claim health-only.
+
+        capabilities() drives what the UI offers, so a stale answer here
+        hides working features rather than breaking loudly. Nest's cancel and
+        log operations are deliberately absent — it publishes neither — and
+        asserting that keeps a future edit from advertising them.
+        """
+        adapter = get_adapter("nest", _ctx())
+        reported = await adapter.capabilities(_ctx())
+        assert "health" in reported
+        assert {
+            "list_resources",
+            "create_resource",
+            "perform_action",
+            "get_operation",
+        } <= set(reported)
+        assert "cancel_operation" not in reported
+        assert "operation_logs" not in reported
 
     async def test_gough_reports_the_operations_it_implements(self) -> None:
         """An integrated product must not still claim health-only.
@@ -393,7 +420,31 @@ _LITERAL_SEGMENT = re.compile(r"^[A-Za-z0-9_-]+\Z")
 
 
 def _is_literal(segment: str) -> bool:
-    """True when a segment is a plain path literal."""
+    """True when a segment is a plain path literal.
+
+    The escaped tenant placeholder counts as a literal, by EXACT equality
+    with the contract's own constant and nothing looser.
+
+    It reads as a pattern only because braces are regex metacharacters, but
+    ``re.escape("{tenant}")`` matches exactly one string — the seven-plus-two
+    characters ``{tenant}`` — and matches no other segment a caller could
+    send. It is a constant token the caller writes verbatim and the proxy
+    substitutes AFTER matching (``app/proxy.py``: allowlist at :444,
+    substitution at :482), which is why a tenant-addressed rule must contain
+    it at all.
+
+    Treating it as an id slot instead would demand it be added to
+    ``APPROVED_ID_PATTERNS`` — declaring a fixed literal to be an approved
+    *id shape*, which would then be accepted anywhere an id is expected. That
+    is strictly worse than naming it here for what it is.
+
+    Exact equality is what keeps this from being a loophole: ``\\{tenant\\}x``,
+    ``\\{tenant\\}|.*`` and a hand-escaped near-miss are all still patterns and
+    must still be approved id shapes. ``test_tenant_placeholder_exemption_is_
+    exact`` pins that.
+    """
+    if segment == TENANT_PLACEHOLDER_PATTERN:
+        return True
     return _LITERAL_SEGMENT.match(segment) is not None
 
 
@@ -549,6 +600,47 @@ class TestTypedIdPatterns:
         )
         # And it really does admit the hazardous literals, which is why.
         assert re.fullmatch(evasion, "enroll") is not None
+
+    def test_tenant_placeholder_counts_as_a_literal_segment(self) -> None:
+        """4N: a tenant-addressed rule must carry the placeholder verbatim.
+
+        Nest addresses every resource under ``/tenants/{tenant}/...`` and the
+        proxy matches the allowlist BEFORE substituting, so the rule contains
+        the escaped placeholder. It matches exactly one string and is a
+        constant, not an id slot — see :func:`_is_literal`.
+        """
+        assert _is_literal(TENANT_PLACEHOLDER_PATTERN)
+        assert TENANT_PLACEHOLDER_PATTERN not in APPROVED_ID_PATTERNS, (
+            "the placeholder must be a literal, never an approved id shape — "
+            "an approved shape is accepted in every id slot in every adapter"
+        )
+
+    @pytest.mark.parametrize(
+        "near_miss",
+        [
+            r"\{tenant\}x",
+            r"\{tenant\}|.*",
+            r"\{tenant\}?",
+            r"\{tenants\}",
+            r"\{[a-z]+\}",
+            r"x\{tenant\}",
+        ],
+    )
+    def test_tenant_placeholder_exemption_is_exact(self, near_miss: str) -> None:
+        """The exemption is equality, not a prefix or a family of shapes.
+
+        Written as the falsification of the exemption added in 4N: a
+        substring or ``startswith`` test would admit every entry here, and
+        ``\\{tenant\\}|.*`` in particular would allowlist the entire path
+        space beneath a rule that reads as tenant-scoped.
+        """
+        assert not _is_literal(near_miss), (
+            f"{near_miss!r} is not the tenant placeholder and must still be "
+            f"judged as a pattern"
+        )
+        assert near_miss not in APPROVED_ID_PATTERNS, (
+            f"{near_miss!r} must not be an approved id shape"
+        )
 
     def test_approved_shapes_are_exactly_the_shared_constants(self) -> None:
         """The approved set is small and explicit — assert it by equality.
