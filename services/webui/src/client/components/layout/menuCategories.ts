@@ -109,6 +109,11 @@ export const PRODUCT_ITEMS: Record<
     // that serves it. See task-4T-report.md.
     items: [
       { name: "Clients", href: "/products/tobogganing/clients", icon: Gauge },
+      {
+        name: "Clusters",
+        href: "/products/tobogganing/clusters",
+        icon: Building,
+      },
     ],
   },
 };

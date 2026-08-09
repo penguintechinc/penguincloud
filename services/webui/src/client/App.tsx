@@ -26,6 +26,7 @@ import AgentsPage from "./pages/products/gough/AgentsPage";
 import DatabasesPage from "./pages/products/nest/DatabasesPage";
 import BillingPage from "./pages/products/nest/BillingPage";
 import ClientsPage from "./pages/products/tobogganing/ClientsPage";
+import ClustersPage from "./pages/products/tobogganing/ClustersPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -149,6 +150,10 @@ function App() {
             them — an audience mismatch, not a scope one. See
             menuCategories.ts and task-4T-report.md. */}
         <Route path="/products/tobogganing/clients" element={<ClientsPage />} />
+        <Route
+          path="/products/tobogganing/clusters"
+          element={<ClustersPage />}
+        />
 
         {/* Settings - Maintainer and Admin */}
         <Route
