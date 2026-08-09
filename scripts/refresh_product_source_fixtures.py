@@ -9,14 +9,19 @@ never ran in CI.
 
 The tables are therefore committed, and the suite falls back to them when no
 checkout is present. This script produces them. Run it from a machine that has
-the checkouts (or point ``$GOUGH_SOURCE_ROOT`` / ``$NEST_SOURCE_ROOT`` at them)
-whenever a product's routes change:
+the checkouts (or point ``$GOUGH_SOURCE_ROOT`` / ``$NEST_SOURCE_ROOT`` /
+``$TOBOGGANING_SOURCE_ROOT`` at them) whenever a product's routes change:
 
     make refresh-product-source-fixtures
 
 A fixture that drifts from the product is caught by
-``test_gough_route_drift.py`` and ``test_nest_source_fixture.py``, which compare
-the committed copy against a live parse wherever a checkout exists.
+``test_gough_route_drift.py``, ``test_nest_source_fixture.py`` and
+``test_tobogganing_source_fixture.py``, which compare the committed copy
+against a live parse wherever a checkout exists.
+
+Tobogganing is refreshed by BOOTING the product rather than parsing it — its
+final paths are assembled at runtime by a module registry, so no static parse
+is exact. See :mod:`tests.api.tobogganing_route_source`.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ sys.path.insert(0, str(_TESTS_API))
 
 import gough_route_source  # noqa: E402
 import nest_route_source  # noqa: E402
+import tobogganing_route_source  # noqa: E402
 
 
 def _refresh(label: str, present: object, refresh: object) -> int:
@@ -57,10 +63,16 @@ def main() -> int:
         nest_route_source.nest_api_module(),
         nest_route_source.refresh_fixture,
     )
+    failures += _refresh(
+        "tobogganing",
+        tobogganing_route_source.tobogganing_app_module(),
+        tobogganing_route_source.refresh_fixture,
+    )
     if failures:
         print(
             "\nOne or more checkouts were missing. Set $GOUGH_SOURCE_ROOT / "
-            "$NEST_SOURCE_ROOT, or run this from a machine that has them.",
+            "$NEST_SOURCE_ROOT / $TOBOGGANING_SOURCE_ROOT, or run this from a "
+            "machine that has them.",
             file=sys.stderr,
         )
     return 1 if failures else 0

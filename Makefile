@@ -536,7 +536,7 @@ helm-lint: ## Helm - Lint chart
 helm-template: ## Helm - Render templates (dry-run)
 	@helm template $(PROJECT_NAME) ./$(HELM_DIR) --values ./$(HELM_DIR)/values-alpha.yaml
 
-refresh-product-source-fixtures: ## Testing - Re-vendor Gough/Nest route tables from their checkouts
+refresh-product-source-fixtures: ## Testing - Re-vendor Gough/Nest/Tobogganing route tables from their checkouts
 	@echo "$(BLUE)Refreshing vendored product source fixtures...$(RESET)"
 	@python3 scripts/refresh_product_source_fixtures.py
 
