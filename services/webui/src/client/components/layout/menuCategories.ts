@@ -17,6 +17,7 @@ import {
   Database,
   Shield,
   Gauge,
+  FileText,
 } from "lucide-react";
 import type { MenuCategory, MenuItem } from "@penguintechinc/react-libs";
 import { isProductEnabled } from "../../lib/featureGates";
@@ -118,6 +119,11 @@ export const PRODUCT_ITEMS: Record<
         name: "WireGuard Peers",
         href: "/products/tobogganing/peers",
         icon: Shield,
+      },
+      {
+        name: "Block Pages",
+        href: "/products/tobogganing/block-pages",
+        icon: FileText,
       },
     ],
   },

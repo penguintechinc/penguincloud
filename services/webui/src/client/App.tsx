@@ -28,6 +28,7 @@ import BillingPage from "./pages/products/nest/BillingPage";
 import ClientsPage from "./pages/products/tobogganing/ClientsPage";
 import ClustersPage from "./pages/products/tobogganing/ClustersPage";
 import PeersPage from "./pages/products/tobogganing/PeersPage";
+import BlockPagesPage from "./pages/products/tobogganing/BlockPagesPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -156,6 +157,10 @@ function App() {
           element={<ClustersPage />}
         />
         <Route path="/products/tobogganing/peers" element={<PeersPage />} />
+        <Route
+          path="/products/tobogganing/block-pages"
+          element={<BlockPagesPage />}
+        />
 
         {/* Settings - Maintainer and Admin */}
         <Route
