@@ -12,11 +12,10 @@ import {
   Building,
   Users,
   Zap,
-  Lock,
+  Receipt,
   Settings,
   Database,
   Shield,
-  Radio,
   Gauge,
 } from "lucide-react";
 import type { MenuCategory, MenuItem } from "@penguintechinc/react-libs";
@@ -33,7 +32,20 @@ const PRODUCT_KEY_MAP: Record<string, string> = {
   elder: "elder",
 };
 
-const PRODUCT_ITEMS: Record<string, { header: string; items: MenuItem[] }> = {
+/**
+ * Every product that declares a sidebar category, keyed by feature-gate key.
+ *
+ * Exported so the dead-link regression test can derive the connections it
+ * builds the menu with, instead of listing them by hand. It listed three
+ * products, so a fourth category added here would be invisible to the only
+ * check that looks for dead links — the same shape as the original defect,
+ * where the test built the menu with NO connections at all and therefore never
+ * saw a single product entry.
+ */
+export const PRODUCT_ITEMS: Record<
+  string,
+  { header: string; items: MenuItem[] }
+> = {
   gough: {
     header: "Gough",
     // No Clusters entry: Gough registers no cluster collection endpoint, and
@@ -51,27 +63,35 @@ const PRODUCT_ITEMS: Record<string, { header: string; items: MenuItem[] }> = {
   },
   nest: {
     header: "Nest",
+    // No Servers, Cloud or Workflows entries. Those screens are not descoped
+    // for effort reasons — they are unreachable. "Nest" is four services, and
+    // its deployed HTTPRoute sends ALL of /api to nest-api, so `apps/manager`
+    // (servers, cloud providers, scaling) and `saga-engine` (workflows) have
+    // no route at the origin a Nest connection points at. The portal's
+    // transport pins every call to that one origin — a credential-egress
+    // control, not an inconvenience.
+    //
+    // The three entries existed here before the routes did, which made them
+    // dead links behind an off-by-default flag. Filed upstream as
+    // penguintechinc/nest#25 proposing prefix routes; they return when Nest
+    // routes them. See task-4N-report.md.
     items: [
       { name: "Databases", href: "/products/nest/databases", icon: Database },
-      { name: "Servers", href: "/products/nest/servers", icon: Building },
-      { name: "Workflows", href: "/products/nest/workflows", icon: Zap },
-      { name: "Billing", href: "/products/nest/billing", icon: Lock },
-      { name: "Cloud", href: "/products/nest/cloud", icon: Radio },
+      { name: "Billing", href: "/products/nest/billing", icon: Receipt },
     ],
   },
   tobogganing: {
     header: "Tobogganing",
-    items: [
-      { name: "SASE", href: "/products/tobogganing/sase", icon: Shield },
-      { name: "SD-WAN", href: "/products/tobogganing/sdwan", icon: Radio },
-      { name: "Firewall", href: "/products/tobogganing/firewall", icon: Lock },
-      { name: "WireGuard", href: "/products/tobogganing/wireguard", icon: Zap },
-      {
-        name: "Headend",
-        href: "/products/tobogganing/headend",
-        icon: Building,
-      },
-    ],
+    // Empty until Phase 4T ships screens. It previously listed SASE, SD-WAN,
+    // Firewall, WireGuard and Headend — five entries with no route behind any
+    // of them, so every one was a dead link. They were invisible to the
+    // dead-link test because it built the menu for a tenant with NO product
+    // connections, and a product category only appears when one exists.
+    //
+    // Removed rather than left pending: `MENU_ITEM_ROUTES` is now asserted to
+    // be a subset of `APP_ROUTES`, so an entry can only be added alongside the
+    // route that serves it. 4T re-adds these with its screens.
+    items: [],
   },
 };
 
@@ -145,7 +165,10 @@ export function buildMenuCategories(
   ];
 
   Object.entries(PRODUCT_ITEMS).forEach(([key, { header, items }]) => {
-    if (connected.has(key) && isProductEnabled(key)) {
+    // `items.length > 0` for the same reason the Organization block below
+    // checks it: a category header with nothing under it reads as a screen
+    // that failed to load rather than one that does not exist yet.
+    if (connected.has(key) && isProductEnabled(key) && items.length > 0) {
       categories.push({
         header,
         collapsible: true,

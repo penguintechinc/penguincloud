@@ -4,19 +4,20 @@
  */
 
 import api from "../../lib/api";
+import { portalUrl } from "../portalPaths";
 import type { Tenant, TenantMember, TenantUsage } from "../../types";
 
 export const tenantsApi = {
   list: async (
     includeChildren = false,
   ): Promise<{ tenants: Tenant[]; count?: number }> => {
-    const response = await api.get("/tenants", {
+    const response = await api.get(portalUrl.tenants(), {
       params: includeChildren ? { include_children: true } : undefined,
     });
     return response.data;
   },
   get: async (id: number): Promise<Tenant> => {
-    const response = await api.get(`/tenants/${id}`);
+    const response = await api.get(portalUrl.tenant(id));
     return response.data;
   },
   create: async (data: {
@@ -25,15 +26,15 @@ export const tenantsApi = {
     display_name?: string;
     plan?: string;
   }): Promise<Tenant> => {
-    const response = await api.post("/tenants", data);
+    const response = await api.post(portalUrl.tenants(), data);
     return response.data;
   },
   update: async (id: number, data: Partial<Tenant>): Promise<Tenant> => {
-    const response = await api.put(`/tenants/${id}`, data);
+    const response = await api.put(portalUrl.tenant(id), data);
     return response.data;
   },
   delete: async (id: number): Promise<void> => {
-    await api.delete(`/tenants/${id}`);
+    await api.delete(portalUrl.tenant(id));
   },
   switchTenant: async (
     id: number,
@@ -43,13 +44,13 @@ export const tenantsApi = {
     tenant: Tenant;
     tenant_role: string;
   }> => {
-    const response = await api.post(`/tenants/${id}/switch`);
+    const response = await api.post(portalUrl.tenantSwitch(id));
     return response.data;
   },
   getMembers: async (
     id: number,
   ): Promise<{ members: TenantMember[]; count: number }> => {
-    const response = await api.get(`/tenants/${id}/members`);
+    const response = await api.get(portalUrl.tenantMembers(id));
     return response.data;
   },
   addMember: async (
@@ -57,7 +58,7 @@ export const tenantsApi = {
     userId: number,
     role: string,
   ): Promise<TenantMember> => {
-    const response = await api.post(`/tenants/${id}/members`, {
+    const response = await api.post(portalUrl.tenantMembers(id), {
       user_id: userId,
       role,
     });
@@ -68,16 +69,16 @@ export const tenantsApi = {
     userId: number,
     role: string,
   ): Promise<TenantMember> => {
-    const response = await api.put(`/tenants/${tenantId}/members/${userId}`, {
+    const response = await api.put(portalUrl.tenantMember(tenantId, userId), {
       role,
     });
     return response.data;
   },
   removeMember: async (tenantId: number, userId: number): Promise<void> => {
-    await api.delete(`/tenants/${tenantId}/members/${userId}`);
+    await api.delete(portalUrl.tenantMember(tenantId, userId));
   },
   getUsage: async (id: number): Promise<TenantUsage> => {
-    const response = await api.get(`/tenants/${id}/usage`);
+    const response = await api.get(portalUrl.tenantUsage(id));
     return response.data;
   },
 };

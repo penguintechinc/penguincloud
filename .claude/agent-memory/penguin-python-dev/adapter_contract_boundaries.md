@@ -76,6 +76,22 @@ hazard for each, and add structural assertions (every mutating verb requires
 manage; no rule admits `/auth/*`; no id pattern matches a route literal). An
 allowlist test that only checks happy paths passes just as well against `^/`.
 
+**The escaped tenant placeholder is a LITERAL segment, not an id shape**
+(settled 4N, the first adapter to use a tenant-addressed rule). The proxy
+matches the allowlist at `proxy.py:444` and substitutes at `:482`, so a rule
+must carry `{tenant}` verbatim; `re.escape` makes it look like a pattern to
+`_is_literal`, which rejected it. Fixed in the test helper by **exact
+equality** with `TENANT_PLACEHOLDER_PATTERN` — never `startswith`, which
+admits `\{tenant\}|.*` and allowlists the whole path space beneath a rule
+that reads as tenant-scoped. Adding it to `APPROVED_ID_PATTERNS` instead
+would declare a fixed literal to be an approved id shape, accepted in every
+id slot in every adapter.
+
+Also settled 4N: the sibling-literal check is **prefix-scoped** — it only
+compares an id slot against literals under the *same* leading segments. So
+`/cost-report/summary` and `/data-resources/{ID_SLUG}` do not collide, and a
+rule pair only needs rethinking when the prefixes genuinely match.
+
 Long-running work uses the `Operation` contract (added 4G): report `state`
 normalised for control flow AND `status` verbatim for display; never
 synthesise `progress`; keep the poll key self-contained (fold a parent id into

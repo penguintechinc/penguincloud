@@ -1,8 +1,9 @@
 import axios from "axios";
 import { useTenantStore } from "../stores/tenantStore";
+import { API_BASE_PATH } from "../api/portalPaths";
 
 const api = axios.create({
-  baseURL: "/api/v1",
+  baseURL: API_BASE_PATH,
   headers: {
     "Content-Type": "application/json",
   },

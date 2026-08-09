@@ -12,8 +12,12 @@
  */
 
 import api from "../../lib/api";
+import { proxyRequestUrl } from "../portalPaths";
 import { goughApi } from "../resources/gough";
 import { goughOperationsApi } from "../resources/goughOperations";
+
+/** The connection id every binding below is called with. */
+const PRODUCT_ID = 7;
 
 jest.mock("../../lib/api");
 
@@ -30,10 +34,21 @@ beforeEach(() => {
   mockApi.request.mockResolvedValue({ data: {} });
 });
 
-/** The path the proxy binding forwarded, minus the /proxy/{id}/ prefix. */
+/**
+ * The product-relative path the proxy binding forwarded.
+ *
+ * The prefix is stripped using `proxyRequestUrl` itself rather than a
+ * hand-written regex. The regex here used to be `^\/proxy\/\d+\/`, transcribed
+ * from a prefix the portal does not serve — so every assertion below passed
+ * while the real request 404'd. Deriving the prefix from the builder means a
+ * URL shape this suite does not actually produce cannot be stripped, and the
+ * `expect(...).toBe(...)` lines fail instead of silently agreeing.
+ */
 function forwardedPath(): string {
   const url = mockApi.request.mock.calls[0][0].url as string;
-  return url.replace(/^\/proxy\/\d+\//, "");
+  const prefix = proxyRequestUrl(PRODUCT_ID, "");
+  expect(url.startsWith(prefix)).toBe(true);
+  return url.slice(prefix.length);
 }
 
 describe("goughApi list bindings", () => {
@@ -148,6 +163,31 @@ describe("goughApi mutating verbs", () => {
 });
 
 describe("goughOperationsApi", () => {
+  it("reads headline metrics from the portal's metrics endpoint", async () => {
+    // The only binding in this module with no test, which held the file's
+    // coverage under its 90% threshold. Not a Nest change — fixed here rather
+    // than left red, since a failing gate that predates a branch is still a
+    // failing gate on it.
+    //
+    // `totals` is the figure the dashboard tiles read, and it is NOT the
+    // length of a resource list: Gough's page_size caps at 500 and its own
+    // `total` is the length of the page it just serialised, so a fleet larger
+    // than one page would render as the page size.
+    mockApi.get.mockResolvedValue({
+      data: {
+        start: "2026-08-08T00:00:00Z",
+        series: [],
+        totals: { nodes: 12 },
+      },
+    });
+
+    const summary = await goughOperationsApi.metricsSummary(7);
+
+    expect(summary.totals).toEqual({ nodes: 12 });
+    expect(mockApi.get).toHaveBeenCalledWith("/products/7/metrics");
+    expect(mockApi.request).not.toHaveBeenCalled();
+  });
+
   it("lists operations from the portal endpoint, not the proxy", async () => {
     mockApi.get.mockResolvedValue({ data: { operations: [{ id: "op-1" }] } });
 
@@ -158,7 +198,21 @@ describe("goughOperationsApi", () => {
     expect(mockApi.request).not.toHaveBeenCalled();
   });
 
-  it("defaults to an empty list when the body omits operations", async () => {
+  it("refuses to report a missing operations key as no operations", async () => {
+    // `operations` is a required field of `OperationListResponse`, so an empty
+    // page arrives as `{"operations": []}`. Defaulting to [] told the operator
+    // nothing was running — the same false statement that shipped for Nest's
+    // snapshots, on a screen watching a deploy.
+    mockApi.get.mockResolvedValue({ data: {} });
+
+    await expect(goughOperationsApi.listOperations(7)).rejects.toThrow(
+      /no "operations" key/,
+    );
+  });
+
+  it("still reports a genuinely empty operation list as empty", async () => {
+    mockApi.get.mockResolvedValue({ data: { operations: [] } });
+
     expect(await goughOperationsApi.listOperations(7)).toEqual([]);
   });
 
@@ -262,14 +316,30 @@ describe("goughOperationsApi", () => {
   });
 
   it("omits the params object entirely when `since` is absent", async () => {
+    mockApi.get.mockResolvedValue({ data: { logs: [] } });
+
     await goughOperationsApi.operationLogs(7, "deployment", "op-1");
+
     expect(mockApi.get).toHaveBeenCalledWith(
       "/products/7/operations/deployment/op-1/logs",
       { params: undefined },
     );
   });
 
-  it("defaults to no log lines when the body omits them", async () => {
+  it("refuses to report a missing logs key as no output", async () => {
+    // "no output yet" and "this response is not the shape we expect" are very
+    // different things to tell someone watching a deploy. `logs` is required
+    // on `OperationLogsResponse`, so its absence cannot be the first.
+    mockApi.get.mockResolvedValue({ data: {} });
+
+    await expect(
+      goughOperationsApi.operationLogs(7, "deployment", "op-1"),
+    ).rejects.toThrow(/no "logs" key/);
+  });
+
+  it("still reports a genuinely empty log stream as empty", async () => {
+    mockApi.get.mockResolvedValue({ data: { logs: [] } });
+
     expect(
       await goughOperationsApi.operationLogs(7, "deployment", "op-1"),
     ).toEqual([]);

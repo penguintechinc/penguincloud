@@ -111,10 +111,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Final, Generic, Protocol, TypeVar
+from urllib.parse import quote
 
 __all__ = [
     "HealthResult",
     "Resource",
+    "RESOURCE_OPERATION_ID_KEY",
     "Page",
     "MetricPoint",
     "MetricSeries",
@@ -144,6 +146,7 @@ __all__ = [
     "PathTraversalError",
     "adapter_error_status",
     "normalize_proxy_path",
+    "quote_path_segment",
     "TENANT_PLACEHOLDER",
     "TENANT_PLACEHOLDER_PATTERN",
     "HealthOnlyAdapter",
@@ -281,6 +284,22 @@ class HealthResult:
     status_code: int
     response_time_ms: int
     error: str | None = None
+
+
+#: ``Resource.metadata`` key carrying the poll handle for a create that the
+#: product completes asynchronously.
+#:
+#: ``create_resource`` returns a :class:`Resource`, not an
+#: :class:`ActionResult`, so it has no ``operations`` list to put the handle
+#: in — but a product like Nest answers every create with ``202`` and an
+#: operation id, and a UI that reports the row as ready the moment creation
+#: was *accepted* is showing provisioning state it never checked.
+#:
+#: Named here rather than spelled in each adapter because
+#: :mod:`app.resources_api` promotes it to a typed ``operation_id`` field on
+#: the create response. Two spellings of the key means the route silently
+#: publishes ``None`` for the adapter that picked the other one.
+RESOURCE_OPERATION_ID_KEY: Final[str] = "operationId"
 
 
 @dataclass(slots=True)
@@ -688,6 +707,59 @@ def product_scope(product_type: str, action: str) -> str:
     see "Per-product scopes" in the module docstring for the model.
     """
     return f"{PRODUCT_SCOPE_NAMESPACE}:{product_type}:{action}"
+
+
+def quote_path_segment(value: str) -> str:
+    """Percent-encode one value that is about to become a path segment.
+
+    **The transport does not do this for you.** It takes a fully-built URL
+    string and hands it to httpx (``transport.py:154``); the only path check it
+    performs is :func:`normalize_proxy_path` inside the origin pin, which
+    *refuses* traversal rather than encoding anything. So an adapter that
+    interpolates an id into an f-string owns the encoding, and this is the
+    helper to do it with.
+
+    What it protects against, concretely: a typed portal route takes its id
+    from a URL segment, and Werkzeug percent-DECODES that segment before the
+    handler sees it — so ``%3F`` arrives as a literal ``?``. Interpolated raw,
+    that ends the path and starts a query string at the product, turning
+    ``DELETE /data-resources/x?y`` into a delete of ``x`` with a stray
+    parameter. ``#`` and ``/`` behave similarly. ``safe=""`` because a path
+    segment has no legitimate separator inside it.
+
+    Not a substitute for typing an id in a ``RouteRule`` — that governs the
+    caller-supplied PROXY path. This governs the typed-method path an adapter
+    builds itself, which no allowlist ever sees.
+
+    Which of the two strategies to use
+    ==================================
+    Two adapters solved this differently and both are sound, so the third
+    product must not invent a third answer:
+
+    ================  ==========================  ==============================
+    strategy          used by                     when it is right
+    ================  ==========================  ==============================
+    **encode**        Nest (this function)        the product's ids are
+                                                  free-form and the portal does
+                                                  not get to define their shape
+    **reject**        Gough (``_segment``)        the product's ids have a known
+                                                  shape, so anything else is a
+                                                  bug worth surfacing early
+    ================  ==========================  ==============================
+
+    **Rule for a new adapter: reject if you can state the id's shape, encode if
+    you cannot.** Rejecting is stricter and gives a clearer failure (Gough's
+    ``_segment`` raises ``ResourceNotFoundError`` on anything outside
+    ``[A-Za-z0-9_-]``), so prefer it. Nest cannot: it names resources by an
+    operator-chosen DNS-style ``name`` and the portal has no standing to
+    narrow that, so it encodes instead.
+
+    What is NOT acceptable is a third option — interpolating the value raw and
+    relying on the transport's origin pin to contain the damage. The pin
+    refuses traversal and cross-origin egress; it does not stop a ``?`` from
+    turning the rest of your path into a query string.
+    """
+    return quote(str(value), safe="")
 
 
 def normalize_proxy_path(raw: str) -> str:

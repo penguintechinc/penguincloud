@@ -7,11 +7,12 @@
  */
 
 import api from "../../lib/api";
+import { proxyRequestUrl } from "../portalPaths";
 import { usersApi } from "../resources/users";
 import { tenantsApi } from "../resources/tenants";
 import { productsApi, discoveryApi, proxyApi } from "../resources/products";
 import { dashboardApi, auditApi } from "../resources/dashboard";
-import { helloApi, goApi } from "../resources/platform";
+import { helloApi } from "../resources/platform";
 
 jest.mock("../../lib/api");
 
@@ -198,9 +199,12 @@ describe("discoveryApi", () => {
 describe("proxyApi", () => {
   it("forwards method, path and body to the product proxy", async () => {
     await proxyApi.request(6, "POST", "nodes", { name: "n1" });
+    // The URL comes from `proxyRequestUrl`, which `portalPaths.test.ts` ties
+    // to the rule the portal registers. Spelling it literally here is how the
+    // suite previously pinned `/proxy/6/nodes` — a route that does not exist.
     expect(mockApi.request).toHaveBeenCalledWith({
       method: "POST",
-      url: "/proxy/6/nodes",
+      url: proxyRequestUrl(6, "nodes"),
       data: { name: "n1" },
     });
   });
@@ -236,21 +240,33 @@ describe("dashboardApi", () => {
     });
   });
 
-  it("unwraps the rollup envelope", async () => {
+  it("unwraps the rollup envelope from the TENANT-scoped route", async () => {
+    // The URL is the fix, not decoration: this called `/dashboard/rollup` with
+    // a tenant_id query parameter, and the portal registers no such route — it
+    // is `/api/v1/tenants/{tenant_id}/dashboard/rollup` (`tenants.py:901`). It
+    // had never worked; `test_webui_portal_paths.py` now binds it to url_map.
     mockApi.get.mockResolvedValue({
       data: { rollup: [{ tenant_id: "t1", tenant_name: "T", products: [] }] },
     });
 
     const rows = await dashboardApi.rollup(1);
 
-    expect(mockApi.get).toHaveBeenCalledWith("/dashboard/rollup", {
-      params: { tenant_id: 1 },
-    });
+    expect(mockApi.get).toHaveBeenCalledWith("/tenants/1/dashboard/rollup");
     expect(rows).toHaveLength(1);
   });
 
-  it("returns an empty rollup when the envelope is missing", async () => {
+  it("refuses to report a missing rollup key as no customers", async () => {
+    // `rollup` is a required field of `RollupResponse`, so an empty subtree
+    // arrives as `{"rollup": []}`. A provider seeing an empty customer matrix
+    // has no way to tell that from a response nobody understood.
     mockApi.get.mockResolvedValue({ data: {} });
+
+    await expect(dashboardApi.rollup(1)).rejects.toThrow(/no "rollup" key/);
+  });
+
+  it("still reports a genuinely empty subtree as empty", async () => {
+    mockApi.get.mockResolvedValue({ data: { rollup: [] } });
+
     await expect(dashboardApi.rollup(1)).resolves.toEqual([]);
   });
 });
@@ -292,16 +308,5 @@ describe("platform endpoints", () => {
 
     await helloApi.getProtected();
     expect(mockApi.get).toHaveBeenCalledWith("/hello/protected");
-  });
-
-  it("reads the Go backend diagnostics", async () => {
-    await goApi.status();
-    expect(mockApi.get).toHaveBeenCalledWith("/go/status");
-
-    await goApi.numaInfo();
-    expect(mockApi.get).toHaveBeenCalledWith("/go/numa/info");
-
-    await goApi.memoryStats();
-    expect(mockApi.get).toHaveBeenCalledWith("/go/memory/stats");
   });
 });

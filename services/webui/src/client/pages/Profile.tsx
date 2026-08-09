@@ -4,6 +4,7 @@ import Card from "../components/Card";
 import Button from "../components/Button";
 import { FormBuilder, FieldConfig } from "@penguintechinc/react-libs";
 import api from "../lib/api";
+import { portalUrl } from "../api/portalPaths";
 import { formString, optionalFormString } from "../lib/formValues";
 
 // Profile edit form fields
@@ -61,11 +62,22 @@ export default function Profile() {
     }
 
     try {
-      await api.put("/auth/me", {
+      // TWO routes, not one field on one route. `PUT /auth/me` was a 405 — the
+      // auth blueprint serves GET only (`auth.get_me`) — so saving a profile
+      // had never worked. The portal splits the two operations deliberately:
+      // `PUT /users/me` takes the profile fields, and changing a password
+      // requires the current one and is verified separately
+      // (`users.change_password`), which a merged endpoint could not express.
+      await api.put(portalUrl.ownProfile(), {
         full_name: formString(data, "full_name"),
-        current_password: optionalFormString(data, "current_password"),
-        new_password: newPassword,
       });
+
+      if (newPassword) {
+        await api.put(portalUrl.ownPassword(), {
+          current_password: optionalFormString(data, "current_password"),
+          new_password: newPassword,
+        });
+      }
 
       setSuccess("Profile updated successfully");
       setIsEditing(false);

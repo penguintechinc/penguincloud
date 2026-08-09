@@ -3,6 +3,7 @@
  */
 
 import api from "../../lib/api";
+import { portalUrl, proxyRequestUrl } from "../portalPaths";
 import type {
   ProductConnection,
   ProductType,
@@ -12,47 +13,47 @@ import type {
 
 export const productsApi = {
   types: async (): Promise<{ product_types: ProductType[] }> => {
-    const response = await api.get("/products/types");
+    const response = await api.get(portalUrl.productTypes());
     return response.data;
   },
   list: async (
     tenantId: number,
   ): Promise<{ products: ProductConnection[]; count: number }> => {
-    const response = await api.get("/products", {
+    const response = await api.get(portalUrl.products(), {
       params: { tenant_id: tenantId },
     });
     return response.data;
   },
   get: async (id: number): Promise<ProductConnection> => {
-    const response = await api.get(`/products/${id}`);
+    const response = await api.get(portalUrl.product(id));
     return response.data;
   },
   register: async (
     data: Record<string, unknown>,
   ): Promise<ProductConnection> => {
-    const response = await api.post("/products", data);
+    const response = await api.post(portalUrl.products(), data);
     return response.data;
   },
   update: async (
     id: number,
     data: Record<string, unknown>,
   ): Promise<ProductConnection> => {
-    const response = await api.put(`/products/${id}`, data);
+    const response = await api.put(portalUrl.product(id), data);
     return response.data;
   },
   delete: async (id: number): Promise<void> => {
-    await api.delete(`/products/${id}`);
+    await api.delete(portalUrl.product(id));
   },
   test: async (id: number): Promise<Record<string, unknown>> => {
-    const response = await api.post(`/products/${id}/test`);
+    const response = await api.post(portalUrl.productTest(id));
     return response.data;
   },
   health: async (id: number): Promise<Record<string, unknown>> => {
-    const response = await api.get(`/products/${id}/health`);
+    const response = await api.get(portalUrl.productHealth(id));
     return response.data;
   },
   schema: async (id: number): Promise<ProductManagementSchema> => {
-    const response = await api.get(`/products/${id}/schema`);
+    const response = await api.get(portalUrl.productSchema(id));
     return response.data;
   },
 };
@@ -90,7 +91,12 @@ export const discoveryApi = {
   },
 };
 
-/** Forwards an arbitrary request to a connected product's own API. */
+/**
+ * Forwards an arbitrary request to a connected product's own API.
+ *
+ * The portal URL is built by `proxyRequestUrl` rather than spelled here — see
+ * `api/portalPaths.ts` for why that indirection is load-bearing.
+ */
 export const proxyApi = {
   request: async (
     productId: number,
@@ -100,7 +106,7 @@ export const proxyApi = {
   ): Promise<unknown> => {
     const response = await api.request({
       method,
-      url: `/proxy/${productId}/${path}`,
+      url: proxyRequestUrl(productId, path),
       data,
     });
     return response.data;

@@ -159,7 +159,7 @@ async def test_health_check_records_status_and_timestamp(
     created = await _register_product(client, admin_headers, tenant_id)
 
     from app.adapters.base import HealthResult, AdapterContext
-    from app.adapters.nest_adapter import NestAdapter
+    from app.adapters.nest import NestAdapter
 
     async def mock_health(self: Any, ctx: AdapterContext) -> HealthResult:
         return HealthResult(
@@ -195,7 +195,7 @@ async def test_health_endpoint_reports_recorded_check(
     created = await _register_product(client, admin_headers, tenant_id)
 
     from app.adapters.base import HealthResult, AdapterContext
-    from app.adapters.nest_adapter import NestAdapter
+    from app.adapters.nest import NestAdapter
 
     async def mock_health(self: Any, ctx: AdapterContext) -> HealthResult:
         return HealthResult(
