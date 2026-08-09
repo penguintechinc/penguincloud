@@ -247,6 +247,7 @@ describe("buildMenuCategories", () => {
       "Clusters",
       "WireGuard Peers",
       "Block Pages",
+      "SWG Policy",
     ]);
     expect(names).not.toContain("Firewall");
     expect(names).not.toContain("Headend");

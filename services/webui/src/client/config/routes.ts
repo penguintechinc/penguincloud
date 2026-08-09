@@ -38,6 +38,7 @@ export const APP_ROUTES = [
   "/products/tobogganing/clusters",
   "/products/tobogganing/peers",
   "/products/tobogganing/block-pages",
+  "/products/tobogganing/swg-policy",
 ] as const;
 
 /**
@@ -71,4 +72,5 @@ export const MENU_ITEM_ROUTES = [
   "/products/tobogganing/clusters",
   "/products/tobogganing/peers",
   "/products/tobogganing/block-pages",
+  "/products/tobogganing/swg-policy",
 ] as const;

@@ -29,6 +29,7 @@ import ClientsPage from "./pages/products/tobogganing/ClientsPage";
 import ClustersPage from "./pages/products/tobogganing/ClustersPage";
 import PeersPage from "./pages/products/tobogganing/PeersPage";
 import BlockPagesPage from "./pages/products/tobogganing/BlockPagesPage";
+import SwgPolicyPage from "./pages/products/tobogganing/SwgPolicyPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -160,6 +161,10 @@ function App() {
         <Route
           path="/products/tobogganing/block-pages"
           element={<BlockPagesPage />}
+        />
+        <Route
+          path="/products/tobogganing/swg-policy"
+          element={<SwgPolicyPage />}
         />
 
         {/* Settings - Maintainer and Admin */}

@@ -18,6 +18,7 @@ import {
   Shield,
   Gauge,
   FileText,
+  Lock,
 } from "lucide-react";
 import type { MenuCategory, MenuItem } from "@penguintechinc/react-libs";
 import { isProductEnabled } from "../../lib/featureGates";
@@ -124,6 +125,11 @@ export const PRODUCT_ITEMS: Record<
         name: "Block Pages",
         href: "/products/tobogganing/block-pages",
         icon: FileText,
+      },
+      {
+        name: "SWG Policy",
+        href: "/products/tobogganing/swg-policy",
+        icon: Lock,
       },
     ],
   },
