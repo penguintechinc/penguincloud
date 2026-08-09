@@ -17,7 +17,7 @@
  * against the adapter's own constants. No URL is spelled here.
  */
 
-import { envelopeList } from "../envelope";
+import { envelopeList, envelopeString } from "../envelope";
 import { proxyApi } from "./products";
 import {
   BLOCK_PAGE_SEGMENT_PREVIEW,
@@ -25,10 +25,10 @@ import {
   blockPagePath,
   TOBOGGANING_COLLECTION_ENVELOPE_KEYS,
   TOBOGGANING_COLLECTION_PATHS,
+  TOBOGGANING_PREVIEW_HTML_KEY,
 } from "./tobogganingPaths";
 import type {
   TobogganingBlockPage,
-  TobogganingBlockPagePreview,
   TobogganingClient,
   TobogganingCluster,
   TobogganingPeer,
@@ -94,22 +94,31 @@ export const tobogganingApi = {
     })) as TobogganingBlockPage,
 
   /**
-   * Render a page without publishing it.
+   * Render a page without publishing it, returning the HTML itself.
    *
    * A POST that mutates nothing, which is the product's shape rather than a
    * choice here: it takes a `variables` body, so it cannot be a GET.
+   *
+   * The `html` key is unwrapped HERE rather than by the caller. Returning the
+   * envelope let `useBlockPagePreview` write `preview.html ?? ""`, which is
+   * the "report nothing as none" class one layer over: a renamed key would
+   * render a blank white iframe with no error anywhere. Decoding at the
+   * boundary means no call site is in a position to add that fallback back.
    */
   previewBlockPage: async (
     productId: number,
     pageId: string,
     variables?: Record<string, string>,
-  ): Promise<TobogganingBlockPagePreview> =>
-    (await proxyApi.request(
-      productId,
-      "POST",
-      blockPagePath(pageId, BLOCK_PAGE_SEGMENT_PREVIEW),
-      { variables: variables ?? {} },
-    )) as TobogganingBlockPagePreview,
+  ): Promise<string> =>
+    envelopeString(
+      await proxyApi.request(
+        productId,
+        "POST",
+        blockPagePath(pageId, BLOCK_PAGE_SEGMENT_PREVIEW),
+        { variables: variables ?? {} },
+      ),
+      TOBOGGANING_PREVIEW_HTML_KEY,
+    ),
 
   /** Publish a draft. This is what makes the page live for blocked users. */
   publishBlockPage: async (

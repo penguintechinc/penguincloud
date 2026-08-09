@@ -51,6 +51,7 @@ __all__ = [
     "KIND_SWG_POLICY",
     "RESOURCE_KINDS",
     "COLLECTION_ENVELOPE_KEYS",
+    "PREVIEW_HTML_KEY",
     "KIND_LIST_ROUTES",
     "NAME_FIELDS",
     "envelope_key",
@@ -114,6 +115,23 @@ NAME_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     KIND_BLOCKPAGE_ROUTE: ("pattern", "route", "id"),
     KIND_SWG_POLICY: ("name", "category", "id"),
 }
+
+#: The key the block-page preview's rendered HTML arrives under.
+#:
+#: NOT part of :data:`COLLECTION_ENVELOPE_KEYS` and not covered by the derived
+#: table: ``tests/api/tobogganing_route_source.py`` records list-shaped
+#: collection envelopes only, and this is a scalar in a two-key response
+#: (``{"html": ..., "variables": ...}``,
+#: ``hub_api/modules/sase/security/blockpages/api.py:371-374``). So this
+#: constant's link to the product is a CITED SOURCE LINE rather than a derived
+#: assertion — one link weaker than the six collection keys, recorded here so
+#: nobody reads the whole module as equally machine-checked.
+#:
+#: It exists so the webui has something to be pinned against:
+#: ``preview.html ?? ""`` renders a blank white iframe for a renamed key, and
+#: "this draft renders to nothing" is a plausible thing for an operator to
+#: believe.
+PREVIEW_HTML_KEY: Final[str] = "html"
 
 #: Keys that ride alongside a collection rather than being one. Mirrors the
 #: derivation in ``tests/api/tobogganing_route_source.py``; asserted equal there

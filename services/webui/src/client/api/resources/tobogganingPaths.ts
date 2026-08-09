@@ -69,6 +69,27 @@ export const TOBOGGANING_COLLECTION_ENVELOPE_KEYS = {
   swgPolicies: "policies",
 } as const;
 
+/**
+ * The key the rendered preview arrives under.
+ *
+ * Pinned here with the collection keys rather than read at the call site,
+ * because it is subject to exactly the same failure and one the operator is
+ * even less able to spot: `preview.html ?? ""` renders a blank white iframe,
+ * and "this page renders to nothing" is a plausible thing for a draft to do.
+ * `envelopeString` raises on absence instead.
+ *
+ * **One caveat, stated rather than glossed.** The six collection keys above are
+ * bound to Tobogganing's own handlers by a DERIVED table
+ * (`tests/api/tobogganing_route_source.py` reads the key each registered
+ * handler emits). That deriver records list-shaped envelopes only, so it does
+ * not cover this scalar. The Python guard therefore binds this key to the
+ * adapter's `PREVIEW_HTML_KEY`, and the adapter's link to the product is a
+ * cited source line (`blockpages/api.py:371-374`) rather than a derived
+ * assertion. Weaker than the others by one link; noted so nobody reads the
+ * whole table as equally machine-checked.
+ */
+export const TOBOGGANING_PREVIEW_HTML_KEY = "html";
+
 /** Literal sub-collections beneath a block page id. */
 export const BLOCK_PAGE_SEGMENT_PREVIEW = "preview";
 export const BLOCK_PAGE_SEGMENT_PUBLISH = "publish";

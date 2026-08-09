@@ -65,7 +65,9 @@ describe("collection reads", () => {
       const rows = await tobogganingApi[method](PRODUCT_ID);
 
       expect(rows).toEqual([row]);
-      expect(forwarded()).toMatchObject({ method: "GET", path });
+      // toEqual, not toMatchObject: a GET carrying a body is a defect the
+      // looser matcher would pass over silently.
+      expect(forwarded()).toEqual({ method: "GET", path, data: undefined });
     },
   );
 
@@ -156,8 +158,11 @@ describe("block page authoring", () => {
   });
 
   it("previews without publishing, defaulting the variables", async () => {
-    await tobogganingApi.previewBlockPage(PRODUCT_ID, "page-1");
+    mockApi.request.mockResolvedValue({ data: { html: "<h1>Blocked</h1>" } });
 
+    const html = await tobogganingApi.previewBlockPage(PRODUCT_ID, "page-1");
+
+    expect(html).toBe("<h1>Blocked</h1>");
     expect(forwarded()).toEqual({
       method: "POST",
       path: "api/v1/sase/blockpages/pages/page-1/preview",
@@ -165,12 +170,35 @@ describe("block page authoring", () => {
     });
   });
 
+  it("throws rather than rendering a blank iframe for a renamed key", async () => {
+    // The one product key this phase originally read at a call site, with a
+    // `?? ""` fallback. A renamed key rendered an empty white iframe and
+    // nothing anywhere said the response was not the expected shape — "this
+    // draft renders to nothing" is a plausible thing for an operator to
+    // believe, which makes it worse than an empty table, not better.
+    mockApi.request.mockResolvedValue({ data: { rendered: "<h1>x</h1>" } });
+
+    await expect(
+      tobogganingApi.previewBlockPage(PRODUCT_ID, "page-1"),
+    ).rejects.toThrow(/no "html" key/);
+  });
+
+  it("throws on a non-string under the html key", async () => {
+    mockApi.request.mockResolvedValue({ data: { html: { nested: true } } });
+
+    await expect(
+      tobogganingApi.previewBlockPage(PRODUCT_ID, "page-1"),
+    ).rejects.toThrow(/non-string/);
+  });
+
   it("publishes a page", async () => {
     await tobogganingApi.publishBlockPage(PRODUCT_ID, "page-1");
 
-    expect(forwarded()).toMatchObject({
+    // Publish takes no body; toEqual is what makes an accidental one fail.
+    expect(forwarded()).toEqual({
       method: "POST",
       path: "api/v1/sase/blockpages/pages/page-1/publish",
+      data: undefined,
     });
   });
 

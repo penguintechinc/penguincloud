@@ -115,6 +115,17 @@ class TestFixtureFreshness:
             f"no source commit recorded — run `{_REFRESH}` from a git checkout "
             f"so a stale-but-recently-regenerated fixture stays diagnosable"
         )
+        # The sha alone does not say whether this came from a release line or
+        # from somebody's feature branch. This fixture was taken from
+        # `feature/squawk-merger`, 17 commits ahead of `release/v1.2.X`, and
+        # establishing that those commits touched none of the backing files
+        # cost a reviewer a checkout and a diff. Recording the branch makes
+        # that one field to read.
+        assert payload.get("source_branch"), (
+            f"no source branch recorded — run `{_REFRESH}` from a git checkout. "
+            f"A sha without a branch makes a reader re-derive whether the "
+            f"fixture is release-equivalent."
+        )
 
     def test_the_fixture_is_within_the_staleness_budget(self) -> None:
         """A table nobody has refreshed stops being quietly trusted.

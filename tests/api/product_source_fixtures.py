@@ -147,23 +147,35 @@ def provenance(root: Path) -> dict[str, str]:
     reads. A checkout whose sha cannot be read (a tarball, a shallow export)
     still records the date — a partial provenance beats none, and the caller
     must not fail to generate a fixture over it.
+
+    ``source_branch`` is recorded alongside the sha because the sha alone does
+    not say whether a fixture was taken from a release line or from somebody's
+    feature branch. Tobogganing's fixture was generated from
+    ``feature/squawk-merger``, 17 commits ahead of ``release/v1.2.X``; a
+    reviewer had to check out the product and diff the backing files to
+    establish that those 17 commits touched none of them. Recording the branch
+    turns that from re-derivation into reading one field.
     """
     generated = {
         "generated_on": date.today().isoformat(),
         "source_root": str(root),
     }
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return generated
-    if result.returncode == 0 and result.stdout.strip():
-        generated["source_commit"] = result.stdout.strip()
+    for field, args in (
+        ("source_commit", ["rev-parse", "HEAD"]),
+        ("source_branch", ["rev-parse", "--abbrev-ref", "HEAD"]),
+    ):
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            generated[field] = result.stdout.strip()
     return generated
 
 

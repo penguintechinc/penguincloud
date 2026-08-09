@@ -10,7 +10,6 @@
 import { useState } from "react";
 import { tobogganingApi } from "../../../api/resources/tobogganing";
 import { TOBOGGANING_KINDS, useTobogganingMutation } from "./useTobogganing";
-import type { TobogganingBlockPagePreview } from "./types";
 
 const KIND = TOBOGGANING_KINDS.blockPages;
 
@@ -54,9 +53,11 @@ export function useBlockPagePreview(productId: number | undefined) {
     setError(null);
     setIsLoading(true);
     try {
-      const preview: TobogganingBlockPagePreview =
-        await tobogganingApi.previewBlockPage(productId, pageId);
-      setHtml(preview.html ?? "");
+      // `previewBlockPage` already unwrapped and validated the `html` key, so
+      // there is no envelope to read and nothing here to default. A `?? ""`
+      // at this line was the one product key this phase read at a call site,
+      // and it rendered a blank iframe for a renamed key.
+      setHtml(await tobogganingApi.previewBlockPage(productId, pageId));
     } catch (caught) {
       setError(caught as Error);
     } finally {

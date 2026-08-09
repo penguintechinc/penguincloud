@@ -118,13 +118,6 @@ _COLLECTIONS: Final[dict[str, str]] = {
     KIND_SWG_POLICY: PATH_SWG_POLICY,
 }
 
-#: Kinds Tobogganing serves an item route for. It serves **none**: every one of
-#: these collections is list-only, and the SASE block-page item route is
-#: ``PUT``-only (no ``GET``). ``get_resource`` therefore filters the collection
-#: rather than issuing a request that would 404 and read as "this peer does not
-#: exist".
-_DETAIL_KINDS: Final[frozenset[str]] = frozenset()
-
 
 class TobogganingAdapter(HealthOnlyAdapter):
     """Tobogganing networking/SASE adapter over the hub_api user-plane surface."""

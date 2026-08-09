@@ -543,6 +543,7 @@
     ]
   },
   "rule_count": 139,
+  "source_branch": "feature/squawk-merger",
   "source_commit": "20b81ec9bc689905a3b696f7d7e848ebd7b22ced",
   "source_root": "/home/penguin/code/tobogganing"
 }

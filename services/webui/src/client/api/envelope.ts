@@ -33,6 +33,36 @@
  */
 
 /**
+ * Return `payload[key]` as a string, or throw explaining what arrived.
+ *
+ * The scalar counterpart of {@link envelopeList}, and it exists for the same
+ * reason one key at a time: `payload.html ?? ""` renders a blank white iframe
+ * with nothing anywhere reporting that the response was not the expected
+ * shape. "Empty page" and "key renamed" are indistinguishable to the operator,
+ * and the first is a plausible thing for a block page to be.
+ *
+ * @param payload - the decoded response body
+ * @param key - the key the value is published under
+ */
+export function envelopeString(payload: unknown, key: string): string {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`no envelope object carrying "${key}"`);
+  }
+  const record = payload as Record<string, unknown>;
+  if (!(key in record)) {
+    throw new Error(
+      `no "${key}" key (got ${JSON.stringify(Object.keys(record))}) — ` +
+        `refusing to render it as blank`,
+    );
+  }
+  const value = record[key];
+  if (typeof value !== "string") {
+    throw new Error(`non-string under "${key}"`);
+  }
+  return value;
+}
+
+/**
  * Return `payload[key]` as a list, or throw explaining what actually arrived.
  *
  * @param payload - the decoded response body

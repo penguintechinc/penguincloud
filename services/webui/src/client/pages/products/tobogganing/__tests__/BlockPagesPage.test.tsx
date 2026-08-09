@@ -84,10 +84,9 @@ beforeEach(() => {
     ...PAGE,
     status: "published",
   });
-  tobogganingApi.previewBlockPage.mockResolvedValue({
-    html: "<h1>Blocked</h1>",
-    variables: {},
-  });
+  // Resolves to the HTML string: `previewBlockPage` unwraps the `html` key at
+  // the boundary so no caller holds an envelope it could default to "".
+  tobogganingApi.previewBlockPage.mockResolvedValue("<h1>Blocked</h1>");
 });
 
 async function openDrawer() {
@@ -182,9 +181,9 @@ describe("the preview", () => {
     // dangerous inner-HTML would still render an element containing the text,
     // just not inside an iframe. Asserting the markup is absent from the
     // parent document is what distinguishes the two.
-    tobogganingApi.previewBlockPage.mockResolvedValue({
-      html: "<h1 data-testid='injected'>pwned</h1>",
-    });
+    tobogganingApi.previewBlockPage.mockResolvedValue(
+      "<h1 data-testid='injected'>pwned</h1>",
+    );
 
     renderPage(<BlockPagesPage />);
     await openDrawer();

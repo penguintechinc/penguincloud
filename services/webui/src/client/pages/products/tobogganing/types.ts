@@ -74,11 +74,14 @@ export interface TobogganingBlockPage {
   updated_at?: string | null;
 }
 
-/** Rendered preview of a block page, from `POST .../preview`. */
-export interface TobogganingBlockPagePreview {
-  html: string;
-  variables?: Record<string, string> | null;
-}
+/**
+ * No `TobogganingBlockPagePreview` type.
+ *
+ * `POST .../preview` answers `{html, variables}`, but `previewBlockPage`
+ * unwraps `html` at the boundary and returns the string — precisely so no
+ * caller holds an envelope it could read with a `?? ""` fallback. A type for
+ * the envelope would exist only to make that fallback expressible again.
+ */
 
 /**
  * One SWG category policy.

@@ -128,6 +128,14 @@ READY_ENDPOINT: Final[str] = "/ready"
 
 #: The flat cluster list. **The trailing slash is registered and required** —
 #: see the module docstring. Never "tidy" it away.
+#:
+#: Defined but deliberately NOT allowlisted: nothing consumes it. The adapter
+#: lists :data:`~.mapping.KIND_SDWAN_CLUSTER` from :data:`PATH_SDWAN_CLUSTERS`
+#: and the Clusters screen reads the same, so a rule here would be reachable
+#: attack surface backing no caller. It stays defined because it is the
+#: counter-example that keeps the slash asymmetry documented and tested — a
+#: blanket "strip trailing slashes" rule would break it, which is exactly the
+#: 4G defect in the other direction.
 PATH_CLUSTERS_FLAT: Final[str] = f"{API_PREFIX}/clusters/"
 
 #: SD-WAN collections. Registered WITHOUT a trailing slash — the opposite of
@@ -145,6 +153,22 @@ PATH_SDWAN_STATUS: Final[str] = f"{API_PREFIX}/sdwan/status"
 PATH_WIREGUARD_PEERS: Final[str] = f"{API_PREFIX}/sdwan/wireguard/peers"
 
 #: SASE authoring surface.
+#:
+#: Two of these carry a READ rule only, and one carries none:
+#:
+#: * :data:`PATH_BLOCKPAGE_ROUTES` — ``GET`` is consumed by the adapter's
+#:   ``list_resources(blockpage_route)``. Its ``PUT`` is not consumed by
+#:   anything, so no write rule is issued for it; the routing table is not an
+#:   authoring surface any screen offers.
+#: * :data:`PATH_SWG_CATEGORIES` — defined but NOT allowlisted at all. The SWG
+#:   screen sets policies (``PUT`` on :data:`PATH_SWG_POLICY`); nothing posts a
+#:   category list. A ``POST`` rule here would be a mutating route reachable
+#:   through the proxy with no caller behind it.
+#:
+#: Both were allowlisted in the first cut of this file and removed in fix round
+#: 1 — see :func:`tests.api.test_tobogganing_allowlist` ``every rule has a
+#: consumer``, which now fails on an unconsumed rule rather than leaving it to
+#: review.
 PATH_BLOCKPAGE_PAGES: Final[str] = f"{API_PREFIX}/sase/blockpages/pages"
 PATH_BLOCKPAGE_ROUTES: Final[str] = f"{API_PREFIX}/sase/blockpages/routes"
 PATH_SWG_POLICY: Final[str] = f"{API_PREFIX}/sase/swg/policy"
@@ -184,7 +208,6 @@ TOBOGGANING_ROUTE_ALLOWLIST: list[RouteRule] = [
     RouteRule("GET", rf"^{HEALTH_ENDPOINT}\Z", SCOPE_READ),
     RouteRule("GET", rf"^{READY_ENDPOINT}\Z", SCOPE_READ),
     # -- SD-WAN reads ---------------------------------------------------
-    RouteRule("GET", rf"^{PATH_CLUSTERS_FLAT}\Z", SCOPE_READ),
     RouteRule("GET", rf"^{PATH_SDWAN_CLIENTS}\Z", SCOPE_READ),
     RouteRule("GET", rf"^{PATH_SDWAN_CLUSTERS}\Z", SCOPE_READ),
     RouteRule("GET", rf"^{PATH_WIREGUARD_PEERS}\Z", SCOPE_READ),
@@ -197,9 +220,7 @@ TOBOGGANING_ROUTE_ALLOWLIST: list[RouteRule] = [
     RouteRule("PUT", rf"^{blockpage_path(ID_UUID)}\Z", SCOPE_MANAGE),
     RouteRule("POST", rf"^{blockpage_path(ID_UUID, SEGMENT_PREVIEW)}\Z", SCOPE_MANAGE),
     RouteRule("POST", rf"^{blockpage_path(ID_UUID, SEGMENT_PUBLISH)}\Z", SCOPE_MANAGE),
-    RouteRule("PUT", rf"^{PATH_BLOCKPAGE_ROUTES}\Z", SCOPE_MANAGE),
     RouteRule("PUT", rf"^{PATH_SWG_POLICY}\Z", SCOPE_MANAGE),
-    RouteRule("POST", rf"^{PATH_SWG_CATEGORIES}\Z", SCOPE_MANAGE),
 ]
 
 
