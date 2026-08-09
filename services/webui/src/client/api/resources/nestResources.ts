@@ -14,15 +14,12 @@
  */
 
 import api from "../../lib/api";
+import { portalUrl } from "../portalPaths";
 import type {
   NestActionResult,
   NestCreatedResource,
   NestOperation,
 } from "../../pages/products/nest/types";
-
-/** Encoded path segment — an id never composes a new path here. */
-const seg = (value: string | number): string =>
-  encodeURIComponent(String(value));
 
 /**
  * Portal kind for a Nest DataResource.
@@ -50,7 +47,7 @@ export const nestResourcesApi = {
     payload: Record<string, unknown>,
   ): Promise<NestCreatedResource> => {
     const response = await api.post(
-      `/products/${productId}/resources/${seg(NEST_KIND_DATABASE)}`,
+      portalUrl.resources(productId, NEST_KIND_DATABASE),
       payload,
     );
     return response.data as NestCreatedResource;
@@ -65,7 +62,7 @@ export const nestResourcesApi = {
    */
   deleteDatabase: async (productId: number, name: string): Promise<unknown> => {
     const response = await api.delete(
-      `/products/${productId}/resources/${seg(NEST_KIND_DATABASE)}/${seg(name)}`,
+      portalUrl.resource(productId, NEST_KIND_DATABASE, name),
     );
     return response.data;
   },
@@ -84,7 +81,7 @@ export const nestResourcesApi = {
     payload?: Record<string, unknown>,
   ): Promise<NestActionResult> => {
     const response = await api.post(
-      `/products/${productId}/resources/${seg(NEST_KIND_DATABASE)}/${seg(name)}/actions/${seg(action)}`,
+      portalUrl.resourceAction(productId, NEST_KIND_DATABASE, name, action),
       payload ?? {},
     );
     return response.data as NestActionResult;
@@ -96,7 +93,7 @@ export const nestResourcesApi = {
     operationId: string,
   ): Promise<NestOperation> => {
     const response = await api.get(
-      `/products/${productId}/operations/${seg(NEST_OPERATION_KIND)}/${seg(operationId)}`,
+      portalUrl.operation(productId, NEST_OPERATION_KIND, operationId),
     );
     return response.data as NestOperation;
   },

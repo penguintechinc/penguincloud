@@ -32,7 +32,20 @@ const PRODUCT_KEY_MAP: Record<string, string> = {
   elder: "elder",
 };
 
-const PRODUCT_ITEMS: Record<string, { header: string; items: MenuItem[] }> = {
+/**
+ * Every product that declares a sidebar category, keyed by feature-gate key.
+ *
+ * Exported so the dead-link regression test can derive the connections it
+ * builds the menu with, instead of listing them by hand. It listed three
+ * products, so a fourth category added here would be invisible to the only
+ * check that looks for dead links — the same shape as the original defect,
+ * where the test built the menu with NO connections at all and therefore never
+ * saw a single product entry.
+ */
+export const PRODUCT_ITEMS: Record<
+  string,
+  { header: string; items: MenuItem[] }
+> = {
   gough: {
     header: "Gough",
     // No Clusters entry: Gough registers no cluster collection endpoint, and

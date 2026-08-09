@@ -2,7 +2,13 @@
  * Application routes. Used by tests to validate that menu items have
  * corresponding routes (regression prevention for dead links).
  *
- * Must be kept in sync with the routes defined in App.tsx.
+ * Kept in sync with `App.tsx` BY TEST, not by discipline:
+ * `config/__tests__/routes.test.ts` parses the `<Route path="...">` table out
+ * of `App.tsx` and asserts set equality with `APP_ROUTES`. Until it did, this
+ * header said "must be kept in sync" and nothing checked it — so an href
+ * present here and absent from the router was still a dead link that passed
+ * green, and the whole menu → MENU_ITEM_ROUTES → APP_ROUTES chain terminated
+ * in a hand-maintained list.
  */
 
 export const APP_ROUTES = [

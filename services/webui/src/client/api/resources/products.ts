@@ -3,7 +3,7 @@
  */
 
 import api from "../../lib/api";
-import { proxyRequestUrl } from "../portalPaths";
+import { portalUrl, proxyRequestUrl } from "../portalPaths";
 import type {
   ProductConnection,
   ProductType,
@@ -25,7 +25,7 @@ export const productsApi = {
     return response.data;
   },
   get: async (id: number): Promise<ProductConnection> => {
-    const response = await api.get(`/products/${id}`);
+    const response = await api.get(portalUrl.product(id));
     return response.data;
   },
   register: async (
@@ -38,22 +38,22 @@ export const productsApi = {
     id: number,
     data: Record<string, unknown>,
   ): Promise<ProductConnection> => {
-    const response = await api.put(`/products/${id}`, data);
+    const response = await api.put(portalUrl.product(id), data);
     return response.data;
   },
   delete: async (id: number): Promise<void> => {
-    await api.delete(`/products/${id}`);
+    await api.delete(portalUrl.product(id));
   },
   test: async (id: number): Promise<Record<string, unknown>> => {
-    const response = await api.post(`/products/${id}/test`);
+    const response = await api.post(portalUrl.productTest(id));
     return response.data;
   },
   health: async (id: number): Promise<Record<string, unknown>> => {
-    const response = await api.get(`/products/${id}/health`);
+    const response = await api.get(portalUrl.productHealth(id));
     return response.data;
   },
   schema: async (id: number): Promise<ProductManagementSchema> => {
-    const response = await api.get(`/products/${id}/schema`);
+    const response = await api.get(portalUrl.productSchema(id));
     return response.data;
   },
 };

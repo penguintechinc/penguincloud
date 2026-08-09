@@ -5,7 +5,7 @@
  * when a connection for that product exists AND its feature gate is on.
  */
 
-import { buildMenuCategories } from "../menuCategories";
+import { buildMenuCategories, PRODUCT_ITEMS } from "../menuCategories";
 import { isProductEnabled } from "../../../lib/featureGates";
 import { APP_ROUTES, MENU_ITEM_ROUTES } from "../../../config/routes";
 import type { ProductConnection } from "../../../types";
@@ -128,13 +128,14 @@ describe("buildMenuCategories", () => {
   });
 
   it("all menu items have valid hrefs (regression test for dead links)", () => {
-    // Built WITH connections for every product that declares a category. The
-    // previous version passed `[]`, so no product category was ever
-    // constructed and the assertion only ever saw Home and Organization —
-    // which is how five Nest and five Tobogganing entries sat here as dead
-    // links while a test named "regression test for dead links" stayed green.
+    // Connections are DERIVED from PRODUCT_ITEMS, not listed. The previous
+    // version passed `[]` — no product category was ever constructed, so five
+    // Nest and five Tobogganing entries sat here as dead links while a test
+    // named "regression test for dead links" stayed green. Naming three
+    // products by hand fixed that case and left the same hole open one product
+    // wide: a fourth category added tomorrow would be equally unchecked.
     const categories = buildMenuCategories(
-      [connection("gough"), connection("nest"), connection("tobogganing")],
+      Object.keys(PRODUCT_ITEMS).map(connection),
       allowAll,
     );
 
@@ -155,14 +156,31 @@ describe("buildMenuCategories", () => {
   it("every declared menu route is a route the app actually serves", () => {
     // The check above compares the menu against MENU_ITEM_ROUTES, which is a
     // list of hrefs — so on its own it only proves the two lists agree, not
-    // that anything answers them. This ties MENU_ITEM_ROUTES to APP_ROUTES,
-    // which App.tsx is kept in sync with, so a nav entry cannot be added
-    // without the route that serves it.
+    // that anything answers them. This ties MENU_ITEM_ROUTES to APP_ROUTES;
+    // `config/__tests__/routes.test.ts` then ties APP_ROUTES to the `<Route>`
+    // table in App.tsx, so the chain ends at the router rather than at a
+    // hand-maintained list.
     const served = new Set<string>(APP_ROUTES);
 
     const unserved = MENU_ITEM_ROUTES.filter((href) => !served.has(href));
 
     expect(unserved).toEqual([]);
+  });
+
+  it("checks every product category that declares items", () => {
+    // Guards the derivation above: if PRODUCT_ITEMS were emptied, or the
+    // gate/connection wiring stopped producing categories, the dead-link check
+    // would pass by looking at nothing.
+    const withItems = Object.entries(PRODUCT_ITEMS)
+      .filter(([, { items }]) => items.length > 0)
+      .map(([, { header }]) => header);
+    const headers = buildMenuCategories(
+      Object.keys(PRODUCT_ITEMS).map(connection),
+      allowAll,
+    ).map((category) => category.header);
+
+    expect(withItems.length).toBeGreaterThan(0);
+    withItems.forEach((header) => expect(headers).toContain(header));
   });
 
   it("offers only the Nest screens that a Nest connection can reach", () => {

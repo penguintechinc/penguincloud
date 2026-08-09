@@ -10,6 +10,7 @@
  */
 
 import api from "../../lib/api";
+import { portalUrl } from "../portalPaths";
 import type {
   GoughActionResult,
   GoughMetricsSummary,
@@ -17,14 +18,10 @@ import type {
   GoughOperationLogLine,
 } from "../../pages/products/gough/types";
 
-/** Encoded path segment — an id never composes a new path here. */
-const seg = (value: string | number): string =>
-  encodeURIComponent(String(value));
-
 export const goughOperationsApi = {
   /** Headline metrics for the connection — the product's own scrape. */
   metricsSummary: async (productId: number): Promise<GoughMetricsSummary> => {
-    const response = await api.get(`/products/${productId}/metrics`);
+    const response = await api.get(portalUrl.metrics(productId));
     return response.data as GoughMetricsSummary;
   },
 
@@ -47,7 +44,7 @@ export const goughOperationsApi = {
     payload?: Record<string, unknown>,
   ): Promise<GoughActionResult> => {
     const response = await api.post(
-      `/products/${productId}/resources/${seg(kind)}/${seg(resourceId)}/actions/${seg(action)}`,
+      portalUrl.resourceAction(productId, kind, resourceId, action),
       payload ?? {},
     );
     return response.data as GoughActionResult;
@@ -55,7 +52,7 @@ export const goughOperationsApi = {
 
   /** Operations the product is currently running. Portal endpoint, not proxy. */
   listOperations: async (productId: number): Promise<GoughOperation[]> => {
-    const response = await api.get(`/products/${productId}/operations`);
+    const response = await api.get(portalUrl.operations(productId));
     const body = response.data as { operations?: GoughOperation[] };
     return body.operations ?? [];
   },
@@ -67,7 +64,7 @@ export const goughOperationsApi = {
     operationId: string,
   ): Promise<GoughOperation> => {
     const response = await api.get(
-      `/products/${productId}/operations/${seg(kind)}/${seg(operationId)}`,
+      portalUrl.operation(productId, kind, operationId),
     );
     return response.data as GoughOperation;
   },
@@ -78,7 +75,7 @@ export const goughOperationsApi = {
     operationId: string,
   ): Promise<unknown> => {
     const response = await api.post(
-      `/products/${productId}/operations/${seg(kind)}/${seg(operationId)}/cancel`,
+      portalUrl.cancelOperation(productId, kind, operationId),
     );
     return response.data;
   },
@@ -94,7 +91,7 @@ export const goughOperationsApi = {
     since?: string,
   ): Promise<GoughOperationLogLine[]> => {
     const response = await api.get(
-      `/products/${productId}/operations/${seg(kind)}/${seg(operationId)}/logs`,
+      portalUrl.operationLogs(productId, kind, operationId),
       { params: since ? { since } : undefined },
     );
     const body = response.data as { logs?: GoughOperationLogLine[] };

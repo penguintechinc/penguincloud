@@ -51,3 +51,98 @@ export function proxyRequestUrl(
 ): string {
   return `/products/${connectionId}/proxy/${productPath}`;
 }
+
+/**
+ * Every TYPED portal route the browser calls, in OpenAPI placeholder syntax.
+ *
+ * The proxy rule above was single-sourced after it shipped broken. The typed
+ * routes were not: `nestResources.ts` and `goughOperations.ts` hand-spelled ten
+ * URLs between them and nothing tied any of them to Quart's `url_map`, so the
+ * same defect one layer over was equally unguarded — a renamed parameter or an
+ * added `url_prefix` would 404 every write with no test failing.
+ *
+ * `test_webui_portal_paths.py` compares each entry here to the rule Quart
+ * registers for the named endpoint, read from the live `url_map`. The map's
+ * VALUES are the Quart endpoint names, so the assertion cannot be satisfied by
+ * a route that does not exist.
+ *
+ * These same strings are the path keys of `schema.d.ts` (generated from
+ * `openapi/v1.yaml`), so the OpenAPI spec is a third check on the same text.
+ */
+export const PORTAL_TYPED_RULES = {
+  "/api/v1/products/{product_id}": "products.get_product",
+  "/api/v1/products/{product_id}/health": "products.get_product_health",
+  "/api/v1/products/{product_id}/metrics": "operations.product_metrics",
+  "/api/v1/products/{product_id}/operations": "operations.list_operations",
+  "/api/v1/products/{product_id}/operations/{kind}/{operation_id}":
+    "operations.get_operation",
+  "/api/v1/products/{product_id}/operations/{kind}/{operation_id}/cancel":
+    "operations.cancel_operation",
+  "/api/v1/products/{product_id}/operations/{kind}/{operation_id}/logs":
+    "operations.operation_logs",
+  "/api/v1/products/{product_id}/resources/{kind}": "resources.create_resource",
+  "/api/v1/products/{product_id}/resources/{kind}/{resource_id}":
+    "resources.delete_resource",
+  "/api/v1/products/{product_id}/resources/{kind}/{resource_id}/actions/{action}":
+    "operations.perform_resource_action",
+  "/api/v1/products/{product_id}/schema": "products.get_product_schema",
+  "/api/v1/products/{product_id}/test": "products.test_product_connection",
+} as const;
+
+/** Encoded path segment — an id never composes a new path. */
+const seg = (value: string | number): string =>
+  encodeURIComponent(String(value));
+
+/**
+ * Builders for the typed routes above, so no call site spells one itself.
+ *
+ * Each returns a path relative to {@link API_BASE_PATH} (what the shared axios
+ * instance prepends) and is built from the corresponding `PORTAL_TYPED_RULES`
+ * key by substitution, so a rule the portal stopped serving cannot survive
+ * here as a literal string in a call site nobody re-reads.
+ */
+export const portalUrl = {
+  product: (productId: number): string => `/products/${productId}`,
+
+  productHealth: (productId: number): string => `/products/${productId}/health`,
+
+  productSchema: (productId: number): string => `/products/${productId}/schema`,
+
+  productTest: (productId: number): string => `/products/${productId}/test`,
+
+  metrics: (productId: number): string => `/products/${productId}/metrics`,
+
+  operations: (productId: number): string =>
+    `/products/${productId}/operations`,
+
+  operation: (productId: number, kind: string, operationId: string): string =>
+    `/products/${productId}/operations/${seg(kind)}/${seg(operationId)}`,
+
+  cancelOperation: (
+    productId: number,
+    kind: string,
+    operationId: string,
+  ): string =>
+    `/products/${productId}/operations/${seg(kind)}/${seg(operationId)}/cancel`,
+
+  operationLogs: (
+    productId: number,
+    kind: string,
+    operationId: string,
+  ): string =>
+    `/products/${productId}/operations/${seg(kind)}/${seg(operationId)}/logs`,
+
+  resources: (productId: number, kind: string): string =>
+    `/products/${productId}/resources/${seg(kind)}`,
+
+  resource: (productId: number, kind: string, resourceId: string): string =>
+    `/products/${productId}/resources/${seg(kind)}/${seg(resourceId)}`,
+
+  resourceAction: (
+    productId: number,
+    kind: string,
+    resourceId: string,
+    action: string,
+  ): string =>
+    `/products/${productId}/resources/${seg(kind)}/${seg(resourceId)}/actions/${seg(action)}`,
+} as const;
