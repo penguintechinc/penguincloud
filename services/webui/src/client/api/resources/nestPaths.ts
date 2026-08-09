@@ -7,8 +7,9 @@
  *
  * Two things about their shape are load-bearing.
  *
- * **No trailing slash, anywhere.** Nest registers all 27 of its routes without
- * one (`~/code/nest/apps/api/app.py`), the opposite of Gough. Under Werkzeug's
+ * **No trailing slash, anywhere.** Nest's 27 route registrations — 21 distinct
+ * paths, six declared twice for a second method — carry none
+ * (`~/code/nest/apps/api/app.py`), the opposite of Gough. Under Werkzeug's
  * default `strict_slashes` a request carrying a slash the route does not
  * declare gets a flat 404 with no redirect back — which, since the portal
  * transport does not follow redirects, surfaces as an empty table rather than

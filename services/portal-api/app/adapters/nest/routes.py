@@ -11,8 +11,9 @@ Trailing slashes
 ================
 Nest's API (``~/code/nest/apps/api/app.py``) registers **every** route
 WITHOUT a trailing slash — ``@app.route("/api/v1/tenants/<tenant_id>/
-data-resources")`` and so on for all 27 registrations. Under Werkzeug's
-default ``strict_slashes`` that means a request carrying a trailing slash
+data-resources")`` and so on for all **27 route registrations across 21
+distinct paths** (six paths are declared twice, once per method). Under
+Werkzeug's default ``strict_slashes`` that means a trailing-slash request
 gets a flat 404 with no redirect back, and the portal's transport does not
 follow redirects. So the builders below never emit one. This is the
 opposite of Gough, which registers some collections as ``route("/")`` — the
