@@ -45,7 +45,13 @@ from gough_route_source import (
     missing_reason,
     vendored_gough_routes,
 )
-from product_source_fixtures import fixture_path, source_required
+from product_source_fixtures import (
+    MAX_FIXTURE_AGE_DAYS,
+    fixture_age_days,
+    fixture_path,
+    load_fixture,
+    source_required,
+)
 from test_gough_adapter import _GOUGH_REAL_ROUTES
 
 #: Refresh instruction, quoted in every drift message.
@@ -77,6 +83,31 @@ class TestVendoredFixture:
     def test_the_vendored_table_is_plausible(self) -> None:
         """A truncated fixture would make every check below vacuous."""
         assert len(vendored_gough_routes()) >= _MIN_PLAUSIBLE_ROUTES
+
+    def test_the_fixture_records_where_it_came_from(self) -> None:
+        """Provenance, so a stale fixture is diagnosable rather than merely old."""
+        payload = load_fixture(FIXTURE_NAME)
+
+        assert payload.get("generated_on"), f"no generation date — run `{_REFRESH}`"
+        assert payload.get("source_commit"), f"no source commit — run `{_REFRESH}`"
+
+    def test_the_fixture_is_within_the_staleness_budget(self) -> None:
+        """The only rot signal available with no Gough checkout on disk.
+
+        The plausibility floor above catches a truncated fixture; nothing
+        catches one that is simply out of date, because there is nothing to
+        diff it against. Age is the substitute.
+        """
+        age = fixture_age_days(FIXTURE_NAME)
+
+        assert age is not None, (
+            f"the vendored gough fixture records no generation date — run "
+            f"`{_REFRESH}`"
+        )
+        assert age <= MAX_FIXTURE_AGE_DAYS, (
+            f"the vendored gough route table was generated {age} days ago "
+            f"(budget {MAX_FIXTURE_AGE_DAYS}). Run `{_REFRESH}`."
+        )
 
     def test_vendored_routes_match_a_live_parse(self) -> None:
         """Wherever a checkout exists, the committed copy must equal it.

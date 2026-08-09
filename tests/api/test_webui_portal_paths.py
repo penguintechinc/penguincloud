@@ -95,6 +95,28 @@ _SCHEMA_D_TS: Final[Path] = (
     _REPO_ROOT / "services" / "webui" / "src" / "client" / "api" / "schema.d.ts"
 )
 
+#: Everything the ban rule below walks. The whole client tree, not just
+#: ``api/`` — a page or hook can call ``api.get`` directly, and the point is
+#: that nothing anywhere spells a portal URL for itself.
+_WEBUI_SRC: Final[Path] = _REPO_ROOT / "services" / "webui" / "src" / "client"
+
+#: An axios call whose URL is a literal beginning ``/products``.
+#:
+#: Matched on the CALL rather than on the bare string, because a portal API URL
+#: and a browser route are indistinguishable as strings — ``/products/gough/
+#: nodes`` is a router path in ``App.tsx`` and ``navigate()`` call sites, and a
+#: rule that only looked at the literal would demand a ``portalUrl`` builder for
+#: every one of them. Keying on ``api.<verb>(`` excludes those structurally,
+#: which is better than exempting files by name and hoping the list stays right.
+#:
+#: ``["'`]`` covers double, single AND template quoting. The first version of
+#: this rule saw only the backtick form, under ``api/*.ts`` only — which is how
+#: three quoted literals in ``products.ts`` sat unguarded beside the guard
+#: written for that file.
+_PORTAL_URL_LITERAL_RE: Final[re.Pattern[str]] = re.compile(
+    r"""\bapi\.(?:get|post|put|patch|delete|request)\(\s*["'`](/products)""",
+)
+
 
 def _typed_rules() -> dict[str, str]:
     """Parse ``PORTAL_TYPED_RULES`` (rule → Quart endpoint) from the TS."""
@@ -115,6 +137,48 @@ def _typed_rules() -> dict[str, str]:
     }
     assert rules, "parsed PORTAL_TYPED_RULES but found no entries"
     return rules
+
+
+#: One ``name: (args) => \`/path\`,`` entry of the ``portalUrl`` object. The body
+#: is either a template literal or a plain quoted string (``products``,
+#: ``productTypes``), so both quote styles are accepted.
+_BUILDER_RE: Final[re.Pattern[str]] = re.compile(
+    r"^\s{2}(?P<name>[a-zA-Z]+):\s*\([^)]*\):\s*string\s*=>\s*\n?\s*"
+    r"[`\"'](?P<path>/[^`\"']*)[`\"']",
+    re.MULTILINE,
+)
+
+
+def _shape(path: str) -> str:
+    """Reduce a path to its structure: literals kept, parameters flattened.
+
+    ``/products/${productId}/health`` and ``/api/v1/products/{product_id}/health``
+    both become ``/products/{}/health`` (after the base prefix is stripped), so
+    a builder and a rule can be compared without caring what either side named
+    its parameter.
+    """
+    collapsed = re.sub(r"\$\{[^}]+\}", "{}", path)
+    return re.sub(r"\{[^}]+\}", "{}", collapsed)
+
+
+def _builder_shapes() -> dict[str, str]:
+    """Parse ``portalUrl`` into ``{builder name: path shape}``."""
+    source = _PORTAL_PATHS_TS.read_text(encoding="utf-8")
+    match = re.search(
+        r"export const portalUrl\s*=\s*\{(?P<body>.*?)\n\}\s*as const;",
+        source,
+        re.DOTALL,
+    )
+    assert match is not None, (
+        f"portalUrl object not found in {_PORTAL_PATHS_TS} — update this "
+        f"parser rather than deleting the assertion it feeds."
+    )
+    builders = {
+        entry.group("name"): _shape(entry.group("path"))
+        for entry in _BUILDER_RE.finditer(match.group("body"))
+    }
+    assert builders, "parsed portalUrl but found no builders"
+    return builders
 
 
 def _rule_for(app: Quart, endpoint: str) -> str:
@@ -183,30 +247,121 @@ class TestTypedRoutes:
             assert rule.startswith(f"{base}/"), rule
 
     async def test_the_call_sites_spell_no_portal_url_of_their_own(self) -> None:
-        """No module may build a ``/products/...`` URL outside portalPaths.ts.
+        """No module may build a portal API URL outside portalPaths.ts.
 
         This is the assertion that makes the guard above cover the CODE rather
         than just a table beside it. ``nestResources.ts`` and
         ``goughOperations.ts`` previously hand-spelled ten URLs; a new one
         added tomorrow would be equally unguarded, and the table would stay
         green while the call site 404s.
+
+        The first version of this check was narrower than it read: ``.ts`` only
+        (not ``.tsx``), only under ``api/``, and only backtick-prefixed. It
+        therefore missed every QUOTED literal — including three in the very
+        file it was written for (``products.ts`` — ``"/products/types"`` and
+        two ``"/products"``), none of which were in ``PORTAL_TYPED_RULES``, so
+        a ``url_prefix`` on ``products_bp`` would have broken them silently.
+        Widening it found a fourth: ``dashboard.ts`` called
+        ``"/dashboard/rollup"``, a route the portal does not register at all
+        (the rule is ``/api/v1/tenants/{tenant_id}/dashboard/rollup``).
+
+        **Known gap, deliberately not ratcheted here.** The rule's subject is
+        ``/products``. The ``/tenants/*`` and ``/dashboard/*`` API call sites
+        (``tenants.ts``, ``dashboard.ts``, ``stores/tenantStore.ts`` — 20 of
+        them) are still literals and are NOT covered. Migrating them is a
+        change of its own, and encoding them as an allowlist here would be a
+        ratchet that hides them; they are named in the report instead.
         """
-        api_dir = _PORTAL_PATHS_TS.parent
         offenders: list[str] = []
-        for path in sorted(api_dir.rglob("*.ts")):
-            if path == _PORTAL_PATHS_TS or "__tests__" in path.parts:
+        for path in sorted(_WEBUI_SRC.rglob("*.ts")) + sorted(
+            _WEBUI_SRC.rglob("*.tsx")
+        ):
+            if path == _PORTAL_PATHS_TS:
                 continue
-            for number, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), start=1
-            ):
-                if "`/products/" in line:
-                    offenders.append(f"{path.relative_to(_REPO_ROOT)}:{number}")
+            if "__tests__" in path.parts or "tests" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for match in _PORTAL_URL_LITERAL_RE.finditer(text):
+                number = text.count("\n", 0, match.start()) + 1
+                offenders.append(f"{path.relative_to(_REPO_ROOT)}:{number}")
 
         assert not offenders, (
             f"portal URLs spelled outside portalPaths.ts: {offenders}. Add a "
             f"builder to `portalUrl` and an entry to PORTAL_TYPED_RULES so the "
             f"url_map guard covers it."
         )
+
+    async def test_every_builder_has_a_rule_backing_it(self) -> None:
+        """Both halves of the pair, or the guard has a hole.
+
+        The ban rule forces call sites through a ``portalUrl`` builder, and the
+        rule test resolves each ``PORTAL_TYPED_RULES`` entry against
+        ``url_map``. Neither notices a builder with NO rule — deleting a rule
+        entry leaves its builder still in use, still hand-written, and no
+        longer checked against the route it targets. Verified by removing
+        ``/api/v1/products`` and watching this go red; without it, nothing did.
+        """
+        base = _ts_const("API_BASE_PATH")
+        rule_shapes = {
+            _shape(rule[len(base):]) for rule in _typed_rules()
+        }
+
+        unbacked = {
+            name: shape
+            for name, shape in _builder_shapes().items()
+            if shape not in rule_shapes
+        }
+
+        assert not unbacked, (
+            f"portalUrl builders with no PORTAL_TYPED_RULES entry: {unbacked}. "
+            f"Every builder must name a rule, or the URL it produces is never "
+            f"compared against the route it targets."
+        )
+
+    async def test_the_builder_parser_sees_them_all(self) -> None:
+        """The check above is a set difference — an empty left side passes it.
+
+        A parser that silently matched nothing would report zero unbacked
+        builders forever, which is the failure mode this whole file exists to
+        end. Named builders are asserted so a regex change that stops matching
+        the template-literal form (or the plain-string form) fails here.
+        """
+        builders = _builder_shapes()
+
+        assert {"products", "productTypes", "product", "resourceAction"} <= set(
+            builders
+        ), sorted(builders)
+        assert builders["products"] == "/products"
+        assert builders["product"] == "/products/{}"
+        assert builders["resourceAction"] == "/products/{}/resources/{}/{}/actions/{}"
+
+    async def test_the_ban_rule_can_see_every_quote_style(self) -> None:
+        """Falsifies the matcher itself — it is a negative assertion.
+
+        A check of the form "no file contains X" passes just as well when the
+        pattern matches nothing at all, and the original version very nearly
+        did: backticks only, ``api/*.ts`` only. These are the spellings it must
+        catch, and the ones it must not.
+        """
+        for line in (
+            '    const r = await api.get("/products/types");',
+            "    const r = await api.get('/products');",
+            "    const r = await api.get(`/products/${id}/health`);",
+            '    await api.delete("/products/1");',
+            "    const r = await api.post(`/products/${id}/test`);",
+        ):
+            assert _PORTAL_URL_LITERAL_RE.search(line), line
+
+        for line in (
+            '  <Route path="/products/gough/nodes" element={<NodesPage />} />',
+            '  { name: "Nodes", href: "/products/gough/nodes", icon: Gauge },',
+            '    navigate(`/products/${product.id}`);',
+            "    const r = await api.get(portalUrl.products());",
+        ):
+            assert not _PORTAL_URL_LITERAL_RE.search(line), (
+                f"{line!r} is a browser route or an already-built URL — the "
+                f"matcher must not demand a portalUrl builder for it"
+            )
 
     async def test_every_typed_rule_is_a_documented_openapi_path(self) -> None:
         """The generated spec types are a third, independent copy of the text.

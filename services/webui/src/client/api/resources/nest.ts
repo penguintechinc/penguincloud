@@ -11,6 +11,7 @@
  * pins against the adapter's own `tenant_path()` builder.
  */
 
+import { envelopeList } from "../envelope";
 import { proxyApi } from "./products";
 import {
   NEST_COLLECTION_ENVELOPE_KEYS,
@@ -23,38 +24,6 @@ import type {
   NestSnapshot,
   NestUsageRecord,
 } from "../../pages/products/nest/types";
-
-/**
- * Pull a collection's rows out from under ITS OWN envelope key.
- *
- * Nest has no shared envelope — see `NEST_COLLECTION_ENVELOPE_KEYS`. Reading
- * `items` for every collection and returning `[]` when it was absent made
- * snapshots decode as permanently empty, which the Snapshots tab then stated
- * as fact ("No snapshots have been taken from this resource").
- *
- * So an absent key throws. Every Nest list handler builds its key
- * unconditionally, so an empty collection still arrives as `{"snapshots": []}`
- * — a missing key means the response is not the shape this client was written
- * against, and the only reading an operator can give `[]` is "there are none".
- * Mirrors `NestResponse.items` in `app/adapters/nest/responses.py`.
- */
-function items<T>(payload: unknown, key: string): T[] {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error(`nest returned no collection envelope carrying "${key}"`);
-  }
-  const record = payload as Record<string, unknown>;
-  if (!(key in record)) {
-    throw new Error(
-      `nest returned a collection with no "${key}" key (got ` +
-        `${JSON.stringify(Object.keys(record))}) — refusing to report it as empty`,
-    );
-  }
-  const rows = record[key];
-  if (!Array.isArray(rows)) {
-    throw new Error(`nest returned a non-list under "${key}"`);
-  }
-  return rows as T[];
-}
 
 /**
  * Unwrap Nest's cost envelope, distinguishing "unavailable" from "empty".
@@ -94,13 +63,13 @@ async function readBilling<T>(
 
 export const nestApi = {
   listDatabases: async (productId: number): Promise<NestDatabase[]> =>
-    items<NestDatabase>(
+    envelopeList<NestDatabase>(
       await proxyApi.request(productId, "GET", NEST_COLLECTION_PATHS.databases),
       NEST_COLLECTION_ENVELOPE_KEYS.databases,
     ),
 
   listSnapshots: async (productId: number): Promise<NestSnapshot[]> =>
-    items<NestSnapshot>(
+    envelopeList<NestSnapshot>(
       await proxyApi.request(productId, "GET", NEST_COLLECTION_PATHS.snapshots),
       NEST_COLLECTION_ENVELOPE_KEYS.snapshots,
     ),

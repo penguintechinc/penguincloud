@@ -41,7 +41,6 @@ jest.mock("../../../../stores/tenantStore", () => ({
 
 const nestApi = {
   listDatabases: jest.fn(),
-  getDatabase: jest.fn(),
   listSnapshots: jest.fn(),
   costReport: jest.fn(),
   costSummary: jest.fn(),

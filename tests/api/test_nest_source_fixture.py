@@ -44,7 +44,13 @@ from nest_route_source import (
     vendored_envelope_keys,
     vendored_route_table,
 )
-from product_source_fixtures import fixture_path, source_required
+from product_source_fixtures import (
+    MAX_FIXTURE_AGE_DAYS,
+    fixture_age_days,
+    fixture_path,
+    load_fixture,
+    source_required,
+)
 
 #: Refresh instruction, quoted in every drift message so the fix is in the
 #: failure rather than in a wiki page.
@@ -141,6 +147,47 @@ class TestFixtureFreshness:
         assert vendored_envelope_keys() == envelope_keys(), (
             f"the vendored nest envelope keys no longer match Nest's handlers. "
             f"Run `{_REFRESH}` and review the diff."
+        )
+
+    def test_the_fixture_records_where_it_came_from(self) -> None:
+        """Provenance is what makes a stale fixture diagnosable at all.
+
+        Without it, a vendored table on a machine with no checkout is a claim
+        with no date and no origin — and the plausibility floors below catch
+        TRUNCATION, not rot. The commit sha additionally distinguishes "nobody
+        refreshed this" from "someone refreshed it against an old checkout",
+        which look identical from the date alone.
+        """
+        payload = load_fixture(FIXTURE_NAME)
+
+        assert payload.get("generated_on"), f"no generation date — run `{_REFRESH}`"
+        assert payload.get("source_commit"), (
+            f"no source commit recorded — run `{_REFRESH}` from a git checkout "
+            f"so a stale-but-recently-regenerated fixture stays diagnosable"
+        )
+
+    def test_the_fixture_is_within_the_staleness_budget(self) -> None:
+        """A table nobody has refreshed stops being quietly trusted.
+
+        This is the half of the guard that works WITHOUT a checkout, which is
+        the case the vendoring exists for: with no Nest on disk there is
+        nothing to diff against, so age is the only signal available that the
+        product may have moved underneath it.
+
+        Raising the budget to silence this defeats it — refresh the fixture,
+        which is one make target. See who runs it, and when, in
+        task-4N-report.md §Fix round 2.
+        """
+        age = fixture_age_days(FIXTURE_NAME)
+
+        assert age is not None, (
+            f"the vendored nest fixture records no generation date, so its "
+            f"staleness cannot be judged at all — run `{_REFRESH}`"
+        )
+        assert age <= MAX_FIXTURE_AGE_DAYS, (
+            f"the vendored nest route table was generated {age} days ago "
+            f"(budget {MAX_FIXTURE_AGE_DAYS}). Nest may have moved underneath "
+            f"every guard built on it. Run `{_REFRESH}`."
         )
 
     def test_the_vendored_route_table_is_plausible(self) -> None:

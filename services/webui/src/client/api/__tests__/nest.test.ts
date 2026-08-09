@@ -119,7 +119,7 @@ describe("proxied reads", () => {
     mockApi.request.mockResolvedValue({ data: [{ name: "snap-1" }] });
 
     await expect(nestApi.listSnapshots(PRODUCT_ID)).rejects.toThrow(
-      /no collection envelope/,
+      /no envelope object/,
     );
   });
 });
@@ -232,7 +232,7 @@ describe("collection unwrapping", () => {
     mockApi.request.mockResolvedValue({ data: null });
 
     await expect(nestApi.listDatabases(PRODUCT_ID)).rejects.toThrow(
-      /no collection envelope/,
+      /no envelope object/,
     );
   });
 });

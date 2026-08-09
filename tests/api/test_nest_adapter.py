@@ -395,7 +395,7 @@ class TestAgainstMockTransport:
         three of four kinds shipped decoding as permanently empty. These four
         strings come from Nest's handlers (``protection.py:26``, ``:206``,
         ``searchpool.py:25``, ``dataresource.py:47``), and
-        ``test_nest_envelopes.py`` asserts them against that source directly.
+        ``test_nest_source_fixture.py`` asserts them against that source directly.
         """
         path = f"/api/v1/tenants/{_TENANT}/{collection}"
         rows = [{"name": "row-a"}, {"name": "row-b"}]

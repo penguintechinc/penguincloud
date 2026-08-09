@@ -68,8 +68,18 @@ export function proxyRequestUrl(
  *
  * These same strings are the path keys of `schema.d.ts` (generated from
  * `openapi/v1.yaml`), so the OpenAPI spec is a third check on the same text.
+ *
+ * **The table is one-directional.** It is enforced from the webui call sites:
+ * every `/products` or `/tenants` URL built anywhere under `src/client` must
+ * come from a `portalUrl` builder, and every rule here must resolve against
+ * `url_map`. It does NOT enforce the reverse — the portal can register a typed
+ * route with no browser caller and nothing here will notice, which is correct
+ * (a CLI-only or service-to-service route is not the webui's business) but is
+ * worth knowing before treating this as an inventory of the portal's API.
  */
 export const PORTAL_TYPED_RULES = {
+  "/api/v1/products": "products.list_products",
+  "/api/v1/products/types": "products.list_product_types",
   "/api/v1/products/{product_id}": "products.get_product",
   "/api/v1/products/{product_id}/health": "products.get_product_health",
   "/api/v1/products/{product_id}/metrics": "operations.product_metrics",
@@ -87,6 +97,8 @@ export const PORTAL_TYPED_RULES = {
     "operations.perform_resource_action",
   "/api/v1/products/{product_id}/schema": "products.get_product_schema",
   "/api/v1/products/{product_id}/test": "products.test_product_connection",
+  "/api/v1/tenants/{tenant_id}/dashboard/rollup":
+    "tenants.get_dashboard_rollup",
 } as const;
 
 /** Encoded path segment — an id never composes a new path. */
@@ -102,6 +114,11 @@ const seg = (value: string | number): string =>
  * here as a literal string in a call site nobody re-reads.
  */
 export const portalUrl = {
+  /** Collection: list (GET) and register (POST) share one rule. */
+  products: (): string => "/products",
+
+  productTypes: (): string => "/products/types",
+
   product: (productId: number): string => `/products/${productId}`,
 
   productHealth: (productId: number): string => `/products/${productId}/health`,
@@ -145,4 +162,12 @@ export const portalUrl = {
     action: string,
   ): string =>
     `/products/${productId}/resources/${seg(kind)}/${seg(resourceId)}/actions/${seg(action)}`,
+
+  /**
+   * Provider rollup. TENANT-scoped, not a `/dashboard/*` route — the caller
+   * spelled `/dashboard/rollup` with a `tenant_id` query parameter, which the
+   * portal does not register at all.
+   */
+  tenantDashboardRollup: (tenantId: number): string =>
+    `/tenants/${tenantId}/dashboard/rollup`,
 } as const;

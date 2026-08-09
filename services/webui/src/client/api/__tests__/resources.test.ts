@@ -240,21 +240,33 @@ describe("dashboardApi", () => {
     });
   });
 
-  it("unwraps the rollup envelope", async () => {
+  it("unwraps the rollup envelope from the TENANT-scoped route", async () => {
+    // The URL is the fix, not decoration: this called `/dashboard/rollup` with
+    // a tenant_id query parameter, and the portal registers no such route — it
+    // is `/api/v1/tenants/{tenant_id}/dashboard/rollup` (`tenants.py:901`). It
+    // had never worked; `test_webui_portal_paths.py` now binds it to url_map.
     mockApi.get.mockResolvedValue({
       data: { rollup: [{ tenant_id: "t1", tenant_name: "T", products: [] }] },
     });
 
     const rows = await dashboardApi.rollup(1);
 
-    expect(mockApi.get).toHaveBeenCalledWith("/dashboard/rollup", {
-      params: { tenant_id: 1 },
-    });
+    expect(mockApi.get).toHaveBeenCalledWith("/tenants/1/dashboard/rollup");
     expect(rows).toHaveLength(1);
   });
 
-  it("returns an empty rollup when the envelope is missing", async () => {
+  it("refuses to report a missing rollup key as no customers", async () => {
+    // `rollup` is a required field of `RollupResponse`, so an empty subtree
+    // arrives as `{"rollup": []}`. A provider seeing an empty customer matrix
+    // has no way to tell that from a response nobody understood.
     mockApi.get.mockResolvedValue({ data: {} });
+
+    await expect(dashboardApi.rollup(1)).rejects.toThrow(/no "rollup" key/);
+  });
+
+  it("still reports a genuinely empty subtree as empty", async () => {
+    mockApi.get.mockResolvedValue({ data: { rollup: [] } });
+
     await expect(dashboardApi.rollup(1)).resolves.toEqual([]);
   });
 });

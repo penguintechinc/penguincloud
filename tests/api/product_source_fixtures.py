@@ -29,6 +29,20 @@ Callers ask for the *effective* table:
 is what makes stale fixtures a red build rather than a quiet lie, and it runs
 wherever a checkout exists — which is where a refresh is possible anyway.
 
+Provenance and staleness
+========================
+A vendored table cannot detect its own rot: with no checkout there is nothing
+to compare against, and the plausibility floors catch a TRUNCATED fixture, not
+a stale one. So each fixture records where and when it came from — the product
+checkout's commit sha and the generation date — and
+:func:`fixture_age_days` lets a test fail once that exceeds a budget. That
+turns "nobody has refreshed this since Nest rewrote its routes" from invisible
+into a red build with the refresh command in the message.
+
+It is a smoke alarm, not a proof: a fixture regenerated yesterday against a
+checkout that was itself six months behind `main` looks fresh. The commit sha
+is recorded so that case is at least diagnosable.
+
 Expecting a checkout
 ====================
 Some checks cannot be vendored at all: ``TestAgainstLiveNest`` executes Nest's
@@ -42,15 +56,20 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Final
 
 __all__ = [
     "FIXTURE_DIR",
+    "MAX_FIXTURE_AGE_DAYS",
     "REQUIRE_SOURCE_ENV_VAR",
+    "fixture_age_days",
     "fixture_path",
     "load_fixture",
     "method_map",
+    "provenance",
     "source_required",
     "write_fixture",
 ]
@@ -62,6 +81,15 @@ FIXTURE_DIR: Final[Path] = Path(__file__).resolve().parent / "fixtures"
 #: Set to ``1`` in a job that is expected to have product checkouts. Turns a
 #: "no checkout, skipping" into a failure.
 REQUIRE_SOURCE_ENV_VAR: Final[str] = "REQUIRE_PRODUCT_SOURCE"
+
+#: How long a vendored table may go unrefreshed before the suite says so.
+#:
+#: Six months is chosen to be a signal rather than a chore: it is long enough
+#: that a normal quarter of work never trips it, and short enough that a table
+#: nobody has looked at across two product release cycles stops being quietly
+#: trusted. Raising it to silence a failure defeats the purpose — refresh the
+#: fixture instead, which is one make target.
+MAX_FIXTURE_AGE_DAYS: Final[int] = 180
 
 
 def source_required() -> bool:
@@ -109,6 +137,51 @@ def write_fixture(name: str, payload: dict[str, Any]) -> Path:
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return path
+
+
+def provenance(root: Path) -> dict[str, str]:
+    """Record where and when a fixture was generated from.
+
+    The commit sha makes a stale-but-recently-regenerated fixture diagnosable
+    rather than merely suspicious; the date is what :func:`fixture_age_days`
+    reads. A checkout whose sha cannot be read (a tarball, a shallow export)
+    still records the date — a partial provenance beats none, and the caller
+    must not fail to generate a fixture over it.
+    """
+    generated = {
+        "generated_on": date.today().isoformat(),
+        "source_root": str(root),
+    }
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return generated
+    if result.returncode == 0 and result.stdout.strip():
+        generated["source_commit"] = result.stdout.strip()
+    return generated
+
+
+def fixture_age_days(name: str) -> int | None:
+    """Days since a fixture was generated, or ``None`` if it does not say.
+
+    ``None`` is distinct from "fresh": a fixture predating provenance cannot
+    be dated, and the caller decides whether that is a failure. It must not
+    silently read as age zero.
+    """
+    raw = load_fixture(name).get("generated_on")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        generated = datetime.fromisoformat(raw).date()
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc).date() - generated).days
 
 
 def method_map(raw: Any) -> dict[str, frozenset[str]]:

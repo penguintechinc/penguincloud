@@ -198,7 +198,21 @@ describe("goughOperationsApi", () => {
     expect(mockApi.request).not.toHaveBeenCalled();
   });
 
-  it("defaults to an empty list when the body omits operations", async () => {
+  it("refuses to report a missing operations key as no operations", async () => {
+    // `operations` is a required field of `OperationListResponse`, so an empty
+    // page arrives as `{"operations": []}`. Defaulting to [] told the operator
+    // nothing was running — the same false statement that shipped for Nest's
+    // snapshots, on a screen watching a deploy.
+    mockApi.get.mockResolvedValue({ data: {} });
+
+    await expect(goughOperationsApi.listOperations(7)).rejects.toThrow(
+      /no "operations" key/,
+    );
+  });
+
+  it("still reports a genuinely empty operation list as empty", async () => {
+    mockApi.get.mockResolvedValue({ data: { operations: [] } });
+
     expect(await goughOperationsApi.listOperations(7)).toEqual([]);
   });
 
@@ -302,14 +316,30 @@ describe("goughOperationsApi", () => {
   });
 
   it("omits the params object entirely when `since` is absent", async () => {
+    mockApi.get.mockResolvedValue({ data: { logs: [] } });
+
     await goughOperationsApi.operationLogs(7, "deployment", "op-1");
+
     expect(mockApi.get).toHaveBeenCalledWith(
       "/products/7/operations/deployment/op-1/logs",
       { params: undefined },
     );
   });
 
-  it("defaults to no log lines when the body omits them", async () => {
+  it("refuses to report a missing logs key as no output", async () => {
+    // "no output yet" and "this response is not the shape we expect" are very
+    // different things to tell someone watching a deploy. `logs` is required
+    // on `OperationLogsResponse`, so its absence cannot be the first.
+    mockApi.get.mockResolvedValue({ data: {} });
+
+    await expect(
+      goughOperationsApi.operationLogs(7, "deployment", "op-1"),
+    ).rejects.toThrow(/no "logs" key/);
+  });
+
+  it("still reports a genuinely empty log stream as empty", async () => {
+    mockApi.get.mockResolvedValue({ data: { logs: [] } });
+
     expect(
       await goughOperationsApi.operationLogs(7, "deployment", "op-1"),
     ).toEqual([]);

@@ -285,8 +285,14 @@ class NestAdapter(HealthOnlyAdapter):
         )
         if operation_id:
             resource.metadata[_OPERATION_ID_KEY] = str(operation_id)
+            # Encoded for the same reason get_operation encodes it: this is a
+            # value Nest supplied, it becomes a path segment, and the transport
+            # does not encode. Leaving one of the two raw meant the poll path
+            # published here could differ from the one actually polled.
             resource.metadata["operationPath"] = tenant_path(
-                ctx.external_id, COLLECTION_OPERATIONS, str(operation_id)
+                ctx.external_id,
+                COLLECTION_OPERATIONS,
+                quote_path_segment(str(operation_id)),
             )
         return resource
 

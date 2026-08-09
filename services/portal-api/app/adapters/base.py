@@ -730,6 +730,34 @@ def quote_path_segment(value: str) -> str:
     Not a substitute for typing an id in a ``RouteRule`` — that governs the
     caller-supplied PROXY path. This governs the typed-method path an adapter
     builds itself, which no allowlist ever sees.
+
+    Which of the two strategies to use
+    ==================================
+    Two adapters solved this differently and both are sound, so the third
+    product must not invent a third answer:
+
+    ================  ==========================  ==============================
+    strategy          used by                     when it is right
+    ================  ==========================  ==============================
+    **encode**        Nest (this function)        the product's ids are
+                                                  free-form and the portal does
+                                                  not get to define their shape
+    **reject**        Gough (``_segment``)        the product's ids have a known
+                                                  shape, so anything else is a
+                                                  bug worth surfacing early
+    ================  ==========================  ==============================
+
+    **Rule for a new adapter: reject if you can state the id's shape, encode if
+    you cannot.** Rejecting is stricter and gives a clearer failure (Gough's
+    ``_segment`` raises ``ResourceNotFoundError`` on anything outside
+    ``[A-Za-z0-9_-]``), so prefer it. Nest cannot: it names resources by an
+    operator-chosen DNS-style ``name`` and the portal has no standing to
+    narrow that, so it encodes instead.
+
+    What is NOT acceptable is a third option — interpolating the value raw and
+    relying on the transport's origin pin to contain the damage. The pin
+    refuses traversal and cross-origin egress; it does not stop a ``?`` from
+    turning the rest of your path into a query string.
     """
     return quote(str(value), safe="")
 

@@ -13,13 +13,13 @@ import type {
 
 export const productsApi = {
   types: async (): Promise<{ product_types: ProductType[] }> => {
-    const response = await api.get("/products/types");
+    const response = await api.get(portalUrl.productTypes());
     return response.data;
   },
   list: async (
     tenantId: number,
   ): Promise<{ products: ProductConnection[]; count: number }> => {
-    const response = await api.get("/products", {
+    const response = await api.get(portalUrl.products(), {
       params: { tenant_id: tenantId },
     });
     return response.data;
@@ -31,7 +31,7 @@ export const productsApi = {
   register: async (
     data: Record<string, unknown>,
   ): Promise<ProductConnection> => {
-    const response = await api.post("/products", data);
+    const response = await api.post(portalUrl.products(), data);
     return response.data;
   },
   update: async (

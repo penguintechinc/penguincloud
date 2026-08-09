@@ -3,6 +3,8 @@
  */
 
 import api from "../../lib/api";
+import { envelopeList } from "../envelope";
+import { portalUrl } from "../portalPaths";
 import type {
   AuditLog,
   DashboardOverview,
@@ -40,12 +42,21 @@ export const dashboardApi = {
   /**
    * Per-customer × per-product status for a provider org. Only meaningful in
    * provider scope; the server requires delegated admin over the subtree.
+   *
+   * The URL is TENANT-SCOPED. It was `GET /dashboard/rollup` with the tenant
+   * as a query parameter, and the portal registers no such route — the rule is
+   * `/api/v1/tenants/{tenant_id}/dashboard/rollup` (`tenants.py:901`), so
+   * every call 404'd. It surfaced as the matrix's error state rather than
+   * silently, because `Dashboard.tsx` passes the query error through, but it
+   * had never worked. Found by the url_map guard being widened to cover
+   * quoted literals.
+   *
+   * `rollup` is a required field of `RollupResponse`, so an empty subtree
+   * arrives as `{"rollup": []}` and a missing key cannot mean "no customers".
    */
   rollup: async (tenantId: number): Promise<DashboardRollupRow[]> => {
-    const response = await api.get("/dashboard/rollup", {
-      params: { tenant_id: tenantId },
-    });
-    return response.data.rollup ?? [];
+    const response = await api.get(portalUrl.tenantDashboardRollup(tenantId));
+    return envelopeList<DashboardRollupRow>(response.data, "rollup");
   },
 };
 

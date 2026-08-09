@@ -10,6 +10,7 @@
  */
 
 import api from "../../lib/api";
+import { envelopeList } from "../envelope";
 import { portalUrl } from "../portalPaths";
 import type {
   GoughActionResult,
@@ -50,11 +51,17 @@ export const goughOperationsApi = {
     return response.data as GoughActionResult;
   },
 
-  /** Operations the product is currently running. Portal endpoint, not proxy. */
+  /**
+   * Operations the product is currently running. Portal endpoint, not proxy.
+   *
+   * `operations` is a required field of `OperationListResponse`, so an empty
+   * page arrives as `{"operations": []}` and its absence cannot mean "none" —
+   * see `envelopeList`. Reporting none is the same false statement that
+   * shipped for Nest's snapshots.
+   */
   listOperations: async (productId: number): Promise<GoughOperation[]> => {
     const response = await api.get(portalUrl.operations(productId));
-    const body = response.data as { operations?: GoughOperation[] };
-    return body.operations ?? [];
+    return envelopeList<GoughOperation>(response.data, "operations");
   },
 
   /** Poll one operation. `kind` selects the poll route; both are path segments. */
@@ -83,6 +90,11 @@ export const goughOperationsApi = {
   /**
    * Log lines for an operation. `since` fetches only what is new, so a poll
    * loop does not re-download the whole stream on every tick.
+   *
+   * An operation with no output yet answers `{"logs": []}` — `logs` is a
+   * required field of `OperationLogsResponse`. A missing key is a shape this
+   * client does not understand, and "no output" is exactly the wrong thing to
+   * tell someone watching a deploy.
    */
   operationLogs: async (
     productId: number,
@@ -94,7 +106,6 @@ export const goughOperationsApi = {
       portalUrl.operationLogs(productId, kind, operationId),
       { params: since ? { since } : undefined },
     );
-    const body = response.data as { logs?: GoughOperationLogLine[] };
-    return body.logs ?? [];
+    return envelopeList<GoughOperationLogLine>(response.data, "logs");
   },
 };
