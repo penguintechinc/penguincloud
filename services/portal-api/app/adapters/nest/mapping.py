@@ -88,17 +88,29 @@ _PROMOTED: Final[frozenset[str]] = frozenset(
 
 #: Nest's DataResource create READS different field names than it WRITES.
 #:
-#: ``handlers/dataresource.py:101-104`` takes ``type`` and ``class``, while
-#: ``models.py:DataResourceRecord.to_dict`` emits ``resourceType`` and
-#: ``storageClass`` — so a caller that round-trips a resource it just read
+#: ``handlers/dataresource.py:103-104`` takes ``type`` and ``class``, while
+#: ``models.py:75,77`` (``DataResourceRecord.to_dict``) emits ``resourceType``
+#: and ``storageClass`` — so a caller that round-trips a resource it just read
 #: gets ``400 nest.dataresource.invalid: name and type are required``.
 #:
-#: That asymmetry was found by driving this adapter against a real Nest, not
-#: by reading the spec: ``openapi/v1.yaml`` documents the create body as
-#: ``resourceType``/``storageClass``, which the handler ignores. Normalising
-#: here means one form in the UI cannot be silently wrong in one direction.
-#: Nest's own names are passed through untouched, so a caller that already
-#: speaks the wire format is unaffected.
+#: **The spec documents this faithfully; it is not a spec-vs-handler
+#: contradiction.** ``openapi/v1.yaml:1018`` (``CreateDataResourceRequest``)
+#: is ``required: [name, type]`` with ``type``/``class``, matching the handler
+#: exactly. ``resourceType``/``storageClass`` appear at ``:1048`` in
+#: ``CreateDataResourceResponse``. What is asymmetric is the request schema
+#: against the response schema of the same resource — which the spec states
+#: and which is still a trap for any caller that renders a row and posts it
+#: back.
+#:
+#: (An earlier version of this note claimed the spec documented the create
+#: body as ``resourceType``/``storageClass`` and that the handler ignored it.
+#: That was wrong, and it was written as if live-verified. The aliasing below
+#: is unaffected — it was verified against a running Nest, which is where the
+#: 400 above comes from.)
+#:
+#: Normalising here means one form in the UI cannot be silently wrong in one
+#: direction. Nest's own names are passed through untouched, so a caller that
+#: already speaks the wire format is unaffected.
 CREATE_FIELD_ALIASES: Final[dict[str, dict[str, str]]] = {
     KIND_DATABASE: {"resourceType": "type", "storageClass": "class"},
 }

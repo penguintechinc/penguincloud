@@ -1,6 +1,6 @@
 ---
 name: feedback-evidence-over-assumption
-description: On penguincloud Phase-4, verify a product's API against its source before building — committed specs and briefs have both been wrong; state what was NOT verified
+description: On penguincloud Phase-4, verify a product's API against its source before building — specs and briefs have both been wrong, and so has a claim that a spec was wrong; cite file:line and state what was NOT verified
 metadata:
   type: feedback
 ---
@@ -17,6 +17,20 @@ The same session, a "cluster_id is available" reading collapsed once the
 model was checked: the field is populated by a tolerant getter whose default
 always wins because the column does not exist.
 
+**The rule cuts both ways: DISMISSING a spec is also a claim, and needs the
+same evidence.** Phase 4N wrote, in code and in its report and in a test
+docstring, that Nest's `openapi/v1.yaml` "documents the create body as
+`resourceType`/`storageClass`, which the handler ignores" — phrased as
+live-verified. The spec was never opened. `CreateDataResourceRequest`
+(`~/code/nest/openapi/v1.yaml:1018`) is `required: [name, type]` with
+`type`/`class` and matches the handler exactly; those other two names are its
+*response* schema (`:1048`). The underlying finding was real — the create
+request and the read response use different field names, so round-tripping a
+row you just read 400s — but it was attributed to the wrong source and
+propagated to four places, one of them this memory file. Say which artefact
+you actually read; "the spec is wrong" earns no more trust than "the spec is
+right".
+
 A third instance, fix wave 1: a task said to wire the dashboard card to
 `metrics_summary()` instead of list-row counts. **Gough publishes no
 fleet-size metric at all** — every gauge in
@@ -30,6 +44,15 @@ rewiring a UI onto it.
 **How to apply:**
 - Grep the product's route registrations and serializers, not its spec file
   or the brief. `~/code/{product}` is usually checked out locally.
+- **Cite the file and line you read for every claim about a product** —
+  including claims that its spec is WRONG. Quote the schema name and line
+  number, not "the spec says". An unread spec asserted to be wrong is the
+  same error as an unread spec trusted to be right, and it is harder to
+  catch because it sounds like diligence.
+- When a claim turns out to be false, fix it **everywhere it was
+  propagated** — code comment, report, test docstring, and any memory file.
+  A corrected code comment beside an uncorrected memory leaves the wrong
+  version as the one future sessions inherit.
 - Check the product's route registrations for TRAILING SLASHES specifically —
   `route("/")` vs `route("/groups")` is a 308-vs-404 difference that no spec
   records (see [[adapter-contract-boundaries]]).
@@ -43,27 +66,6 @@ rewiring a UI onto it.
   verification must be stated as such in the report ("adapter has only run
   against `httpx.MockTransport`; live smoke lands with the alpha deploy"),
   not softened or omitted.
-- **You can usually get a real run without Docker.** In 4N the product's own
-  Quart app was constructed in-process and served to the adapter via
-  `httpx.ASGITransport`, injected as `Transport._client` — real routing,
-  middleware, handlers and serializers, no compose, no build. It found a
-  defect 97 green tests did not: Nest's create *reads* `type`/`class` while
-  its serializer *writes* `resourceType`/`storageClass`, so a payload built
-  from a resource just read is 400-rejected, and the committed spec documents
-  the wrong pair. Gotchas: load the product's `app.py` under a distinct
-  module name (it collides with the portal's own `app` package in
-  `sys.modules`), execute it **once** per session (module-level Prometheus
-  collectors raise `Duplicated timeseries` on re-exec), patch BOTH
-  `app.adapters.transport.get_transport` and the adapter's own `_transport`
-  (`HealthOnlyAdapter.health` reaches for the shared one, so patching only
-  the helper leaves health talking to a real socket), and clear any JWKS
-  cache between tests if each mints a fresh key.
-- **Derive the product's route table from its source, not by hand.**
-  `tests/api/{gough,nest}_route_source.py` AST-parse the real registrations;
-  a test that binds every allowlist rule against a `werkzeug.routing.Map`
-  built from that table is what catches a rule aimed at a route the product
-  does not have — the `/servers`-and-`/jobs` class of defect. Verify it by
-  injecting a phantom rule and watching it go red.
 
 Related: writing the test first surfaces gate bugs the code reads as correct
 — 4G's feature flag gated *rendering* while the component's hooks had already

@@ -128,10 +128,18 @@ class TestCreatePayloadAliasing:
         """``resourceType``/``storageClass`` become ``type``/``class``.
 
         Regression for a live-verified defect: Nest's create handler reads
-        ``type`` and ``class`` while its serializer emits ``resourceType``
-        and ``storageClass``, so a payload built from a resource just read —
-        or from the committed OpenAPI spec — is rejected with
-        ``400 name and type are required``.
+        ``type`` and ``class`` (``handlers/dataresource.py:103-104``) while
+        its serializer emits ``resourceType`` and ``storageClass``
+        (``models.py:75,77``), so a payload built from a resource just READ is
+        rejected with ``400 name and type are required``.
+
+        What was verified live is that asymmetry — request shape against
+        response shape. **Not** a spec-vs-handler contradiction: the spec's
+        ``CreateDataResourceRequest`` (``openapi/v1.yaml:1018``) is
+        ``required: [name, type]`` with ``type``/``class`` and agrees with the
+        handler; ``resourceType``/``storageClass`` are its *response* schema
+        (``:1048``). An earlier version of this docstring said the opposite
+        and presented it as live-verified evidence.
         """
         body = to_create_payload(
             "database",
