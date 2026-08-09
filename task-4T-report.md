@@ -141,3 +141,122 @@ fixture rather than described.
 ---
 
 *(session continues — adapter implementation below as it lands)*
+
+---
+
+## Session 1 — what landed
+
+Two commits, both pushed to `feature/tobogganing-integration`.
+
+| Commit | Content |
+|---|---|
+| `4a9dbc91` | `test(4T)`: vendored route table + per-route auth class + envelope map, with drift/provenance/staleness/plausibility guards |
+| `d33b4a72` | `feat(4T)`: the adapter package, allowlist matrix, behavioural tests, registry promotion |
+
+### Files
+
+| Path | Role |
+|---|---|
+| `tests/api/tobogganing_route_source.py` | Derives the route table, auth class and envelope key per route by BOOTING the product; vendored fallback |
+| `tests/api/fixtures/tobogganing_source.json` | The vendored copy — 108 paths / 139 rules / 42 envelopes, provenance `20b81ec9` @ 2026-08-09 |
+| `services/portal-api/app/adapters/tobogganing/{routes,mapping,responses,adapter}.py` | The adapter package |
+| `tests/api/test_tobogganing_{source_fixture,allowlist,adapter}.py` | 72 new tests |
+| *(deleted)* `app/adapters/tobogganing_adapter.py` | The health-only stub it replaces |
+
+### Resource decisions, against the brief
+
+| Brief resource | Outcome |
+|---|---|
+| `sase` | **Implemented** — but as blockpages + SWG, which is what SASE actually is. The brief's "clients/clusters/status" are SD-WAN routes. |
+| `sdwan` | **Implemented** — clients + clusters. No `links` or `policies` route exists in the product. |
+| `wireguard` | **Implemented** via `/api/v1/sdwan/wireguard/peers` (user plane). The flat `/api/v1/wireguard/peers` is machine-only. No `configs` route exists. |
+| `firewall` | **Cannot be implemented** — machine plane, `aud=="headend"`. |
+| `headend` | **Cannot be implemented** — machine plane. No `config` route; it is `/headend/{id}/ports`. |
+
+### A cross-tenant leak caught before it shipped
+
+`GET /api/v1/sdwan/status` was in the allowlist and was removed. It carries no
+auth decorator at all **and** hardcodes `tenant_id = "default"`
+(`hub_api/modules/sdwan/api/status.py:30`, comment "Phase-0 uses default
+tenant"). Proxied, it would have reported the default tenant's cluster and
+client counts inside every other tenant's portal. It was found by the
+machine-plane guard reporting it as auth class `none`, not by review.
+
+### Guards proven by reverting, not by writing
+
+Each was made to fail before being trusted (per the standing rule that several
+4G tests were green against the bug they covered):
+
+| Injected defect | Result |
+|---|---|
+| Allowlist rule for `/api/v1/firewall/rules` (what the brief prescribed) | 4 tests red |
+| One envelope key flipped to `items` (the 4N defect) | 4 tests red; runtime raises instead of rendering empty |
+| Fixture corrupted (route dropped, machine route flipped to `user`) | 3 tests red |
+
+### Evidence status
+
+- **Route table, auth classes and envelope keys: live-verified.** Tobogganing
+  boots here (`create_app()` + `test_app()`, all 9 modules mount), and every
+  path/auth/envelope claim in the adapter is graded against that boot.
+- **The adapter itself has only run against `httpx.MockTransport`.** No HTTP
+  round-trip against a seeded Tobogganing database has been performed — the
+  fakes are built from the product's real payload shapes (cited to
+  `file:line`), but a live smoke test lands with the alpha deploy.
+- Backend `tests/api`: **962 passed, 12 skipped, 19 xfailed** (baseline
+  890/13/19). All 12 skips are pre-existing Phase-1B API-key tests; none of the
+  72 new tests skip. `flake8`, `black`, `mypy --strict` clean on touched files.
+- **webui untouched** — `git diff b968f05b..HEAD -- services/webui/` is empty,
+  so the 450/32 baseline is unaffected by construction.
+
+---
+
+## Handoff — screens (session 2)
+
+Screens were deliberately not started, per the brief's "hand off screens rather
+than half-doing both". The backend is a clean, pushed boundary.
+
+**State to inherit:**
+- `services/webui/.../menuCategories.ts` — `tobogganing.items` is `[]`. The
+  dead-link guard asserts `MENU_ITEM_ROUTES ⊆ APP_ROUTES`, so entries may only
+  be added alongside the routes that serve them. Do not re-add the five entries
+  4N removed; three of them (Firewall, Headend, and a flat WireGuard page) have
+  no reachable backend and must not come back.
+- `featureGates.ts` — `tobogganing: false`, correct per the brief.
+- `services/webui/` has **no `node_modules` in this worktree**; `npm ci` first.
+  It uses **jest**, not vitest.
+
+**Screens that can be built (all user-plane, all verified):**
+
+| Screen | Backing route | Envelope |
+|---|---|---|
+| SD-WAN Clients | `GET /api/v1/sdwan/clients` | `clients` |
+| SD-WAN Clusters | `GET /api/v1/sdwan/clusters` | `clusters` |
+| WireGuard Peers | `GET /api/v1/sdwan/wireguard/peers` | `peers` |
+| SASE Block Pages | `GET/POST /api/v1/sase/blockpages/pages` (+ `PUT`/`preview`/`publish` per id) | `pages` |
+| SASE SWG Policy | `GET/PUT /api/v1/sase/swg/policy` | `policies` |
+
+**Screens that must NOT be built:** Firewall, Headend. Both are machine-plane.
+Re-scoping them needs a product change in Tobogganing, not portal work.
+
+**Do not hand-spell any of the above.** Import the path constants from
+`app/adapters/tobogganing/routes.py` on the backend side, and take portal URLs
+from the `portalUrl.*` builders backed by `PORTAL_TYPED_RULES` — a hand-spelled
+path inside an `api.<verb>(` call fails the ban rule, and
+`test_every_literal_api_url_resolves_to_a_registered_route` will reject a URL
+whose method does not match a registered route.
+
+## Product-side defects observed (Tobogganing, read-only — not fixed here)
+
+Worth raising with that repo's owners; none blocks this integration:
+
+1. **`GET /openapi.json` serves a hardcoded 5-path placeholder** while its
+   docstring claims "the complete API surface" (`hub_api/app.py:381-397`). The
+   real spec is the generated `openapi/v1.yaml` (107 paths).
+2. **`POST /api/v1/auth/refresh` is registered twice** — `auth_routes.py:79` and
+   `headend_routes.py:502` collide on one path with different rotation
+   semantics; whichever blueprint registers first wins.
+3. **`GET /api/v1/ziti/api/v1/ziti/health`** — doubled prefix; the ziti
+   blueprint declares its own `/api/v1/ziti` and the registry prepends
+   `/api/v1/{module}` again (`registry/registry.py:58-62`).
+4. **`GET /api/v1/sdwan/status`** is unauthenticated and tenant-blind (see
+   above) — arguably the most consequential of the four.
