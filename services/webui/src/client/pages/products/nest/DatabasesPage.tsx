@@ -1,8 +1,12 @@
 import { useState } from "react";
-import { DataTable, DetailDrawer } from "../../../components/kit";
+import {
+  ActionButton,
+  DataTable,
+  DetailDrawer,
+  RowOpenButtons,
+} from "../../../components/kit";
 import { NestScreen } from "./NestScreen";
 import { NestOperationsPanel } from "./NestOperationsPanel";
-import { ActionButton, RowOpenButtons } from "./NestUi";
 import { DatabaseTabs } from "./DatabaseTabs";
 import {
   ActionConfirmDialog,
