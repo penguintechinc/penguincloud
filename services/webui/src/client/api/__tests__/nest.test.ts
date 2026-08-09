@@ -157,6 +157,63 @@ describe("billing reads", () => {
 
     await expect(nestApi.costReport(PRODUCT_ID)).rejects.toThrow();
   });
+
+  it("rethrows a network error, which carries no status at all", async () => {
+    // `error.response` is undefined when the request never reached the portal.
+    // Treating a missing status as "not 503" is what keeps an outage from
+    // rendering as a deployment choice.
+    mockApi.request.mockRejectedValue(new Error("Network Error"));
+
+    await expect(nestApi.costSummary(PRODUCT_ID)).rejects.toThrow(
+      "Network Error",
+    );
+  });
+
+  it.each([
+    ["a null body", null],
+    ["a non-object body", "not json"],
+  ])(
+    "treats %s as unavailable rather than trusting it",
+    async (_name, body) => {
+      // A 200 with an unusable body is not a bill. Reading `data` off it would
+      // produce `available: true` with nothing in it, which the screen would
+      // render as a metered tenant that owes nothing.
+      mockApi.request.mockResolvedValue({ data: body });
+
+      expect(await nestApi.costReport(PRODUCT_ID)).toEqual({
+        available: false,
+        data: null,
+      });
+    },
+  );
+
+  it("reports an ok envelope with no data as available but empty", async () => {
+    // Distinct from the case above: the calculator answered, it simply has no
+    // records for this tenant yet.
+    mockApi.request.mockResolvedValue({ data: { status: "ok" } });
+
+    expect(await nestApi.costReport(PRODUCT_ID)).toEqual({
+      available: true,
+      data: null,
+    });
+  });
+});
+
+describe("collection unwrapping", () => {
+  it("returns an empty list when items is present but not a list", async () => {
+    // A shape this wrong is a product bug, but rendering an empty table is
+    // still truthful about what arrived — and it keeps one malformed response
+    // from throwing inside a screen that has no way to explain it.
+    mockApi.request.mockResolvedValue({ data: { items: "nope" } });
+
+    expect(await nestApi.listSnapshots(PRODUCT_ID)).toEqual([]);
+  });
+
+  it("returns null for a single resource that is not an object", async () => {
+    mockApi.request.mockResolvedValue({ data: null });
+
+    expect(await nestApi.getDatabase(PRODUCT_ID, "db-1")).toBeNull();
+  });
 });
 
 describe("typed writes", () => {

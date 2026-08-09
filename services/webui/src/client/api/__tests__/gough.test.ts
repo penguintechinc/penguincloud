@@ -163,6 +163,31 @@ describe("goughApi mutating verbs", () => {
 });
 
 describe("goughOperationsApi", () => {
+  it("reads headline metrics from the portal's metrics endpoint", async () => {
+    // The only binding in this module with no test, which held the file's
+    // coverage under its 90% threshold. Not a Nest change — fixed here rather
+    // than left red, since a failing gate that predates a branch is still a
+    // failing gate on it.
+    //
+    // `totals` is the figure the dashboard tiles read, and it is NOT the
+    // length of a resource list: Gough's page_size caps at 500 and its own
+    // `total` is the length of the page it just serialised, so a fleet larger
+    // than one page would render as the page size.
+    mockApi.get.mockResolvedValue({
+      data: {
+        start: "2026-08-08T00:00:00Z",
+        series: [],
+        totals: { nodes: 12 },
+      },
+    });
+
+    const summary = await goughOperationsApi.metricsSummary(7);
+
+    expect(summary.totals).toEqual({ nodes: 12 });
+    expect(mockApi.get).toHaveBeenCalledWith("/products/7/metrics");
+    expect(mockApi.request).not.toHaveBeenCalled();
+  });
+
   it("lists operations from the portal endpoint, not the proxy", async () => {
     mockApi.get.mockResolvedValue({ data: { operations: [{ id: "op-1" }] } });
 
