@@ -60,6 +60,7 @@ from .mapping import (
     OP_KIND,
     OPERATION_KINDS,
     RESOURCE_KINDS,
+    to_create_payload,
     to_operation,
     to_resource,
 )
@@ -250,7 +251,8 @@ class NestAdapter(HealthOnlyAdapter):
         reporting a resource as ready the moment creation was accepted.
         """
         path = self._collection_path(kind, ctx)
-        response = await self._call("POST", path, ctx, f"create {kind}", json=payload)
+        body = to_create_payload(kind, payload)
+        response = await self._call("POST", path, ctx, f"create {kind}", json=body)
         data = response.dict_data()
         resource = to_resource(kind, data)
 

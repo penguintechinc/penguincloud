@@ -31,7 +31,9 @@ __all__ = [
     "RESOURCE_KINDS",
     "OP_KIND",
     "OPERATION_KINDS",
+    "CREATE_FIELD_ALIASES",
     "parse_timestamp",
+    "to_create_payload",
     "to_resource",
     "to_operation",
 ]
@@ -79,6 +81,42 @@ _STATUS_KEYS: Final[dict[str, str]] = {
 _PROMOTED: Final[frozenset[str]] = frozenset(
     {"name", "phase", "createdAt", "updatedAt", "creationTime"}
 )
+
+
+#: Nest's DataResource create READS different field names than it WRITES.
+#:
+#: ``handlers/dataresource.py:101-104`` takes ``type`` and ``class``, while
+#: ``models.py:DataResourceRecord.to_dict`` emits ``resourceType`` and
+#: ``storageClass`` — so a caller that round-trips a resource it just read
+#: gets ``400 nest.dataresource.invalid: name and type are required``.
+#:
+#: That asymmetry was found by driving this adapter against a real Nest, not
+#: by reading the spec: ``openapi/v1.yaml`` documents the create body as
+#: ``resourceType``/``storageClass``, which the handler ignores. Normalising
+#: here means one form in the UI cannot be silently wrong in one direction.
+#: Nest's own names are passed through untouched, so a caller that already
+#: speaks the wire format is unaffected.
+CREATE_FIELD_ALIASES: Final[dict[str, dict[str, str]]] = {
+    KIND_DATABASE: {"resourceType": "type", "storageClass": "class"},
+}
+
+
+def to_create_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite a create payload into the field names Nest's handler reads.
+
+    An alias is applied only when the target key is absent, so an explicit
+    wire-format value always wins over an aliased one rather than one
+    silently overwriting the other.
+    """
+    aliases = CREATE_FIELD_ALIASES.get(kind)
+    if not aliases:
+        return dict(payload)
+
+    body = dict(payload)
+    for portal_name, wire_name in aliases.items():
+        if portal_name in body and wire_name not in body:
+            body[wire_name] = body.pop(portal_name)
+    return body
 
 
 def parse_timestamp(raw: Any) -> datetime | None:
