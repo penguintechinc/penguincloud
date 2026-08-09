@@ -27,6 +27,7 @@ export const APP_ROUTES = [
   "/products/gough/biomes",
   "/products/gough/agents",
   "/products/nest/databases",
+  "/products/nest/billing",
 ] as const;
 
 /**
@@ -55,4 +56,5 @@ export const MENU_ITEM_ROUTES = [
   "/products/gough/biomes",
   "/products/gough/agents",
   "/products/nest/databases",
+  "/products/nest/billing",
 ] as const;

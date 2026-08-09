@@ -176,7 +176,10 @@ describe("buildMenuCategories", () => {
       (category) => category.header === "Nest",
     );
 
-    expect(nest?.items.map((item) => item.name)).toEqual(["Databases"]);
+    expect(nest?.items.map((item) => item.name)).toEqual([
+      "Databases",
+      "Billing",
+    ]);
   });
 
   it("omits a product category that has no screens yet", () => {

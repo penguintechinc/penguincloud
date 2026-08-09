@@ -1,16 +1,17 @@
 import { useState } from "react";
-import { FormModalBuilder } from "@penguintechinc/react-libs";
-import {
-  ConfirmDialog,
-  DataTable,
-  DetailDrawer,
-} from "../../../components/kit";
+import { DataTable, DetailDrawer } from "../../../components/kit";
 import { NestScreen } from "./NestScreen";
 import { NestOperationsPanel } from "./NestOperationsPanel";
 import { ActionButton, RowOpenButtons } from "./NestUi";
 import { DatabaseTabs } from "./DatabaseTabs";
-import { databaseColumns, databaseFields } from "./databaseColumns";
-import { DATABASE_ACTIONS, type DatabaseAction } from "./databaseActions";
+import {
+  ActionConfirmDialog,
+  CreateDatabaseModal,
+  DeleteConfirmDialog,
+  DrawerActions,
+} from "./DatabaseDialogs";
+import { databaseColumns } from "./databaseColumns";
+import type { DatabaseAction } from "./databaseActions";
 import { useNestDatabases } from "./useNest";
 import { useNestOperationWatch } from "./useNestOperations";
 import {
@@ -24,11 +25,10 @@ import type { NestDatabase, NestDatabaseRow } from "./types";
 /**
  * Nest data-resources — databases, volumes and object stores.
  *
- * Every write here is asynchronous: Nest answers 202 and keeps working, so the
- * ids each mutation returns are handed to `watch()` and polled until terminal.
- * That is why the operations panel exists on this screen and why it is fed from
- * mutation results rather than a listing — Nest exposes no operation
- * collection at this service.
+ * Every write is asynchronous: Nest answers 202, so the ids each mutation
+ * returns go to `watch()` and are polled until terminal. The operations panel
+ * is fed from those results rather than a listing because Nest exposes no
+ * operation collection at this service.
  */
 export default function DatabasesPage() {
   const { data, isLoading, error, productId, isConnectionLoading, refetch } =
@@ -73,7 +73,7 @@ export default function DatabasesPage() {
   return (
     <NestScreen
       title="Databases"
-      description="Nest data resources: managed databases, volumes and object stores."
+      description="Managed databases, volumes and object stores."
       productId={productId}
       isConnectionLoading={isConnectionLoading}
     >
@@ -118,60 +118,29 @@ export default function DatabasesPage() {
         testId="nest-database-drawer"
         tabs={DatabaseTabs(selected)}
         actions={
-          <>
-            {DATABASE_ACTIONS.map((action) => (
-              <ActionButton
-                key={action.id}
-                label={action.label}
-                variant={action.isDangerous ? "danger" : "primary"}
-                onClick={() => setConfirming(action)}
-                testId={`nest-database-action-${action.id}`}
-              />
-            ))}
-            <ActionButton
-              label="Delete"
-              variant="danger"
-              onClick={() => setDeleting(selected)}
-              testId="nest-database-delete"
-            />
-          </>
+          <DrawerActions
+            onAction={setConfirming}
+            onDelete={() => setDeleting(selected)}
+          />
         }
       />
 
-      <FormModalBuilder
-        title="New database"
-        fields={databaseFields}
+      <CreateDatabaseModal
         isOpen={formOpen}
         onClose={() => setFormOpen(false)}
         onSubmit={submit}
-        submitButtonText="Create"
       />
 
-      <ConfirmDialog
-        isOpen={confirming !== null}
-        title={confirming?.label ?? ""}
-        message={
-          confirming && selected ? confirming.message(selected.name) : ""
-        }
-        confirmLabel={confirming?.confirmLabel ?? "Confirm"}
-        isDangerous={confirming?.isDangerous ?? false}
+      <ActionConfirmDialog
+        action={confirming}
+        database={selected}
         isLoading={act.isPending}
         onConfirm={() => confirming && runAction(confirming)}
         onCancel={() => setConfirming(null)}
-        testId="nest-database-confirm"
       />
 
-      <ConfirmDialog
-        isOpen={deleting !== null}
-        title="Delete database"
-        message={
-          deleting
-            ? `Deleting "${deleting.name}" destroys the resource and its data. ` +
-              `Snapshots taken from it are not removed and remain billable.`
-            : ""
-        }
-        confirmLabel="Delete"
-        isDangerous
+      <DeleteConfirmDialog
+        database={deleting}
         isLoading={remove.isPending}
         onConfirm={() => {
           if (!deleting) return;
@@ -186,7 +155,6 @@ export default function DatabasesPage() {
           );
         }}
         onCancel={() => setDeleting(null)}
-        testId="nest-database-delete-confirm"
       />
     </NestScreen>
   );

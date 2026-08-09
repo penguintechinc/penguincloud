@@ -24,6 +24,7 @@ import NodesPage from "./pages/products/gough/NodesPage";
 import BiomesPage from "./pages/products/gough/BiomesPage";
 import AgentsPage from "./pages/products/gough/AgentsPage";
 import DatabasesPage from "./pages/products/nest/DatabasesPage";
+import BillingPage from "./pages/products/nest/BillingPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -137,6 +138,7 @@ function App() {
             services are not reachable at a Nest connection's origin, see
             menuCategories.ts. */}
         <Route path="/products/nest/databases" element={<DatabasesPage />} />
+        <Route path="/products/nest/billing" element={<BillingPage />} />
 
         {/* Settings - Maintainer and Admin */}
         <Route

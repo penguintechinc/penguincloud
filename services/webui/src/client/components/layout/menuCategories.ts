@@ -12,6 +12,7 @@ import {
   Building,
   Users,
   Zap,
+  Receipt,
   Settings,
   Database,
   Shield,
@@ -63,6 +64,7 @@ const PRODUCT_ITEMS: Record<string, { header: string; items: MenuItem[] }> = {
     // routes them. See task-4N-report.md.
     items: [
       { name: "Databases", href: "/products/nest/databases", icon: Database },
+      { name: "Billing", href: "/products/nest/billing", icon: Receipt },
     ],
   },
   tobogganing: {
