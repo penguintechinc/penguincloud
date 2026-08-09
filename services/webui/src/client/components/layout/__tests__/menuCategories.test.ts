@@ -77,15 +77,20 @@ describe("buildMenuCategories", () => {
   });
 
   it("keeps product categories in a stable order", () => {
-    // Tobogganing is absent despite being connected and gated on: it declares
-    // no items until Phase 4T ships screens, and an empty category is not
-    // rendered. Ordering is still asserted across the ones that do.
+    // Order follows PRODUCT_ITEMS declaration order, not connection order —
+    // the connections are deliberately passed in a different sequence.
     const headers = buildMenuCategories(
       [connection("tobogganing"), connection("nest"), connection("gough")],
       allowAll,
     ).map((c) => c.header);
 
-    expect(headers).toEqual(["Home", "Gough", "Nest", "Organization"]);
+    expect(headers).toEqual([
+      "Home",
+      "Gough",
+      "Nest",
+      "Tobogganing",
+      "Organization",
+    ]);
   });
 
   it("filters items by role", () => {
@@ -202,11 +207,43 @@ describe("buildMenuCategories", () => {
 
   it("omits a product category that has no screens yet", () => {
     // A header with nothing under it reads as a screen that failed to load.
-    const headers = buildMenuCategories(
+    //
+    // Until 4T this was asserted against Tobogganing, which genuinely had no
+    // items. Every product now has some, so the rule would otherwise be
+    // exercised by nothing — a test that passes because its subject went away
+    // is exactly the shape this phase keeps finding. The items are emptied
+    // and restored so the code path is still run rather than assumed.
+    const target = "gough";
+    const saved = PRODUCT_ITEMS[target].items;
+    PRODUCT_ITEMS[target].items = [];
+    try {
+      const headers = buildMenuCategories(
+        Object.keys(PRODUCT_ITEMS).map(connection),
+        allowAll,
+      ).map((c) => c.header);
+
+      expect(headers).not.toContain(PRODUCT_ITEMS[target].header);
+      expect(headers).toContain("Tobogganing");
+    } finally {
+      PRODUCT_ITEMS[target].items = saved;
+    }
+  });
+
+  it("offers only the Tobogganing screens a portal credential can reach", () => {
+    // Firewall and Headend are absent and must stay absent. They are
+    // Tobogganing's machine control plane: @require_machine_jwt rejects any
+    // token whose `aud` is not "headend", and a portal connection credential
+    // carries aud=="tobogganing". No scope grant fixes that — the audience
+    // check fails first. Asserted rather than left implicit because their
+    // absence is a decision backed by evidence, not an omission.
+    const tobogganing = buildMenuCategories(
       [connection("tobogganing")],
       allowAll,
-    ).map((c) => c.header);
+    ).find((category) => category.header === "Tobogganing");
+    const names = tobogganing?.items.map((item) => item.name);
 
-    expect(headers).not.toContain("Tobogganing");
+    expect(names).toEqual(["Clients"]);
+    expect(names).not.toContain("Firewall");
+    expect(names).not.toContain("Headend");
   });
 });

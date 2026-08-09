@@ -82,16 +82,34 @@ export const PRODUCT_ITEMS: Record<
   },
   tobogganing: {
     header: "Tobogganing",
-    // Empty until Phase 4T ships screens. It previously listed SASE, SD-WAN,
-    // Firewall, WireGuard and Headend — five entries with no route behind any
-    // of them, so every one was a dead link. They were invisible to the
-    // dead-link test because it built the menu for a tenant with NO product
-    // connections, and a product category only appears when one exists.
+    // No Firewall or Headend entries, and they are not coming back without a
+    // change in Tobogganing itself. Both are its MACHINE control plane:
+    // `@require_machine_jwt` rejects any token whose `aud` is not "headend"
+    // (hub_api/auth/middleware.py:516-517), and a portal connection credential
+    // comes from POST /api/v1/auth/login, which issues aud == product_name ==
+    // "tobogganing" (auth/service.py:341). That is an AUDIENCE mismatch, not a
+    // scope one — ROLE_SCOPES already grants the wildcards those routes ask
+    // for, and the audience check fails first. No token the portal can obtain
+    // will ever satisfy them.
     //
-    // Removed rather than left pending: `MENU_ITEM_ROUTES` is now asserted to
-    // be a subset of `APP_ROUTES`, so an entry can only be added alongside the
-    // route that serves it. 4T re-adds these with its screens.
-    items: [],
+    // The one way to reach them would be storing Tobogganing's fleet-wide
+    // HEADEND_API_TOKEN as a connection credential, which the legacy
+    // dual-accept branch would accept with g.machine_tenant hardcoded to
+    // "default" (middleware.py:619) — a cross-tenant credential behind a
+    // per-tenant UI. Rejected in session 1.
+    //
+    // "WireGuard Peers" below is the SD-WAN peer list
+    // (/api/v1/sdwan/wireguard/peers), NOT the flat /api/v1/wireguard/peers,
+    // which is machine-plane and one segment away from it.
+    //
+    // These five replace the five 4N removed: those had no route behind any of
+    // them, so every one was a dead link. `MENU_ITEM_ROUTES` is now asserted to
+    // be a subset of `APP_ROUTES`, which is in turn asserted against App.tsx's
+    // real <Route> table — so an entry can only be added alongside the route
+    // that serves it. See task-4T-report.md.
+    items: [
+      { name: "Clients", href: "/products/tobogganing/clients", icon: Gauge },
+    ],
   },
 };
 

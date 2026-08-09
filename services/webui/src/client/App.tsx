@@ -25,6 +25,7 @@ import BiomesPage from "./pages/products/gough/BiomesPage";
 import AgentsPage from "./pages/products/gough/AgentsPage";
 import DatabasesPage from "./pages/products/nest/DatabasesPage";
 import BillingPage from "./pages/products/nest/BillingPage";
+import ClientsPage from "./pages/products/tobogganing/ClientsPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -139,6 +140,15 @@ function App() {
             menuCategories.ts. */}
         <Route path="/products/nest/databases" element={<DatabasesPage />} />
         <Route path="/products/nest/billing" element={<BillingPage />} />
+
+        {/* Tobogganing. No RoleGuard, for the same reason as Gough and Nest.
+            No Firewall or Headend routes: those are Tobogganing's MACHINE
+            control plane, guarded by @require_machine_jwt which rejects any
+            token whose `aud` is not "headend". A portal connection credential
+            carries aud=="tobogganing", so no screen can ever be backed by
+            them — an audience mismatch, not a scope one. See
+            menuCategories.ts and task-4T-report.md. */}
+        <Route path="/products/tobogganing/clients" element={<ClientsPage />} />
 
         {/* Settings - Maintainer and Admin */}
         <Route
