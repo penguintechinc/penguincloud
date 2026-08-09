@@ -7,6 +7,7 @@
  */
 
 import api from "../../lib/api";
+import { proxyRequestUrl } from "../portalPaths";
 import { usersApi } from "../resources/users";
 import { tenantsApi } from "../resources/tenants";
 import { productsApi, discoveryApi, proxyApi } from "../resources/products";
@@ -198,9 +199,12 @@ describe("discoveryApi", () => {
 describe("proxyApi", () => {
   it("forwards method, path and body to the product proxy", async () => {
     await proxyApi.request(6, "POST", "nodes", { name: "n1" });
+    // The URL comes from `proxyRequestUrl`, which `portalPaths.test.ts` ties
+    // to the rule the portal registers. Spelling it literally here is how the
+    // suite previously pinned `/proxy/6/nodes` — a route that does not exist.
     expect(mockApi.request).toHaveBeenCalledWith({
       method: "POST",
-      url: "/proxy/6/nodes",
+      url: proxyRequestUrl(6, "nodes"),
       data: { name: "n1" },
     });
   });

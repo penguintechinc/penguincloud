@@ -12,8 +12,12 @@
  */
 
 import api from "../../lib/api";
+import { proxyRequestUrl } from "../portalPaths";
 import { goughApi } from "../resources/gough";
 import { goughOperationsApi } from "../resources/goughOperations";
+
+/** The connection id every binding below is called with. */
+const PRODUCT_ID = 7;
 
 jest.mock("../../lib/api");
 
@@ -30,10 +34,21 @@ beforeEach(() => {
   mockApi.request.mockResolvedValue({ data: {} });
 });
 
-/** The path the proxy binding forwarded, minus the /proxy/{id}/ prefix. */
+/**
+ * The product-relative path the proxy binding forwarded.
+ *
+ * The prefix is stripped using `proxyRequestUrl` itself rather than a
+ * hand-written regex. The regex here used to be `^\/proxy\/\d+\/`, transcribed
+ * from a prefix the portal does not serve — so every assertion below passed
+ * while the real request 404'd. Deriving the prefix from the builder means a
+ * URL shape this suite does not actually produce cannot be stripped, and the
+ * `expect(...).toBe(...)` lines fail instead of silently agreeing.
+ */
 function forwardedPath(): string {
   const url = mockApi.request.mock.calls[0][0].url as string;
-  return url.replace(/^\/proxy\/\d+\//, "");
+  const prefix = proxyRequestUrl(PRODUCT_ID, "");
+  expect(url.startsWith(prefix)).toBe(true);
+  return url.slice(prefix.length);
 }
 
 describe("goughApi list bindings", () => {

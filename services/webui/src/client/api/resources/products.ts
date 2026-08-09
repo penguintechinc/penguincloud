@@ -3,6 +3,7 @@
  */
 
 import api from "../../lib/api";
+import { proxyRequestUrl } from "../portalPaths";
 import type {
   ProductConnection,
   ProductType,
@@ -90,7 +91,12 @@ export const discoveryApi = {
   },
 };
 
-/** Forwards an arbitrary request to a connected product's own API. */
+/**
+ * Forwards an arbitrary request to a connected product's own API.
+ *
+ * The portal URL is built by `proxyRequestUrl` rather than spelled here — see
+ * `api/portalPaths.ts` for why that indirection is load-bearing.
+ */
 export const proxyApi = {
   request: async (
     productId: number,
@@ -100,7 +106,7 @@ export const proxyApi = {
   ): Promise<unknown> => {
     const response = await api.request({
       method,
-      url: `/proxy/${productId}/${path}`,
+      url: proxyRequestUrl(productId, path),
       data,
     });
     return response.data;
