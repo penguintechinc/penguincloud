@@ -43,6 +43,27 @@ rewiring a UI onto it.
   verification must be stated as such in the report ("adapter has only run
   against `httpx.MockTransport`; live smoke lands with the alpha deploy"),
   not softened or omitted.
+- **You can usually get a real run without Docker.** In 4N the product's own
+  Quart app was constructed in-process and served to the adapter via
+  `httpx.ASGITransport`, injected as `Transport._client` — real routing,
+  middleware, handlers and serializers, no compose, no build. It found a
+  defect 97 green tests did not: Nest's create *reads* `type`/`class` while
+  its serializer *writes* `resourceType`/`storageClass`, so a payload built
+  from a resource just read is 400-rejected, and the committed spec documents
+  the wrong pair. Gotchas: load the product's `app.py` under a distinct
+  module name (it collides with the portal's own `app` package in
+  `sys.modules`), execute it **once** per session (module-level Prometheus
+  collectors raise `Duplicated timeseries` on re-exec), patch BOTH
+  `app.adapters.transport.get_transport` and the adapter's own `_transport`
+  (`HealthOnlyAdapter.health` reaches for the shared one, so patching only
+  the helper leaves health talking to a real socket), and clear any JWKS
+  cache between tests if each mints a fresh key.
+- **Derive the product's route table from its source, not by hand.**
+  `tests/api/{gough,nest}_route_source.py` AST-parse the real registrations;
+  a test that binds every allowlist rule against a `werkzeug.routing.Map`
+  built from that table is what catches a rule aimed at a route the product
+  does not have — the `/servers`-and-`/jobs` class of defect. Verify it by
+  injecting a phantom rule and watching it go red.
 
 Related: writing the test first surfaces gate bugs the code reads as correct
 — 4G's feature flag gated *rendering* while the component's hooks had already

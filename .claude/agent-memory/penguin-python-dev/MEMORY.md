@@ -6,3 +6,4 @@
 - [Evidence over assumption](feedback_evidence_over_assumption.md) — verify a product's API from its handler source, not its spec/brief; state what was only mock-verified.
 - [Adapter contract boundaries](adapter_contract_boundaries.md) — proxy-vs-typed boundary, which mutations go where, allowlist over-match traps, trailing-slash asymmetry.
 - [Prove a regression test can fail](feedback_revert_verification.md) — revert the fix and watch it go red; several 4G tests were green against the bug they covered.
+- [Nest product topology](project_nest_topology.md) — Nest is 4 services; only `apps/api` is reachable under `/api`, so Servers/Cloud/Workflows can't back a portal screen.
