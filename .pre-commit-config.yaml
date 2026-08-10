@@ -1,0 +1,217 @@
+# PenguinTech standard git hooks for penguincloud.
+#
+# Install:  make install-hooks
+# Run all:  pre-commit run --all-files
+#
+# Two stages, matching devops.md "Git Hooks (Mandatory)":
+#   pre-commit — fast checks only (<30s), blocks the commit
+#   pre-push   — heavier security scans, blocks the push
+#
+# This replaces the hand-written, untracked .git/hooks/pre-commit and
+# pre-push scripts that previously only existed on one machine. Every check
+# those scripts performed is carried forward here (see PR description for
+# the full old-vs-new coverage table) plus the org's canonical baseline.
+#
+# Revs are pinned. Update deliberately via `pre-commit autoupdate`, never by
+# floating to a branch.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  # Hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+        # tsconfig*.json is JSONC (comments allowed) by TypeScript
+        # convention, not strict JSON -- see services/webui/tsconfig*.json.
+        exclude: (^|/)tsconfig(\..+)?\.json$
+      - id: check-executables-have-shebangs
+      - id: detect-private-key
+
+  # Secrets (mandatory, every repo)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # Shell (Bash must stay 3.2-compatible — see general.md)
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning]
+
+  # YAML
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        # Picks up .yamllint.yml at repo root automatically.
+
+  # Python — ruff ONLY, never alongside flake8/black/isort in new hooks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # mypy: local hook against the repo's own installed mypy + mypy.ini, not
+  # the mirrors-mypy isolated env — this repo's mypy.ini deliberately tunes
+  # follow_imports=silent and mypy_path for incremental, staged-file-only
+  # adoption (see mypy.ini header comment); --ignore-missing-imports matches
+  # the exact invocation the old hand-written hook used.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (staged files, repo mypy.ini)
+        entry: mypy --ignore-missing-imports
+        language: system
+        types: [python]
+
+  # Node/TS (webui) — matches old hook's services/webui-only scope. `files:`
+  # restricts invocation to paths under services/webui/; the wrapper scripts
+  # strip that prefix before invoking, since eslint/prettier resolve paths
+  # relative to their own config root (services/webui), not the repo root.
+  - repo: local
+    hooks:
+      - id: eslint-webui
+        name: eslint (services/webui)
+        entry: scripts/hooks/run-eslint-webui.sh
+        language: script
+        files: ^services/webui/.*\.(js|ts|jsx|tsx)$
+      - id: prettier-webui
+        name: prettier --check (services/webui)
+        entry: scripts/hooks/run-prettier-webui.sh
+        language: script
+        files: ^services/webui/.*\.(js|ts|jsx|tsx)$
+
+  # Dockerfiles
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.13.1-beta
+    hooks:
+      - id: hadolint-docker
+
+  # GitHub Actions (devops.md: "GitHub Actions workflow scan (zizmor)")
+  - repo: local
+    hooks:
+      - id: zizmor
+        name: zizmor (GitHub Actions security lint)
+        entry: zizmor
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: false
+        args: [.github/workflows/]
+
+  # ---------------------------------------------------------------------
+  # pre-push — heavier scans, kept off the commit path
+  # ---------------------------------------------------------------------
+
+  # Dockerfile rootless (canonical, blocking — see devops-containers.md)
+  - repo: local
+    hooks:
+      - id: dockerfile-rootless
+        name: Dockerfile runs as non-root
+        entry: scripts/hooks/check-dockerfile-rootless.sh
+        language: script
+        files: (^|/)Dockerfile[^/]*$
+        stages: [pre-push]
+
+  # Python security (canonical)
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.0
+    hooks:
+      - id: bandit
+        args: [-ll, -r]
+        stages: [pre-push]
+
+  # semgrep: use the official hook's own pinned/isolated env rather than the
+  # local `semgrep` binary — sidesteps whatever happens to be broken on a
+  # given dev machine (see PR description: local install here has a broken
+  # opentelemetry dependency chain, exactly the "silent no-op" failure mode
+  # this migration exists to fix).
+  - repo: https://github.com/semgrep/semgrep
+    rev: v1.100.0
+    hooks:
+      - id: semgrep
+        args: [scan, --config=auto, --error, --quiet]
+        stages: [pre-push]
+
+  # Vulnerability / IaC / dependency scans (local — system binaries)
+  - repo: local
+    hooks:
+      - id: trivy-fs
+        name: trivy fs (HIGH,CRITICAL)
+        entry: trivy fs --exit-code 1 --severity HIGH,CRITICAL --quiet .
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: trivy-config
+        name: trivy config (HIGH,CRITICAL)
+        entry: trivy config --exit-code 1 --severity HIGH,CRITICAL --quiet .
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: osv-scanner
+        name: osv-scanner (tracked lockfiles)
+        entry: scripts/hooks/run-osv-scanner.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: checkov
+        name: checkov (IaC misconfiguration)
+        entry: checkov -d . --quiet --compact
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: k8s-security-scan
+        name: kube-score + helm lint/checkov (best-effort, no rendered manifests yet)
+        entry: scripts/hooks/run-k8s-checks.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+        verbose: true
+
+      - id: pip-audit
+        name: pip-audit (repo requirement files, advisory)
+        entry: scripts/hooks/run-pip-audit.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+        verbose: true
+
+      - id: npm-audit-webui
+        name: npm audit (services/webui, moderate+)
+        entry: bash -c 'cd services/webui && npm audit --audit-level=moderate'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: trufflehog
+        name: trufflehog (verified secrets, advisory, git-worktree incompatible)
+        entry: scripts/hooks/run-trufflehog.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+        verbose: true

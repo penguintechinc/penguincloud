@@ -53,7 +53,8 @@ start_port_forward() {
     log_info "Starting port-forward for $service: localhost:$local_port -> $service:$service_port"
 
     # Find pod for service
-    local pod=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=$service" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    local pod
+    pod=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=$service" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
     if [[ -z "$pod" ]]; then
         # Try alternative label
@@ -166,14 +167,14 @@ main() {
 
     # Check for JavaScript bundles (common in React/Vue apps)
     local has_js=false
-    if curl -s --max-time 10 "http://localhost:33000/" | grep -qE '\.js["\']'; then
+    if curl -s --max-time 10 "http://localhost:33000/" | grep -qE "\.js[\"']"; then
         log_info "Found JavaScript references in HTML"
         has_js=true
     fi
 
     # Check for CSS
     local has_css=false
-    if curl -s --max-time 10 "http://localhost:33000/" | grep -qE '\.css["\']|<style'; then
+    if curl -s --max-time 10 "http://localhost:33000/" | grep -qE "\.css[\"']|<style"; then
         log_info "Found CSS references in HTML"
         has_css=true
     fi
