@@ -16,6 +16,7 @@ RUN_DIR="${SCRIPT_DIR}/run"
 # Color codes
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+# shellcheck disable=SC2034  # kept for palette consistency with sibling scripts
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
@@ -74,12 +75,13 @@ USAGE
 # Execute a single test and track results
 run_test() {
     local test_file="$1"
-    local test_name=$(basename "$test_file")
-    
+    local test_name
+    test_name=$(basename "$test_file")
+
     TESTS_TOTAL=$((TESTS_TOTAL + 1))
-    
+
     echo -n "Running $test_name ... "
-    
+
     if "$test_file"; then
         echo -e "${GREEN}✅ PASS${NC}"
         TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -99,7 +101,7 @@ print_summary() {
     echo -e "Total tests:  $TESTS_TOTAL"
     echo -e "Passed:       ${GREEN}$TESTS_PASSED${NC}"
     echo -e "Failed:       ${RED}$TESTS_FAILED${NC}"
-    
+
     if [ ${#FAILED_TESTS[@]} -gt 0 ]; then
         echo ""
         echo "Failed tests:"
@@ -136,14 +138,14 @@ if [ "$MOBILE_ONLY" = false ]; then
     if [ -d "$BUILD_DIR" ]; then
         echo "Running build tests..."
         echo "--------------------------------------------------------------------------------"
-        
+
         # Find and run all executable shell scripts
         while IFS= read -r -d '' test_file; do
             if [ -x "$test_file" ]; then
                 run_test "$test_file"
             fi
         done < <(find "$BUILD_DIR" -maxdepth 1 -name "*.sh" -print0 2>/dev/null)
-        
+
         if [ $TESTS_TOTAL -eq 0 ]; then
             echo "No build tests found in $BUILD_DIR"
         fi
@@ -161,14 +163,14 @@ if [ "$BUILD_ONLY" = false ]; then
     if [ -d "$RUN_DIR" ]; then
         echo "Running runtime tests..."
         echo "--------------------------------------------------------------------------------"
-        
+
         # Find and run all executable shell scripts
         while IFS= read -r -d '' test_file; do
             if [ -x "$test_file" ]; then
                 run_test "$test_file"
             fi
         done < <(find "$RUN_DIR" -maxdepth 1 -name "*.sh" -print0 2>/dev/null)
-        
+
         if [ $TESTS_TOTAL -eq 0 ]; then
             echo "No runtime tests found in $RUN_DIR"
         fi

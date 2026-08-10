@@ -57,7 +57,7 @@ setup: ## Setup - Install all dependencies and initialize the project
 	@$(MAKE) setup-python
 	@$(MAKE) setup-node
 	@$(MAKE) setup-flutter
-	@$(MAKE) setup-git-hooks
+	@$(MAKE) install-hooks
 	@echo "$(GREEN)Setup complete!$(RESET)"
 
 setup-env: ## Setup - Create environment file from template
@@ -87,13 +87,6 @@ setup-node: ## Setup - Install Node.js dependencies and tools
 	@node --version || (echo "$(RED)Node.js $(NODE_VERSION) not installed$(RESET)" && exit 1)
 	@npm install
 	@cd web && npm install
-
-setup-git-hooks: ## Setup - Install Git pre-commit hooks
-	@echo "$(BLUE)Installing Git hooks...$(RESET)"
-	@cp scripts/git-hooks/pre-commit .git/hooks/pre-commit
-	@chmod +x .git/hooks/pre-commit
-	@cp scripts/git-hooks/commit-msg .git/hooks/commit-msg
-	@chmod +x .git/hooks/commit-msg
 
 setup-flutter: ## Setup - Install Flutter dependencies
 	@echo "$(BLUE)Setting up Flutter dependencies...$(RESET)"
@@ -460,18 +453,21 @@ docs-build: ## Documentation - Build documentation
 	@echo "Documentation build not implemented yet"
 
 # Git Commands
-git-hooks-install: ## Git - Install Git hooks
-	@$(MAKE) setup-git-hooks
+# install-hooks/verify-hooks below are the canonical targets (see
+# setup-git-hooks-skill: pre-commit framework, never hand-written bash).
+# git-hooks-install is kept as a backward-compatible alias.
+git-hooks-install: install-hooks ## Git - Install Git hooks (alias for install-hooks)
 
-git-hooks-test: ## Git - Test Git hooks
+git-hooks-test: ## Git - Test Git hooks against all tracked files
 	@echo "$(BLUE)Testing Git hooks...$(RESET)"
-	@.git/hooks/pre-commit
+	@pre-commit run --all-files
 	@echo "$(GREEN)Git hooks test completed$(RESET)"
 
-install-hooks: ## Git - Install Git pre-commit and pre-push hooks
-	@echo "$(BLUE)Installing Git hooks...$(RESET)"
-	@./scripts/install-hooks.sh
-	@echo "$(GREEN)Git hooks installed successfully$(RESET)"
+install-hooks: ## Git - Install pre-commit framework + register pre-commit/pre-push hooks
+	@./scripts/install-pre-commit.sh
+
+verify-hooks: ## Git - Report whether pre-commit/pre-push hooks are installed and non-empty
+	@./scripts/install-pre-commit.sh --verify
 
 # Info Commands
 info: ## Info - Show project information

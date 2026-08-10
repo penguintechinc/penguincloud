@@ -12,3 +12,8 @@ rules:
     level: error
   document-start: disable
   comments-indentation: disable
+  # GitHub Actions' `on:` trigger key is valid YAML 1.2 but YAML 1.1's
+  # truthy-scalar resolution reads the bare word "on" as boolean true --
+  # every workflow file trips this permanently with zero actionable signal.
+  truthy:
+    check-keys: false

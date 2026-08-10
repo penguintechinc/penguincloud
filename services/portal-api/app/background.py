@@ -8,7 +8,7 @@ bare thread cannot reach either.
 import asyncio
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 from .license import license_manager
 from .models import get_db
@@ -76,13 +76,19 @@ class BackgroundTaskManager:
             # executesql's return type is a broad union (Rows, list of
             # tuples, list of dicts, int...) depending on the driver and
             # query, so narrow explicitly rather than blind-indexing.
-            rows = await db.executesql(
+            #
+            # mypy infers `db.executesql` as pydal's dynamic-attribute
+            # TableProxy rather than the bound method it resolves to at
+            # runtime (DAL's __getattr__ confuses the type checker) --
+            # narrow, single-line suppression per mypy.ini's documented
+            # policy for third-party stub limitations.
+            rows = await db.executesql(  # type: ignore[operator]
                 "SELECT COUNT(*) FROM users WHERE email_confirmed = true"
             )
             active_user_count = 0
             if isinstance(rows, list) and rows:
                 first = rows[0]
-                if isinstance(first, (list, tuple)) and first:
+                if isinstance(first, list | tuple) and first:
                     active_user_count = int(first[0])
 
             return {
@@ -96,7 +102,7 @@ class BackgroundTaskManager:
 
 
 # Global background task manager instance
-_background_manager: Optional[BackgroundTaskManager] = None
+_background_manager: BackgroundTaskManager | None = None
 
 
 def get_background_manager() -> BackgroundTaskManager:
