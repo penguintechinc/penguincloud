@@ -14,6 +14,12 @@
 #
 # Revs are pinned. Update deliberately via `pre-commit autoupdate`, never by
 # floating to a branch.
+#
+# NOTE: `default_stages` alone was found unreliable on this pre-commit
+# version (4.6.1) -- hooks that omit `stages:` get pre-commit's OWN schema
+# default (every stage) applied before `default_stages` ever gets a chance
+# to fill it in, so they silently run at pre-push too. Every hook below
+# sets `stages:` explicitly rather than relying on the top-level default.
 default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
 
@@ -23,25 +29,35 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        stages: [pre-commit]
       - id: end-of-file-fixer
+        stages: [pre-commit]
       - id: check-merge-conflict
+        stages: [pre-commit]
       - id: check-case-conflict
+        stages: [pre-commit]
       - id: check-added-large-files
         args: [--maxkb=1024]
+        stages: [pre-commit]
       - id: check-yaml
         args: [--allow-multiple-documents]
+        stages: [pre-commit]
       - id: check-json
         # tsconfig*.json is JSONC (comments allowed) by TypeScript
         # convention, not strict JSON -- see services/webui/tsconfig*.json.
         exclude: (^|/)tsconfig(\..+)?\.json$
+        stages: [pre-commit]
       - id: check-executables-have-shebangs
+        stages: [pre-commit]
       - id: detect-private-key
+        stages: [pre-commit]
 
   # Secrets (mandatory, every repo)
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
     hooks:
       - id: gitleaks
+        stages: [pre-commit]
 
   # Shell (Bash must stay 3.2-compatible — see general.md)
   - repo: https://github.com/koalaman/shellcheck-precommit
@@ -49,6 +65,7 @@ repos:
     hooks:
       - id: shellcheck
         args: [--severity=warning]
+        stages: [pre-commit]
 
   # YAML
   - repo: https://github.com/adrienverge/yamllint
@@ -56,6 +73,7 @@ repos:
     hooks:
       - id: yamllint
         # Picks up .yamllint.yml at repo root automatically.
+        stages: [pre-commit]
 
   # Python — ruff ONLY, never alongside flake8/black/isort in new hooks
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -63,7 +81,9 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
+        stages: [pre-commit]
       - id: ruff-format
+        stages: [pre-commit]
 
   # mypy: local hook against the repo's own installed mypy + mypy.ini, not
   # the mirrors-mypy isolated env — this repo's mypy.ini deliberately tunes
@@ -77,6 +97,7 @@ repos:
         entry: mypy --ignore-missing-imports
         language: system
         types: [python]
+        stages: [pre-commit]
 
   # Node/TS (webui) — matches old hook's services/webui-only scope. `files:`
   # restricts invocation to paths under services/webui/; the wrapper scripts
@@ -91,18 +112,21 @@ repos:
         files: ^services/webui/.*\.(js|ts|jsx|tsx)$
         # MSW-generated; the file's own header says "do NOT modify this file".
         exclude: ^services/webui/public/mockServiceWorker\.js$
+        stages: [pre-commit]
       - id: prettier-webui
         name: prettier --check (services/webui)
         entry: scripts/hooks/run-prettier-webui.sh
         language: script
         files: ^services/webui/.*\.(js|ts|jsx|tsx)$
         exclude: ^services/webui/public/mockServiceWorker\.js$
+        stages: [pre-commit]
 
   # Dockerfiles
   - repo: https://github.com/hadolint/hadolint
     rev: v2.13.1-beta
     hooks:
       - id: hadolint-docker
+        stages: [pre-commit]
 
   # GitHub Actions (devops.md: "GitHub Actions workflow scan (zizmor)")
   - repo: local
@@ -114,6 +138,7 @@ repos:
         files: ^\.github/workflows/.*\.ya?ml$
         pass_filenames: false
         args: [.github/workflows/]
+        stages: [pre-commit]
 
   # ---------------------------------------------------------------------
   # pre-push — heavier scans, kept off the commit path
@@ -146,8 +171,25 @@ repos:
     rev: v1.100.0
     hooks:
       - id: semgrep
-        args: [scan, --config=auto, --error, --quiet]
+        # Advisory, matching the old hand-written hook's exact posture
+        # (`semgrep scan --config=auto ... || true`) -- no `--error`, so
+        # findings print but never fail the push. `--config=auto`'s rule
+        # auto-selection was observed to differ materially between a
+        # directory-wide scan and this hook's file-list invocation
+        # (pre-commit passes every tracked file as a positional arg),
+        # surfacing a different finding set each way; that's not a
+        # foundation to hard-block pushes on without per-repo rule tuning,
+        # which is out of scope for a hooks-migration change.
+        args: [scan, --config=auto, --quiet]
         stages: [pre-push]
+        verbose: true
+        # semgrep's telemetry (opentelemetry-instrumentation) imports
+        # pkg_resources, which Python 3.13 venvs no longer ship by default
+        # (setuptools stopped auto-installing). setuptools >=81 dropped
+        # pkg_resources outright, so pin below that rather than just adding
+        # setuptools unpinned -- without this the hook's isolated env can't
+        # even import semgrep.cli.
+        additional_dependencies: ["setuptools<81"]
 
   # Vulnerability / IaC / dependency scans (local — system binaries)
   - repo: local
