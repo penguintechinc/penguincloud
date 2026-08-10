@@ -111,7 +111,13 @@ FEATURE_MIN_TIER: Final[dict[str, str]] = {
     "saml_sso": TIER_ENTERPRISE,
     "audit_export": TIER_ENTERPRISE,
     "external_kms": TIER_ENTERPRISE,
-    "waddleai": TIER_ENTERPRISE,
+    # NOT "waddleai": that name is the product-connection flag (a tenant may
+    # register a WaddleAI product on any tier, same as any other product).
+    # This is the portal-side AI assist, which is the Enterprise
+    # entitlement. One name meaning two things is how a product flag and a
+    # licence gate end up silently sharing a switch — flags.py asserts the
+    # two sets stay disjoint.
+    "waddleai_assist": TIER_ENTERPRISE,
     "advanced_analytics": TIER_ENTERPRISE,
     "unlimited_hierarchy": TIER_ENTERPRISE,
 }
