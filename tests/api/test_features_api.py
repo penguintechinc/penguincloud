@@ -59,6 +59,7 @@ class TestResponseShape:
             "licensed_features",
             "dev_mode",
             "dev_mode_max_users",
+            "limits",
         }
 
     @pytest.mark.asyncio
@@ -118,6 +119,51 @@ class TestResponseShape:
 
         assert body["dev_mode"] is False
         assert body["dev_mode_max_users"] == devmode.MAX_DEV_MODE_USERS
+
+
+class TestLimitsArePublished:
+    """The UI shows "1 of 1 tenants" BEFORE the operator hits a 402."""
+
+    @pytest.mark.asyncio
+    async def test_every_dimension_is_present(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
+        from app import quotas
+
+        response = await client.get("/api/v1/features", headers=auth_headers)
+        body = await response.get_json()
+
+        assert set(body["limits"]) == set(quotas.DIMENSIONS)
+        assert all(isinstance(value, int) for value in body["limits"].values())
+
+    @pytest.mark.asyncio
+    async def test_limits_come_from_the_resolver_not_a_constant(
+        self, client: Any, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A licence may raise or lower any of them per deployment.
+
+        Publishing a hardcoded table would be wrong for exactly the
+        customers who negotiated a different number.
+        """
+        from app import quotas
+
+        async def _custom() -> quotas.TierLimits:
+            return quotas.TierLimits(
+                global_admins=3,
+                tenant_admins=7,
+                tenants=2,
+                teams=quotas.UNLIMITED,
+                objects=5000,
+            )
+
+        monkeypatch.setattr(quotas, "resolve_limits", _custom)
+
+        response = await client.get("/api/v1/features", headers=auth_headers)
+        body = await response.get_json()
+
+        assert body["limits"]["tenant_admins"] == 7
+        assert body["limits"]["objects"] == 5000
+        assert body["limits"]["teams"] == quotas.UNLIMITED
 
 
 class TestDevModeSignal:

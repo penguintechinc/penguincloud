@@ -8,6 +8,7 @@ import sys
 import tempfile
 import uuid
 import jwt
+import pytest
 import pytest_asyncio
 from quart import Quart
 
@@ -245,3 +246,34 @@ async def auth_headers(client: Any) -> dict[str, str]:
     ), f"Failed to login: {await login_response.get_json()}"
     token = (await login_response.get_json())["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _suite_license_limits() -> Any:
+    """Resolve scale/structure limits as Enterprise for the whole suite.
+
+    The suite's fixtures build multi-tenant hierarchies, several teams and
+    more than one admin — deliberately, because that is what the delegated
+    admin model is made of. Under the default (Free) licence those are hard
+    blocks: 1 tenant, 1 team, 1 global admin.
+
+    This is a fixture, not a relaxation of the gate. The enforcement code is
+    untouched and every wall is exercised directly, at the real route, in
+    tests/api/test_quotas.py — which overrides this per test with a
+    function-scoped monkeypatch and therefore always wins. Without this the
+    quota walls would be tested implicitly by fixture breakage everywhere,
+    which reports the wrong failure in the wrong file.
+
+    Session-scoped so it is installed before any function-scoped fixture
+    (``tenant_id`` creates a tenant during setup, before a test body can
+    patch anything).
+    """
+    from app import licensing, quotas
+
+    async def _enterprise() -> "quotas.TierLimits":
+        return quotas.DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE]
+
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(quotas, "resolve_limits", _enterprise)
+    yield
+    patcher.undo()

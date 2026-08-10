@@ -13,7 +13,7 @@ from typing import Any
 from quart import Blueprint, request
 
 from .auth import hash_password_async, verify_password_async
-from . import devmode
+from . import devmode, quotas
 from .authz import SCOPE_AUDIT_READ, SCOPE_USERS_MANAGE, SCOPE_USERS_READ, require_scope
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -109,6 +109,16 @@ async def create_new_user() -> tuple[dict[str, Any], int]:
     if refusal is not None:
         return refusal
 
+    # Global admins: 1 / 1 / unlimited. Non-admin members are unlimited at
+    # every tier, so only the admin role is metered — a viewer or
+    # maintainer passes straight through.
+    if role == "admin":
+        quota_refusal = await quotas.quota_refusal(
+            "global_admins", await quotas.count_global_admins()
+        )
+        if quota_refusal is not None:
+            return quota_refusal
+
     # Create user
     password_hash = await hash_password_async(password)
     user = await create_user(
@@ -167,6 +177,17 @@ async def update_existing_user(user_id: int) -> tuple[dict[str, Any], int]:
             return {
                 "error": f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}"
             }, 400
+        # Promoting an existing user is the other way to gain a global
+        # admin. Metering only the create path would leave "create as
+        # viewer, then promote" as an unmetered route to the same
+        # structure. Re-promoting someone already admin is a no-op and must
+        # not be refused for a seat they already occupy.
+        if role == "admin" and user.get("role") != "admin":
+            quota_refusal = await quotas.quota_refusal(
+                "global_admins", await quotas.count_global_admins()
+            )
+            if quota_refusal is not None:
+                return quota_refusal
         update_data["role"] = role
 
     # Active status update

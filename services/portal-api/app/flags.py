@@ -93,15 +93,20 @@ PRODUCT_FLAGS: Final[frozenset[str]] = frozenset(
 FEATURE_FLAGS: Final[frozenset[str]] = frozenset(
     {
         "sso_integration",
-        "whitelabel",
-        "multi_tenant",
         "delegated_admin",
+        # `waddleai` (the product-connection flag) is a PRODUCT flag and a
+        # tenant may register that product on any tier. This is the
+        # portal-side hosted assist, which is the licensed capability. One
+        # key must never mean two things — the two sets are asserted
+        # disjoint in tests/api/test_flags.py.
+        "waddleai_assist",
+        "byok_ai",
         "saml_sso",
         "audit_export",
         "external_kms",
-        "waddleai_assist",
         "advanced_analytics",
-        "unlimited_hierarchy",
+        "whitelabel",
+        "multi_tenant",
     }
 )
 

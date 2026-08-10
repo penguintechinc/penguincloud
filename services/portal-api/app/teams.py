@@ -7,6 +7,7 @@ from typing import Any
 from quart import Blueprint, request
 
 from .authz import SCOPE_TEAMS_MANAGE, SCOPE_TEAMS_READ, require_team_scope
+from . import quotas
 from .middleware import auth_required, get_current_user
 from .models import (
     add_team_member,
@@ -67,6 +68,12 @@ async def create_team_endpoint() -> tuple[dict[str, Any], int]:
     # SQLATeam / db.define_table("teams", ...)) — any "description" sent in
     # the request body is accepted but not persisted. Team descriptions are
     # not yet part of the schema.
+    # Teams: 1 / unlimited / unlimited. The second team on Free is
+    # REFUSED with an upgrade prompt, never created-and-warned.
+    refusal = await quotas.quota_refusal("teams", await quotas.count_teams())
+    if refusal is not None:
+        return refusal
+
     team = await create_team(name, slug, user["id"])
     if team is None:
         return {"error": "Failed to create team"}, 500

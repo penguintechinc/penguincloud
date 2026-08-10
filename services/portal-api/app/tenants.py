@@ -20,6 +20,7 @@ from quart import Blueprint, request
 from quart_schema import validate_request, validate_response
 
 from .middleware import auth_required, get_current_user
+from . import quotas
 from .models import (
     add_tenant_member,
     create_audit_log,
@@ -359,6 +360,15 @@ async def create_tenant_endpoint() -> tuple[dict[str, Any], int]:
     existing = await get_tenant_by_slug(slug)
     if existing is not None:
         return {"error": "Tenant slug already exists"}, 409
+
+    # Tenants: 1 / 1 / unlimited. More than one tenant is an Enterprise
+    # structure, so the second one is REFUSED with an upgrade prompt — not
+    # created-and-warned, and not silently dropped.
+    refusal = await quotas.quota_refusal(
+        "tenants", await quotas.count_tenants()
+    )
+    if refusal is not None:
+        return refusal
 
     tenant_id = await create_tenant(
         name,
@@ -771,6 +781,17 @@ async def add_tenant_member_endpoint(tenant_id: int) -> tuple[Any, int]:
     if existing_role:
         return {"error": "User already a member"}, 409
 
+    # Delegated MSP admin is a LICENSED STRUCTURE under the tier model
+    # (Free 0, Professional 10, Enterprise unlimited), so enrolling one is
+    # gated here rather than only by the tenant's own max_users quota. A
+    # member/viewer is unlimited at every tier and passes straight through.
+    if member_role == "admin":
+        refusal = await quotas.quota_refusal(
+            "tenant_admins", await quotas.count_tenant_admins(tenant_id)
+        )
+        if refusal is not None:
+            return refusal
+
     member = await add_tenant_member(tenant_id, user_id, member_role, user["id"])
     if not member:
         return {"error": "Failed to add tenant member"}, 500
@@ -810,6 +831,18 @@ async def update_tenant_member_role(
 
     if not new_role or new_role not in ["admin", "member", "viewer"]:
         return {"error": "Valid role required (admin, member, viewer)"}, 400
+
+    # Promotion is the OTHER way to acquire a delegated admin. Gating only
+    # the add path would leave "add as member, then promote" as an
+    # unmetered route to the same structure the licence sells.
+    if new_role == "admin" and await get_user_tenant_role(
+        member_user_id, tenant_id
+    ) != "admin":
+        refusal = await quotas.quota_refusal(
+            "tenant_admins", await quotas.count_tenant_admins(tenant_id)
+        )
+        if refusal is not None:
+            return refusal
 
     db = get_db()
     await db(

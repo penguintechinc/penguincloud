@@ -104,22 +104,24 @@ TIER_ORDER: Final[tuple[str, ...]] = (
 FEATURE_MIN_TIER: Final[dict[str, str]] = {
     # Professional
     "sso_integration": TIER_PROFESSIONAL,
-    "whitelabel": TIER_PROFESSIONAL,
-    "multi_tenant": TIER_PROFESSIONAL,
     "delegated_admin": TIER_PROFESSIONAL,
+    # Hosted WaddleAI API. Professional gets the hosted endpoint; bringing
+    # your own provider key is the Enterprise step below.
+    "waddleai_assist": TIER_PROFESSIONAL,
     # Enterprise
     "saml_sso": TIER_ENTERPRISE,
     "audit_export": TIER_ENTERPRISE,
     "external_kms": TIER_ENTERPRISE,
-    # NOT "waddleai": that name is the product-connection flag (a tenant may
-    # register a WaddleAI product on any tier, same as any other product).
-    # This is the portal-side AI assist, which is the Enterprise
-    # entitlement. One name meaning two things is how a product flag and a
-    # licence gate end up silently sharing a switch — flags.py asserts the
-    # two sets stay disjoint.
-    "waddleai_assist": TIER_ENTERPRISE,
     "advanced_analytics": TIER_ENTERPRISE,
-    "unlimited_hierarchy": TIER_ENTERPRISE,
+    "whitelabel": TIER_ENTERPRISE,
+    # Direct Anthropic/OpenAI/Ollama credentials instead of the hosted API.
+    "byok_ai": TIER_ENTERPRISE,
+    # Tenants: 1 / 1 / unlimited, so more than one tenant is an Enterprise
+    # STRUCTURE. `unlimited_hierarchy` was a second name for this same
+    # concept and is gone: two names for one gate is how half the call
+    # sites end up checking the one nobody mints. The numeric wall lives in
+    # quotas.TierLimits.tenants; this entry is the capability half.
+    "multi_tenant": TIER_ENTERPRISE,
 }
 
 

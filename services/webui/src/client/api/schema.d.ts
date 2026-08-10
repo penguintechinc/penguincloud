@@ -2127,6 +2127,10 @@ export interface operations {
             licensed_features: {
               [key: string]: string;
             };
+            /** Limits */
+            limits: {
+              [key: string]: number;
+            };
             /** Tier */
             tier: string;
             /** Tiers */

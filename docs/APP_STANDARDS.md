@@ -48,13 +48,45 @@ Hierarchical — provider org → customer tenants → teams/users. Delegated MS
 
 ## License Tiers
 
-| Tier | Capabilities |
-|---|---|
-| **Community** | Single tenant only; core-3 (Gough/Nest/Tobogganing) read-only access |
-| **Professional** | Multi-tenant + delegated MSP admin (capped children count); whitelabeling; Google OAuth2 SSO |
-| **Enterprise** | Unlimited tenant hierarchy; SAML 2.0/OIDC SSO; audit export; external KMS encryption; WaddleAI; advanced analytics |
+**The paywall gates scale and structure, not features.** Every tier gets every module with full features — a single free user experiences the whole product. There is never a locked or crippled module; if a change would make a *capability* unavailable rather than a *count* unavailable, it belongs in `FEATURE_MIN_TIER`, not in the quota table.
 
-Every feature behind a PostHog feature flag (`penguincloud.{feature}`, default OFF). License validation via `license.penguintech.io` at runtime; graceful degradation on server unreachable (cached last-known tier).
+| Dimension | Free | Professional | Enterprise |
+|---|---|---|---|
+| Modules (all, full features) | ✅ | ✅ | ✅ |
+| Non-admin members | unlimited | unlimited | unlimited |
+| Global admins | 1 | 1 | unlimited |
+| Tenant admins (delegated) | 0 | 10 | unlimited |
+| Tenants | 1 | 1 | unlimited |
+| Teams | 1 | unlimited | unlimited |
+| Object quota | 1,000 | unlimited | unlimited |
+| Backend nodes per service type | 1 each | 1 each | multiple/HA |
+| Google OAuth2 SSO | — | ✅ | ✅ |
+| SAML 2.0 / OIDC SSO | — | — | ✅ |
+| WaddleAI | — | ✅ hosted API only | ✅ |
+| BYOK AI (Anthropic/OpenAI/Ollama) | — | — | ✅ |
+| Whitelabel | — | — | ✅ |
+| External KMS | — | — | ✅ |
+| Audit logs, advanced analytics | — | — | ✅ |
+
+"Free" is the commercial name; the licence server's wire value is `community` (`licensing.TIER_COMMUNITY`).
+
+### Enforcement is a hard block
+
+The over-limit action — 2nd team on Free, 11th tenant admin on Professional, 2nd tenant below Enterprise, 1001st object on Free — is **refused with 402 + an upgrade prompt**. Never a soft warning, never a silent cap that drops the write. 402 rather than 403 so a scale wall is distinguishable from an authorization denial: opposite problems, opposite remedies.
+
+Metered at both the creation **and** the promotion path — "add as member, then promote" must not be an unmetered route to the same structure.
+
+### Numeric limits are licence-server-configurable
+
+`quotas.DEFAULT_TIER_LIMITS` is a **fallback table**, not a set of constants. Every limit is read from the licence payload (`max_global_admins`, `max_tenant_admins`, `max_tenants`, `max_teams`, `max_objects`) so a negotiated contract needs no redeploy. A malformed override falls back to the tier default — neither 0 (locks the customer out) nor unlimited (gives away the paywall) is a safe reading.
+
+### Object quota — DECISION PENDING CONFIRMATION
+
+**An object is one product connection.** "Object" was undefined for this product. Reasoning: a connection is the portal's unit of managed inventory and the only operator-created resource that grows unboundedly with use. Tenants/teams/admins are excluded (each already has its own wall, and Free is capped at 1 tenant + 1 team, so they could contribute at most 2 toward 1,000); users are excluded (non-admin members are unlimited by design, and counting them would reintroduce the user cap the model removes).
+
+### Backend nodes per service type — NOT a portal-runtime concern
+
+Helm replica counts, set at deploy time. Deferred to Phase 7 rather than inventing a runtime check the portal has no authority over.
 
 ### Two layers, both required
 

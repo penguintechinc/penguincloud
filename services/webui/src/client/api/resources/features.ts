@@ -32,6 +32,8 @@ export interface FeaturesPayload {
   devMode: boolean;
   /** How many users dev mode permits. */
   devModeMaxUsers: number;
+  /** Effective scale/structure limits by dimension; -1 means unlimited. */
+  limits: Record<string, number>;
 }
 
 function requireKey(payload: unknown, key: string): unknown {
@@ -60,6 +62,24 @@ function requireBooleanMap(
   for (const [name, entry] of Object.entries(value)) {
     if (typeof entry !== "boolean") {
       throw new Error(`"${key}.${name}" is not a boolean`);
+    }
+    result[name] = entry;
+  }
+  return result;
+}
+
+function requireNumberMap(
+  payload: unknown,
+  key: string,
+): Record<string, number> {
+  const value = requireKey(payload, key);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`"${key}" is not an object`);
+  }
+  const result: Record<string, number> = {};
+  for (const [name, entry] of Object.entries(value)) {
+    if (typeof entry !== "number") {
+      throw new Error(`"${key}.${name}" is not a number`);
     }
     result[name] = entry;
   }
@@ -121,6 +141,7 @@ export function decodeFeatures(payload: unknown): FeaturesPayload {
     licensedFeatures: requireStringMap(payload, "licensed_features"),
     devMode: requireBoolean(payload, "dev_mode"),
     devModeMaxUsers: requireNumber(payload, "dev_mode_max_users"),
+    limits: requireNumberMap(payload, "limits"),
   };
 }
 

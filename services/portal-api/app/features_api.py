@@ -32,7 +32,9 @@ from typing import Any
 from quart import Blueprint
 from quart_schema import validate_response
 
-from . import devmode, flags, licensing
+from dataclasses import asdict as dataclass_asdict
+
+from . import devmode, flags, licensing, quotas
 from .middleware import auth_required, get_current_user
 
 features_bp = Blueprint("features", __name__)
@@ -62,6 +64,12 @@ class FeaturesResponse:
     dev_mode: bool
     #: How many users dev mode permits, so the banner can say so.
     dev_mode_max_users: int
+    #: Effective scale/structure limits by dimension, ``-1`` meaning
+    #: unlimited. Published so the UI can show "1 of 1 tenants" BEFORE the
+    #: operator hits a 402, and because a licence may raise or lower any of
+    #: them per deployment — a hardcoded client copy would be wrong for
+    #: exactly the customers who negotiated a different number.
+    limits: dict[str, int]
 
 
 @features_bp.route("/features", methods=["GET"])
@@ -88,6 +96,7 @@ async def get_features() -> tuple[Any, int]:
             licensed_features=dict(licensing.FEATURE_MIN_TIER),
             dev_mode=await devmode.is_active(),
             dev_mode_max_users=devmode.MAX_DEV_MODE_USERS,
+            limits=dataclass_asdict(await quotas.resolve_limits()),
         ),
         200,
     )

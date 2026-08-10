@@ -21,6 +21,7 @@ const complete = {
   licensed_features: { sso_integration: "professional" },
   dev_mode: false,
   dev_mode_max_users: 1,
+  limits: { tenants: 1, teams: 1, objects: 1000 },
 };
 
 describe("decodeFeatures", () => {
@@ -32,6 +33,7 @@ describe("decodeFeatures", () => {
       licensedFeatures: { sso_integration: "professional" },
       devMode: false,
       devModeMaxUsers: 1,
+      limits: { tenants: 1, teams: 1, objects: 1000 },
     });
   });
 
@@ -42,6 +44,7 @@ describe("decodeFeatures", () => {
     "licensed_features",
     "dev_mode",
     "dev_mode_max_users",
+    "limits",
   ])("throws when %s is absent", (key) => {
     const partial: Record<string, unknown> = { ...complete };
     delete partial[key];
@@ -112,6 +115,18 @@ describe("decodeFeatures", () => {
     expect(() =>
       decodeFeatures({ ...complete, dev_mode_max_users: "1" }),
     ).toThrow(/"dev_mode_max_users" is not a number/);
+  });
+
+  it("throws on a limit value that is not a number", () => {
+    expect(() =>
+      decodeFeatures({ ...complete, limits: { tenants: "one" } }),
+    ).toThrow(/limits\.tenants/);
+  });
+
+  it("throws when limits is not an object", () => {
+    expect(() => decodeFeatures({ ...complete, limits: [1] })).toThrow(
+      /"limits" is not an object/,
+    );
   });
 
   it("accepts an empty flag map without inventing entries", () => {

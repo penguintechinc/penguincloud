@@ -720,6 +720,11 @@ paths:
                       type: string
                     title: Licensed Features
                     type: object
+                  limits:
+                    additionalProperties:
+                      type: integer
+                    title: Limits
+                    type: object
                   tier:
                     title: Tier
                     type: string
@@ -736,6 +741,7 @@ paths:
                   - licensed_features
                   - dev_mode
                   - dev_mode_max_users
+                  - limits
                 title: FeaturesResponse
                 type: object
           description: 'Everything the UI needs to decide what to render.

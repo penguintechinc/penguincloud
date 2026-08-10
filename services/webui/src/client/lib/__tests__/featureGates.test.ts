@@ -33,6 +33,7 @@ function payload(overrides: Partial<FeaturesPayload> = {}): FeaturesPayload {
     licensedFeatures: { sso_integration: "professional" },
     devMode: false,
     devModeMaxUsers: 1,
+    limits: { tenants: 1, teams: 1, objects: 1000 },
     ...overrides,
   };
 }
