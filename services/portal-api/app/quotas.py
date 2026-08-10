@@ -135,7 +135,9 @@ def _coerce_limit(raw: Any) -> int | None:
     return None
 
 
-def limits_for_tier(tier: str, payload_limits: dict[str, Any] | None = None) -> TierLimits:
+def limits_for_tier(
+    tier: str, payload_limits: dict[str, Any] | None = None
+) -> TierLimits:
     """Resolve the effective limits for a tier, applying payload overrides.
 
     An unrecognised tier resolves to the NARROWEST table entry, never the
@@ -178,8 +180,15 @@ async def resolve_limits() -> TierLimits:
     A PenguinTech-managed domain gets the Enterprise table for the same
     reason it skips entitlement checks: it is billed separately, and the
     bypass must be domain-based only (general.md).
+
+    Active ``--dev`` gets it too — "all premium features unlocked" includes
+    the structures the paywall gates, or a single evaluating user could not
+    try multi-tenancy at all. Its own single-user cap is unaffected: that
+    cap lives in :mod:`app.devmode` and is not one of these dimensions.
     """
     if licensing.current_host_is_license_exempt():
+        return DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE]
+    if await licensing.dev_mode_entitles():
         return DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE]
     return await asyncio.to_thread(resolve_limits_blocking)
 
@@ -217,8 +226,16 @@ async def count_global_admins() -> int:
     return int(await db(db.users.role == "admin").count())
 
 
-async def count_tenant_admins(tenant_id: int) -> int:
-    """Delegated tenant admins in one tenant.
+async def count_tenant_admins() -> int:
+    """Delegated tenant admins across the DEPLOYMENT.
+
+    Deployment-wide, like every other dimension in the table. It was counted
+    per-tenant, which reads the same only because tenants are themselves
+    capped at 1 below Enterprise. The moment a licence raises ``max_tenants``
+    on its own — a supported override, since every limit is
+    licence-configurable — a per-tenant count sells 10×N delegated admins
+    under a limit published as 10. The two dimensions must not silently
+    multiply.
 
     ``owner`` is deliberately excluded. Every tenant has exactly one by
     construction, so counting owners would make the Free tier's limit of 0
@@ -227,12 +244,7 @@ async def count_tenant_admins(tenant_id: int) -> int:
     forbids. A tenant admin is the DELEGATED authority the licence sells.
     """
     db = get_db()
-    return int(
-        await db(
-            (db.tenant_members.tenant_id == tenant_id)
-            & (db.tenant_members.role == "admin")
-        ).count()
-    )
+    return int(await db(db.tenant_members.role == "admin").count())
 
 
 async def count_objects() -> int:
@@ -269,6 +281,105 @@ async def count_objects() -> int:
     """
     db = get_db()
     return int(await db(db.product_connections.id > 0).count())
+
+
+#: The status every scale wall answers with. 402 Payment Required rather
+#: than 403: this is not an authorization decision.
+SCALE_REFUSAL_STATUS: Final[int] = 402
+
+
+class QuotaExceeded(RuntimeError):
+    """Raised by the model-layer backstop when a limit would be breached."""
+
+
+#: Dimension -> the counter that measures it, for the model-layer backstop.
+_BACKSTOP_COUNTERS: Final[dict[str, str]] = {
+    "tenants": "count_tenants",
+    "teams": "count_teams",
+    "tenant_admins": "count_tenant_admins",
+}
+
+
+async def assert_within(dimension: str) -> None:
+    """Backstop beneath every write that consumes ``dimension``.
+
+    The routes above answer a clean 402 with an upgrade prompt; this exists
+    because a limit enforced at only *some* call sites is not a limit. It is
+    the same pattern ``devmode.assert_user_creation_allowed`` already
+    applies to the single-user cap, and it is here because this branch
+    shipped exactly that gap: ``POST /api/v1/auth/register`` created a
+    personal team through ``models.create_team`` with nothing metering it,
+    so every self-service registration walked past the Free tier's limit of
+    one team and nothing raised, logged or failed.
+
+    A future route, a seed script or a background job that inserts without
+    asking now gets an exception rather than a silent breach. An exception
+    out of a view is a 500, which is worse UX than a 402 and much better
+    than a quota that is not enforced — the loud failure is the point.
+    """
+    counter = _BACKSTOP_COUNTERS.get(dimension)
+    if counter is None:  # pragma: no cover - programming error
+        raise KeyError(f"no backstop counter for dimension {dimension!r}")
+
+    limits = await resolve_limits()
+    limit = getattr(limits, dimension)
+    if limit == UNLIMITED:
+        return
+
+    # Resolved through the module namespace, not captured at import, so a
+    # test (or a future decorator) that replaces a counter is honoured here
+    # exactly as it is at the routes.
+    counter_fn: Any = globals()[counter]
+    current = int(await counter_fn())
+    if current + 1 > limit:
+        log.error(
+            "quota_backstop_refused",
+            dimension=dimension,
+            current=current,
+            limit=limit,
+            detail="a write path reached the model layer without metering",
+        )
+        raise QuotaExceeded(
+            f"this deployment is licensed for {limit} "
+            f"{DIMENSION_LABELS.get(dimension, dimension)}"
+        )
+
+
+def scale_refusal_body(
+    *,
+    error: str,
+    message: str,
+    dimension: str,
+    limit: int,
+    current: int,
+    current_tier: str,
+    required_tier: str | None,
+) -> dict[str, Any]:
+    """The ONE body shape every scale wall answers with.
+
+    Built here, and by :func:`app.devmode.user_creation_refusal`, so a
+    client has one refusal to parse instead of one per wall. The dev-mode
+    single-user cap is a scale wall too — it refuses the second user because
+    the deployment has outgrown what it is licensed for — and it used to
+    answer 403 with a body sharing no keys with this one, so the upgrade UI
+    had to special-case it and an operator reading logs saw two unrelated
+    failures for one class of problem.
+
+    ``error`` still names the specific cause: same shape, same status,
+    different reason, which is what lets a client branch on the reason
+    without re-learning the shape.
+    """
+    return {
+        "error": error,
+        "message": message,
+        "dimension": dimension,
+        "limit": limit,
+        "current": current,
+        "current_tier": current_tier,
+        # Null rather than absent when no tier lifts it: the key is always
+        # present so a client never reads absence as a default.
+        "required_tier": required_tier,
+    }
 
 
 async def quota_refusal(
@@ -313,9 +424,9 @@ async def quota_refusal(
     )
 
     return (
-        {
-            "error": "quota_exceeded",
-            "message": (
+        scale_refusal_body(
+            error="quota_exceeded",
+            message=(
                 f"This deployment is licensed for {limit} {label}; "
                 + (
                     f"the {upgrade} tier raises that limit."
@@ -323,13 +434,11 @@ async def quota_refusal(
                     else "contact sales to raise this limit."
                 )
             ),
-            "dimension": dimension,
-            "limit": limit,
-            "current": current,
-            "current_tier": tier,
-            # Null rather than absent when no tier lifts it: the key is
-            # always present so a client never reads absence as a default.
-            "required_tier": upgrade,
-        },
-        402,
+            dimension=dimension,
+            limit=limit,
+            current=current,
+            current_tier=tier,
+            required_tier=upgrade,
+        ),
+        SCALE_REFUSAL_STATUS,
     )

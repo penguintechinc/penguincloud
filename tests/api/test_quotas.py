@@ -20,8 +20,12 @@ from __future__ import annotations
 from dataclasses import fields
 from typing import Any
 
+import uuid
+
 import pytest
 from quart import Quart
+
+from penguin_dal.quart_ext import get_db
 
 from app import licensing, quotas
 
@@ -180,24 +184,81 @@ class TestLicenseConfigurableLimits:
 
     @pytest.mark.asyncio
     async def test_a_managed_domain_gets_the_enterprise_table(
-        self, app: Quart
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Same domain-only bypass as entitlement — billed separately."""
-        async with app.test_request_context(
-            "/api/v1/features", headers={"Host": "portal.penguincloud.io"}
-        ):
+        """Same domain-only bypass as entitlement — billed separately.
+
+        Resolved from the CONFIGURED domain. This test used to spoof a
+        ``Host`` header, which is what made the whole limits table
+        reachable by any caller willing to send one.
+        """
+        monkeypatch.delenv("SERVER_NAME", raising=False)
+        monkeypatch.setenv("BASE_URL", "https://portal.penguincloud.io")
+        async with app.app_context():
             assert await _REAL_RESOLVE_LIMITS() == (
                 quotas.DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE]
             )
 
     @pytest.mark.asyncio
-    async def test_an_ordinary_domain_does_not(self, app: Quart) -> None:
+    async def test_an_ordinary_domain_does_not(
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("SERVER_NAME", raising=False)
+        monkeypatch.setenv("BASE_URL", "https://customer.example.com")
+        async with app.app_context():
+            assert await _REAL_RESOLVE_LIMITS() == (
+                quotas.DEFAULT_TIER_LIMITS[licensing.TIER_COMMUNITY]
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_spoofed_host_header_does_not_buy_the_enterprise_table(
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The limits table is not a header away from being unlimited."""
+        monkeypatch.delenv("SERVER_NAME", raising=False)
+        monkeypatch.setenv("BASE_URL", "https://customer.example.com")
         async with app.test_request_context(
-            "/api/v1/features", headers={"Host": "customer.example.com"}
+            "/api/v1/features", headers={"Host": "portal.penguincloud.io"}
         ):
             assert await _REAL_RESOLVE_LIMITS() == (
                 quotas.DEFAULT_TIER_LIMITS[licensing.TIER_COMMUNITY]
             )
+
+
+class TestTenantAdminsAreCountedDeploymentWide:
+    """The table publishes one number, so it must mean one number."""
+
+    @pytest.mark.asyncio
+    async def test_admins_in_different_tenants_share_the_limit(
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Counted per-tenant, "10 tenant admins" silently meant 10 per tenant.
+
+        Not exploitable while tenants are themselves capped at 1 below
+        Enterprise — but every limit is licence-configurable, so a payload
+        raising ``max_tenants`` alone yielded 10xN delegated admins under a
+        limit sold as 10. Two dimensions must not multiply.
+        """
+        async with app.app_context():
+            db = get_db()
+            first = await db.tenants.async_insert(
+                name="A", slug=f"a-{uuid.uuid4().hex[:8]}", owner_id=1
+            )
+            second = await db.tenants.async_insert(
+                name="B", slug=f"b-{uuid.uuid4().hex[:8]}", owner_id=1
+            )
+            await db.tenant_members.async_insert(
+                tenant_id=first, user_id=1, role="admin"
+            )
+            await db.tenant_members.async_insert(
+                tenant_id=second, user_id=1, role="admin"
+            )
+            # Owners are excluded, so only the two admins above count.
+            await db.tenant_members.async_insert(
+                tenant_id=second, user_id=2, role="owner"
+            )
+
+            assert await quotas.count_tenant_admins() == 2
 
 
 class TestRefusalShape:
@@ -350,11 +411,16 @@ class TestEnforcementAtTheWritePaths:
     ) -> None:
         """The positive case, so the refusal above means something.
 
-        Also the licence-configurable path end to end: nothing about the
-        tier changed, only the number the licence carries.
+        Both halves of the wall must give way: the number the licence
+        carries AND the ``multi_tenant`` capability. Raising the number
+        alone is deliberately not enough — see
+        ``test_a_raised_limit_without_the_capability_still_refuses``.
         """
         async with app.app_context():
             _limits(monkeypatch, tenants=await quotas.count_tenants() + 1)
+        monkeypatch.setattr(
+            licensing, "is_feature_entitled_blocking", lambda feature: True
+        )
 
         response = await client.post(
             "/api/v1/tenants",
@@ -363,6 +429,37 @@ class TestEnforcementAtTheWritePaths:
         )
 
         assert response.status_code == 201
+
+    @pytest.mark.asyncio
+    async def test_a_raised_limit_without_the_capability_still_refuses(
+        self,
+        app: Quart,
+        client: Any,
+        admin_headers: dict[str, str],
+        tenant_id: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A numeric override must not sell an Enterprise capability.
+
+        Every limit is licence-configurable by design, so ``max_tenants: 5``
+        on a Community licence would otherwise hand out multi-tenancy with
+        nothing checking the entitlement it belongs to. The count is the
+        scale wall; ``multi_tenant`` is the capability, and both apply.
+        """
+        async with app.app_context():
+            _limits(monkeypatch, tenants=await quotas.count_tenants() + 1)
+
+        response = await client.post(
+            "/api/v1/tenants",
+            headers=admin_headers,
+            json={"name": "Second", "slug": "second-uncapable", "kind": "customer"},
+        )
+
+        assert response.status_code == 403
+        body = await response.get_json()
+        assert body["error"] == "feature_not_entitled"
+        assert body["feature"] == "multi_tenant"
+        assert body["required_tier"] == licensing.TIER_ENTERPRISE
 
     @pytest.mark.asyncio
     async def test_second_team_is_refused_on_free(

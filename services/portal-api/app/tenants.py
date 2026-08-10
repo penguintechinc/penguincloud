@@ -20,7 +20,7 @@ from quart import Blueprint, request
 from quart_schema import validate_request, validate_response
 
 from .middleware import auth_required, get_current_user
-from . import quotas
+from . import licensing, quotas
 from .models import (
     add_tenant_member,
     create_audit_log,
@@ -306,6 +306,40 @@ def validate_tenant_slug(slug: str) -> bool:
     return all(c.isalnum() or c == "-" for c in slug) and slug[0].isalnum()
 
 
+async def _capability_refusal(
+    feature: str, why: str
+) -> tuple[dict[str, Any], int] | None:
+    """403 + upgrade body when the licence does not entitle ``feature``.
+
+    The numeric wall in :mod:`app.quotas` and this are two halves of one
+    gate, and both are needed. The numbers are licence-configurable by
+    design — a payload may raise ``max_tenants`` or ``max_tenant_admins`` —
+    so without the capability check a numeric override would quietly sell a
+    structure the tier does not include. Kept as 403 rather than the walls'
+    402 because "your licence does not include this capability" is not "you
+    have outgrown these numbers"; they have different remedies.
+    """
+    if await licensing.is_feature_entitled(feature):
+        return None
+    required = licensing.FEATURE_MIN_TIER[feature]
+    body = licensing.upgrade_required(
+        feature, required, await licensing.resolve_tier()
+    )
+    payload = asdict(body)
+    payload["message"] = f"{why}: {payload['message']}"
+    return payload, 403
+
+
+async def _delegated_admin_capability_refusal() -> (
+    tuple[dict[str, Any], int] | None
+):
+    """403 when delegated tenant administration is not licensed here."""
+    return await _capability_refusal(
+        "delegated_admin",
+        "Delegating tenant administration is a licensed capability",
+    )
+
+
 @tenants_bp.route("", methods=["POST"])
 @auth_required
 @tenancy_aware
@@ -364,11 +398,24 @@ async def create_tenant_endpoint() -> tuple[dict[str, Any], int]:
     # Tenants: 1 / 1 / unlimited. More than one tenant is an Enterprise
     # structure, so the second one is REFUSED with an upgrade prompt — not
     # created-and-warned, and not silently dropped.
-    refusal = await quotas.quota_refusal(
-        "tenants", await quotas.count_tenants()
-    )
+    existing_tenants = await quotas.count_tenants()
+    refusal = await quotas.quota_refusal("tenants", existing_tenants)
     if refusal is not None:
         return refusal
+
+    # The CAPABILITY half of the same wall. `multi_tenant` is Enterprise, and
+    # a deployment holding more than one tenant is running multi-tenancy
+    # whatever its numeric limit says. The numbers are licence-configurable
+    # by design, so `max_tenants: 5` on a Professional licence would
+    # otherwise sell the Enterprise capability through a numeric override
+    # with nothing checking the entitlement it belongs to.
+    if existing_tenants >= 1:
+        capability = await _capability_refusal(
+            "multi_tenant",
+            "Running more than one tenant is multi-tenancy",
+        )
+        if capability is not None:
+            return capability
 
     tenant_id = await create_tenant(
         name,
@@ -787,10 +834,13 @@ async def add_tenant_member_endpoint(tenant_id: int) -> tuple[Any, int]:
     # member/viewer is unlimited at every tier and passes straight through.
     if member_role == "admin":
         refusal = await quotas.quota_refusal(
-            "tenant_admins", await quotas.count_tenant_admins(tenant_id)
+            "tenant_admins", await quotas.count_tenant_admins()
         )
         if refusal is not None:
             return refusal
+        capability = await _delegated_admin_capability_refusal()
+        if capability is not None:
+            return capability
 
     member = await add_tenant_member(tenant_id, user_id, member_role, user["id"])
     if not member:
@@ -839,10 +889,13 @@ async def update_tenant_member_role(
         member_user_id, tenant_id
     ) != "admin":
         refusal = await quotas.quota_refusal(
-            "tenant_admins", await quotas.count_tenant_admins(tenant_id)
+            "tenant_admins", await quotas.count_tenant_admins()
         )
         if refusal is not None:
             return refusal
+        capability = await _delegated_admin_capability_refusal()
+        if capability is not None:
+            return capability
 
     db = get_db()
     await db(
