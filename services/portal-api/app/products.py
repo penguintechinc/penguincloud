@@ -11,7 +11,7 @@ from quart_schema import validate_request, validate_response
 from .adapters import get_adapter, get_all_product_types
 from .adapters.base import AdapterCapabilityError, AdapterContext
 from .encryption import decrypt_value
-from . import quotas
+from . import flags, quotas
 from .middleware import auth_required, get_current_user
 from .models import (
     create_audit_log,
@@ -116,10 +116,36 @@ async def register_product() -> tuple[dict[str, Any], int]:
     if denied:
         return denied
 
-    # Check quota
     tenant = await get_tenant_by_id(tenant_id)
     if not tenant:
         return {"error": "Tenant not found"}, 404
+
+    # VALIDATE THE REQUEST BEFORE METERING IT. The quota checks used to run
+    # first, so an over-quota request carrying an invalid product_type was
+    # answered 402 "upgrade your plan" when the actual problem was a typo in
+    # the body — a refusal that sends the operator to sales for a 400.
+    product_type = data.get("product_type", "generic")
+    if product_type not in PRODUCT_TYPES:
+        return {"error": "Invalid product type"}, 400
+
+    display_name = data.get("display_name", "").strip()
+    base_url = data.get("base_url", "").strip()
+    auth_type = data.get("auth_type", "bearer")
+
+    if not display_name:
+        return {"error": "display_name required"}, 400
+    if not base_url:
+        return {"error": "base_url required"}, 400
+    if auth_type not in VALID_AUTH_TYPES:
+        return {"error": "Invalid auth_type"}, 400
+
+    # Flag AND licence, server-side. `penguincloud.{product}` gates whether
+    # this product module is on at all; without this check the flag governed
+    # only what the browser chose to render, and any direct API call
+    # connected a product the deployment had switched off.
+    gate = await flags.product_gate_refusal(product_type, str(user["id"]))
+    if gate is not None:
+        return gate
 
     current_count = await get_tenant_product_count(tenant_id)
     if current_count >= tenant_quota(tenant, "max_products", DEFAULT_MAX_PRODUCTS):
@@ -135,21 +161,6 @@ async def register_product() -> tuple[dict[str, Any], int]:
     refusal = await quotas.quota_refusal("objects", await quotas.count_objects())
     if refusal is not None:
         return refusal
-
-    product_type = data.get("product_type", "generic")
-    if product_type not in PRODUCT_TYPES:
-        return {"error": "Invalid product type"}, 400
-
-    display_name = data.get("display_name", "").strip()
-    base_url = data.get("base_url", "").strip()
-    auth_type = data.get("auth_type", "bearer")
-
-    if not display_name:
-        return {"error": "display_name required"}, 400
-    if not base_url:
-        return {"error": "base_url required"}, 400
-    if auth_type not in VALID_AUTH_TYPES:
-        return {"error": "Invalid auth_type"}, 400
 
     conn_id = await create_product_connection(
         tenant_id=tenant_id,

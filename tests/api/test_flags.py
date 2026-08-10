@@ -258,6 +258,32 @@ class TestFlagsMeetWhatChecksThem:
         assert flags.KNOWN_FLAGS == flags.PRODUCT_FLAGS | flags.FEATURE_FLAGS
         assert flags.PRODUCT_FLAGS and flags.FEATURE_FLAGS
 
+    def test_every_product_type_is_flagged_or_declared_unflagged(self) -> None:
+        """The converse: no product type may be ungated by omission.
+
+        ``product_gate_refusal`` lets an unflagged type through, so a new
+        product added to ``PRODUCT_TYPES`` without a flag would be
+        connectable and proxyable with nothing able to turn it off — and it
+        would look exactly like the flagged ones at the call site.
+        """
+        undeclared = (
+            set(PRODUCT_TYPES) - flags.PRODUCT_FLAGS - flags.UNFLAGGED_PRODUCT_TYPES
+        )
+        assert not undeclared, (
+            f"product types neither flagged nor declared unflagged: "
+            f"{sorted(undeclared)}. Add a flag, or list it in "
+            f"UNFLAGGED_PRODUCT_TYPES with the reason."
+        )
+
+    def test_unflagged_product_types_are_real_product_types(self) -> None:
+        """The escape hatch cannot name something that is not a product."""
+        unknown = flags.UNFLAGGED_PRODUCT_TYPES - set(PRODUCT_TYPES)
+        assert not unknown, sorted(unknown)
+
+    def test_the_two_product_sets_are_disjoint(self) -> None:
+        """A type is flagged or it is not; it cannot be both."""
+        assert not (flags.PRODUCT_FLAGS & flags.UNFLAGGED_PRODUCT_TYPES)
+
 
 class TestFlagAndLicenseConjunction:
     """A flag alone must not unlock a licensed feature, and vice versa."""
@@ -343,3 +369,96 @@ class TestEvaluateAll:
         result = await flags.evaluate_all("user-1")
 
         assert set(result) == flags.KNOWN_FLAGS
+
+
+class TestBulkEvaluation:
+    """One round trip for the whole set, with the same degradation rules."""
+
+    class _BulkFake:
+        """Answers ``get_all_flags``, counts how often it is asked."""
+
+        def __init__(self, answers: dict[str, bool] | None = None) -> None:
+            self.answers = answers
+            self.bulk_calls = 0
+            self.single_calls = 0
+
+        def get_all_flags(self, distinct_id: str) -> Any:
+            self.bulk_calls += 1
+            if self.answers is None:
+                raise RuntimeError("bulk endpoint unavailable")
+            return dict(self.answers)
+
+        def feature_enabled(self, key: str, distinct_id: str) -> Any:
+            self.single_calls += 1
+            return True
+
+    @pytest.mark.asyncio
+    async def test_the_whole_set_costs_one_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The per-flag loop was ~20 sequential round trips per page load."""
+        server = self._BulkFake({flags.flag_key("gough"): True})
+        monkeypatch.setattr(flags, "get_client", lambda: server)
+
+        result = await flags.evaluate_all("user-1")
+
+        assert server.bulk_calls == 1
+        assert server.single_calls == 0
+        assert set(result) == flags.KNOWN_FLAGS
+        assert result["gough"] is True
+        # Absent from the bulk answer is unknown, which is OFF.
+        assert result["nest"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_failed_bulk_call_falls_back_to_per_flag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A server that cannot answer in bulk must still work."""
+        server = self._BulkFake(answers=None)
+        monkeypatch.setattr(flags, "get_client", lambda: server)
+
+        result = await flags.evaluate_all("user-1")
+
+        assert server.bulk_calls == 1
+        assert server.single_calls == len(flags.KNOWN_FLAGS)
+        assert all(result.values())
+
+    @pytest.mark.asyncio
+    async def test_a_previously_observed_value_survives_an_unknown_answer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """"Never seen" is not "known false", in the bulk path too."""
+        monkeypatch.setattr(
+            flags, "get_client", lambda: self._BulkFake({flags.flag_key("gough"): True})
+        )
+        assert (await flags.evaluate_all("user-1"))["gough"] is True
+
+        monkeypatch.setattr(flags, "get_client", lambda: self._BulkFake({}))
+        assert (await flags.evaluate_all("user-1"))["gough"] is True
+
+
+class TestCacheIsBounded:
+    """The cache is keyed by principal, so an unbounded one is a leak."""
+
+    def test_the_cache_never_exceeds_its_ceiling(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=True))
+        monkeypatch.setattr(flags, "FLAG_CACHE_MAX_ENTRIES", 16)
+
+        for index in range(200):
+            flags.is_enabled_blocking("gough", f"user-{index}")
+
+        assert len(flags._CACHE) <= 16
+
+    def test_eviction_is_oldest_first(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Evicting the hot entry would make the cache worse than none."""
+        monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=True))
+        monkeypatch.setattr(flags, "FLAG_CACHE_MAX_ENTRIES", 2)
+
+        for who in ("a", "b", "c"):
+            flags.is_enabled_blocking("gough", who)
+
+        keys = set(flags._CACHE)
+        assert f"{flags.flag_key('gough')}|a" not in keys
+        assert f"{flags.flag_key('gough')}|c" in keys

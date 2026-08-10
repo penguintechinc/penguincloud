@@ -22,6 +22,8 @@ from typing import Any
 
 import pytest
 
+from conftest import _FakeFlagServer
+
 from app import devmode, flags, licensing
 
 
@@ -191,14 +193,19 @@ class TestDevModeSignal:
         one that stays DOWN after it activates hides an unlicensed
         deployment from the operator looking at it.
         """
-        answers = [True, False]
+        # A mutable answer rather than a queue: dev mode is now consulted
+        # more than once per request (the entitlement path asks it too), and
+        # a queue would fail on the call count instead of on the latch this
+        # test is about.
+        state = {"active": True}
 
         async def _toggling() -> bool:
-            return answers.pop(0)
+            return state["active"]
 
         monkeypatch.setattr(devmode, "is_active", _toggling)
 
         first = await client.get("/api/v1/features", headers=auth_headers)
+        state["active"] = False
         second = await client.get("/api/v1/features", headers=auth_headers)
 
         assert (await first.get_json())["dev_mode"] is True
@@ -218,9 +225,12 @@ class TestFlagAndLicenceAreBothReported:
         rolled out yet" and "needs an upgrade" into one state, and the UI
         could only ever render one of the two messages.
         """
-        monkeypatch.setattr(
-            flags, "is_enabled_blocking", lambda feature, did, default=False: True
-        )
+        # Turn every flag on at the SERVER, not by replacing the evaluator:
+        # evaluate_all takes the bulk path, and patching the single-flag
+        # function would leave this test asserting against code the endpoint
+        # no longer calls.
+        monkeypatch.setattr(flags, "_client", _FakeFlagServer(flags.KNOWN_FLAGS))
+        monkeypatch.setattr(flags, "_client_built", True)
         monkeypatch.delenv("LICENSE_KEY", raising=False)
         licensing.reset_client()
 

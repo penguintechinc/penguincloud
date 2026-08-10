@@ -47,9 +47,11 @@ Consequences an operator must know:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import os
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -85,6 +87,39 @@ PRODUCT_FLAGS: Final[frozenset[str]] = frozenset(
         "elder",
         "skauswatch",
         "current",
+    }
+)
+
+#: Product types that intentionally carry NO enablement flag, and are
+#: therefore never refused by :func:`product_gate_refusal`.
+#:
+#: ``PRODUCT_TYPES`` is a legacy-inclusive list: it still names products that
+#: penguintech.md records as retired or absorbed into another product
+#: (``marchproxy`` → Envoy/WaddleAI, ``articdbm`` → Nest, ``darwin`` →
+#: SkausWatch, ``icecharts`` → Elder, ``killkrill`` → SigNoz), products with
+#: no portal module of their own (``squawk`` is a page inside Tobogganing;
+#: ``license_server``, ``cerberus``, ``waddleperf``, ``iceshelves``), the
+#: internal ``admin`` type, and the ``generic`` escape hatch that exists
+#: precisely for a product with no dedicated module.
+#:
+#: Declaring them here rather than letting them fall through unnamed is the
+#: point: ``tests/api/test_flags.py`` asserts every ``PRODUCT_TYPES`` value
+#: is either flagged or listed here, so adding a product type without
+#: deciding which it is fails a test rather than shipping an ungated module.
+UNFLAGGED_PRODUCT_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "generic",
+        "admin",
+        "marchproxy",
+        "squawk",
+        "license_server",
+        "articdbm",
+        "cerberus",
+        "waddleperf",
+        "iceshelves",
+        "icecharts",
+        "killkrill",
+        "darwin",
     }
 )
 
@@ -131,9 +166,17 @@ class _CachedFlag:
     fetched_at: float
 
 
-#: ``"{key}|{distinct_id}"`` → last observed value. Guarded by a lock
+#: Hard ceiling on cache entries. The cache is keyed by flag AND principal,
+#: so its size grows with the number of distinct users the process has
+#: served — unbounded, in a long-lived worker, for a dict nothing ever
+#: evicts. At |KNOWN_FLAGS| ≈ 20 this holds roughly the last 400 users,
+#: which is a working set, not a leak.
+FLAG_CACHE_MAX_ENTRIES: Final[int] = 8192
+
+#: ``"{key}|{distinct_id}"`` → last observed value, least-recently-written
+#: first so the bound above evicts the coldest entry. Guarded by a lock
 #: because ``asyncio.to_thread`` puts evaluations on worker threads.
-_CACHE: dict[str, _CachedFlag] = {}
+_CACHE: "OrderedDict[str, _CachedFlag]" = OrderedDict()
 _CACHE_LOCK: Final[threading.Lock] = threading.Lock()
 
 _client: Any | None = None
@@ -222,6 +265,11 @@ def _cache_read(cache_key: str) -> _CachedFlag | None:
 def _cache_write(cache_key: str, value: bool) -> None:
     with _CACHE_LOCK:
         _CACHE[cache_key] = _CachedFlag(value=value, fetched_at=time.monotonic())
+        _CACHE.move_to_end(cache_key)
+        while len(_CACHE) > FLAG_CACHE_MAX_ENTRIES:
+            # Evicting the coldest entry costs at most one re-evaluation.
+            # Evicting nothing costs the worker's memory, without limit.
+            _CACHE.popitem(last=False)
 
 
 def is_enabled_blocking(
@@ -284,21 +332,56 @@ async def is_enabled(feature: str, distinct_id: str, default: bool = False) -> b
     return await asyncio.to_thread(is_enabled_blocking, feature, distinct_id, default)
 
 
-async def evaluate_all(distinct_id: str) -> dict[str, bool]:
-    """Evaluate every declared flag for one principal.
+def evaluate_all_blocking(distinct_id: str) -> dict[str, bool]:
+    """Evaluate every declared flag for one principal, blocking.
 
-    One ``to_thread`` hop for the whole set rather than one per flag: the
-    SDK's local evaluation is a dict lookup, and the remote path shares a
-    connection pool, so fanning out gains nothing and costs a thread each.
+    One bulk call, not |KNOWN_FLAGS| single ones. The per-flag loop this
+    replaces made ~20 sequential evaluations inside a single ``to_thread``
+    hop; whenever the SDK could not evaluate locally that was 20 sequential
+    HTTP round trips holding one worker thread, on a request the UI makes on
+    every page load. ``get_all_flags`` answers the same question in one.
+
+    The fallback is the old loop, so a flag server that cannot answer in
+    bulk still works and every degradation rule in this module still
+    applies.
     """
+    client = get_client()
+    if client is None:
+        return {feature: False for feature in sorted(KNOWN_FLAGS)}
 
-    def _all() -> dict[str, bool]:
+    try:
+        bulk = client.get_all_flags(distinct_id)
+    except Exception:
+        log.warning("flag_bulk_evaluation_failed", exc_info=True)
+        bulk = None
+
+    if not isinstance(bulk, dict):
+        # No bulk answer: fall back to the per-flag path, which keeps the
+        # cache and the last-known-value rules intact.
         return {
             feature: is_enabled_blocking(feature, distinct_id)
             for feature in sorted(KNOWN_FLAGS)
         }
 
-    return await asyncio.to_thread(_all)
+    resolved: dict[str, bool] = {}
+    for feature in sorted(KNOWN_FLAGS):
+        raw = bulk.get(flag_key(feature))
+        if raw is None:
+            # Unknown to the server. Same rule as the single-flag path:
+            # "never seen" is not "known false", so it is not cached, and a
+            # previously observed value still wins over the default.
+            cached = _cache_read(f"{flag_key(feature)}|{distinct_id}")
+            resolved[feature] = cached.value if cached is not None else False
+            continue
+        value = bool(raw)
+        _cache_write(f"{flag_key(feature)}|{distinct_id}", value)
+        resolved[feature] = value
+    return resolved
+
+
+async def evaluate_all(distinct_id: str) -> dict[str, bool]:
+    """Evaluate every declared flag for one principal, off the event loop."""
+    return await asyncio.to_thread(evaluate_all_blocking, distinct_id)
 
 
 async def is_feature_available(feature: str, distinct_id: str) -> bool:
@@ -317,3 +400,68 @@ async def is_feature_available(feature: str, distinct_id: str) -> bool:
         # Not a licensed feature at all: the flag is the whole gate.
         return True
     return await licensing.is_feature_entitled(feature)
+
+
+def feature_disabled_body(feature: str) -> dict[str, Any]:
+    """The 403 body for a feature whose FLAG is off on this deployment.
+
+    Distinct from the licensing refusal on purpose. "Not enabled here" and
+    "not included in your licence" have different remedies — an operator
+    flips the first themselves and buys the second — and a single body
+    telling them to upgrade when the real answer is a rollout toggle sends
+    them to sales for something they already own.
+    """
+    return {
+        "error": "feature_disabled",
+        "message": (
+            f"'{feature}' is not enabled on this deployment. "
+            f"Enable the {flag_key(feature)} feature flag to turn it on."
+        ),
+        "feature": feature,
+        "flag": flag_key(feature),
+    }
+
+
+async def product_gate_refusal(
+    product_type: str, distinct_id: str
+) -> tuple[dict[str, Any], int] | None:
+    """Refuse a product-backed request when its module is not available.
+
+    THE SERVER-SIDE HALF OF THE CONJUNCTION. ``is_feature_available`` was
+    documented as "the one place the conjunction lives" while having no
+    production caller at all: the flags were computed, published to the
+    browser by ``GET /api/v1/features``, and enforced only by
+    ``featureGates.ts`` — which decides what to render, not what the API
+    will do. Any caller holding a token could register a connection to a
+    disabled product, or proxy to it, by not using the UI.
+
+    Returns ``None`` when the product may be used, else a refusal body and
+    status. Licensed-capability refusals keep the licensing shape and 403;
+    a flag-off refusal says so plainly.
+    """
+    from . import licensing
+
+    if product_type in UNFLAGGED_PRODUCT_TYPES:
+        # Not a flagged module — see UNFLAGGED_PRODUCT_TYPES. Refusing here
+        # would take the `generic` escape hatch away from every deployment
+        # that has not created a flag nobody documented.
+        return None
+
+    if await is_feature_available(product_type, distinct_id):
+        return None
+
+    if product_type in licensing.FEATURE_MIN_TIER and await is_enabled(
+        product_type, distinct_id
+    ):
+        # The flag is on; the licence is what refused.
+        required = licensing.FEATURE_MIN_TIER[product_type]
+        current = await licensing.resolve_tier()
+        return (
+            dataclasses.asdict(
+                licensing.upgrade_required(product_type, required, current)
+            ),
+            403,
+        )
+
+    log.info("product_module_disabled", product_type=product_type)
+    return feature_disabled_body(product_type), 403

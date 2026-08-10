@@ -40,6 +40,7 @@ from .adapters.base import (
     normalize_proxy_path,
 )
 from .adapters.transport import ResponseTooLargeError, get_transport
+from . import flags
 from .encryption import decrypt_value
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -379,6 +380,21 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
                 "connection_inactive",
                 {"error": "Product connection is inactive"},
                 403,
+            )
+
+        # Flag AND licence for this product module, server-side. The flag
+        # previously reached only the browser via GET /api/v1/features, so a
+        # product switched off in PostHog was still fully proxyable by any
+        # caller who did not go through the UI. Audited like every other
+        # proxy refusal: an operator turning a module off should be able to
+        # see who kept calling it.
+        gate = await flags.product_gate_refusal(product_type, str(user["id"]))
+        if gate is not None:
+            return await _deny(
+                "product_module_disabled",
+                gate[0],
+                gate[1],
+                detail=f"flag {flags.flag_key(product_type)}",
             )
 
         # Refuse a malformed path before it is matched against anything.
