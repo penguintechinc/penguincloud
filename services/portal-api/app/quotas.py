@@ -254,6 +254,18 @@ async def count_objects() -> int:
     * Users are NOT counted. Non-admin members are unlimited at every tier
       by design, and a quota that counted them would silently reintroduce
       the user cap the tier model deliberately removes.
+
+    **This wall is unlikely ever to bind on this product, and that is said
+    here so nobody mistakes it for protection.** A Free deployment is capped
+    at 1 tenant and 1 team, and a single tenant realistically registers a
+    handful of product connections — not a thousand. The walls that actually
+    bite here are ``tenants``, ``teams`` and the two admin dimensions. This
+    one is enforced because the commercial table names it and because a
+    deployment CAN in principle register connections without limit inside
+    its one tenant; it is not load-bearing, and no design should assume it
+    is doing work it is not. A gate that exists but never fires is fine when
+    it is documented as such and dangerous when it is mistaken for a
+    control.
     """
     db = get_db()
     return int(await db(db.product_connections.id > 0).count())
@@ -279,6 +291,18 @@ async def quota_refusal(
     tier = await licensing.resolve_tier()
     upgrade = minimum_tier_for(dimension, current + adding)
     label = DIMENSION_LABELS.get(dimension, dimension)
+
+    # An upgrade that is not STRICTLY above the current tier is not an
+    # upgrade. It arises when a licence LOWERS a limit below its tier
+    # default: the default table still admits the write, so
+    # minimum_tier_for names the tier the deployment is already on, and the
+    # operator is told to "upgrade to community". In that case the binding
+    # constraint is the deployment's own contract, not the plan, and the
+    # honest answer is that no tier lifts it — contact sales.
+    if upgrade is not None and licensing.TIER_ORDER.index(
+        upgrade
+    ) <= licensing.TIER_ORDER.index(tier):
+        upgrade = None
 
     log.warning(
         "quota_limit_refused",

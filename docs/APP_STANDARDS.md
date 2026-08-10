@@ -80,9 +80,13 @@ Metered at both the creation **and** the promotion path — "add as member, then
 
 `quotas.DEFAULT_TIER_LIMITS` is a **fallback table**, not a set of constants. Every limit is read from the licence payload (`max_global_admins`, `max_tenant_admins`, `max_tenants`, `max_teams`, `max_objects`) so a negotiated contract needs no redeploy. A malformed override falls back to the tier default — neither 0 (locks the customer out) nor unlimited (gives away the paywall) is a safe reading.
 
-### Object quota — DECISION PENDING CONFIRMATION
+### Object quota — an object is one product connection
 
-**An object is one product connection.** "Object" was undefined for this product. Reasoning: a connection is the portal's unit of managed inventory and the only operator-created resource that grows unboundedly with use. Tenants/teams/admins are excluded (each already has its own wall, and Free is capped at 1 tenant + 1 team, so they could contribute at most 2 toward 1,000); users are excluded (non-admin members are unlimited by design, and counting them would reintroduce the user cap the model removes).
+Confirmed. Enforced at connection create (`products.py`), 402 alongside the existing per-tenant `max_products` 403 — two different ceilings (what the licence sells vs. what the operator set on one tenant), and neither substitutes for the other.
+
+Reasoning: a connection is the portal's unit of managed inventory and the only operator-created resource that grows unboundedly with use. Tenants/teams/admins are excluded (each already has its own wall). Users are excluded (non-admin members are unlimited by design; counting them would reintroduce the user cap the model removes).
+
+**This wall is unlikely ever to bind on this product — do not build on it as protection.** A Free deployment is capped at 1 tenant and 1 team, and one tenant realistically registers a handful of connections, not a thousand. The walls that actually bite here are `tenants`, `teams`, `tenant_admins` and `global_admins`. The object quota is enforced because the commercial table names it and because a deployment *can* in principle register connections without limit inside its one tenant. A gate that exists but never fires is fine when documented as such; it is dangerous when mistaken for a control.
 
 ### Backend nodes per service type — NOT a portal-runtime concern
 

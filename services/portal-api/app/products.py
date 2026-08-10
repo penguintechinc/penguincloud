@@ -11,6 +11,7 @@ from quart_schema import validate_request, validate_response
 from .adapters import get_adapter, get_all_product_types
 from .adapters.base import AdapterCapabilityError, AdapterContext
 from .encryption import decrypt_value
+from . import quotas
 from .middleware import auth_required, get_current_user
 from .models import (
     create_audit_log,
@@ -123,6 +124,17 @@ async def register_product() -> tuple[dict[str, Any], int]:
     current_count = await get_tenant_product_count(tenant_id)
     if current_count >= tenant_quota(tenant, "max_products", DEFAULT_MAX_PRODUCTS):
         return {"error": "Product connection limit reached"}, 403
+
+    # Deployment-wide OBJECT quota, distinct from the per-tenant
+    # `max_products` row quota above. That one is an operator-set ceiling on
+    # one tenant; this one is what the LICENCE sells (Free 1,000, paid
+    # unlimited), so both apply and neither substitutes for the other.
+    #
+    # See quotas.count_objects: on this product the 1,000 wall is unlikely
+    # to ever bind, and that is documented rather than assumed.
+    refusal = await quotas.quota_refusal("objects", await quotas.count_objects())
+    if refusal is not None:
+        return refusal
 
     product_type = data.get("product_type", "generic")
     if product_type not in PRODUCT_TYPES:

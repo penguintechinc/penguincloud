@@ -251,6 +251,39 @@ class TestRefusalShape:
         assert "required_tier" in body
         assert body["required_tier"] == licensing.TIER_PROFESSIONAL
 
+    @pytest.mark.asyncio
+    async def test_an_override_below_the_tier_default_names_no_upgrade(
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """"Upgrade to the tier you are already on" is not an instruction.
+
+        A licence may LOWER a limit below its tier default. minimum_tier_for
+        reads the default table on purpose (it should say what the PRODUCT
+        sells, not what this contract was tuned to), so it would name the
+        current tier. The binding constraint is then the deployment's own
+        contract, and the honest answer is that no upgrade lifts it.
+        """
+        _limits(monkeypatch, objects=5)
+        refusal = await quotas.quota_refusal("objects", 5)
+
+        assert refusal is not None
+        body, status = refusal
+        assert status == 402
+        assert body["required_tier"] is None
+        assert "contact sales" in body["message"]
+
+    @pytest.mark.asyncio
+    async def test_a_genuine_upgrade_is_still_named(
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The suppression above must not swallow real upgrade paths."""
+        _limits(monkeypatch, tenants=1)
+        refusal = await quotas.quota_refusal("tenants", 1)
+
+        assert refusal is not None
+        body, _ = refusal
+        assert body["required_tier"] == licensing.TIER_ENTERPRISE
+
     @pytest.mark.parametrize(
         "dimension,wanted,expected",
         [
@@ -442,6 +475,109 @@ class TestEnforcementAtTheWritePaths:
 
         assert promoted.status_code == 402
         assert (await promoted.get_json())["dimension"] == "tenant_admins"
+
+    @pytest.mark.asyncio
+    async def test_object_quota_refuses_a_connection_past_the_wall(
+        self,
+        app: Quart,
+        client: Any,
+        admin_headers: dict[str, str],
+        tenant_id: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Objects = product connections, enforced at connection create.
+
+        The wall is set to the CURRENT count so the next write crosses it.
+        On a real Free deployment 1,000 is unlikely ever to bind (1 tenant,
+        1 team, a handful of connections) — that is documented in
+        quotas.count_objects and is why this test manufactures the boundary
+        rather than trying to reach it.
+        """
+        async with app.app_context():
+            _limits(monkeypatch, objects=await quotas.count_objects())
+
+        response = await client.post(
+            "/api/v1/products",
+            headers=admin_headers,
+            json={
+                "tenant_id": tenant_id,
+                "product_type": "gough",
+                "display_name": "Over The Wall",
+                "base_url": "https://gough.example.com",
+                "auth_type": "bearer",
+            },
+        )
+
+        assert response.status_code == 402
+        body = await response.get_json()
+        assert body["dimension"] == "objects"
+        # None, not "community": the wall here is a licence override BELOW
+        # the tier default, so no upgrade lifts it and saying "upgrade to
+        # the tier you are already on" would be nonsense. See
+        # quota_refusal's strictly-above check.
+        assert body["required_tier"] is None
+        assert "contact sales" in body["message"]
+
+    @pytest.mark.asyncio
+    async def test_a_connection_under_the_wall_is_created(
+        self,
+        app: Quart,
+        client: Any,
+        admin_headers: dict[str, str],
+        tenant_id: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The positive case, so the refusal above means something."""
+        async with app.app_context():
+            _limits(monkeypatch, objects=await quotas.count_objects() + 1)
+
+        response = await client.post(
+            "/api/v1/products",
+            headers=admin_headers,
+            json={
+                "tenant_id": tenant_id,
+                "product_type": "gough",
+                "display_name": "Under The Wall",
+                "base_url": "https://gough2.example.com",
+                "auth_type": "bearer",
+            },
+        )
+
+        assert response.status_code == 201
+
+    @pytest.mark.asyncio
+    async def test_the_object_wall_is_separate_from_the_per_tenant_quota(
+        self,
+        app: Quart,
+        client: Any,
+        admin_headers: dict[str, str],
+        tenant_id: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Two different ceilings, and neither substitutes for the other.
+
+        `max_products` is an operator-set ceiling on ONE tenant and answers
+        403; the object quota is what the LICENCE sells and answers 402. A
+        client that saw only one status could not tell "this tenant is
+        full" from "this plan is full".
+        """
+        async with app.app_context():
+            _limits(monkeypatch, objects=await quotas.count_objects())
+
+        response = await client.post(
+            "/api/v1/products",
+            headers=admin_headers,
+            json={
+                "tenant_id": tenant_id,
+                "product_type": "gough",
+                "display_name": "Distinguishable",
+                "base_url": "https://gough3.example.com",
+                "auth_type": "bearer",
+            },
+        )
+
+        assert response.status_code == 402
+        assert (await response.get_json())["error"] == "quota_exceeded"
 
     @pytest.mark.asyncio
     async def test_second_global_admin_is_refused_below_enterprise(
