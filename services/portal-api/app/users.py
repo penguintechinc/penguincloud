@@ -13,6 +13,7 @@ from typing import Any
 from quart import Blueprint, request
 
 from .auth import hash_password_async, verify_password_async
+from . import devmode
 from .authz import SCOPE_AUDIT_READ, SCOPE_USERS_MANAGE, SCOPE_USERS_READ, require_scope
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -101,6 +102,12 @@ async def create_new_user() -> tuple[dict[str, Any], int]:
     existing = await get_user_by_email(email)
     if existing is not None:
         return {"error": "Email already registered"}, 409
+
+    # Same dev-mode cap as the self-service path: an admin creating users
+    # by hand is still bound by the single-user evaluation limit.
+    refusal = await devmode.user_creation_refusal()
+    if refusal is not None:
+        return refusal
 
     # Create user
     password_hash = await hash_password_async(password)

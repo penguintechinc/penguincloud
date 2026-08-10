@@ -16,6 +16,7 @@ from penguin_dal.quart_ext import get_db
 from quart import Quart
 
 from app import create_app
+from app import devmode
 from app.config import Config
 
 #: A seeded admin is a real credential; refuse anything short enough to be a
@@ -104,7 +105,13 @@ async def create_default_admin(app: Quart) -> None:
 
 
 async def main() -> None:
-    """Bring up the database, seed if configured, then serve under hypercorn."""
+    """Bring up the database, seed if configured, then serve under hypercorn.
+
+    ``--dev`` is recognised here and inside ``create_app()``; neither is a
+    ``--help`` entry, and it never reaches the OpenAPI document. Recording
+    it is not activating it — see ``app/devmode.py``.
+    """
+    devmode.request_from_argv()
     app = create_app()
 
     if not await wait_for_database(app):

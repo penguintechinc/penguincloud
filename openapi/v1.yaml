@@ -679,6 +679,74 @@ paths:
           description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
             so no schema is published for it; do not rely on a specific body until one is.
       summary: Trigger a network scan for PenguinTech products.
+  /api/v1/features:
+    get:
+      description: '
+
+        Flags are evaluated against the authenticated user as the PostHog
+
+        ``distinct_id``, so a percentage rollout is stable per person rather
+
+        than per request.'
+      operationId: get_get_features
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Everything the UI needs to decide what to render.
+
+
+                  An explicit DTO rather than a dict: the response schema is enforced
+
+                  field by field, so nothing added to the flag or licensing modules for
+
+                  internal use can start being published by accident.'
+                properties:
+                  dev_mode:
+                    title: Dev Mode
+                    type: boolean
+                  dev_mode_max_users:
+                    title: Dev Mode Max Users
+                    type: integer
+                  flags:
+                    additionalProperties:
+                      type: boolean
+                    title: Flags
+                    type: object
+                  licensed_features:
+                    additionalProperties:
+                      type: string
+                    title: Licensed Features
+                    type: object
+                  tier:
+                    title: Tier
+                    type: string
+                  tiers:
+                    items:
+                      type: string
+                    maxItems: 10000
+                    title: Tiers
+                    type: array
+                required:
+                  - flags
+                  - tier
+                  - tiers
+                  - licensed_features
+                  - dev_mode
+                  - dev_mode_max_users
+                title: FeaturesResponse
+                type: object
+          description: 'Everything the UI needs to decide what to render.
+
+
+            An explicit DTO rather than a dict: the response schema is enforced
+
+            field by field, so nothing added to the flag or licensing modules for
+
+            internal use can start being published by accident.'
+      summary: Report flag state, licensed tier and dev-mode status for this caller.
   /api/v1/hello:
     get:
       description: ''

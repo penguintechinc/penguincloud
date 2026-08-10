@@ -150,7 +150,18 @@ async def create_user(
     full_name: str = "",
     role: str = "viewer",
 ) -> dict[str, Any] | None:
-    """Create a new user (async)."""
+    """Create a new user (async).
+
+    Enforces the development-mode single-user cap before inserting. The
+    routes check it first and answer a clean 403; this is the backstop, so
+    a call site that forgets — a future route, a seed script, a background
+    job — cannot silently breach the cap. Raises
+    :class:`~app.devmode.DevModeUserCapExceeded`.
+    """
+    from . import devmode
+
+    await devmode.assert_user_creation_allowed()
+
     db = get_db()
     now = datetime.now(UTC)
     user_id = await db.users.async_insert(

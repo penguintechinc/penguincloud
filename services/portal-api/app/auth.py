@@ -13,6 +13,7 @@ from penguin_aaa.authn.oidc_provider import OIDCProvider
 from penguin_aaa.authn.types import Claims
 from penguintechinc_utils.logging import get_logger
 
+from . import devmode
 from .config import UNSCOPED_TENANT
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -405,6 +406,13 @@ async def register() -> tuple[dict[str, Any], int]:
     existing = await get_user_by_email(email)
     if existing:
         return {"error": "Email already registered"}, 409
+
+    # Development mode caps the identity table at one user. Checked here
+    # rather than only at the model layer so the second registrant gets a
+    # reason they can act on instead of a generic failure.
+    refusal = await devmode.user_creation_refusal()
+    if refusal is not None:
+        return refusal
 
     # Create user
     password_hash = await hash_password_async(password)
