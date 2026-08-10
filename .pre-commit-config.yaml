@@ -89,11 +89,14 @@ repos:
         entry: scripts/hooks/run-eslint-webui.sh
         language: script
         files: ^services/webui/.*\.(js|ts|jsx|tsx)$
+        # MSW-generated; the file's own header says "do NOT modify this file".
+        exclude: ^services/webui/public/mockServiceWorker\.js$
       - id: prettier-webui
         name: prettier --check (services/webui)
         entry: scripts/hooks/run-prettier-webui.sh
         language: script
         files: ^services/webui/.*\.(js|ts|jsx|tsx)$
+        exclude: ^services/webui/public/mockServiceWorker\.js$
 
   # Dockerfiles
   - repo: https://github.com/hadolint/hadolint
