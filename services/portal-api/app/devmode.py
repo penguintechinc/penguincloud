@@ -40,7 +40,6 @@ security.
 
 from __future__ import annotations
 
-import os
 import sys
 import threading
 from typing import Any, Final, Sequence
@@ -48,7 +47,7 @@ from typing import Any, Final, Sequence
 import structlog
 from penguin_dal.quart_ext import get_db
 
-from .licensing import host_is_license_exempt
+from .licensing import configured_host, host_is_license_exempt
 
 log = structlog.get_logger()
 
@@ -109,31 +108,76 @@ def reset() -> None:
         _notice_emitted = False
 
 
+#: PenguinTech product domains, from penguintech.md's product table.
+#:
+#: general.md's dev-mode domain condition names "``*.penguincloud.io``,
+#: ``*.penguintech.cloud``, ``*.localhost.local``, product ``.app`` domains".
+#: The first three are exactly ``penguin_licensing``'s licence-bypass list,
+#: which is reused rather than copied. The product ``.app`` domains are NOT
+#: in that list — penguin-licensing does not carry them — so they are
+#: declared here, and only for dev mode.
+#:
+#: That divergence is deliberate and load-bearing in both directions:
+#:
+#: * it does not widen the LICENCE bypass, which stays exactly as upstream
+#:   defines it — a fix wave is no place to loosen a security boundary;
+#: * it makes dev mode's domain condition genuinely separable from the
+#:   licence bypass, so ``--dev`` unlocking a feature on a ``.app`` domain
+#:   is observable proof that dev mode itself did the unlocking, not the
+#:   bypass it used to share a predicate with.
+#:
+#: Unlocking here is narrower than the bypass in every other respect: it
+#: additionally requires the flag AND at most one user, and it announces
+#: itself.
+DEV_MODE_APP_DOMAINS: Final[frozenset[str]] = frozenset(
+    {
+        "currenturl.app",
+        "elderrms.app",
+        "gough.app",
+        "nestdata.app",
+        "skauswatch.app",
+        "squawkmgr.app",
+        "icecharts.app",
+        "tobogganing.app",
+        "waddleai.app",
+        "waddles.app",
+        "penguincloud.app",
+    }
+)
+
+
 def resolved_host() -> str:
-    """The host this deployment answers on, for the domain condition.
+    """The host this deployment is configured to answer on.
 
-    Prefers the in-flight request's ``Host``, which is what a caller
-    actually reached; falls back to the configured ``BASE_URL`` so the
-    condition can also be evaluated at startup, before any request exists.
-    Empty when neither is available, which fails the domain check.
+    Configuration only — never the request's ``Host`` header. A header is
+    supplied by the caller, and the caller here is the party the single-user
+    cap exists to constrain; letting them name the domain would let them
+    choose whether the condition passes. See
+    :func:`app.licensing.configured_host`.
     """
-    try:
-        from quart import request
+    return configured_host()
 
-        return str(request.host)
-    except (ImportError, RuntimeError):
-        return os.getenv("BASE_URL", "")
+
+def _matches_app_domain(host: str) -> bool:
+    """Dot-boundary match against :data:`DEV_MODE_APP_DOMAINS`.
+
+    Same semantics as penguin-licensing's matcher: the bare apex matches and
+    a label boundary is required, so ``evilgough.app`` never matches
+    ``gough.app``.
+    """
+    bare = host.split(":")[0].lower()
+    return any(
+        bare == domain or bare.endswith(f".{domain}")
+        for domain in DEV_MODE_APP_DOMAINS
+    )
 
 
 def domain_permits() -> bool:
-    """True when the deployment domain is PenguinTech-controlled.
-
-    Shares :func:`app.licensing.host_is_license_exempt` — and therefore
-    penguin-licensing's dot-boundary matcher — rather than keeping a second
-    domain list. Two lists is how ``evilpenguincloud.io`` ends up matching
-    one of them.
-    """
-    return host_is_license_exempt(resolved_host())
+    """True when the deployment domain is PenguinTech-controlled."""
+    host = resolved_host()
+    if not host:
+        return False
+    return host_is_license_exempt(host) or _matches_app_domain(host)
 
 
 async def user_count() -> int:
@@ -164,15 +208,22 @@ async def is_active() -> bool:
         return False
     if not domain_permits():
         return False
-    if await user_count() > MAX_DEV_MODE_USERS:
+    count = await user_count()
+    if count > MAX_DEV_MODE_USERS:
         return False
 
-    _announce_once()
+    _announce_once(count)
     return True
 
 
-def _announce_once() -> None:
+def _announce_once(user_count: int) -> None:
     """Emit the WARN log and the verbatim stderr notice, once per process.
+
+    general.md requires the activation log to carry "the resolved domain and
+    user count". The count is the OBSERVED one, passed in from the check
+    that just read it — logging ``MAX_DEV_MODE_USERS`` instead would print
+    the constant 1 forever and tell an auditor nothing about the deployment
+    that actually activated.
 
     The notice is repeated into the log line deliberately: an operator who
     did not start the process never sees the console, and a licensing
@@ -189,6 +240,7 @@ def _announce_once() -> None:
     log.warning(
         "dev_mode_active",
         domain=host,
+        user_count=user_count,
         max_users=MAX_DEV_MODE_USERS,
         notice=DEV_MODE_NOTICE,
     )
@@ -220,12 +272,21 @@ def announce_at_startup() -> None:
 
 
 async def user_creation_refusal() -> tuple[dict[str, Any], int] | None:
-    """The 403 body when the dev-mode user cap refuses a new user, else None.
+    """The refusal when the dev-mode user cap blocks a new user, else None.
 
     Called by every route that creates a user, BEFORE it creates one, so
     the operator gets a clear reason instead of a generic failure.
     :func:`assert_user_creation_allowed` is the backstop underneath, for
     call sites that forget.
+
+    Answers with the SAME shape and status as every other scale wall
+    (:func:`app.quotas.scale_refusal_body`, 402). It used to be a 403 whose
+    body shared no key with the quota refusals, so one class of problem —
+    "this deployment may not grow any further" — arrived at the client in
+    two unrelated forms and the upgrade UI had to special-case this one.
+    ``error`` still names the specific cause; ``required_tier`` is null
+    because no tier lifts this cap: the remedy is dropping ``--dev`` and
+    licensing the deployment, which the message says.
     """
     if not await is_active():
         return None
@@ -233,19 +294,24 @@ async def user_creation_refusal() -> tuple[dict[str, Any], int] | None:
     if count < MAX_DEV_MODE_USERS:
         return None
 
+    from . import licensing, quotas
+
     log.warning("dev_mode_user_cap_refused", user_count=count)
     return (
-        {
-            "error": "dev_mode_user_cap",
-            "message": (
+        quotas.scale_refusal_body(
+            error="dev_mode_user_cap",
+            message=(
                 "Development mode (--dev) is limited to "
                 f"{MAX_DEV_MODE_USERS} user. Remove the --dev flag and "
                 "apply a commercial license to add more users."
             ),
-            "max_users": MAX_DEV_MODE_USERS,
-            "user_count": count,
-        },
-        403,
+            dimension="users",
+            limit=MAX_DEV_MODE_USERS,
+            current=count,
+            current_tier=await licensing.resolve_tier(),
+            required_tier=None,
+        ),
+        quotas.SCALE_REFUSAL_STATUS,
     )
 
 

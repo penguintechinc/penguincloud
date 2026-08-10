@@ -35,7 +35,7 @@ from typing import Any, Final
 import pytest
 from quart import Quart
 
-from app import licensing
+from app import licensing, quotas
 from app.license import LicenseManager
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
@@ -58,6 +58,52 @@ def _decorated_feature_names() -> dict[str, list[str]]:
                 f"{path.relative_to(_REPO_ROOT)}:{line}"
             )
     return found
+
+
+#: Every call whose first positional argument names a licensed feature and
+#: whose effect is to refuse when the licence does not grant it. Decorators
+#: are only one of the shapes — the capability gates on tenant creation and
+#: delegated-admin enrolment are inline calls, and a scanner that only knew
+#: about ``@require_feature`` would report them as unenforced.
+_ENFORCEMENT_CALLS: Final[frozenset[str]] = frozenset(
+    {
+        "require_feature",
+        "_capability_refusal",
+        "is_feature_entitled",
+        "is_feature_entitled_blocking",
+        "is_feature_available",
+        "product_gate_refusal",
+    }
+)
+
+
+def _gated_feature_names() -> set[str]:
+    """Every feature name enforced somewhere in the app package.
+
+    Parsed with ``ast`` rather than regex so a call spanning lines, or one
+    reached through a module prefix (``licensing.is_feature_entitled``), is
+    still seen. Source inspection proves a name is *spelled* at a gate, not
+    that the gate works — the behavioural tests for each gate are what prove
+    that, and this exists to catch the features that have no gate at all.
+    """
+    names: set[str] = set()
+    for path in sorted(_APP_DIR.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            func = node.func
+            called = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else func.id if isinstance(func, ast.Name) else ""
+            )
+            if called not in _ENFORCEMENT_CALLS:
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                names.add(first.value)
+    return names
 
 
 class TestNoEnvVarBypass:
@@ -169,9 +215,21 @@ class TestDomainBypassBoundary:
         assert licensing.host_is_license_exempt(host) is False
 
     @pytest.mark.asyncio
-    async def test_bypass_fails_closed_outside_a_request(self, app: Quart) -> None:
-        """Background work has no host to trust, so it gets no exemption."""
-        assert licensing.current_host_is_license_exempt() is False
+    async def test_the_answer_does_not_depend_on_being_in_a_request(
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Configuration answers identically in and out of a request.
+
+        It used to answer only inside one (and fail closed outside), which
+        meant the bypass was a property of the caller rather than of the
+        deployment. Background work now inherits the same, auditable answer.
+        """
+        monkeypatch.delenv("SERVER_NAME", raising=False)
+        monkeypatch.setenv("BASE_URL", "https://portal.penguincloud.io")
+
+        assert licensing.current_host_is_license_exempt() is True
+        async with app.test_request_context("/api/v1/license/status"):
+            assert licensing.current_host_is_license_exempt() is True
 
     @pytest.mark.asyncio
     async def test_exempt_host_unlocks_a_professional_feature(
@@ -184,19 +242,80 @@ class TestDomainBypassBoundary:
         for the wrong reason (RELEASE_MODE), on every host.
         """
         monkeypatch.delenv("LICENSE_KEY", raising=False)
+        monkeypatch.delenv("SERVER_NAME", raising=False)
         licensing.reset_client()
 
-        async with app.test_request_context(
-            "/api/v1/license/status", headers={"Host": "portal.penguincloud.io"}
-        ):
-            assert licensing.current_host_is_license_exempt() is True
-            assert await licensing.is_feature_entitled("sso_integration") is True
+        monkeypatch.setenv("BASE_URL", "https://portal.penguincloud.io")
+        assert licensing.current_host_is_license_exempt() is True
+        assert await licensing.is_feature_entitled("sso_integration") is True
 
-        async with app.test_request_context(
-            "/api/v1/license/status", headers={"Host": "customer.example.com"}
+        monkeypatch.setenv("BASE_URL", "https://customer.example.com")
+        assert licensing.current_host_is_license_exempt() is False
+        assert await licensing.is_feature_entitled("sso_integration") is False
+
+    @pytest.mark.asyncio
+    async def test_a_spoofed_host_header_cannot_take_the_bypass(
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``curl -H 'Host: x.penguincloud.io'`` must not disable the paywall.
+
+        This is the whole licensing threat model in one request. The bypass
+        used to read ``request.host``, so on any self-hosted deployment a
+        single header entitled every licensed feature, passed every tier
+        gate and resolved the Enterprise limits table — and the operator
+        sending it is precisely the party the licence constrains, with full
+        control of their own ingress and direct access to the pod.
+        """
+        monkeypatch.delenv("LICENSE_KEY", raising=False)
+        monkeypatch.delenv("SERVER_NAME", raising=False)
+        monkeypatch.setenv("BASE_URL", "https://portal.customer.example.com")
+        licensing.reset_client()
+
+        for spoof in (
+            "portal.penguincloud.io",
+            "anything.penguintech.cloud",
+            "x.localhost.local",
         ):
-            assert licensing.current_host_is_license_exempt() is False
-            assert await licensing.is_feature_entitled("sso_integration") is False
+            async with app.test_request_context(
+                "/api/v1/license/status", headers={"Host": spoof}
+            ):
+                assert licensing.configured_host() == "portal.customer.example.com"
+                assert licensing.current_host_is_license_exempt() is False
+                assert await licensing.is_feature_entitled("sso_integration") is False
+                limits = await quotas.resolve_limits()
+                assert limits == quotas.DEFAULT_TIER_LIMITS[
+                    licensing.TIER_COMMUNITY
+                ]
+
+    @pytest.mark.asyncio
+    async def test_an_unconfigured_deployment_is_not_exempt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No configured host fails closed rather than open."""
+        monkeypatch.delenv("BASE_URL", raising=False)
+        monkeypatch.delenv("SERVER_NAME", raising=False)
+        assert licensing.configured_host() == ""
+        assert licensing.current_host_is_license_exempt() is False
+
+    @pytest.mark.parametrize(
+        "configured,expected",
+        [
+            ("https://portal.penguincloud.io/path", "portal.penguincloud.io"),
+            ("portal.penguincloud.io:8443", "portal.penguincloud.io"),
+            ("PORTAL.PenguinCloud.IO", "portal.penguincloud.io"),
+            ("//portal.penguincloud.io", "portal.penguincloud.io"),
+            ("", ""),
+        ],
+    )
+    def test_configured_host_is_reduced_to_a_bare_host(
+        self, configured: str, expected: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("SERVER_NAME", raising=False)
+        if configured:
+            monkeypatch.setenv("BASE_URL", configured)
+        else:
+            monkeypatch.delenv("BASE_URL", raising=False)
+        assert licensing.configured_host() == expected
 
 
 class TestSsoStillGatesAfterTheFix:
@@ -210,9 +329,7 @@ class TestSsoStillGatesAfterTheFix:
         unset client_id) because RELEASE_MODE was false in the test config —
         i.e. the gate never ran at all.
         """
-        response = await client.get(
-            "/api/v1/auth/oauth/google", headers={"Host": "customer.example.com"}
-        )
+        response = await client.get("/api/v1/auth/oauth/google")
 
         assert response.status_code == 403
         body = await response.get_json()
@@ -234,11 +351,11 @@ class TestSsoStillGatesAfterTheFix:
         configuration defect and is deliberately not asserted as success.
         """
         monkeypatch.delenv("LICENSE_KEY", raising=False)
+        monkeypatch.delenv("SERVER_NAME", raising=False)
+        monkeypatch.setenv("BASE_URL", "https://portal.penguincloud.io")
         licensing.reset_client()
 
-        response = await client.get(
-            "/api/v1/auth/oauth/google", headers={"Host": "portal.penguincloud.io"}
-        )
+        response = await client.get("/api/v1/auth/oauth/google")
 
         assert response.status_code != 403
         if response.is_json:
@@ -277,6 +394,56 @@ class TestGateAndMintMeet:
     def test_the_scanner_sees_the_known_gate(self) -> None:
         """A set-difference check passes vacuously on an empty left side."""
         assert "sso_integration" in _decorated_feature_names()
+
+    def test_every_declared_feature_is_gated_or_declared_unbuilt(self) -> None:
+        """THE CONVERSE, which is where the real gap was.
+
+        The check above catches a gate naming a feature nobody mints. This
+        one catches the opposite and far quieter failure: a feature declared
+        in ``FEATURE_MIN_TIER`` — i.e. sold — that nothing anywhere checks.
+        Eight of the nine entries were in that state, including two whose
+        capability is fully built (``delegated_admin``, ``multi_tenant``),
+        so the licence said "Enterprise" while the code said "help
+        yourself".
+
+        A feature is acceptable in exactly two states: gated at a real call
+        site, or listed in ``NOT_YET_IMPLEMENTED`` because the capability
+        does not exist to gate. Anything else fails here, so the last step
+        of building one of these is removing it from that set — and adding a
+        new licensed feature without a gate fails immediately.
+        """
+        enforced = set(_gated_feature_names())
+
+        assert enforced, (
+            "found no feature enforcement sites at all — the scanner has "
+            "stopped working and this check is passing vacuously"
+        )
+
+        unenforced = {
+            feature
+            for feature in licensing.FEATURE_MIN_TIER
+            if feature not in enforced
+            and feature not in licensing.NOT_YET_IMPLEMENTED
+        }
+
+        assert not unenforced, (
+            f"licensed features nothing enforces: {sorted(unenforced)}. Gate "
+            f"them at a call site, or add them to NOT_YET_IMPLEMENTED with "
+            f"the reason they cannot be gated yet."
+        )
+
+    def test_not_yet_implemented_names_are_real_features(self) -> None:
+        """The escape hatch cannot excuse a name the contract does not have."""
+        unknown = licensing.NOT_YET_IMPLEMENTED - set(licensing.FEATURE_MIN_TIER)
+        assert not unknown, f"NOT_YET_IMPLEMENTED names no tier grants: {unknown}"
+
+    def test_a_built_feature_may_not_hide_in_not_yet_implemented(self) -> None:
+        """Listing an enforced feature as unbuilt would re-open the hole."""
+        both = licensing.NOT_YET_IMPLEMENTED & set(_gated_feature_names())
+        assert not both, (
+            f"features listed as unbuilt but actually gated: {sorted(both)}. "
+            f"Remove them from NOT_YET_IMPLEMENTED."
+        )
 
     @pytest.mark.parametrize(
         "feature,tier", sorted(licensing.FEATURE_MIN_TIER.items())

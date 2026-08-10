@@ -43,9 +43,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from dataclasses import asdict, dataclass
-from functools import wraps
-from typing import Any, Awaitable, Callable, Final, ParamSpec, TypeVar
+from dataclasses import dataclass
+from typing import Final
+from urllib.parse import urlsplit
 
 import structlog
 from penguin_licensing.client import LicenseClient
@@ -67,8 +67,14 @@ from penguin_licensing.decorators import _is_bypass_domain
 
 log = structlog.get_logger()
 
-P = ParamSpec("P")
-R = TypeVar("R")
+#: Environment keys naming the host this deployment is configured to answer
+#: on, in precedence order. ``BASE_URL`` is the key devops-kubernetes.md
+#: already sets per environment; ``SERVER_NAME`` is the ASGI/WSGI-native
+#: spelling, accepted so a deployment that sets only that one still resolves.
+#:
+#: THIS IS CONFIGURATION, NOT A REQUEST HEADER, and the distinction is the
+#: whole security property — see :func:`configured_host`.
+HOST_CONFIG_KEYS: Final[tuple[str, ...]] = ("BASE_URL", "SERVER_NAME")
 
 #: The three tiers, cumulative — each includes everything below it.
 TIER_COMMUNITY: Final[str] = "community"
@@ -124,6 +130,37 @@ FEATURE_MIN_TIER: Final[dict[str, str]] = {
     "multi_tenant": TIER_ENTERPRISE,
 }
 
+#: Declared in the licensing contract above, but NOT BUILT YET in this
+#: portal — so there is no call site to gate, and inventing one would be a
+#: fake gate on a feature that does not exist.
+#:
+#: This set is the honest half of the declaration. ``FEATURE_MIN_TIER`` is
+#: the commercial contract and every entry belongs in it, but "declared"
+#: without "enforced" is the failure this project has already shipped twice
+#: (the dead ``gough:*`` scopes, the unconsumed
+#: ``SCOPE_MANAGE_DESCENDANTS``): a name that reads like a gate, is checked
+#: nowhere, and nobody notices until a customer gets something they did not
+#: buy.
+#:
+#: ``TestGateAndMintMeet`` asserts the CONVERSE of the usual scan — every
+#: key in ``FEATURE_MIN_TIER`` is either gated at a real call site or listed
+#: here. Building one of these therefore fails a test until its gate lands,
+#: and adding a new licensed feature without gating it fails immediately.
+#:
+#: Removing a name from this set is the last step of implementing it, not
+#: the first.
+NOT_YET_IMPLEMENTED: Final[frozenset[str]] = frozenset(
+    {
+        "waddleai_assist",
+        "saml_sso",
+        "audit_export",
+        "external_kms",
+        "advanced_analytics",
+        "whitelabel",
+        "byok_ai",
+    }
+)
+
 
 @dataclass(slots=True, frozen=True)
 class UpgradeRequired:
@@ -153,18 +190,61 @@ def host_is_license_exempt(host: str | None) -> bool:
     return _is_bypass_domain(host)
 
 
-def current_host_is_license_exempt() -> bool:
-    """True when the in-flight request targets an exempt domain.
-
-    Outside a request there is no host to trust, so this fails closed. That
-    matters for background work (keepalive, the flag refresh loop): a task
-    with no request context must not inherit an exemption it cannot verify.
-    """
+def _hostname(raw: str) -> str:
+    """Reduce a configured URL or ``host[:port]`` to a bare lowercase host."""
+    candidate = raw.strip()
+    if not candidate:
+        return ""
+    # urlsplit puts a bare "portal.example.com" in .path, not .netloc, so a
+    # scheme-relative prefix is added when none is present.
+    if "//" not in candidate:
+        candidate = f"//{candidate}"
     try:
-        from quart import request
+        return (urlsplit(candidate).hostname or "").lower()
+    except ValueError:
+        return ""
 
-        host = request.host
-    except (ImportError, RuntimeError):
+
+def configured_host() -> str:
+    """The host this deployment is CONFIGURED to answer on. Never a header.
+
+    This function is the reason the paywall is not one ``curl -H 'Host:
+    …'`` away from being disabled.
+
+    It used to read ``request.host``. In a licensing threat model the
+    adversary IS the operator: they control their own ingress and can reach
+    the pod directly, so a ``Host`` header is a value the party being
+    charged supplies about themselves. Any self-hosted deployment could send
+    ``Host: x.penguincloud.io`` and take the domain bypass — every licensed
+    feature entitled, every tier gate passed, the Enterprise limits table
+    resolved — with nothing in the request log to distinguish it from a
+    legitimate managed deployment.
+
+    Configuration is not attacker-controlled in the same way: ``BASE_URL``
+    is set by whoever deploys the chart, is visible in the manifest, and
+    cannot be varied per request. Reading it here means the bypass answers
+    the same way for every caller, which is what makes it auditable.
+
+    Empty when nothing is configured, which fails closed — an unconfigured
+    deployment is not exempt.
+    """
+    for key in HOST_CONFIG_KEYS:
+        host = _hostname(os.getenv(key, ""))
+        if host:
+            return host
+    return ""
+
+
+def current_host_is_license_exempt() -> bool:
+    """True when this deployment is configured on an exempt domain.
+
+    Deliberately NOT request-scoped. It answers identically inside a
+    request, in a background task and at startup, because the answer comes
+    from configuration rather than from whoever happens to be calling. A
+    request-scoped bypass is one a caller can ask for.
+    """
+    host = configured_host()
+    if not host:
         return False
     exempt = host_is_license_exempt(host)
     if exempt:
@@ -262,22 +342,37 @@ def is_feature_entitled_blocking(feature_name: str) -> bool:
         return False
 
 
+async def dev_mode_entitles() -> bool:
+    """True when ``--dev`` is active and therefore widens entitlement.
+
+    This is the ONE place dev mode reaches the licensing decision, and it
+    has to exist for the flag to mean anything at all. Before it, nothing
+    consulted :func:`app.devmode.is_active`: ``--dev`` appeared to work only
+    because dev mode's domain condition happens to call the same
+    ``host_is_license_exempt`` the licence bypass does, so on every domain
+    where dev mode COULD activate, everything was already unlocked without
+    it — and therefore without the single-user cap, the WARN log or the
+    banner that are the whole point of the mode.
+
+    Imported inside the function because :mod:`app.devmode` imports this
+    module for the domain matcher; a module-level import would be circular.
+    """
+    from . import devmode
+
+    return await devmode.is_active()
+
+
 async def is_feature_entitled(feature_name: str) -> bool:
     """True when this deployment may run ``feature_name``.
 
-    Domain exemption is evaluated FIRST and in the request context, so the
-    blocking entitlement path is skipped entirely on a managed domain.
+    Three independent grants, checked cheapest first: the configured-domain
+    exemption, active dev mode, then the licence itself.
     """
     if current_host_is_license_exempt():
         return True
-    return await asyncio.to_thread(is_feature_entitled_blocking, feature_name)
-
-
-async def has_tier(required_tier: str) -> bool:
-    """True when the deployment is licensed at ``required_tier`` or above."""
-    if current_host_is_license_exempt():
+    if await dev_mode_entitles():
         return True
-    return tier_satisfies(await resolve_tier(), required_tier)
+    return await asyncio.to_thread(is_feature_entitled_blocking, feature_name)
 
 
 def upgrade_required(
@@ -294,43 +389,3 @@ def upgrade_required(
         required_tier=required_tier,
         current_tier=current_tier,
     )
-
-
-def require_tier(
-    required_tier: str, feature: str = ""
-) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[Any]]]:
-    """Gate an async Quart view on a minimum license tier.
-
-    The Quart-shaped counterpart to ``penguin_licensing.license_required``,
-    which cannot be used directly here for two reasons: it reads
-    ``flask.request`` for the domain bypass (a ``RuntimeError`` under Quart,
-    so the bypass never fires), and it RAISES ``LicenseRequiredError``
-    instead of answering an HTTP response — an uncaught exception out of a
-    Quart view is a 500, not a 403 an operator can act on.
-    """
-
-    def decorator(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
-        gate_name = feature or getattr(f, "__name__", required_tier)
-
-        @wraps(f)
-        async def decorated(*args: P.args, **kwargs: P.kwargs) -> Any:
-            if current_host_is_license_exempt():
-                return await f(*args, **kwargs)
-            current = await resolve_tier()
-            if not tier_satisfies(current, required_tier):
-                log.warning(
-                    "license_tier_insufficient",
-                    feature=gate_name,
-                    required_tier=required_tier,
-                    current_tier=current,
-                )
-                # asdict, not __dict__: UpgradeRequired is slots=True, so it
-                # has no instance __dict__ at all — that attribute access
-                # would be an AttributeError inside the deny path, turning
-                # every refused gate into a 500.
-                return asdict(upgrade_required(gate_name, required_tier, current)), 403
-            return await f(*args, **kwargs)
-
-        return decorated
-
-    return decorator

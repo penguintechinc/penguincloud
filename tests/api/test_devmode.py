@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 from quart import Quart
 
-from app import devmode
+from app import devmode, licensing, quotas
 
 
 @pytest.fixture(autouse=True)
@@ -150,21 +150,52 @@ class TestDomainCondition:
         monkeypatch.setattr(devmode, "resolved_host", lambda: host)
         assert devmode.domain_permits() is permitted
 
-    def test_host_falls_back_to_base_url_outside_a_request(
+    def test_host_comes_from_configuration(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Startup has no request; the configured domain answers instead."""
+        """The configured domain is the domain, request or no request."""
         monkeypatch.setenv("BASE_URL", "penguincloud.localhost.local")
         assert devmode.resolved_host() == "penguincloud.localhost.local"
 
     @pytest.mark.asyncio
-    async def test_request_host_wins_inside_a_request(self, app: Quart) -> None:
-        """What the caller actually reached beats what config claims."""
+    async def test_a_spoofed_host_header_does_not_permit_dev_mode(
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A caller cannot name the domain dev mode is evaluated against.
+
+        The header used to win over configuration. Anyone able to reach the
+        pod — which, on a self-hosted deployment, is the operator the
+        single-user cap exists to constrain — could therefore satisfy the
+        domain condition by asserting it about themselves.
+        """
+        monkeypatch.setenv("BASE_URL", "https://portal.customer.example.com")
+        monkeypatch.delenv("SERVER_NAME", raising=False)
         async with app.test_request_context(
             "/api/v1/features", headers={"Host": "portal.penguincloud.io"}
         ):
-            assert devmode.resolved_host() == "portal.penguincloud.io"
-            assert devmode.domain_permits() is True
+            assert devmode.resolved_host() == "portal.customer.example.com"
+            assert devmode.domain_permits() is False
+
+    @pytest.mark.parametrize(
+        "host,permitted",
+        [
+            # A product .app domain: PenguinTech-controlled per
+            # penguintech.md and named by general.md's dev-mode condition,
+            # but NOT in penguin-licensing's licence-bypass list. This is
+            # the divergence that makes --dev observable on its own.
+            ("portal.waddles.app", True),
+            ("gough.app", True),
+            ("evilgough.app", False),
+            ("gough.app.example.com", False),
+        ],
+    )
+    def test_product_app_domains_permit_dev_mode_but_not_the_bypass(
+        self, host: str, permitted: bool, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(devmode, "resolved_host", lambda: host)
+        assert devmode.domain_permits() is permitted
+        # The licence bypass is deliberately NOT widened to match.
+        assert licensing.host_is_license_exempt(host) is False
 
 
 class TestNoBootTimeLatch:
@@ -259,6 +290,32 @@ class TestOperatorNotice:
 
         assert capsys.readouterr().err.count("DEVELOPMENT MODE") == 1
 
+    @pytest.mark.asyncio
+    async def test_the_warn_log_carries_the_observed_user_count(
+        self, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """general.md: log "the resolved domain and user count".
+
+        It logged ``max_users`` — the constant 1 — which is not a fact about
+        the deployment. An auditor reading captured logs could not tell an
+        activation on an empty deployment from one at the cap.
+        """
+        recorded: list[dict[str, Any]] = []
+
+        class _Recorder:
+            def warning(self, event: str, **fields: Any) -> None:
+                recorded.append({"event": event, **fields})
+
+        monkeypatch.setattr(devmode, "log", _Recorder())
+        _activate(monkeypatch, users=1)
+
+        assert await devmode.is_active() is True
+
+        activation = [line for line in recorded if line["event"] == "dev_mode_active"]
+        assert activation, recorded
+        assert activation[0]["user_count"] == 1
+        assert activation[0]["domain"] == devmode.resolved_host()
+
     def test_startup_announcement_requires_the_flag(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -292,10 +349,27 @@ class TestUserCap:
 
         assert refusal is not None
         body, status = refusal
-        assert status == 403
+        # Same status and same key set as every other scale wall, so one
+        # upgrade UI and one log reader handle all of them; `error` is what
+        # names the specific cause. See quotas.scale_refusal_body.
+        assert status == quotas.SCALE_REFUSAL_STATUS == 402
         assert body["error"] == "dev_mode_user_cap"
-        assert body["max_users"] == devmode.MAX_DEV_MODE_USERS
+        assert body["dimension"] == "users"
+        assert body["limit"] == devmode.MAX_DEV_MODE_USERS
+        assert body["current"] == 1
+        assert body["required_tier"] is None
         assert "--dev" in body["message"]
+        assert set(body) == set(
+            quotas.scale_refusal_body(
+                error="quota_exceeded",
+                message="",
+                dimension="teams",
+                limit=1,
+                current=1,
+                current_tier="community",
+                required_tier=None,
+            )
+        )
 
     @pytest.mark.asyncio
     async def test_the_model_layer_backstop_raises(
@@ -338,12 +412,15 @@ class TestUserCap:
             },
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 402
         assert (await response.get_json())["error"] == "dev_mode_user_cap"
 
     @pytest.mark.asyncio
     async def test_admin_create_route_refuses_the_second_user(
-        self, client: Any, admin_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+        self,
+        client: Any,
+        admin_headers: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """An admin creating users by hand is bound by the same cap."""
         _activate(monkeypatch, users=1)
@@ -359,7 +436,7 @@ class TestUserCap:
             },
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 402
         assert (await response.get_json())["error"] == "dev_mode_user_cap"
 
     @pytest.mark.asyncio
