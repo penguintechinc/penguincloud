@@ -76,6 +76,16 @@ The over-limit action — 2nd team on Free, 11th tenant admin on Professional, 2
 
 Metered at both the creation **and** the promotion path — "add as member, then promote" must not be an unmetered route to the same structure.
 
+**One refusal shape for every scale wall.** `quotas.scale_refusal_body()` builds it, and `devmode.user_creation_refusal()` uses the same one: status 402 and keys `error`, `message`, `dimension`, `limit`, `current`, `current_tier`, `required_tier` (null when no tier lifts it). `error` names the specific cause. One class of problem must not reach a client in several unrelated shapes.
+
+**`tenant_admins` is counted deployment-wide**, like every other dimension. Counted per-tenant it read the same only because tenants are themselves capped at 1 below Enterprise — but the limits are licence-configurable, so raising `max_tenants` alone would have sold 10×N delegated admins under a limit published as 10.
+
+**Routes meter; the model layer backstops.** `models.create_team`, `create_tenant` and `add_tenant_member` call `quotas.assert_within()` and raise `QuotaExceeded`. A limit enforced at only some call sites is not a limit, and this is not hypothetical: `POST /api/v1/auth/register` created a personal team through the model layer with nothing metering it. The register path now meters the **team** and still creates the **user** — non-admin members are unlimited at every tier, so refusing the signup would turn a team wall into a user cap the model deliberately does not have. The refusal is reported in the response as `personal_team_refused`, never swallowed.
+
+**Validation precedes metering.** An invalid body is a 400 even when the deployment is over quota; answering 402 to a typo sends the operator to sales.
+
+**Capability and count are two halves of one gate.** Because every limit is licence-configurable, a numeric override could otherwise sell a capability the tier does not include. Creating a second tenant additionally requires `multi_tenant`; enrolling or promoting a delegated tenant admin additionally requires `delegated_admin`. Those refuse 403 (`feature_not_entitled`) — a missing capability is not a number you have outgrown.
+
 ### Numeric limits are licence-server-configurable
 
 `quotas.DEFAULT_TIER_LIMITS` is a **fallback table**, not a set of constants. Every limit is read from the licence payload (`max_global_admins`, `max_tenant_admins`, `max_tenants`, `max_teams`, `max_objects`) so a negotiated contract needs no redeploy. A malformed override falls back to the tier default — neither 0 (locks the customer out) nor unlimited (gives away the paywall) is a safe reading.
@@ -102,11 +112,16 @@ A feature ships only when the **flag is on** *and* the **licence entitles it**. 
 | Licence tier (entitlement) | `app/licensing.py` | `penguin_licensing.LicenseClient` |
 
 - Declaration sides are `flags.KNOWN_FLAGS` and `licensing.FEATURE_MIN_TIER`. A name a gate spells that is absent from them is refused, and CI asserts every gated name is grantable — a gate nothing mints is a permanent 403.
+- **CI asserts the converse too**, which is where the real gap was: every `FEATURE_MIN_TIER` entry is either enforced at a call site or listed in `licensing.NOT_YET_IMPLEMENTED`. Declaring a feature is selling it; a declared feature nothing checks is a paid capability given away. Removing a name from `NOT_YET_IMPLEMENTED` is the last step of building it.
+- Same discipline for products: every `PRODUCT_TYPES` value is either in `PRODUCT_FLAGS` or in `flags.UNFLAGGED_PRODUCT_TYPES` (retired products, products with no portal module of their own, and the `generic` escape hatch).
+- **The conjunction is enforced server-side.** `flags.product_gate_refusal()` runs at connection create (`products.py`) and in the proxy (`proxy.py`), so a disabled module refuses the API call rather than merely not rendering. `featureGates.ts` decides what the browser draws; it is not a control.
 - `PRODUCT_FLAGS` and `FEATURE_FLAGS` must stay disjoint. `waddleai` is a connectable product on any tier; the Enterprise entitlement is `waddleai_assist`.
 
 ### Bypass is domain-based, and only domain-based
 
 `licensing.host_is_license_exempt()` matching `*.penguincloud.io`, `*.penguintech.cloud`, `*.localhost.local` is the **only** way gating is skipped. There is no environment variable, CLI flag or config key that disables it, and adding one is forbidden (general.md).
+
+**The host comes from configuration — `BASE_URL`, then `SERVER_NAME` — never from the request's `Host` header** (`licensing.configured_host()`). In a licensing threat model the adversary is the operator: they control their own ingress and can reach the pod directly, so a header is a claim the party being charged makes about themselves. Reading `request.host` meant any self-hosted deployment could send `Host: x.penguincloud.io` and entitle every licensed feature, pass every tier gate and resolve the Enterprise limits table. An unconfigured deployment resolves to no host and is therefore not exempt.
 
 `RELEASE_MODE` survives in exactly two places, neither of which decides entitlement: whether a failed licence validation is fatal at startup, and whether keepalive phones home. It previously short-circuited `is_feature_enabled` to `True`, unlocking every paid feature on any deployment that had not set it.
 
@@ -116,7 +131,13 @@ A feature ships only when the **flag is on** *and* the **licence entitles it**. 
 
 ### `--dev` (single-user evaluation)
 
-Undocumented flag on the portal entrypoint. Active only when **all** hold, **re-evaluated per request** (never latched at boot): PenguinTech-controlled domain, ≤1 user counted server-side from the identity table, and the flag was passed. While active it caps user creation at 1, logs a WARN, prints the verbatim general.md notice to stderr, and raises a persistent non-dismissible UI banner. It unlocks **features only** — authentication, authorization and tenant isolation are untouched.
+Undocumented flag on the portal entrypoint. Active only when **all** hold, **re-evaluated per request** (never latched at boot): PenguinTech-controlled domain, ≤1 user counted server-side from the identity table, and the flag was passed. While active it caps user creation at 1, logs a WARN carrying the resolved domain and the **observed** user count, prints the verbatim general.md notice to stderr, and raises a persistent non-dismissible UI banner. It unlocks **features only** — authentication, authorization and tenant isolation are untouched.
+
+**It widens entitlement itself.** `licensing.dev_mode_entitles()` is consulted by `is_feature_entitled()` and by `quotas.resolve_limits()`, so an active `--dev` unlocks *because it is active*. Previously nothing consulted it: the mode appeared to work only because its domain condition called the same `host_is_license_exempt()` as the licence bypass, so on every domain where it could activate everything was already unlocked — without the cap, the WARN or the banner.
+
+**Its domain set is deliberately wider than the licence bypass**, by exactly the product `.app` domains general.md names (`devmode.DEV_MODE_APP_DOMAINS`). The licence bypass is left exactly as `penguin_licensing` defines it. The divergence is what makes `--dev` observable on its own, and dev mode is far narrower in every other respect: it also needs the flag and at most one user, and it announces itself.
+
+The cap refuses with the shared 402 scale-refusal shape at every user-creation path — `auth.register`, `users.create_new_user` and the OAuth callback — with `models.create_user` as the raising backstop beneath them. The OAuth path previously had no check, so the second SSO signup hit the backstop and escaped the view as a 500.
 
 ## Non-Goals
 

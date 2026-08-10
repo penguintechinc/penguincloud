@@ -27,6 +27,9 @@ class TestTeamCreation:
     """Test team creation endpoint"""
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_create_team_success(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
@@ -259,6 +262,9 @@ class TestTeamMembers:
         assert len(data["members"]) >= 1
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_remove_member_admin(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
@@ -406,6 +412,9 @@ class TestTeamRoles:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_update_member_role(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:

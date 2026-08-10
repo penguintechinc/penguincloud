@@ -536,6 +536,9 @@ class TestDelegatedAdminThroughProxy:
     """Delegated authority reaches a descendant's products."""
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Builds a multi-tenant / delegated-admin structure, which the tier
+    # model sells at Enterprise.
     async def test_delegated_admin_proxies_to_descendant_product(
         self, client: Any, app: Quart, upstream: _Upstream
     ) -> None:
@@ -572,6 +575,9 @@ class TestDelegatedAdminThroughProxy:
         assert upstream.requests, "delegated admin was not proxied through"
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Builds a multi-tenant / delegated-admin structure, which the tier
+    # model sells at Enterprise.
     async def test_sibling_tenant_admin_is_refused(
         self, client: Any, app: Quart, upstream: _Upstream
     ) -> None:

@@ -64,6 +64,12 @@ async def app() -> AsyncGenerator[Quart, None]:
     async with test_app.app_context():
         db = get_db()
         await db.reflect()
+        # Freeze the quota baseline HERE, before any other fixture has
+        # created a tenant, team or admin. Priming it at first use instead
+        # would silently exclude whatever the test's own fixtures built
+        # during setup, which is precisely the structure most quota tests
+        # are about. See _quota_counts_are_per_test.
+        await _prime_quota_baselines()
 
     yield test_app
 
@@ -248,32 +254,141 @@ async def auth_headers(client: Any) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _suite_license_limits() -> Any:
-    """Resolve scale/structure limits as Enterprise for the whole suite.
+#: Deployment-wide counters whose rows survive from one test to the next
+#: because the SQLite file does.
+_ACCUMULATING_COUNTERS = (
+    "count_tenants",
+    "count_teams",
+    "count_global_admins",
+    "count_tenant_admins",
+    "count_objects",
+)
 
-    The suite's fixtures build multi-tenant hierarchies, several teams and
-    more than one admin — deliberately, because that is what the delegated
-    admin model is made of. Under the default (Free) licence those are hard
-    blocks: 1 tenant, 1 team, 1 global admin.
 
-    This is a fixture, not a relaxation of the gate. The enforcement code is
-    untouched and every wall is exercised directly, at the real route, in
-    tests/api/test_quotas.py — which overrides this per test with a
-    function-scoped monkeypatch and therefore always wins. Without this the
-    quota walls would be tested implicitly by fixture breakage everywhere,
-    which reports the wrong failure in the wrong file.
+async def _prime_quota_baselines() -> None:
+    """Capture the pre-test value of every accumulating counter."""
+    from app import quotas
 
-    Session-scoped so it is installed before any function-scoped fixture
-    (``tenant_id`` creates a tenant during setup, before a test body can
-    patch anything).
+    for counter in _ACCUMULATING_COUNTERS:
+        await getattr(quotas, counter)()
+
+
+@pytest.fixture(autouse=True)
+def _quota_counts_are_per_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Measure every quota dimension from where THIS test started.
+
+    The quota walls are LIVE for the whole suite — the licensed limits are
+    the real ones, ``quota_refusal`` runs for real, and a creation path that
+    forgets to meter itself is refused here exactly as it would be in
+    production. What this fixture removes is not the wall; it is the shared
+    database underneath it.
+
+    ``TestingConfig.DB_NAME`` resolves once per pytest process, so one
+    SQLite file carries every tenant, team and admin the whole run creates.
+    By the fiftieth test there are fifty tenants in it, and a Free licence's
+    limit of 1 refuses everything — not because the test did anything wrong
+    but because earlier tests existed. Counting from a per-test baseline
+    makes each test see the deployment it actually built.
+
+    This replaces a session-scoped fixture that resolved every limit as
+    Enterprise. That one *was* a relaxation of the gate: with every wall
+    unlimited, ``quota_refusal`` returned ``None`` before it looked at
+    anything, so no route outside ``test_quotas.py`` could observe a missing
+    meter. It is why ``POST /api/v1/auth/register`` creating an unmetered
+    team survived review — the only file that could have caught it was the
+    one file that overrode the fixture.
+
+    Tests that legitimately build a multi-tenant or delegated-admin
+    structure ask for :func:`enterprise_license`, which is what a customer
+    doing the same thing would have to buy.
+    """
+    from app import quotas
+
+    baselines: dict[str, int] = {}
+
+    def _relative(name: str) -> Any:
+        real = getattr(quotas, name)
+
+        async def _counter(*args: Any) -> int:
+            actual = int(await real(*args))
+            base = baselines.setdefault(f"{name}{args!r}", actual)
+            return max(actual - base, 0)
+
+        return _counter
+
+    for counter in _ACCUMULATING_COUNTERS:
+        monkeypatch.setattr(quotas, counter, _relative(counter))
+
+
+class _FakeFlagServer:
+    """A PostHog stand-in that answers "the products are switched on".
+
+    Not a relaxation of the product gate: ``app.flags`` runs in full — the
+    conjunction, the cache, the unknown-flag rule and the degradation paths
+    all execute against this exactly as against a real server. What it
+    supplies is the flag STATE, and "every product enabled" is the state a
+    working deployment is in. With no PostHog configured every flag resolves
+    to its default (OFF), so without this the suite would be testing a
+    portal with every module switched off, which nobody runs.
+
+    Licensed FEATURE flags are deliberately left unknown (``None``), so they
+    keep resolving to OFF and nothing is silently entitled by this fixture.
+    ``tests/api/test_flags.py`` drives the gate from both sides explicitly.
+    """
+
+    def __init__(self, enabled: "frozenset[str]") -> None:
+        self._enabled = enabled
+
+    def feature_enabled(self, key: str, distinct_id: str) -> bool | None:
+        feature = key.split(".", 1)[-1]
+        return True if feature in self._enabled else None
+
+    def get_all_flags(self, distinct_id: str) -> dict[str, bool]:
+        return {f"penguincloud.{feature}": True for feature in self._enabled}
+
+
+@pytest.fixture(autouse=True)
+def _product_flags_enabled(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Model a deployment whose product modules are turned on.
+
+    Installed as the client the real ``get_client`` hands out, rather than
+    by replacing ``get_client`` itself, so every line of that function still
+    runs — including the "no key configured" path a test can reach by
+    calling ``flags.reset_client()``.
+    """
+    from app import flags
+
+    flags.reset_client()
+    monkeypatch.setattr(flags, "_client", _FakeFlagServer(flags.PRODUCT_FLAGS))
+    monkeypatch.setattr(flags, "_client_built", True)
+    yield
+    flags.reset_client()
+
+
+@pytest.fixture
+def enterprise_license(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Licence this test at Enterprise — tier, entitlements and limits.
+
+    Opt-in, never automatic. A test asks for this when the structure it
+    builds — a tenant hierarchy, a delegated admin, a second team — is the
+    structure the licence sells. Requesting it is a statement that the test
+    exercises a paid shape, which a reader of the test needs to know anyway.
+
+    All three faces of the licence move together on purpose. A fixture that
+    lifted only the numeric walls would leave the capability gates
+    (``multi_tenant``, ``delegated_admin``) refusing, so a test would half
+    pass and the reason would look like an authorization bug rather than an
+    unlicensed one.
     """
     from app import licensing, quotas
 
-    async def _enterprise() -> "quotas.TierLimits":
+    async def _enterprise_license() -> "quotas.TierLimits":
         return quotas.DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE]
 
-    patcher = pytest.MonkeyPatch()
-    patcher.setattr(quotas, "resolve_limits", _enterprise)
-    yield
-    patcher.undo()
+    monkeypatch.setattr(quotas, "resolve_limits", _enterprise_license)
+    monkeypatch.setattr(
+        licensing, "resolve_tier_blocking", lambda: licensing.TIER_ENTERPRISE
+    )
+    monkeypatch.setattr(
+        licensing, "is_feature_entitled_blocking", lambda feature: True
+    )

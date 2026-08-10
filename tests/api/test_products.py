@@ -554,6 +554,9 @@ async def _make_tenant(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("enterprise_license")
+# Builds a multi-tenant / delegated-admin structure, which the tier
+# model sells at Enterprise.
 async def test_product_tenant_mapping_rejects_cross_tenant_bind(
     client: Any,
 ) -> None:
@@ -608,6 +611,9 @@ async def test_product_tenant_mapping_rejects_cross_tenant_bind(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("enterprise_license")
+# Builds a multi-tenant / delegated-admin structure, which the tier
+# model sells at Enterprise.
 async def test_product_tenant_mapping_allows_descendant_bind_by_admin(
     client: Any,
 ) -> None:
@@ -641,6 +647,9 @@ async def test_product_tenant_mapping_allows_descendant_bind_by_admin(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("enterprise_license")
+# Builds a multi-tenant / delegated-admin structure, which the tier
+# model sells at Enterprise.
 async def test_product_tenant_mapping_descendant_bind_denied_to_member(
     client: Any,
 ) -> None:

@@ -52,6 +52,9 @@ class TestAuditLogCreation:
         # Login should be logged
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_team_creation_audit_log(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
@@ -93,6 +96,9 @@ class TestAuditLogRetrieval:
             assert "logs" in data
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_list_audit_logs_team_admin(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:

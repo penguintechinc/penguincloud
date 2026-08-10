@@ -22,6 +22,14 @@ import uuid
 import pytest
 from quart import Quart
 
+#: Every test in this file builds a multi-tenant / delegated-admin
+#: structure, which the tier model sells at Enterprise (tenants 1/1/∞,
+#: tenant admins 0/10/∞). Under the default Community licence the quota
+#: walls refuse the second tenant and the first delegated admin, so these
+#: tests licence themselves for what they exercise rather than the suite
+#: silently lifting every wall for every file.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 
 async def _register(client: Any, password: str = "testpass123") -> tuple[int, str]:
     """Register a fresh user; return (user_id, email)."""

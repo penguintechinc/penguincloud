@@ -200,6 +200,9 @@ class TestScopesAreMinted:
         assert "products:manage" not in scopes
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Builds a multi-tenant / delegated-admin structure, which the tier
+    # model sells at Enterprise.
     async def test_delegated_msp_admin_gets_the_descendants_product_scopes(
         self, client: Any, app: Quart
     ) -> None:
