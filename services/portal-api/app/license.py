@@ -10,17 +10,28 @@ These three calls are deliberately still SYNCHRONOUS. They run at startup
 on a request path, so they do not block the event loop where it matters.
 Making them async would change LicenseManager's public signatures and every
 caller with them; that belongs in the licensing work, not here.
+
+Entitlement decisions no longer live in this file. ``is_feature_enabled``
+delegates to :mod:`app.licensing`, which resolves tier and per-feature
+entitlement through ``penguin_licensing.LicenseClient`` and applies the ONE
+permitted bypass (the hardcoded PenguinTech domain list). The env-var
+bypass that used to sit at the top of ``is_feature_enabled`` is documented
+in that method and in :mod:`app.licensing` so it cannot come back by
+accident.
 """
 
+import asyncio
 import logging
 import os
-import time
+from dataclasses import asdict
 from datetime import datetime
 from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, Optional, ParamSpec, TypeVar
 
 import httpx
 from quart import jsonify
+
+from . import licensing
 
 logger = logging.getLogger(__name__)
 
@@ -55,104 +66,95 @@ class LicenseManager:
             self.product_name = os.getenv("PRODUCT_NAME", "project-template")
             self.release_mode = os.getenv("RELEASE_MODE", "false").lower() == "true"
 
-            self._features_cache: Dict[str, Any] = {}
-            self._cache_expiry: float = 0.0
-            self._full_cache_expiry: float = 0.0
-            self._validation_cache: Dict[str, Any] = {}
-
             self._initialized = True
 
     def validate(self) -> bool:
-        """
-        Validate license on startup.
+        """Validate the license at startup.
+
+        Delegates to the same ``penguin_licensing`` client every gate reads.
+        The second httpx call and second cache this replaced were the reason
+        a status endpoint could report one tier while the gates enforced
+        another — one fact, one cache.
+
+        ``release_mode`` survives here for one narrow purpose only: whether a
+        FAILED validation is fatal at startup (see ``app/__init__.py``). It
+        does not, and must not, decide whether any feature is entitled — that
+        was the env-var bypass this work removed.
 
         Returns:
-            bool: True if valid, False otherwise.
+            bool: True if the license validated (or none is required).
         """
-        if not self.release_mode:
-            logger.info("License validation skipped (RELEASE_MODE=false)")
-            return True
-
-        if not self.license_key:
+        if self.release_mode and not self.license_key:
             logger.error("LICENSE_KEY not set")
             return False
 
-        try:
-            response = httpx.post(
-                f"{self.server_url}/api/v2/validate",
-                json={
-                    "license_key": self.license_key,
-                    "product_name": self.product_name,
-                },
-                timeout=5,
+        info = licensing.get_client().validate(force_refresh=True)
+        if info.valid:
+            logger.info(
+                "License validated. Tier: %s, Expires: %s",
+                info.tier,
+                info.expires_at.isoformat(),
             )
-            response.raise_for_status()
-            data = response.json()
+            return True
 
-            if data.get("valid"):
-                self._validation_cache = data
-                self._full_cache_expiry = time.time() + (7 * 24 * 3600)
-                logger.info(
-                    f"License validated. Tier: {data.get('tier')}, "
-                    f"Expires: {data.get('expires_at')}"
-                )
-                return True
-
-            logger.error(f"License validation failed: {data.get('message')}")
-            return False
-
-        except Exception as e:
-            logger.error(f"License validation error: {str(e)}")
-            return False
+        logger.error("License validation failed: %s", info.message)
+        return False
 
     def is_feature_enabled(self, feature_name: str) -> bool:
-        """
-        Check if feature is enabled.
+        """Check whether this deployment is ENTITLED to a licensed feature.
+
+        Pure entitlement — no bypass of any kind is applied here. The only
+        bypass there is (the hardcoded PenguinTech domain list) is applied
+        by :meth:`is_feature_entitled` below, which has a request to read a
+        host from.
+
+        This used to open with::
+
+            if not self.release_mode:
+                return True
+
+        which unlocked every Professional and Enterprise feature on any
+        deployment that had not set ``RELEASE_MODE=true`` — the default.
+        general.md forbids exactly that ("Bypass is domain-based ONLY —
+        never via env vars, CLI args, or config flags"), and it was not a
+        theoretical hole: SSO is gated through this method, so the entire
+        Professional SSO surface was free for the price of an unset
+        variable. Do not reintroduce an env-var short-circuit here in any
+        form, including a "test mode" one.
 
         Args:
             feature_name: Name of the feature to check.
 
         Returns:
-            bool: True if feature is enabled.
+            bool: True if the license entitles this feature.
         """
-        if not self.release_mode:
+        return licensing.is_feature_entitled_blocking(feature_name)
+
+    async def is_feature_entitled(self, feature_name: str) -> bool:
+        """Entitlement plus the domain bypass, off the event loop.
+
+        Split from :meth:`is_feature_enabled` so the bypass is evaluated in
+        the request context (where a host exists to trust) while the
+        entitlement lookup — which can block on the license server — runs in
+        a worker thread. Calls back through ``self.is_feature_enabled`` so a
+        test that patches the sync predicate still governs the decision.
+        """
+        if licensing.current_host_is_license_exempt():
             return True
-
-        # Refresh cache if expired
-        if time.time() > self._cache_expiry:
-            self._refresh_features()
-
-        features = self._features_cache.get("features", {})
-        enabled: bool = features.get(feature_name, {}).get("enabled", False)
-        return enabled
-
-    def _refresh_features(self) -> None:
-        """Refresh feature cache from server."""
-        try:
-            response = httpx.post(
-                f"{self.server_url}/api/v2/features",
-                json={
-                    "license_key": self.license_key,
-                    "product_name": self.product_name,
-                },
-                timeout=5,
-            )
-            response.raise_for_status()
-            self._features_cache = response.json()
-            self._cache_expiry = time.time() + (5 * 60)  # 5 minutes
-
-        except Exception as e:
-            logger.warning(f"Failed to refresh features: {str(e)}")
+        return await asyncio.to_thread(self.is_feature_enabled, feature_name)
 
     def get_tier(self) -> str:
-        """Get license tier."""
-        tier: str = self._validation_cache.get("tier", "community")
-        return tier
+        """Get license tier, resolved through penguin-licensing.
+
+        Reads the same client every gate reads rather than this class's own
+        ``_validation_cache``: two caches of one fact is how a status
+        endpoint comes to disagree with the gate it is meant to explain.
+        """
+        return licensing.resolve_tier_blocking()
 
     def get_limits(self) -> Dict[str, Any]:
-        """Get usage limits."""
-        limits: Dict[str, Any] = self._validation_cache.get("limits", {})
-        return limits
+        """Get usage limits, from the same client the gates read."""
+        return dict(licensing.get_client().validate().limits)
 
     def checkin(self, usage_stats: Optional[Dict[str, Any]] = None) -> bool:
         """
@@ -190,13 +192,30 @@ class LicenseManager:
             return False
 
     def get_status(self) -> Dict[str, Any]:
-        """Get current license status."""
+        """Get current license status.
+
+        Every field comes from the one ``penguin_licensing`` client, so this
+        endpoint reports the state the gates actually enforce. Reading a
+        second, locally-maintained cache is how a status page comes to say
+        "professional" while every Professional route 403s.
+        """
+        info = licensing.get_client().validate()
         return {
-            "valid": bool(self._validation_cache),
-            "tier": self.get_tier(),
-            "features": self._features_cache.get("features", {}),
-            "expires_at": self._validation_cache.get("expires_at"),
-            "limits": self.get_limits(),
+            "valid": info.valid,
+            "tier": info.tier,
+            # A {name: {...}} lookup, not a list — tests/api/test_license.py
+            # pins the shape, and is_feature_enabled's predecessor indexed
+            # it that way.
+            "features": {
+                feature.name: {
+                    "enabled": feature.entitled,
+                    "units": feature.units,
+                    "description": feature.description,
+                }
+                for feature in info.features
+            },
+            "expires_at": info.expires_at.isoformat(),
+            "limits": dict(info.limits),
         }
 
 
@@ -207,25 +226,26 @@ def require_feature(
 
     Quart views are coroutines, so the wrapper must be async and await the
     wrapped view — a sync wrapper would hand Quart an un-awaited coroutine.
+
+    Goes through ``is_feature_entitled`` rather than the sync predicate so
+    the domain bypass is evaluated with a request in hand and the license
+    lookup does not block the event loop. The refusal body names both tiers
+    (``licensing.upgrade_required``) so the UI can render an upgrade path
+    instead of a dead end.
     """
 
     def decorator(f: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[Any]]:
         @wraps(f)
         async def decorated_function(*args: P.args, **kwargs: P.kwargs) -> Any:
             manager = LicenseManager()
-            if not manager.is_feature_enabled(feature_name):
-                return (
-                    jsonify(
-                        {
-                            "error": "feature_not_entitled",
-                            "message": (
-                                f"Feature '{feature_name}' "
-                                "is not available in your license tier"
-                            ),
-                        }
-                    ),
-                    403,
+            if not await manager.is_feature_entitled(feature_name):
+                required = licensing.FEATURE_MIN_TIER.get(
+                    feature_name, licensing.TIER_ENTERPRISE
                 )
+                body = licensing.upgrade_required(
+                    feature_name, required, await licensing.resolve_tier()
+                )
+                return jsonify(asdict(body)), 403
             return await f(*args, **kwargs)
 
         return decorated_function
