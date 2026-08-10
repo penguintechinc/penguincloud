@@ -13,7 +13,7 @@ from penguin_aaa.authn.oidc_provider import OIDCProvider
 from penguin_aaa.authn.types import Claims
 from penguintechinc_utils.logging import get_logger
 
-from . import devmode
+from . import devmode, quotas
 from .config import UNSCOPED_TENANT
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -425,16 +425,30 @@ async def register() -> tuple[dict[str, Any], int]:
     if not user:
         return {"error": "Failed to create user"}, 500
 
-    # Create personal team
+    # Create personal team — METERED. This was the second entrance to the
+    # `teams` wall: self-service registration created a team through the
+    # model layer with no quota check, so a Free deployment limited to one
+    # team acquired another on every signup, indefinitely.
+    #
+    # The over-limit action refused is the TEAM, not the registration.
+    # Non-admin members are unlimited at every tier by design, so refusing
+    # the signup would convert a team wall into a user cap the tier model
+    # deliberately does not have. The refusal is reported in the response
+    # rather than swallowed, so the client can show the upgrade prompt
+    # instead of silently wondering where the team went.
     from .models import create_team
 
-    user_name = full_name or email.split("@")[0]
-    team_slug = email.split("@")[0].lower().replace(".", "-")
-    personal_team = await create_team(
-        name=f"{user_name}'s Team",
-        slug=team_slug,
-        owner_id=user["id"],
-    )
+    team_refusal = await quotas.quota_refusal("teams", await quotas.count_teams())
+
+    personal_team: dict[str, Any] | None = None
+    if team_refusal is None:
+        user_name = full_name or email.split("@")[0]
+        team_slug = email.split("@")[0].lower().replace(".", "-")
+        personal_team = await create_team(
+            name=f"{user_name}'s Team",
+            slug=team_slug,
+            owner_id=user["id"],
+        )
 
     personal_team_info: dict[str, Any] | None = None
     if personal_team:
@@ -454,6 +468,11 @@ async def register() -> tuple[dict[str, Any], int]:
                 "role": user["role"],
             },
             "personal_team": personal_team_info,
+            # Present only when the team was refused, carrying the same
+            # quota body every other wall answers with.
+            "personal_team_refused": (
+                team_refusal[0] if team_refusal is not None else None
+            ),
         },
         201,
     )

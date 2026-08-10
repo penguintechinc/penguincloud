@@ -291,7 +291,16 @@ async def create_tenant(
     in the service layer rather than in a trigger. Callers must validate the
     parent (existence, authority, cycles) before calling — see
     ``app.tenancy.hierarchy.validate_parent``.
+
+    Enforces the licensed tenant limit before inserting. Routes answer a
+    clean 402 first; this is the backstop, so a call site that forgets
+    cannot silently breach the wall. Raises
+    :class:`~app.quotas.QuotaExceeded`.
     """
+    from . import quotas
+
+    await quotas.assert_within("tenants")
+
     db = get_db()
     new_id: int | None = await db.tenants.async_insert(
         name=name,
@@ -322,7 +331,18 @@ async def get_tenant_by_id(tenant_id: int) -> dict[str, Any] | None:
 
 
 async def create_team(name: str, slug: str, owner_id: int) -> dict[str, Any] | None:
-    """Create a new team (async)."""
+    """Create a new team (async).
+
+    Enforces the licensed team limit before inserting. This backstop exists
+    because it was already breached: ``POST /api/v1/auth/register`` creates
+    a personal team and did not meter it, so self-service registration
+    walked past the Free tier's limit of one team on every deployment.
+    Raises :class:`~app.quotas.QuotaExceeded`.
+    """
+    from . import quotas
+
+    await quotas.assert_within("teams")
+
     db = get_db()
     team_id = await db.teams.async_insert(name=name, slug=slug, owner_id=owner_id)
     if team_id:
@@ -513,7 +533,19 @@ async def get_tenant_members(tenant_id: int) -> list[dict[str, Any]]:
 async def add_tenant_member(
     tenant_id: int, user_id: int, role: str = "member", invited_by_id: int | None = None
 ) -> dict[str, Any] | None:
-    """Add a member to a tenant (async)."""
+    """Add a member to a tenant (async).
+
+    A delegated ``admin`` is a licensed structure and is metered here as a
+    backstop beneath the routes. Members and viewers are unlimited at every
+    tier and pass straight through — the tier model caps delegated
+    authority, never participation. Raises
+    :class:`~app.quotas.QuotaExceeded`.
+    """
+    if role == "admin":
+        from . import quotas
+
+        await quotas.assert_within("tenant_admins")
+
     db = get_db()
     member_id = await db.tenant_members.async_insert(
         tenant_id=tenant_id,

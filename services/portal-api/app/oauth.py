@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 import httpx
 from quart import Blueprint, current_app, redirect, request, session
 
+from . import devmode
 from .auth import issue_and_store_token_set
 from .config import Config
 # The local stub this replaces returned the view unconditionally in BOTH
@@ -185,6 +186,16 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
             user = await get_user_by_email(email)
 
             if not user:
+                # Development mode caps the identity table at one user, and
+                # SSO is a user-creation path like any other. Without this
+                # the second SSO sign-in reached the model-layer backstop,
+                # whose exception escapes the view as a 500 — the cap held,
+                # but the operator was told "internal server error" instead
+                # of what to do about it.
+                refusal = await devmode.user_creation_refusal()
+                if refusal is not None:
+                    return refusal
+
                 # Create new user with OAuth
                 import bcrypt
 
