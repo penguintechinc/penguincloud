@@ -14,11 +14,13 @@ import { useAuth } from "../../hooks/useAuth";
 import { useTenantStore } from "../../stores/tenantStore";
 import { useProductConnections } from "../../hooks/useProducts";
 import { useTenantScopeBootstrap } from "../../hooks/useTenantScopeBootstrap";
+import { useFeatures } from "../../hooks/useFeatures";
 
 jest.mock("../../hooks/useAuth");
 jest.mock("../../stores/tenantStore");
 jest.mock("../../hooks/useProducts");
 jest.mock("../../hooks/useTenantScopeBootstrap");
+jest.mock("../../hooks/useFeatures");
 jest.mock("../kit/TenantScopeSwitcher", () => ({
   TenantScopeSwitcher: () => <div data-testid="tenant-scope-switcher" />,
 }));
@@ -90,6 +92,16 @@ describe("Layout", () => {
     render(<Layout />);
 
     expect(useTenantScopeBootstrap).toHaveBeenCalled();
+  });
+
+  it("fetches feature state, since every gate reads what it publishes", () => {
+    // Layout is the only mount point for `GET /api/v1/features`. If it stops
+    // calling the hook, the gate store is never populated and every product
+    // silently renders as "behind a feature flag that is currently off" —
+    // fail-closed, and therefore invisible in every other test.
+    render(<Layout />);
+
+    expect(useFeatures).toHaveBeenCalled();
   });
 
   it("logs out from the topbar control", async () => {

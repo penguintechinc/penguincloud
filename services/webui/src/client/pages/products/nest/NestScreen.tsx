@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { EmptyState } from "../../../components/kit";
-import { isProductEnabled } from "../../../lib/featureGates";
+import { useProductEnabled } from "../../../lib/featureGates";
 
 interface NestScreenProps {
   title: string;
@@ -35,7 +35,9 @@ export function NestScreen({
   isConnectionLoading,
   children,
 }: NestScreenProps) {
-  if (!isProductEnabled("nest")) {
+  const isEnabled = useProductEnabled("nest");
+
+  if (!isEnabled) {
     return (
       <EmptyState
         title="Nest is not enabled"

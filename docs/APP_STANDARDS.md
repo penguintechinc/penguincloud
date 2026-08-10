@@ -56,6 +56,32 @@ Hierarchical — provider org → customer tenants → teams/users. Delegated MS
 
 Every feature behind a PostHog feature flag (`penguincloud.{feature}`, default OFF). License validation via `license.penguintech.io` at runtime; graceful degradation on server unreachable (cached last-known tier).
 
+### Two layers, both required
+
+A feature ships only when the **flag is on** *and* the **licence entitles it**. `app/flags.py::is_feature_available` is the single place that conjunction lives — checking one and believing you checked both is the failure this split exists to prevent.
+
+| Layer | Module | Source of truth |
+|---|---|---|
+| Flag (general enablement, rollout, kill switch) | `app/flags.py` | PostHog inside `license.penguintech.io` |
+| Licence tier (entitlement) | `app/licensing.py` | `penguin_licensing.LicenseClient` |
+
+- Declaration sides are `flags.KNOWN_FLAGS` and `licensing.FEATURE_MIN_TIER`. A name a gate spells that is absent from them is refused, and CI asserts every gated name is grantable — a gate nothing mints is a permanent 403.
+- `PRODUCT_FLAGS` and `FEATURE_FLAGS` must stay disjoint. `waddleai` is a connectable product on any tier; the Enterprise entitlement is `waddleai_assist`.
+
+### Bypass is domain-based, and only domain-based
+
+`licensing.host_is_license_exempt()` matching `*.penguincloud.io`, `*.penguintech.cloud`, `*.localhost.local` is the **only** way gating is skipped. There is no environment variable, CLI flag or config key that disables it, and adding one is forbidden (general.md).
+
+`RELEASE_MODE` survives in exactly two places, neither of which decides entitlement: whether a failed licence validation is fatal at startup, and whether keepalive phones home. It previously short-circuited `is_feature_enabled` to `True`, unlocking every paid feature on any deployment that had not set it.
+
+### Frontend
+
+`GET /api/v1/features` (authenticated) publishes flags, tier, tier ordering, the licensed-feature→tier map, and the dev-mode signal. `hooks/useFeatures` fetches it once from `Layout` and mirrors it into `lib/featureGates`; every gate reads that store. Everything defaults OFF until it resolves, including on fetch failure.
+
+### `--dev` (single-user evaluation)
+
+Undocumented flag on the portal entrypoint. Active only when **all** hold, **re-evaluated per request** (never latched at boot): PenguinTech-controlled domain, ≤1 user counted server-side from the identity table, and the flag was passed. While active it caps user creation at 1, logs a WARN, prints the verbatim general.md notice to stderr, and raises a persistent non-dismissible UI banner. It unlocks **features only** — authentication, authorization and tenant isolation are untouched.
+
 ## Non-Goals
 
 - No per-product art schemes — unified gold-on-slate only

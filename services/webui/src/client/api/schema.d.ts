@@ -436,6 +436,28 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/features": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Report flag state, licensed tier and dev-mode status for this caller.
+     * @description Flags are evaluated against the authenticated user as the PostHog
+     *     ``distinct_id``, so a percentage rollout is stable per person rather
+     *     than per request.
+     */
+    get: operations["get_get_features"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/hello": {
     parameters: {
       query?: never;
@@ -2068,6 +2090,49 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  get_get_features: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Everything the UI needs to decide what to render.
+       *
+       *     An explicit DTO rather than a dict: the response schema is enforced
+       *     field by field, so nothing added to the flag or licensing modules for
+       *     internal use can start being published by accident.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Dev Mode */
+            dev_mode: boolean;
+            /** Dev Mode Max Users */
+            dev_mode_max_users: number;
+            /** Flags */
+            flags: {
+              [key: string]: boolean;
+            };
+            /** Licensed Features */
+            licensed_features: {
+              [key: string]: string;
+            };
+            /** Tier */
+            tier: string;
+            /** Tiers */
+            tiers: string[];
+          };
+        };
       };
     };
   };
