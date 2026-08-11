@@ -406,8 +406,11 @@ class TestBulkEvaluation:
         assert server.single_calls == 0
         assert set(result) == flags.KNOWN_FLAGS
         assert result["gough"] is True
-        # Absent from the bulk answer is unknown, which is OFF.
-        assert result["nest"] is False
+        # Absent from the bulk answer is unknown, which resolves to the
+        # feature's own default: a product module stays ON (unknown is not
+        # a kill), a rollout flag stays OFF.
+        assert result["nest"] is flags.default_for("nest") is True
+        assert result["saml_sso"] is flags.default_for("saml_sso") is False
 
     @pytest.mark.asyncio
     async def test_a_failed_bulk_call_falls_back_to_per_flag(
@@ -462,3 +465,69 @@ class TestCacheIsBounded:
         keys = set(flags._CACHE)
         assert f"{flags.flag_key('gough')}|a" not in keys
         assert f"{flags.flag_key('gough')}|c" in keys
+
+
+class TestProductModulesAreKillSwitchesNotGates:
+    """A shipped module is included at every tier; its flag can only kill it.
+
+    The tier model forbids a locked or crippled module — "every tier gets
+    ALL modules with full features". Defaulting product flags OFF made a
+    deployment with no PostHog (most self-hosted ones) an inert portal with
+    no products at all, which is the opposite of the intended Free
+    experience. general.md's "new/unseen flags default OFF" governs the
+    rollout of something NEW; an already-shipped module is not that.
+    """
+
+    @pytest.mark.parametrize("feature", sorted(flags.PRODUCT_FLAGS))
+    def test_product_flags_default_on(self, feature: str) -> None:
+        assert flags.default_for(feature) is True
+
+    @pytest.mark.parametrize("feature", sorted(flags.FEATURE_FLAGS))
+    def test_feature_flags_default_off(self, feature: str) -> None:
+        """Rollout of a new capability is still opt-in."""
+        assert flags.default_for(feature) is False
+
+    def test_the_two_defaults_actually_differ(self) -> None:
+        """Guards the parametrised checks above from agreeing vacuously."""
+        assert flags.PRODUCT_FLAG_DEFAULT is True
+        assert flags.default_for("gough") != flags.default_for("saml_sso")
+
+    def test_unconfigured_leaves_a_module_on(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("POSTHOG_KEY", raising=False)
+        assert flags.get_client() is None
+        assert (
+            flags.is_enabled_blocking("gough", "user-1", flags.default_for("gough"))
+            is True
+        )
+
+    def test_an_explicit_false_still_kills_the_module(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The kill switch must still work, or the flag means nothing."""
+        monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=False))
+        assert (
+            flags.is_enabled_blocking("gough", "user-1", flags.default_for("gough"))
+            is False
+        )
+
+    def test_a_server_that_has_never_heard_of_the_flag_kills_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unknown is not off: connecting PostHog must not lose modules."""
+        monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=None))
+        assert (
+            flags.is_enabled_blocking("gough", "user-1", flags.default_for("gough"))
+            is True
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_conjunction_uses_the_right_default_per_flag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """is_feature_available must not hardcode one default for both."""
+        monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=None))
+
+        assert await flags.is_feature_available("gough", "user-1") is True
+        assert await flags.is_feature_available("saml_sso", "user-1") is False

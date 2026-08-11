@@ -440,6 +440,21 @@ async def register() -> tuple[dict[str, Any], int]:
 
     team_refusal = await quotas.quota_refusal("teams", await quotas.count_teams())
 
+    if team_refusal is not None:
+        # A bare "you already have 1 of 1 teams" is baffling to someone who
+        # has never created one — the team that consumed the limit was
+        # created FOR them, by this same endpoint, possibly for a different
+        # account. Say so, or the operator reads the refusal as a bug.
+        # Keys are unchanged (see quotas.scale_refusal_body); only the
+        # message is given the missing half of the explanation.
+        body = dict(team_refusal[0])
+        body["message"] = (
+            "Your account was created, but its personal team was not: every "
+            "account is given a personal team, and each one counts toward "
+            "the licensed team limit. " + str(body["message"])
+        )
+        team_refusal = (body, team_refusal[1])
+
     personal_team: dict[str, Any] | None = None
     if team_refusal is None:
         user_name = full_name or email.split("@")[0]

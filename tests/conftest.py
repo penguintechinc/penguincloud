@@ -321,40 +321,51 @@ def _quota_counts_are_per_test(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _FakeFlagServer:
-    """A PostHog stand-in that answers "the products are switched on".
+    """A PostHog stand-in, with all three answers a real one can give.
 
-    Not a relaxation of the product gate: ``app.flags`` runs in full — the
+    ``True``, ``False`` and *unknown* are three different states and the
+    distinction is load-bearing: a product flag is a kill switch, so only an
+    explicit ``False`` disables a module, while unknown means nobody has
+    expressed an opinion and the module stays on. A fake that could only say
+    "enabled" or "unknown" could not express a kill at all.
+
+    Not a relaxation of any gate: ``app.flags`` runs in full — the
     conjunction, the cache, the unknown-flag rule and the degradation paths
     all execute against this exactly as against a real server. What it
-    supplies is the flag STATE, and "every product enabled" is the state a
-    working deployment is in. With no PostHog configured every flag resolves
-    to its default (OFF), so without this the suite would be testing a
-    portal with every module switched off, which nobody runs.
-
-    Licensed FEATURE flags are deliberately left unknown (``None``), so they
-    keep resolving to OFF and nothing is silently entitled by this fixture.
-    ``tests/api/test_flags.py`` drives the gate from both sides explicitly.
+    supplies is flag STATE.
     """
 
-    def __init__(self, enabled: "frozenset[str]") -> None:
+    def __init__(
+        self,
+        enabled: "frozenset[str]",
+        disabled: "frozenset[str]" = frozenset(),
+    ) -> None:
         self._enabled = enabled
+        self._disabled = disabled
 
     def feature_enabled(self, key: str, distinct_id: str) -> bool | None:
         feature = key.split(".", 1)[-1]
+        if feature in self._disabled:
+            return False
         return True if feature in self._enabled else None
 
     def get_all_flags(self, distinct_id: str) -> dict[str, bool]:
-        return {f"penguincloud.{feature}": True for feature in self._enabled}
+        answers = {f"penguincloud.{name}": True for name in self._enabled}
+        answers.update({f"penguincloud.{name}": False for name in self._disabled})
+        return answers
 
 
 @pytest.fixture(autouse=True)
 def _product_flags_enabled(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Model a deployment whose product modules are turned on.
+    """Model a deployment with a flag server that kills nothing.
 
     Installed as the client the real ``get_client`` hands out, rather than
     by replacing ``get_client`` itself, so every line of that function still
     runs — including the "no key configured" path a test can reach by
     calling ``flags.reset_client()``.
+
+    Licensed FEATURE flags are deliberately left unknown, so they keep
+    resolving OFF and nothing is silently entitled by this fixture.
     """
     from app import flags
 

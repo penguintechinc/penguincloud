@@ -123,6 +123,27 @@ UNFLAGGED_PRODUCT_TYPES: Final[frozenset[str]] = frozenset(
     }
 )
 
+#: What a PRODUCT flag resolves to when the flag server does not say.
+#:
+#: ON, deliberately, and it is the one place this module departs from
+#: "new/unseen flags default OFF". That rule is about rolling out a NEW
+#: feature; a shipped product module is not one. The tier model is explicit
+#: that "every tier gets ALL modules with full features" and that a locked
+#: or crippled module is never an acceptable outcome — and a deployment
+#: with no PostHog configured (which is most self-hosted ones) resolving
+#: every product flag to OFF has no products at all. An inert portal out of
+#: the box is the exact opposite of the intended Free experience.
+#:
+#: A product flag is therefore a KILL SWITCH, not an enablement gate: it
+#: takes effect when a configured flag server answers ``false``, and stays
+#: out of the way otherwise. Unknown to the server means nobody has
+#: expressed an opinion, which is not the same as "off" — an operator who
+#: connects PostHog before defining twenty flags must not lose twenty
+#: modules.
+#:
+#: Genuinely new feature flags keep defaulting OFF; see :func:`default_for`.
+PRODUCT_FLAG_DEFAULT: Final[bool] = True
+
 #: Non-product feature flags. Licensed features carry a flag too — the
 #: license says "may", the flag says "is on", and general.md requires both.
 FEATURE_FLAGS: Final[frozenset[str]] = frozenset(
@@ -152,6 +173,25 @@ KNOWN_FLAGS: Final[frozenset[str]] = PRODUCT_FLAGS | FEATURE_FLAGS
 def flag_key(feature: str) -> str:
     """Namespace a feature name into its full PostHog flag key."""
     return f"{FLAG_NAMESPACE}.{feature}"
+
+
+def default_for(feature: str) -> bool:
+    """What ``feature`` resolves to when the flag server does not say.
+
+    Two different questions wear the same word "flag":
+
+    * a **product module** is already shipped and included at every tier, so
+      its flag is a kill switch and the absence of an answer means "not
+      killed" (:data:`PRODUCT_FLAG_DEFAULT`);
+    * a **feature** flag governs rollout of something new, where the absence
+      of an answer means nobody has turned it on yet — OFF, per general.md.
+
+    Callers use this rather than hardcoding a default so the two never drift,
+    and so ``GET /api/v1/features`` reports exactly what the server will
+    enforce. A UI that renders a product the API then refuses (or hides one
+    the API allows) is worse than either answer alone.
+    """
+    return PRODUCT_FLAG_DEFAULT if feature in PRODUCT_FLAGS else False
 
 
 @dataclass(slots=True)
@@ -347,7 +387,7 @@ def evaluate_all_blocking(distinct_id: str) -> dict[str, bool]:
     """
     client = get_client()
     if client is None:
-        return {feature: False for feature in sorted(KNOWN_FLAGS)}
+        return {feature: default_for(feature) for feature in sorted(KNOWN_FLAGS)}
 
     try:
         bulk = client.get_all_flags(distinct_id)
@@ -359,7 +399,7 @@ def evaluate_all_blocking(distinct_id: str) -> dict[str, bool]:
         # No bulk answer: fall back to the per-flag path, which keeps the
         # cache and the last-known-value rules intact.
         return {
-            feature: is_enabled_blocking(feature, distinct_id)
+            feature: is_enabled_blocking(feature, distinct_id, default_for(feature))
             for feature in sorted(KNOWN_FLAGS)
         }
 
@@ -371,7 +411,9 @@ def evaluate_all_blocking(distinct_id: str) -> dict[str, bool]:
             # "never seen" is not "known false", so it is not cached, and a
             # previously observed value still wins over the default.
             cached = _cache_read(f"{flag_key(feature)}|{distinct_id}")
-            resolved[feature] = cached.value if cached is not None else False
+            resolved[feature] = (
+                cached.value if cached is not None else default_for(feature)
+            )
             continue
         value = bool(raw)
         _cache_write(f"{flag_key(feature)}|{distinct_id}", value)
@@ -394,7 +436,7 @@ async def is_feature_available(feature: str, distinct_id: str) -> bool:
     """
     from . import licensing
 
-    if not await is_enabled(feature, distinct_id):
+    if not await is_enabled(feature, distinct_id, default_for(feature)):
         return False
     if feature not in licensing.FEATURE_MIN_TIER:
         # Not a licensed feature at all: the flag is the whole gate.
@@ -414,8 +456,9 @@ def feature_disabled_body(feature: str) -> dict[str, Any]:
     return {
         "error": "feature_disabled",
         "message": (
-            f"'{feature}' is not enabled on this deployment. "
-            f"Enable the {flag_key(feature)} feature flag to turn it on."
+            f"'{feature}' has been switched off on this deployment. "
+            f"The {flag_key(feature)} feature flag is set to false; "
+            f"remove or enable it to turn the module back on."
         ),
         "feature": feature,
         "flag": flag_key(feature),
@@ -435,6 +478,12 @@ async def product_gate_refusal(
     will do. Any caller holding a token could register a connection to a
     disabled product, or proxy to it, by not using the UI.
 
+    A product module is INCLUDED at every tier, so this refuses only when
+    something actively says no: a configured flag server answering ``false``
+    (the kill switch), or a licence that does not entitle the module. A
+    deployment with no flag backend keeps all of its products — see
+    :data:`PRODUCT_FLAG_DEFAULT`.
+
     Returns ``None`` when the product may be used, else a refusal body and
     status. Licensed-capability refusals keep the licensing shape and 403;
     a flag-off refusal says so plainly.
@@ -451,7 +500,7 @@ async def product_gate_refusal(
         return None
 
     if product_type in licensing.FEATURE_MIN_TIER and await is_enabled(
-        product_type, distinct_id
+        product_type, distinct_id, default_for(product_type)
     ):
         # The flag is on; the licence is what refused.
         required = licensing.FEATURE_MIN_TIER[product_type]

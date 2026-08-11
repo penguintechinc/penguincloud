@@ -34,11 +34,21 @@ from conftest import _FakeFlagServer
 from app import devmode, flags, licensing, models, quotas
 
 
-def _flag_server(monkeypatch: pytest.MonkeyPatch, enabled: frozenset[str]) -> None:
-    """Install a flag server answering ON for exactly ``enabled``."""
-    monkeypatch.setattr(flags, "_client", _FakeFlagServer(enabled))
+def _flag_server(
+    monkeypatch: pytest.MonkeyPatch,
+    enabled: frozenset[str],
+    disabled: frozenset[str] = frozenset(),
+) -> None:
+    """Install a flag server with an explicit answer for each named flag."""
+    monkeypatch.setattr(flags, "_client", _FakeFlagServer(enabled, disabled))
     monkeypatch.setattr(flags, "_client_built", True)
     flags._CACHE.clear()
+
+
+def _no_flag_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Model a deployment with no PostHog configured at all."""
+    monkeypatch.delenv("POSTHOG_KEY", raising=False)
+    flags.reset_client()
 
 
 async def _register_connection(
@@ -70,7 +80,9 @@ class TestProductFlagGatesTheApi:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Direct API call, no browser involved — the gate must still hold."""
-        _flag_server(monkeypatch, flags.PRODUCT_FLAGS - {"gough"})
+        _flag_server(
+            monkeypatch, flags.PRODUCT_FLAGS - {"gough"}, disabled=frozenset({"gough"})
+        )
 
         response = await _register_connection(
             client, admin_headers, tenant_id, "gough"
@@ -99,6 +111,53 @@ class TestProductFlagGatesTheApi:
         assert response.status_code == 201
 
     @pytest.mark.asyncio
+    async def test_no_flag_backend_leaves_every_module_available(
+        self,
+        client: Any,
+        admin_headers: dict[str, str],
+        tenant_id: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A deployment with no PostHog must not be an inert portal.
+
+        The tier model is explicit that every tier gets ALL modules with
+        full features and that a locked or crippled module is never an
+        acceptable outcome. Resolving product flags to OFF when no flag
+        backend is configured — which is most self-hosted deployments —
+        left the portal with no products at all.
+        """
+        _no_flag_server(monkeypatch)
+
+        assert flags.get_client() is None
+        response = await _register_connection(
+            client, admin_headers, tenant_id, "gough"
+        )
+
+        assert response.status_code == 201
+
+    @pytest.mark.asyncio
+    async def test_a_configured_server_that_knows_nothing_kills_nothing(
+        self,
+        client: Any,
+        admin_headers: dict[str, str],
+        tenant_id: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Unknown is not "off": connecting PostHog must not lose modules.
+
+        An operator who points the portal at a flag server before defining
+        twenty flag definitions would otherwise lose twenty product modules
+        at once, with the refusal blaming a flag that does not exist.
+        """
+        _flag_server(monkeypatch, frozenset())
+
+        response = await _register_connection(
+            client, admin_headers, tenant_id, "gough"
+        )
+
+        assert response.status_code == 201
+
+    @pytest.mark.asyncio
     async def test_a_disabled_product_flag_refuses_the_proxy(
         self,
         client: Any,
@@ -119,7 +178,9 @@ class TestProductFlagGatesTheApi:
         assert created.status_code == 201
         connection_id = (await created.get_json())["id"]
 
-        _flag_server(monkeypatch, flags.PRODUCT_FLAGS - {"gough"})
+        _flag_server(
+            monkeypatch, flags.PRODUCT_FLAGS - {"gough"}, disabled=frozenset({"gough"})
+        )
 
         response = await client.get(
             f"/api/v1/products/{connection_id}/proxy/api/v1/nodes",
@@ -138,7 +199,9 @@ class TestProductFlagGatesTheApi:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """``generic`` has no module to switch off — see UNFLAGGED_PRODUCT_TYPES."""
-        _flag_server(monkeypatch, frozenset())
+        _flag_server(
+            monkeypatch, frozenset(), disabled=frozenset(flags.PRODUCT_FLAGS)
+        )
 
         response = await _register_connection(
             client, admin_headers, tenant_id, "generic"
@@ -343,8 +406,15 @@ class TestRegistrationIsMetered:
         body = await response.get_json()
         assert body["user"]["id"]
         assert body["personal_team"] is None
-        assert body["personal_team_refused"]["dimension"] == "teams"
-        assert body["personal_team_refused"]["error"] == "quota_exceeded"
+        refused = body["personal_team_refused"]
+        assert refused["dimension"] == "teams"
+        assert refused["error"] == "quota_exceeded"
+        # The limit was consumed by a team this endpoint created, possibly
+        # for someone else. A bare "1 of 1 teams" reads as a bug to a user
+        # who has never created one, so the refusal must say why.
+        assert "personal team" in refused["message"]
+        assert "counts toward" in refused["message"]
+        assert "team limit" in refused["message"]
 
     @pytest.mark.asyncio
     async def test_registration_under_the_limit_still_gets_a_team(

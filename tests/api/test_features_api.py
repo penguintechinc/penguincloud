@@ -76,10 +76,20 @@ class TestResponseShape:
         assert all(isinstance(value, bool) for value in body["flags"].values())
 
     @pytest.mark.asyncio
-    async def test_flags_default_off_with_no_flag_server(
+    async def test_defaults_with_no_flag_server_match_what_the_api_enforces(
         self, client: Any, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Unconfigured PostHog: everything off, nothing raised."""
+        """Unconfigured PostHog: modules on, new features off, nothing raised.
+
+        The two halves differ deliberately. A product module is shipped and
+        included at every tier, so its flag is a kill switch and no answer
+        means "not killed"; a feature flag governs rollout, so no answer
+        means "not turned on yet".
+
+        Asserted against ``flags.default_for`` rather than a literal map, so
+        the endpoint and the gate cannot disagree — a UI that hides a
+        product the API allows is its own bug.
+        """
         monkeypatch.delenv("POSTHOG_KEY", raising=False)
         flags.reset_client()
 
@@ -87,7 +97,11 @@ class TestResponseShape:
         body = await response.get_json()
 
         assert response.status_code == 200
-        assert not any(body["flags"].values())
+        assert body["flags"] == {
+            name: flags.default_for(name) for name in flags.KNOWN_FLAGS
+        }
+        assert all(body["flags"][name] for name in flags.PRODUCT_FLAGS)
+        assert not any(body["flags"][name] for name in flags.FEATURE_FLAGS)
 
     @pytest.mark.asyncio
     async def test_tier_and_ordering_are_published(
