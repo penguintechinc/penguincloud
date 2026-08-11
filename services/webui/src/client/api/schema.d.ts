@@ -1351,7 +1351,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Get audit logs (Admin only). */
+    /** Get audit logs for one tenant. Requires audit:read and tenants:manage. */
     get: operations["get_get_audit_logs_endpoint"];
     put?: never;
     post?: never;
@@ -1490,6 +1490,43 @@ export interface components {
       name: string;
       /** Status */
       status: string | null;
+    };
+    /**
+     * AuditRecord
+     * @description One entry in a tenant's audit trail.
+     *
+     *     Attributes:
+     *         id: Identifier of this audit entry.
+     *         user_id: Identifier of the user who performed the action, if the
+     *             action had an authenticated actor.
+     *         action: The event that was recorded, e.g. ``product.register``.
+     *         resource_type: The kind of resource acted on, e.g. ``tenant``.
+     *         resource_id: Identifier of the resource acted on.
+     *         tenant_id: The tenant this entry belongs to.
+     *         product_connection_id: The product connection involved, when the
+     *             action was performed against a connected product.
+     *         ip_address: Source address the action came from.
+     *         created_at: When the action occurred, ISO-8601.
+     */
+    AuditRecord: {
+      /** Action */
+      action: string;
+      /** Created At */
+      created_at: string | null;
+      /** Id */
+      id: number;
+      /** Ip Address */
+      ip_address: string | null;
+      /** Product Connection Id */
+      product_connection_id: number | null;
+      /** Resource Id */
+      resource_id: string | null;
+      /** Resource Type */
+      resource_type: string | null;
+      /** Tenant Id */
+      tenant_id: number | null;
+      /** User Id */
+      user_id: number | null;
     };
     /**
      * MetricPointView
@@ -1974,12 +2011,25 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Recent audit events for one tenant, newest first.
+       *
+       *     Attributes:
+       *         activity: The audit entries.
+       *         count: Number of entries returned.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Activity */
+            activity: components["schemas"]["AuditRecord"][];
+            /** Count */
+            count: number;
+          };
+        };
       };
     };
   };

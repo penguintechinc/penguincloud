@@ -132,6 +132,18 @@ A feature ships only when the **flag is on** *and* the **licence entitles it**. 
 - **A product flag is a kill switch, not an enablement gate.** `flags.default_for()` resolves product flags ON (`PRODUCT_FLAG_DEFAULT`) and feature flags OFF. Only an explicit `false` from a configured flag server disables a module; no flag backend, or a backend that has never heard of the flag, leaves it available. This is deliberate divergence from "new/unseen flags default OFF", which governs the rollout of something *new* — a shipped module is not that, and the tier model forbids a locked or crippled module at any tier. Defaulting products OFF made every self-hosted deployment without PostHog an inert portal with no products at all. `GET /api/v1/features` reports the same defaults it enforces, so the UI cannot hide a product the API allows.
 - `PRODUCT_FLAGS` and `FEATURE_FLAGS` must stay disjoint. `waddleai` is a connectable product on any tier; the Enterprise entitlement is `waddleai_assist`.
 
+### Audit responses go through one projection
+
+All four audit surfaces returned `dict(row)` — the raw record, every column. `app/audit_view.py::AuditRecord` is now the single published field set for `/api/v1/dashboard/activity`, `/api/v1/audit/logs`, `/api/v1/audit/export` (JSON **and** the CSV column order) and `/api/v1/users/audit-logs`.
+
+**`request_body` is excluded, and that is the point.** It holds the submitted payload — credentials, tokens, PII. Nothing populates it today, which is exactly why excluding it now is cheap: the first writer that starts filling it would otherwise publish it through four endpoints at once, with no code change near any of them. `user_agent`, `response_status` and the free-form `metadata` column are excluded for the same class of reason.
+
+The stakes are set by the licensing ruling: `/dashboard/activity` is reachable on **every tier**, so the least-gated audit surface in the portal was also the most revealing one.
+
+Two test layers, deliberately (`tests/api/test_audit_response_shape.py`): the DTO's fields are pinned as **literal names** — that is what fails when someone adds a column to the DTO — and each route's live response is asserted **equal to** the DTO. Deriving both from the DTO would let one edit move both sides at once, which is how a schema check comes to assert only that a program agrees with itself.
+
+Response DTO docstrings are exported into `openapi/v1.yaml` as schema descriptions, so they are written for API readers; the reasoning lives in module docstrings and comments, which are not published.
+
 ### Bypass is domain-based, and only domain-based
 
 `licensing.host_is_license_exempt()` matching `*.penguincloud.io`, `*.penguintech.cloud`, `*.localhost.local` is the **only** way gating is skipped. There is no environment variable, CLI flag or config key that disables it, and adding one is forbidden (general.md).

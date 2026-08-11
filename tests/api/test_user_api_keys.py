@@ -18,6 +18,7 @@ top-level /api/v1/api-keys surface and is skipped pending Phase 1B.
 from typing import Any
 
 import pytest
+from app.audit_view import AUDIT_RECORD_FIELDS
 
 
 async def _create_key(
@@ -160,16 +161,11 @@ async def test_audit_logs_endpoint_returns_real_list(
     body = await response.get_json()
     assert isinstance(body["logs"], list)
     for entry in body["logs"]:
-        # Serialised shape, not raw rows — action_type is exposed as `action`.
-        assert set(entry) == {
-            "id",
-            "user_id",
-            "action",
-            "resource_type",
-            "resource_id",
-            "ip_address",
-            "created_at",
-        }
+        # Serialised shape, not raw rows. Derived from the DTO so this route
+        # cannot drift from it; the field set ITSELF is pinned literally in
+        # tests/api/test_audit_response_shape.py, which is what fails if
+        # someone adds a column to the DTO.
+        assert set(entry) == set(AUDIT_RECORD_FIELDS)
 
 
 @pytest.mark.asyncio

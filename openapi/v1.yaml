@@ -34,6 +34,69 @@ components:
         - status
       title: ActionResourceView
       type: object
+    AuditRecord:
+      description: "One entry in a tenant's audit trail.\n\nAttributes:\n    id: Identifier of this audit\
+        \ entry.\n    user_id: Identifier of the user who performed the action, if the\n        action\
+        \ had an authenticated actor.\n    action: The event that was recorded, e.g. ``product.register``.\n\
+        \    resource_type: The kind of resource acted on, e.g. ``tenant``.\n    resource_id: Identifier\
+        \ of the resource acted on.\n    tenant_id: The tenant this entry belongs to.\n    product_connection_id:\
+        \ The product connection involved, when the\n        action was performed against a connected\
+        \ product.\n    ip_address: Source address the action came from.\n    created_at: When the action\
+        \ occurred, ISO-8601."
+      properties:
+        action:
+          title: Action
+          type: string
+        created_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Created At
+        id:
+          title: Id
+          type: integer
+        ip_address:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Ip Address
+        product_connection_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: Product Connection Id
+        resource_id:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource Id
+        resource_type:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource Type
+        tenant_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: Tenant Id
+        user_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: User Id
+      required:
+        - id
+        - user_id
+        - action
+        - resource_type
+        - resource_id
+        - tenant_id
+        - product_connection_id
+        - ip_address
+        - created_at
+      title: AuditRecord
+      type: object
     MetricPointView:
       description: One sample in a series.
       properties:
@@ -369,8 +432,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Export audit logs as CSV or JSON.
   /api/v1/audit/logs:
     get:
@@ -379,8 +442,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get audit logs with filtering and pagination.
   /api/v1/auth/confirm-email/{token}:
     post:
@@ -400,8 +463,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Confirm a user's email address with a confirmation token.
   /api/v1/auth/forgot-password:
     post:
@@ -429,8 +492,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Request a password reset link.
   /api/v1/auth/login:
     post:
@@ -439,8 +502,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Login endpoint - returns access and refresh tokens.
   /api/v1/auth/logout:
     post:
@@ -449,8 +512,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Logout endpoint - revokes all refresh tokens for user.
   /api/v1/auth/me:
     get:
@@ -459,8 +522,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get current user profile.
   /api/v1/auth/oauth/connections:
     get:
@@ -469,8 +532,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get OAuth connections for current user.
   /api/v1/auth/oauth/{provider}:
     get:
@@ -484,8 +547,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Redirect to OAuth provider for authorization.
   /api/v1/auth/oauth/{provider}/callback:
     get:
@@ -499,8 +562,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Handle OAuth2 callback and create/link user account.
   /api/v1/auth/oauth/{provider}/disconnect:
     post:
@@ -514,8 +577,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Disconnect OAuth connection for current user.
   /api/v1/auth/refresh:
     post:
@@ -530,8 +593,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Exchange a refresh token for a new token pair, rotating the old one.
   /api/v1/auth/register:
     post:
@@ -540,8 +603,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Register new user (creates viewer role by default + personal team).
   /api/v1/auth/reset-password:
     post:
@@ -550,8 +613,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Reset password with token.
   /api/v1/auth/sessions:
     get:
@@ -560,8 +623,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: List active sessions for the authenticated user.
   /api/v1/auth/sessions/{session_id}:
     delete:
@@ -575,8 +638,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Revoke one of the authenticated user's sessions.
   /api/v1/dashboard/activity:
     get:
@@ -584,9 +647,29 @@ paths:
       operationId: get_dashboard_activity
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Recent audit events for one tenant, newest first.\n\nAttributes:\n    activity:\
+                  \ The audit entries.\n    count: Number of entries returned."
+                properties:
+                  activity:
+                    items:
+                      $ref: '#/components/schemas/AuditRecord'
+                    maxItems: 10000
+                    title: Activity
+                    type: array
+                  count:
+                    title: Count
+                    type: integer
+                required:
+                  - activity
+                  - count
+                title: ActivityResponse
+                type: object
+          description: "Recent audit events for one tenant, newest first.\n\nAttributes:\n    activity:\
+            \ The audit entries.\n    count: Number of entries returned."
       summary: Recent audit events for the tenant.
   /api/v1/dashboard/alerts:
     get:
@@ -595,8 +678,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Aggregated alerts — products with non-healthy status.
   /api/v1/dashboard/health:
     get:
@@ -605,8 +688,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Health matrix for all products.
   /api/v1/dashboard/overview:
     get:
@@ -615,8 +698,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Aggregated stats for all products in the current tenant.
   /api/v1/discovery/accept/{discovery_id}:
     post:
@@ -640,8 +723,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Accept a discovered product and create a connection.
   /api/v1/discovery/results:
     get:
@@ -658,8 +741,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get latest scan results for a tenant.
   /api/v1/discovery/scan:
     post:
@@ -676,8 +759,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Trigger a network scan for PenguinTech products.
   /api/v1/features:
     get:
@@ -760,8 +843,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Hello world endpoint - requires authentication.
   /api/v1/hello/protected:
     get:
@@ -778,21 +861,22 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Protected hello — requires the ``platform:read`` scope.
   /api/v1/license/status:
     get:
-      description: "\nGated on the ``license:read`` scope, which the platform-admin bundle\ncarries and no other role does\
-        \ — the same authority the previous\n``@admin_required`` conferred, expressed as a scope so the decision is\nmade\
-        \ on the token claim rather than on a role-name comparison\n(security.md: authorization decisions on scope, never\
-        \ role names).\n\nReturns:\n    JSON response with license details."
+      description: "\nGated on the ``license:read`` scope, which the platform-admin bundle\ncarries and\
+        \ no other role does — the same authority the previous\n``@admin_required`` conferred, expressed\
+        \ as a scope so the decision is\nmade on the token claim rather than on a role-name comparison\n\
+        (security.md: authorization decisions on scope, never role names).\n\nReturns:\n    JSON response\
+        \ with license details."
       operationId: get_get_license_status
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get license status.
   /api/v1/mfa/backup-codes:
     get:
@@ -801,8 +885,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: View backup codes.
   /api/v1/mfa/backup-codes/regenerate:
     post:
@@ -811,8 +895,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Regenerate backup codes.
   /api/v1/mfa/disable:
     post:
@@ -821,8 +905,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Disable MFA (requires password and TOTP verification).
   /api/v1/mfa/setup:
     post:
@@ -831,8 +915,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Generate TOTP secret and QR code for 2FA setup.
   /api/v1/mfa/verify:
     post:
@@ -841,8 +925,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Verify TOTP code and enable MFA.
   /api/v1/products:
     get:
@@ -851,8 +935,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: List connected products for current tenant.
     post:
       description: ''
@@ -860,8 +944,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Register a new product connection (manual).
   /api/v1/products/types:
     get:
@@ -870,8 +954,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: List all available product types with metadata.
   /api/v1/products/{connection_id}/proxy/{proxy_path}:
     delete:
@@ -892,8 +976,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Forward request to a connected product's API.
     get:
       description: '
@@ -913,8 +997,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Forward request to a connected product's API.
     options:
       description: '
@@ -934,8 +1018,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Forward request to a connected product's API.
     patch:
       description: '
@@ -955,8 +1039,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Forward request to a connected product's API.
     post:
       description: '
@@ -976,8 +1060,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Forward request to a connected product's API.
     put:
       description: '
@@ -997,8 +1081,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Forward request to a connected product's API.
   /api/v1/products/{product_id}:
     delete:
@@ -1012,8 +1096,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Remove product connection.
     get:
       description: ''
@@ -1026,8 +1110,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get product connection details.
     put:
       description: ''
@@ -1040,8 +1124,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Update product connection config.
   /api/v1/products/{product_id}/health:
     get:
@@ -1055,8 +1139,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get latest health status for a product.
   /api/v1/products/{product_id}/metrics:
     get:
@@ -1817,8 +1901,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get management schema (available actions) for a product.
   /api/v1/products/{product_id}/tenants/{tenant_id}/map:
     delete:
@@ -1837,8 +1921,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Delete product tenant external mapping.
     get:
       description: ''
@@ -2040,8 +2124,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Test a product connection.
   /api/v1/status:
     get:
@@ -2050,8 +2134,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Public status endpoint - no authentication required.
   /api/v1/teams:
     get:
@@ -2060,8 +2144,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: List user's teams.
     post:
       description: ''
@@ -2069,8 +2153,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Create new team (authenticated users).
   /api/v1/teams/invitations/{token}/accept:
     post:
@@ -2084,8 +2168,8 @@ paths:
             type: string
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Accept team invitation.
   /api/v1/teams/{team_id}:
     delete:
@@ -2099,8 +2183,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Delete team (owner only).
     get:
       description: ''
@@ -2113,8 +2197,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get team details (team members only).
     put:
       description: ''
@@ -2127,8 +2211,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Update team (team admin only).
   /api/v1/teams/{team_id}/invitations:
     post:
@@ -2142,8 +2226,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Send team invitation via email.
   /api/v1/teams/{team_id}/invitations/{invite_id}:
     delete:
@@ -2162,8 +2246,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Cancel team invitation (team admin only).
   /api/v1/teams/{team_id}/members:
     get:
@@ -2177,8 +2261,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: List team members.
     post:
       description: ''
@@ -2191,8 +2275,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Add member to team (team admin only).
   /api/v1/teams/{team_id}/members/{member_user_id}:
     delete:
@@ -2211,8 +2295,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Remove member from team (team admin only).
     put:
       description: ''
@@ -2230,14 +2314,15 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Update member role (team admin only).
   /api/v1/tenants:
     get:
-      description: "\nQuery params:\n  - include_children=true: also list tenants in subtrees the caller\n    administers.\
-        \ Those rows come back as TenantSummary, not\n    TenantDetail: holding admin over an ancestor grants the right to\n\
-        \    know a descendant exists, not to read its plan, quotas or owner\n    without switching into it."
+      description: "\nQuery params:\n  - include_children=true: also list tenants in subtrees the caller\n\
+        \    administers. Those rows come back as TenantSummary, not\n    TenantDetail: holding admin\
+        \ over an ancestor grants the right to\n    know a descendant exists, not to read its plan, quotas\
+        \ or owner\n    without switching into it."
       operationId: get_list_user_tenants
       parameters: []
       responses:
@@ -2278,8 +2363,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Create new tenant, optionally beneath an existing parent tenant.
   /api/v1/tenants/{tenant_id}:
     delete:
@@ -2307,8 +2392,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Delete tenant (owner only).
     get:
       description: ''
@@ -2321,8 +2406,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get tenant details (members and delegated admins only).
     put:
       description: ''
@@ -2335,8 +2420,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Update tenant (holders of tenants:manage, incl. delegated admins).
   /api/v1/tenants/{tenant_id}/dashboard/rollup:
     get:
@@ -2538,8 +2623,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Remove member from tenant (holders of members:manage, incl. delegated).
     put:
       description: ''
@@ -2682,8 +2767,8 @@ paths:
               type: object
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Move a tenant (and its subtree) under a new parent, or to a root.
   /api/v1/tenants/{tenant_id}/switch:
     post:
@@ -2780,8 +2865,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get tenant resource usage and quotas.
   /api/v1/users:
     get:
@@ -2790,8 +2875,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: List all users with pagination (Admin only).
     post:
       description: ''
@@ -2799,8 +2884,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Create new user (Admin only).
   /api/v1/users/api-keys:
     get:
@@ -2809,8 +2894,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: List user's API keys.
     post:
       description: ''
@@ -2818,8 +2903,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Create new API key.
   /api/v1/users/api-keys/{key_id}:
     delete:
@@ -2833,8 +2918,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Revoke an API key.
   /api/v1/users/audit-logs:
     get:
@@ -2843,8 +2928,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get audit logs for one tenant. Requires audit:read and tenants:manage.
   /api/v1/users/me:
     get:
@@ -2853,8 +2938,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get own profile.
     put:
       description: ''
@@ -2862,8 +2947,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Update own profile.
   /api/v1/users/me/password:
     put:
@@ -2872,8 +2957,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Change own password.
   /api/v1/users/roles:
     get:
@@ -2882,8 +2967,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get list of valid roles (Admin only).
   /api/v1/users/{user_id}:
     delete:
@@ -2897,8 +2982,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Delete user by ID (Admin only).
     get:
       description: ''
@@ -2911,8 +2996,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Get single user by ID (Admin only).
     put:
       description: ''
@@ -2925,8 +3010,8 @@ paths:
             type: number
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Update user by ID (Admin only).
   /healthz:
     get:
@@ -2937,8 +3022,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Health check endpoint.
   /readyz:
     get:
@@ -2947,8 +3032,8 @@ paths:
       parameters: []
       responses:
         default:
-          description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
-            so no schema is published for it; do not rely on a specific body until one is.
+          description: Response shape is not yet declared for this operation. The view has no @validate_response
+            annotation, so no schema is published for it; do not rely on a specific body until one is.
       summary: Readiness check endpoint.
 security:
   - bearerAuth: []

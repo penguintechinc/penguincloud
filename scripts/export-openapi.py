@@ -73,9 +73,9 @@ def _normalise(node: Any) -> Any:
     """
     if isinstance(node, dict):
         return {str(key): _normalise(value) for key, value in node.items()}
-    if isinstance(node, (list, tuple)):
+    if isinstance(node, list | tuple):
         return [_normalise(value) for value in node]
-    if isinstance(node, (set, frozenset)):
+    if isinstance(node, set | frozenset):
         return sorted(_normalise(value) for value in node)
     return node
 
@@ -124,9 +124,7 @@ def main() -> int:
 
     spec = _normalise(_build_spec())
     spec["paths"] = {
-        path: item
-        for path, item in spec.get("paths", {}).items()
-        if path not in EXCLUDED_PATHS
+        path: item for path, item in spec.get("paths", {}).items() if path not in EXCLUDED_PATHS
     }
     rendered = yaml.dump(
         spec,
@@ -134,7 +132,14 @@ def main() -> int:
         sort_keys=True,
         default_flow_style=False,
         allow_unicode=True,
-        width=120,
+        # PyYAML's width is a SOFT limit: it folds at the first break
+        # opportunity AFTER the column, so an emitted line can exceed it by
+        # the length of the token being placed. At 120 a docstring produced
+        # a 131-character line and tripped yamllint's 130 limit. 100 leaves
+        # 30 characters of headroom, which is more than any single YAML
+        # token this document emits, so the class of failure is closed
+        # rather than the one line being shortened.
+        width=100,
     )
     header = (
         "# GENERATED FILE — DO NOT EDIT.\n"

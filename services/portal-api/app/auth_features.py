@@ -3,11 +3,13 @@
 import hashlib
 import json
 import secrets
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from quart import current_app, request
 
+from .audit_view import to_audit_records
 from .models import get_db
 
 #: Operands for SQL NULL / boolean predicates built through penguin-dal's
@@ -208,18 +210,11 @@ async def get_audit_logs(tenant_id: int, limit: int = 100) -> list[dict[str, Any
         orderby=~db.audit_logs.created_at,
         limitby=(0, limit),
     )
-    return [
-        {
-            "id": log["id"],
-            "user_id": log["user_id"],
-            "action": log["action_type"],
-            "resource_type": log["resource_type"],
-            "resource_id": log["resource_id"],
-            "ip_address": log["ip_address"],
-            "created_at": (log["created_at"].isoformat() if log.get("created_at") else None),
-        }
-        for log in logs
-    ]
+    # One projection for every audit surface (app/audit_view.py). This had
+    # its own hand-written field set — the only curated one of the four —
+    # and three hand-written projections is how one of them ends up
+    # publishing a column the others dropped.
+    return [asdict(record) for record in to_audit_records(logs)]
 
 
 # Session management

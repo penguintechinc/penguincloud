@@ -322,16 +322,23 @@ _READ_CALLS: Final[frozenset[str]] = frozenset({"select", "count"})
 #: one tenant behind ``tenants:read``, and returns at most 100 recent rows
 #: with no filtering, no pagination and no export.
 #:
-#: The judgement: what the tier table sells at Enterprise is
-#: "auditability & compliance" — querying, filtering and exporting the
-#: trail, which is what ``/api/v1/audit/logs`` and ``/api/v1/audit/export``
-#: are. A bounded recent-activity card on the dashboard is the product's
-#: own UI, and gating it would leave a visibly broken dashboard on Free,
-#: which is the "locked or crippled module" the tier model forbids outright.
+#: RULED ON AND SETTLED — do not "fix" this by deleting the entry.
 #:
-#: FLAGGED FOR CONFIRMATION rather than assumed — see the report. If the
-#: answer is that any read of the trail is Enterprise, deleting this entry
-#: is the whole change, and the test will then require the gate.
+#: The tier model gates SCALE AND STRUCTURE, NOT FEATURES: every tier gets
+#: all modules with full features, and "a single free user experiences the
+#: whole product… never a locked or crippled module". A dashboard whose
+#: activity feed is dead on Free is exactly that crippled module.
+#:
+#: What Enterprise sells is auditability and compliance — the searchable,
+#: filterable, exportable trail, which is what ``/api/v1/audit/logs`` and
+#: ``/api/v1/audit/export`` are. A ≤100-row unfiltered recent-activity
+#: widget is not that product; it is the dashboard working.
+#:
+#: Because this route IS reachable on every tier, its response projection
+#: matters more than the licensed ones', not less: it serves the least
+#: gated view of the most sensitive table in the portal. It returned the
+#: raw audit row until that was fixed — see app/audit_view.py and
+#: tests/api/test_audit_response_shape.py.
 AUDIT_ROUTES_INTENTIONALLY_UNLICENSED: Final[frozenset[str]] = frozenset({"dashboard_activity"})
 
 

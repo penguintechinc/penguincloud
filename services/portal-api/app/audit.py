@@ -21,11 +21,13 @@ checking a gate that does not mean what the reader thinks (see
 
 import csv
 import io
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 
 from quart import Blueprint, Response, request
 
+from .audit_view import AUDIT_RECORD_FIELDS, to_audit_records
 from .authz import SCOPE_TENANTS_MANAGE, require_tenant_scope
 from .license import require_feature
 from .middleware import auth_required, get_current_user
@@ -51,9 +53,7 @@ async def get_audit_logs() -> tuple[dict[str, Any], int]:
     # The tenant audit trail is admin-only. Asked as a scope so a
     # delegated admin (authority from an ancestor, no membership row
     # here) is answered the same way the rest of the API answers them.
-    denied = await require_tenant_scope(
-        user["id"], tenant_id, SCOPE_TENANTS_MANAGE
-    )
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_TENANTS_MANAGE)
     if denied:
         return denied
 
@@ -86,7 +86,10 @@ async def get_audit_logs() -> tuple[dict[str, Any], int]:
     total = len(total_rows)
 
     return {
-        "logs": [dict(log) for log in logs],
+        # Projected through the one published field set — see
+        # app/audit_view.py. This returned dict(log), i.e. every column the
+        # table carries, including request_body.
+        "logs": [asdict(record) for record in to_audit_records(logs)],
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -111,9 +114,7 @@ async def export_audit_logs() -> tuple[dict[str, Any], int] | dict[str, Any] | R
     # The tenant audit trail is admin-only. Asked as a scope so a
     # delegated admin (authority from an ancestor, no membership row
     # here) is answered the same way the rest of the API answers them.
-    denied = await require_tenant_scope(
-        user["id"], tenant_id, SCOPE_TENANTS_MANAGE
-    )
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_TENANTS_MANAGE)
     if denied:
         return denied
 
@@ -125,25 +126,26 @@ async def export_audit_logs() -> tuple[dict[str, Any], int] | dict[str, Any] | R
         orderby=~db.audit_logs.created_at,
         limitby=(0, limit),
     )
-    records = [dict(log) for log in logs]
+    records = [asdict(record) for record in to_audit_records(logs)]
 
     if fmt == "csv":
         if not records:
             return Response("No data", mimetype="text/csv")
 
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=records[0].keys())
+        # Columns from the published field set, not from whatever keys the
+        # first row happens to have. `records[0].keys()` exported every
+        # column in the table, so a column added to the schema would have
+        # started appearing in customers' compliance downloads with no code
+        # change anywhere near this file.
+        writer = csv.DictWriter(output, fieldnames=list(AUDIT_RECORD_FIELDS))
         writer.writeheader()
         for row in records:
             # Convert datetime objects to strings
             clean_row = {}
             for k, v in row.items():
                 clean_row[k] = (
-                    v.isoformat()
-                    if isinstance(v, datetime)
-                    else str(v)
-                    if v is not None
-                    else ""
+                    v.isoformat() if isinstance(v, datetime) else str(v) if v is not None else ""
                 )
             writer.writerow(clean_row)
 
