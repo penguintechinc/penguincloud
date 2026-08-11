@@ -107,6 +107,25 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     # auth_required returning 500 on every protected route.
     app.extensions["oidc_provider"] = _build_oidc_provider(app)
 
+    # Registered BEFORE init_dal() below on purpose. Quart runs
+    # after_serving hooks in REGISTRATION order (app.after_serving_funcs is
+    # a plain list, appended to and iterated in order -- verified against
+    # quart/app.py, not assumed), and init_dal() registers its own
+    # `_shutdown_dal` (closes the AsyncDB pool) as an after_serving hook
+    # internally. Registering this one first means it also RUNS first at
+    # shutdown: every background task -- including a health-poll sweep that
+    # may be mid-flight -- is cancelled and awaited before the pool it reads
+    # from closes underneath it. Registered the other way round once, and a
+    # graceful shutdown could close the pool while a sweep was still
+    # running: poll_forever has no way to tell "the DB closed because we're
+    # shutting down" from "the DB failed", so it read every such shutdown as
+    # a crash and logged a spurious health_poll_loop_crashed plus an
+    # unnecessary 5s backoff sleep before the process could exit.
+    @app.after_serving
+    async def _stop_background_tasks() -> None:
+        """Cancel and await every background task, before the DAL closes."""
+        await get_background_manager().stop()
+
     # Initialize database (penguin-dal AsyncDB) for immediate test availability
     try:
         db_uri = config_class.get_db_uri()
@@ -146,9 +165,12 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     #
     # BackgroundTaskManager.start() was previously called from nowhere in
     # create_app -- the license keepalive loop it has always owned had
-    # therefore never run in any deployment. Wiring it into the app's own
-    # lifespan starts both that loop and Task 6's health poller together;
-    # _stop_background_tasks below cancels both cleanly on shutdown.
+    # therefore never run in any deployment. Registered AFTER init_dal()
+    # (above) on purpose, mirroring _stop_background_tasks' ordering
+    # concern from the other end: init_dal()'s `_reflect_tables` before_
+    # serving hook must run BEFORE this one, so the health poller's first
+    # sweep never races table reflection. _stop_background_tasks (above,
+    # registered before init_dal) cancels both loops cleanly on shutdown.
     @app.before_serving
     async def _start_background_tasks() -> None:
         """Start the license keepalive and product health poller loops."""
@@ -162,11 +184,6 @@ def create_app(config_class: type[Config] = Config) -> Quart:
             from .health_poller import start_metrics_server
 
             start_metrics_server(int(app.config.get("HEALTH_METRICS_PORT", 9090)))
-
-    @app.after_serving
-    async def _stop_background_tasks() -> None:
-        """Cancel and await every background task on shutdown."""
-        await get_background_manager().stop()
 
     # Setup structured request logging middleware
     setup_request_logging(app)

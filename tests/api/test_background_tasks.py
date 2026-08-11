@@ -44,6 +44,29 @@ async def test_background_tasks_start_on_app_startup(app: Quart) -> None:
     assert manager._tasks == []
 
 
+def test_background_tasks_stop_before_the_dal_closes(app: Quart) -> None:
+    """Fix wave 1 (I1): _stop_background_tasks must run before _shutdown_dal.
+
+    Quart calls after_serving hooks in REGISTRATION order (app.py:
+    ``for func in self.after_serving_funcs``, a plain list appended to in
+    order -- not reversed). penguin-dal's ``init_dal()`` registers
+    ``_shutdown_dal`` as an after_serving hook internally; app/__init__.py
+    must register ``_stop_background_tasks`` BEFORE calling ``init_dal()``
+    so background tasks -- including a health-poll sweep that may be
+    mid-flight -- are cancelled before the connection pool they read from
+    closes underneath them. Asserted directly against the registered
+    sequence, not merely that shutdown eventually completes: a wrong order
+    still "completes" without ever failing an end-to-end lifespan test,
+    since poll_forever's crash-backoff swallows the resulting error.
+    """
+    names = [func.__name__ for func in app.after_serving_funcs]
+    assert "_stop_background_tasks" in names
+    assert "_shutdown_dal" in names
+    assert names.index("_stop_background_tasks") < names.index(
+        "_shutdown_dal"
+    ), f"after_serving order is {names}; _stop_background_tasks must come first"
+
+
 @pytest.mark.asyncio
 async def test_background_manager_is_idempotent_across_restarts(app: Quart) -> None:
     """Two startup/shutdown cycles on the same (singleton) manager both work.
