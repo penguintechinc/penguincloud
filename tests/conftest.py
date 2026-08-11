@@ -1,12 +1,14 @@
 """Pytest configuration and shared fixtures for API tests."""
 
-from typing import Any, AsyncGenerator
 import atexit
 import os
 import shutil
 import sys
 import tempfile
 import uuid
+from collections.abc import AsyncGenerator
+from typing import Any
+
 import jwt
 import pytest_asyncio
 from quart import Quart
@@ -40,10 +42,10 @@ pytest_plugins = ("pytest_asyncio",)
 
 
 @pytest_asyncio.fixture
-async def app() -> AsyncGenerator[Quart, None]:
+async def app() -> AsyncGenerator[Quart]:
     """Create and configure a test Quart app (async)."""
-    from app.config import TestingConfig
     from app import create_app
+    from app.config import TestingConfig
     from app.models_sqlalchemy import Base
     from penguin_dal.quart_ext import get_db
     from sqlalchemy import create_engine
@@ -87,8 +89,30 @@ def _clear_tenancy_cache() -> Any:
     clear_local_cache()
 
 
+@pytest_asyncio.fixture(autouse=True)
+def _clear_health_cache() -> Any:
+    """Empty the health poller's module-level cache state around every test.
+
+    Same reasoning as _clear_tenancy_cache above: app.health_cache keeps a
+    per-process in-memory fallback dict plus a memoised Valkey client, both
+    module-level. Without this, a connection_id reused across tests (SQLite
+    autoincrement restarts per test DB, but the shared file-based DB means
+    ids are NOT guaranteed test-local — see conftest's TEST_DB_PATH comment)
+    could read another test's cached health, and a test that monkeypatches
+    CACHE_HOST to exercise the Valkey path would leak a stale client into
+    whatever runs next.
+    """
+    from app.health_cache import clear_local_cache, reset_cache_client_for_tests
+
+    clear_local_cache()
+    reset_cache_client_for_tests()
+    yield
+    clear_local_cache()
+    reset_cache_client_for_tests()
+
+
 @pytest_asyncio.fixture
-async def app_context(app: Quart) -> AsyncGenerator[None, None]:
+async def app_context(app: Quart) -> AsyncGenerator[None]:
     """Provide active app context for tests calling model functions directly."""
     async with app.app_context():
         yield
@@ -128,9 +152,7 @@ async def user_id(client: Any) -> int:
         "/api/v1/auth/login",
         json={"email": unique_email, "password": "testpass123"},
     )
-    assert (
-        login_response.status_code == 200
-    ), f"Failed to login: {await login_response.get_json()}"
+    assert login_response.status_code == 200, f"Failed to login: {await login_response.get_json()}"
 
     token = (await login_response.get_json())["access_token"]
 
@@ -181,9 +203,7 @@ async def admin_headers(client: Any, app: Quart) -> dict[str, str]:
         "/api/v1/auth/login",
         json={"email": unique_email, "password": "adminpass123"},
     )
-    assert (
-        response.status_code == 200
-    ), f"Failed to login: {await response.get_json()}"
+    assert response.status_code == 200, f"Failed to login: {await response.get_json()}"
 
     token = (await response.get_json())["access_token"]
     return {"Authorization": f"Bearer {token}"}
@@ -207,9 +227,7 @@ async def tenant_id(client: Any, admin_headers: dict[str, str]) -> int:
             "plan": "free",
         },
     )
-    assert (
-        response.status_code == 201
-    ), f"Failed to create tenant: {await response.get_json()}"
+    assert response.status_code == 201, f"Failed to create tenant: {await response.get_json()}"
     return int((await response.get_json())["id"])
 
 
@@ -240,8 +258,6 @@ async def auth_headers(client: Any) -> dict[str, str]:
         json={"email": unique_email, "password": "testpass123"},
     )
 
-    assert (
-        login_response.status_code == 200
-    ), f"Failed to login: {await login_response.get_json()}"
+    assert login_response.status_code == 200, f"Failed to login: {await login_response.get_json()}"
     token = (await login_response.get_json())["access_token"]
     return {"Authorization": f"Bearer {token}"}

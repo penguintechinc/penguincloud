@@ -15,10 +15,11 @@ from penguin_dal.quart_ext import get_db
 #: Bound to a name so the expression reads as a SQL predicate and does not trip
 #: flake8's E712, which targets Python identity comparisons rather than these.
 SQL_FALSE: Any = False
+SQL_TRUE: Any = True
 
 #: Placeholder substituted for stored credentials on every read that can reach
 #: a response body. Matches the pre-migration masking value byte-for-byte.
-MASKED_SECRET = "***"
+MASKED_SECRET = "***"  # noqa: S105 -- masking placeholder, not a credential
 
 #: Credential columns on product_connections. Stored encrypted at rest; even
 #: the ciphertext never leaves the service, so both are masked on egress.
@@ -55,6 +56,7 @@ __all__ = [
     "create_product_connection",
     "get_product_connection_by_id",
     "get_product_connection_raw",
+    "get_active_product_connections",
     "get_tenant_product_connections",
     "get_tenant_product_types",
     "update_product_health",
@@ -182,9 +184,7 @@ async def get_user_by_id(user_id: int) -> dict[str, Any] | None:
     return dict(row[0]) if row else None
 
 
-async def store_refresh_token(
-    user_id: int, token_hash: str, expires_at: Any
-) -> int | None:
+async def store_refresh_token(user_id: int, token_hash: str, expires_at: Any) -> int | None:
     """Store refresh token (async)."""
     db = get_db()
     new_id: int | None = await db.refresh_tokens.async_insert(
@@ -334,9 +334,7 @@ async def get_team_members(team_id: int) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-async def add_team_member(
-    team_id: int, user_id: int, role: str = "member"
-) -> int | None:
+async def add_team_member(team_id: int, user_id: int, role: str = "member") -> int | None:
     """Add user to team (async)."""
     db = get_db()
     new_id: int | None = await db.team_members.async_insert(
@@ -398,9 +396,7 @@ async def delete_user(user_id: int) -> bool:
     return bool(rows)
 
 
-async def list_users(
-    page: int = 1, per_page: int = 20
-) -> tuple[list[dict[str, Any]], int]:
+async def list_users(page: int = 1, per_page: int = 20) -> tuple[list[dict[str, Any]], int]:
     """List users with pagination (async)."""
     # NOTE: Client-side pagination; penguin-dal server-side support deferred
     db = get_db()
@@ -418,9 +414,7 @@ async def list_users(
     return paginated, len(rows)
 
 
-async def create_mfa_secret(
-    user_id: int, secret: str, backup_codes: str
-) -> dict[str, Any] | None:
+async def create_mfa_secret(user_id: int, secret: str, backup_codes: str) -> dict[str, Any] | None:
     """Store MFA secret for user (async)."""
     db = get_db()
     await db.mfa_secrets.async_insert(
@@ -478,8 +472,7 @@ async def get_user_tenant_role(user_id: int, tenant_id: int) -> str | None:
     """Get user's role in a tenant (async)."""
     db = get_db()
     row = await db(
-        (db.tenant_members.user_id == user_id)
-        & (db.tenant_members.tenant_id == tenant_id)
+        (db.tenant_members.user_id == user_id) & (db.tenant_members.tenant_id == tenant_id)
     ).select()
     return row[0].role if row else None
 
@@ -594,6 +587,24 @@ async def get_product_connection_raw(conn_id: int) -> dict[str, Any] | None:
     return None
 
 
+async def get_active_product_connections() -> list[dict[str, Any]]:
+    """Get every ACTIVE product connection, across every tenant (async).
+
+    INTERNAL USE ONLY, like get_product_connection_raw: credentials remain
+    encrypted ciphertext, never masked or dropped. Feeds the background
+    health poller (app/health_poller.py), which sweeps every connection
+    once per interval regardless of which tenant owns it -- a per-tenant
+    accessor would need one query per tenant per sweep for the same rows.
+
+    is_active is honoured here, not just at connection creation: a
+    deactivated connection must stop being polled immediately rather than
+    the poller resurrecting its health status via a stale kill switch.
+    """
+    db = get_db()
+    rows = await db(db.product_connections.is_active == SQL_TRUE).select()
+    return [dict(row) for row in rows]
+
+
 async def get_tenant_product_connections(tenant_id: int) -> list[dict[str, Any]]:
     """Get all product connections for a tenant, credentials masked (async)."""
     db = get_db()
@@ -628,9 +639,7 @@ async def get_tenant_product_count(tenant_id: int) -> int:
     return len(rows)
 
 
-async def update_product_health(
-    conn_id: int, status: str, last_check: Any = None
-) -> bool:
+async def update_product_health(conn_id: int, status: str, last_check: Any = None) -> bool:
     """Update product connection health status and timestamp (async).
 
     The column is `last_health_check` (models_sqlalchemy.ProductConnection);
@@ -679,8 +688,7 @@ async def get_oauth_connection(user_id: int, provider: str) -> dict[str, Any] | 
     """Get OAuth connection for user and provider (async)."""
     db = get_db()
     row = await db(
-        (db.oauth_connections.user_id == user_id)
-        & (db.oauth_connections.provider == provider)
+        (db.oauth_connections.user_id == user_id) & (db.oauth_connections.provider == provider)
     ).select()
     return dict(row[0]) if row else None
 
@@ -711,8 +719,7 @@ async def store_oauth_connection(
     if existing:
         # Update existing connection
         await db(
-            (db.oauth_connections.user_id == user_id)
-            & (db.oauth_connections.provider == provider)
+            (db.oauth_connections.user_id == user_id) & (db.oauth_connections.provider == provider)
         ).update(
             provider_user_id=provider_user_id,
             access_token=access_token,
@@ -733,9 +740,7 @@ async def store_oauth_connection(
         return new_id
 
 
-async def get_product_tenant_map(
-    connection_id: int, tenant_id: int
-) -> dict[str, Any] | None:
+async def get_product_tenant_map(connection_id: int, tenant_id: int) -> dict[str, Any] | None:
     """Get product tenant mapping by connection and tenant (async)."""
     db = get_db()
     row = await db(

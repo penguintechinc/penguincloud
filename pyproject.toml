@@ -7,3 +7,13 @@ select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# S101 (flake8-bandit "use of assert") flags the mechanism pytest itself is
+# built on -- an assert IS the test, not a stripped-under-`-O` runtime guard
+# the way it would be in application code. Scoped to tests/ only; app/ still
+# gets the full S101 check. Discovered while adding Task 6's tests: ruff
+# only just landed in pre-commit (staged-files-only, see .pre-commit-config
+# .yaml), so this had never been surfaced against the existing suite before
+# a Task 6 test file was the first to be staged post-migration.
+"tests/**" = ["S101"]

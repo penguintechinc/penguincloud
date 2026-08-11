@@ -56,6 +56,11 @@ grpcio>=1.82.0                # KillKrill gRPC client (app/killkrill_client/grpc
 
 # Monitoring & Metrics
 prometheus-client>=0.21.0
+valkey>=6.0.0                # penguin_dal.cache.valkey.AsyncValkeyCache client
+                              # (Valkey is the org-standard cache/stream
+                              # backend, protocol-compatible with Redis -
+                              # see devops-containers.md) - health poller
+                              # cache in app/health_cache.py
 
 # Configuration
 python-decouple>=3.8
