@@ -494,9 +494,11 @@ async def _deliver_password_reset_token(user_id: int, token: str, expires_at: da
     """
     log.warning(
         "password_reset_token_undeliverable",
-        user_id=user_id,
-        expires_at=expires_at.isoformat(),
-        reason="no SMTP transport configured for this service",
+        extra={
+            "user_id": user_id,
+            "expires_at": expires_at.isoformat(),
+            "reason": "no SMTP transport configured for this service",
+        },
     )
 
 

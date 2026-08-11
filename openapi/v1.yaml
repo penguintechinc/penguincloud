@@ -4,14 +4,6 @@
 components:
   schemas:
     ActionResourceView:
-      description: 'The affected resource''s post-action state, when the product returned it.
-
-
-        A named subset rather than the whole :class:`~app.adapters.base.Resource`:
-
-        ``metadata`` is the adapter''s free-form bag and is not published here for
-
-        the same reason :class:`OperationView` omits it.'
       properties:
         id:
           title: Id
@@ -98,7 +90,6 @@ components:
       title: AuditRecord
       type: object
     MetricPointView:
-      description: One sample in a series.
       properties:
         timestamp:
           title: Timestamp
@@ -112,7 +103,6 @@ components:
       title: MetricPointView
       type: object
     MetricSeriesView:
-      description: A named, unit-carrying sequence of samples.
       properties:
         key:
           title: Key
@@ -137,7 +127,6 @@ components:
       title: MetricSeriesView
       type: object
     OperationLogLineView:
-      description: Wire shape for one log line.
       properties:
         level:
           title: Level
@@ -157,18 +146,6 @@ components:
       title: OperationLogLineView
       type: object
     OperationView:
-      description: 'Wire shape for one operation.
-
-
-        An explicit DTO rather than serialising the dataclass directly: the
-
-        response schema is enforced field by field, so a future field added to
-
-        :class:`Operation` for internal use cannot silently start being published
-
-        (see the output-validation rule — an unvalidated response is as dangerous
-
-        as an unvalidated request, just harder to notice).'
       properties:
         completed_at:
           anyOf:
@@ -216,8 +193,7 @@ components:
           title: Resource Kind
         result:
           anyOf:
-            - additionalProperties: true
-              type: object
+            - type: object
             - type: 'null'
           title: Result
         state:
@@ -249,7 +225,6 @@ components:
       title: OperationView
       type: object
     RollupEntry:
-      description: Per-tenant rollup row.
       properties:
         products:
           items:
@@ -270,7 +245,6 @@ components:
       title: RollupEntry
       type: object
     RollupProduct:
-      description: One product connection's status inside a rollup row.
       properties:
         connection_id:
           title: Connection Id
@@ -288,7 +262,6 @@ components:
       title: RollupProduct
       type: object
     TenantDetail:
-      description: The projection a member (or delegated admin) may see.
       properties:
         depth:
           title: Depth
@@ -350,27 +323,6 @@ components:
       title: TenantDetail
       type: object
     TenantMemberResponse:
-      description: 'A tenant membership row plus the member''s contact identity.
-
-
-        PII policy (deliberate, not incidental): ``user_email`` and
-
-        ``user_full_name`` ARE included, because administering a tenant means
-
-        administering its member accounts and an MSP admin cannot do that
-
-        against opaque user ids. NO other column from the users table is
-
-        exposed here — not role, not is_active, not timestamps, not
-
-        password_hash — and this DTO is the only path membership data takes to a
-
-        response body. Adding a column to `users` must not widen this.
-
-
-        Field set is reconciled with the webui''s TenantMember interface
-
-        (services/webui/src/client/types/index.ts).'
       properties:
         id:
           title: Id
@@ -1171,16 +1123,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'Headline metrics for one product connection.
-
-
-                  ``series`` may legitimately be empty — Gough''s ``/metrics`` is an
-
-                  instantaneous scrape with no time dimension, and the adapter refuses to
-
-                  fabricate a two-point series from one sample. ``totals`` is the part the
-
-                  dashboard counter tiles read.'
                 properties:
                   end:
                     title: End
@@ -1232,7 +1174,6 @@ paths:
           content:
             application/json:
               schema:
-                description: Envelope for a page of operations.
                 properties:
                   has_more:
                     title: Has More
@@ -1289,18 +1230,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'Wire shape for one operation.
-
-
-                  An explicit DTO rather than serialising the dataclass directly: the
-
-                  response schema is enforced field by field, so a future field added to
-
-                  :class:`Operation` for internal use cannot silently start being published
-
-                  (see the output-validation rule — an unvalidated response is as dangerous
-
-                  as an unvalidated request, just harder to notice).'
                 properties:
                   completed_at:
                     anyOf:
@@ -1348,8 +1277,7 @@ paths:
                     title: Resource Kind
                   result:
                     anyOf:
-                      - additionalProperties: true
-                        type: object
+                      - type: object
                       - type: 'null'
                     title: Result
                   state:
@@ -1422,18 +1350,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'Wire shape for one operation.
-
-
-                  An explicit DTO rather than serialising the dataclass directly: the
-
-                  response schema is enforced field by field, so a future field added to
-
-                  :class:`Operation` for internal use cannot silently start being published
-
-                  (see the output-validation rule — an unvalidated response is as dangerous
-
-                  as an unvalidated request, just harder to notice).'
                 properties:
                   completed_at:
                     anyOf:
@@ -1481,8 +1397,7 @@ paths:
                     title: Resource Kind
                   result:
                     anyOf:
-                      - additionalProperties: true
-                        type: object
+                      - type: object
                       - type: 'null'
                     title: Result
                   state:
@@ -1555,7 +1470,6 @@ paths:
           content:
             application/json:
               schema:
-                description: Envelope for an operation's log lines, oldest first.
                 properties:
                   kind:
                     title: Kind
@@ -1607,29 +1521,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'Wire shape for one resource.
-
-
-                  A named projection rather than the dataclass itself, for the reason
-
-                  :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
-
-                  adapter''s free-form bag with no declared schema, so publishing it wholesale
-
-                  would make every key an adapter happens to stash there part of the portal''s
-
-                  wire contract by accident.
-
-
-                  ``operation_id`` is the one thing lifted out of it, and only because the
-
-                  contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
-
-                  for exactly this purpose — a create the product completes asynchronously.
-
-                  ``None`` means the create finished synchronously, which is how the UI tells
-
-                  "nothing to poll" from "poll this".'
                 properties:
                   created_at:
                     anyOf:
@@ -1737,16 +1628,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'Acknowledgement that a resource was deleted.
-
-
-                  A body rather than a bare ``204`` because the deletion may be the start of
-
-                  teardown rather than the end of it, and the UI needs somewhere to read that
-
-                  from. ``kind`` and ``id`` are echoed so a client handling several deletions
-
-                  can attribute the answer without tracking request order.'
                 properties:
                   deleted:
                     default: true
@@ -1834,18 +1715,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'Outcome of a product action, including anything left to poll.
-
-
-                  ``operations`` is the field this route exists for. It is a LIST because a
-
-                  single Gough node deploy returns one deployment per assigned biome, and a
-
-                  caller handed only the first would poll a fraction of the work it started.
-
-                  An empty list means the action completed synchronously — which is how the
-
-                  UI tells "nothing to poll" from "poll these".'
                 properties:
                   accepted:
                     title: Accepted
@@ -1943,7 +1812,6 @@ paths:
           content:
             application/json:
               schema:
-                description: Response DTO for product tenant mapping.
                 properties:
                   connection_id:
                     title: Connection Id
@@ -1996,7 +1864,6 @@ paths:
         content:
           application/json:
             schema:
-              description: Request DTO for product tenant mapping.
               properties:
                 external_id:
                   title: External Id
@@ -2010,7 +1877,6 @@ paths:
           content:
             application/json:
               schema:
-                description: Response DTO for product tenant mapping.
                 properties:
                   connection_id:
                     title: Connection Id
@@ -2063,7 +1929,6 @@ paths:
         content:
           application/json:
             schema:
-              description: Request DTO for product tenant mapping.
               properties:
                 external_id:
                   title: External Id
@@ -2077,7 +1942,6 @@ paths:
           content:
             application/json:
               schema:
-                description: Response DTO for product tenant mapping.
                 properties:
                   connection_id:
                     title: Connection Id
@@ -2330,14 +2194,12 @@ paths:
           content:
             application/json:
               schema:
-                description: Envelope for tenant listings; rows are mixed detail/summary.
                 properties:
                   count:
                     title: Count
                     type: integer
                   tenants:
                     items:
-                      additionalProperties: true
                       type: object
                     maxItems: 10000
                     title: Tenants
@@ -2446,7 +2308,6 @@ paths:
           content:
             application/json:
               schema:
-                description: Provider dashboard rollup envelope.
                 properties:
                   count:
                     title: Count
@@ -2487,7 +2348,6 @@ paths:
           content:
             application/json:
               schema:
-                description: Envelope for a tenant's membership list.
                 properties:
                   count:
                     title: Count
@@ -2519,27 +2379,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'A tenant membership row plus the member''s contact identity.
-
-
-                  PII policy (deliberate, not incidental): ``user_email`` and
-
-                  ``user_full_name`` ARE included, because administering a tenant means
-
-                  administering its member accounts and an MSP admin cannot do that
-
-                  against opaque user ids. NO other column from the users table is
-
-                  exposed here — not role, not is_active, not timestamps, not
-
-                  password_hash — and this DTO is the only path membership data takes to a
-
-                  response body. Adding a column to `users` must not widen this.
-
-
-                  Field set is reconciled with the webui''s TenantMember interface
-
-                  (services/webui/src/client/types/index.ts).'
                 properties:
                   id:
                     title: Id
@@ -2645,27 +2484,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'A tenant membership row plus the member''s contact identity.
-
-
-                  PII policy (deliberate, not incidental): ``user_email`` and
-
-                  ``user_full_name`` ARE included, because administering a tenant means
-
-                  administering its member accounts and an MSP admin cannot do that
-
-                  against opaque user ids. NO other column from the users table is
-
-                  exposed here — not role, not is_active, not timestamps, not
-
-                  password_hash — and this DTO is the only path membership data takes to a
-
-                  response body. Adding a column to `users` must not widen this.
-
-
-                  Field set is reconciled with the webui''s TenantMember interface
-
-                  (services/webui/src/client/types/index.ts).'
                 properties:
                   id:
                     title: Id
@@ -2756,7 +2574,6 @@ paths:
         content:
           application/json:
             schema:
-              description: Request body for moving a tenant within the hierarchy.
               properties:
                 parent_tenant_id:
                   anyOf:
@@ -2798,22 +2615,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'Token re-issue result for a tenant switch.
-
-
-                  ``tenant`` is a full TenantDetail, not a TenantSummary. The caller has
-
-                  just been authorized into this tenant, so they are entitled to exactly
-
-                  what GET /tenants/<id> would hand them — and the webui populates its
-
-                  entire ``currentTenant`` from this one object (tenantStore.ts), so a
-
-                  summary here starves every consumer that reads it. LicenseGate.tsx falls
-
-                  back to "free" on a missing ``plan``, which silently hides every licensed
-
-                  feature from every user rather than failing visibly.'
                 properties:
                   access_token:
                     title: Access Token

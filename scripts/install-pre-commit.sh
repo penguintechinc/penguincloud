@@ -83,8 +83,14 @@ install_hooks() {
 }
 
 verify() {
-    local root hook target
+    local root hooks_dir hook target
     root="$(git rev-parse --show-toplevel 2>/dev/null)" || err "Not inside a git repository"
+    # --git-path resolves relative to the *shared* hooks/ dir, not
+    # ${root}/.git/hooks: inside a worktree, ${root}/.git is a file
+    # (gitlink), not a directory, so that concatenation silently never
+    # matches even when the hooks are correctly installed (they always live
+    # in the common dir, shared across every worktree).
+    hooks_dir="$(git rev-parse --git-path hooks 2>/dev/null)" || err "Not inside a git repository"
 
     command -v pre-commit >/dev/null 2>&1 \
         && ok "framework: $(pre-commit --version)" \
@@ -96,7 +102,7 @@ verify() {
 
     # A hook that exists but is empty is a silent no-op — treat it as a failure.
     for hook in pre-commit pre-push; do
-        target="$root/.git/hooks/$hook"
+        target="$hooks_dir/$hook"
         if [[ ! -f "$target" ]]; then
             warn "$hook: NOT INSTALLED"
         elif [[ ! -s "$target" ]]; then
