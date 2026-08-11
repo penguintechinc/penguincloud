@@ -31,6 +31,7 @@ from urllib.parse import quote
 
 from quart import Blueprint, make_response, request
 
+from . import flags
 from .adapters import get_adapter
 from .adapters.base import (
     AdapterContext,
@@ -40,7 +41,6 @@ from .adapters.base import (
     normalize_proxy_path,
 )
 from .adapters.transport import ResponseTooLargeError, get_transport
-from . import flags
 from .encryption import decrypt_value
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -81,7 +81,7 @@ MIN_REDACTABLE_CREDENTIAL_LEN = 4
 #: and a sane length: CR/LF here is log injection and header splitting, and
 #: an unbounded value is a cheap way to bloat every log line it touches.
 CORRELATION_ID_MAX_LEN = 128
-_CORRELATION_ID_RE = re.compile(r"\A[A-Za-z0-9_.:-]{1,%d}\Z" % CORRELATION_ID_MAX_LEN)
+_CORRELATION_ID_RE = re.compile(rf"\A[A-Za-z0-9_.:-]{{1,{CORRELATION_ID_MAX_LEN}}}\Z")
 
 #: Response headers never passed back to the caller. hop-by-hop headers
 #: belong to this connection; Set-Cookie would let a product plant a cookie
@@ -360,9 +360,7 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
         # are not a member.
         effective_role = await resolve_effective_role(user["id"], portal_tenant_id)
         if effective_role is None:
-            return await _deny(
-                "unauthorized_tenant", {"error": "Not a member of this tenant"}, 403
-            )
+            return await _deny("unauthorized_tenant", {"error": "Not a member of this tenant"}, 403)
 
         # The operator's kill-switch. Enforced HERE, in the traffic path,
         # rather than in get_product_connection_raw: that accessor also feeds
@@ -427,15 +425,9 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
         external_kind = mapping.get("external_kind", "")
 
         # Decrypt credentials
-        api_key = (
-            decrypt_value(conn_raw.get("api_key", ""))
-            if conn_raw.get("api_key")
-            else ""
-        )
+        api_key = decrypt_value(conn_raw.get("api_key", "")) if conn_raw.get("api_key") else ""
         api_secret = (
-            decrypt_value(conn_raw.get("api_secret", ""))
-            if conn_raw.get("api_secret")
-            else ""
+            decrypt_value(conn_raw.get("api_secret", "")) if conn_raw.get("api_secret") else ""
         )
 
         # Build adapter context
@@ -480,10 +472,7 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
         # cannot be proxied without risking disclosure — refuse it here,
         # before any outbound call is made.
         credential_material = _credential_material(ctx)
-        if any(
-            len(secret) < MIN_REDACTABLE_CREDENTIAL_LEN
-            for secret in credential_material
-        ):
+        if any(len(secret) < MIN_REDACTABLE_CREDENTIAL_LEN for secret in credential_material):
             return await _deny(
                 "credential_too_short_to_redact",
                 {"error": "Product connection is misconfigured"},
@@ -554,9 +543,9 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
                 # product that reflects its auth header into a response
                 # header leaks exactly as much as one that reflects it into
                 # the body.
-                response.headers[key] = _redact(
-                    value.encode(), credential_material
-                ).decode("utf-8", "replace")
+                response.headers[key] = _redact(value.encode(), credential_material).decode(
+                    "utf-8", "replace"
+                )
 
             response.headers[CORRELATION_ID_HEADER] = corr_id
 

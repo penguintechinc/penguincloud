@@ -21,10 +21,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-from conftest import _FakeFlagServer
-
 from app import devmode, flags, licensing
+from conftest import _FakeFlagServer
 
 
 class TestAuthentication:
@@ -32,6 +30,7 @@ class TestAuthentication:
 
     @pytest.mark.asyncio
     async def test_anonymous_is_rejected(self, client: Any) -> None:
+        """Anonymous is rejected."""
         response = await client.get("/api/v1/features")
         assert response.status_code == 401
 
@@ -51,6 +50,7 @@ class TestResponseShape:
     async def test_every_declared_key_is_present(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
+        """Every declared key is present."""
         response = await client.get("/api/v1/features", headers=auth_headers)
         body = await response.get_json()
 
@@ -97,9 +97,7 @@ class TestResponseShape:
         body = await response.get_json()
 
         assert response.status_code == 200
-        assert body["flags"] == {
-            name: flags.default_for(name) for name in flags.KNOWN_FLAGS
-        }
+        assert body["flags"] == {name: flags.default_for(name) for name in flags.KNOWN_FLAGS}
         assert all(body["flags"][name] for name in flags.PRODUCT_FLAGS)
         assert not any(body["flags"][name] for name in flags.FEATURE_FLAGS)
 
@@ -130,6 +128,7 @@ class TestResponseShape:
     async def test_dev_mode_is_false_by_default(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
+        """Dev mode is false by default."""
         response = await client.get("/api/v1/features", headers=auth_headers)
         body = await response.get_json()
 
@@ -144,6 +143,7 @@ class TestLimitsArePublished:
     async def test_every_dimension_is_present(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
+        """Every dimension is present."""
         from app import quotas
 
         response = await client.get("/api/v1/features", headers=auth_headers)
@@ -189,6 +189,8 @@ class TestDevModeSignal:
     async def test_signal_is_true_when_dev_mode_is_active(
         self, client: Any, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Signal is true when dev mode is active."""
+
         async def _active() -> bool:
             return True
 
@@ -253,6 +255,4 @@ class TestFlagAndLicenceAreBothReported:
 
         assert body["flags"]["sso_integration"] is True
         assert body["tier"] == licensing.TIER_COMMUNITY
-        assert body["licensed_features"]["sso_integration"] == (
-            licensing.TIER_PROFESSIONAL
-        )
+        assert body["licensed_features"]["sso_integration"] == (licensing.TIER_PROFESSIONAL)

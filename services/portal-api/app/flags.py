@@ -217,7 +217,7 @@ FLAG_CACHE_MAX_ENTRIES: Final[int] = 8192
 #: ``"{key}|{distinct_id}"`` → last observed value, least-recently-written
 #: first so the bound above evicts the coldest entry. Guarded by a lock
 #: because ``asyncio.to_thread`` puts evaluations on worker threads.
-_CACHE: "OrderedDict[str, _CachedFlag]" = OrderedDict()
+_CACHE: OrderedDict[str, _CachedFlag] = OrderedDict()
 _CACHE_LOCK: Final[threading.Lock] = threading.Lock()
 
 _client: Any | None = None
@@ -313,9 +313,7 @@ def _cache_write(cache_key: str, value: bool) -> None:
             _CACHE.popitem(last=False)
 
 
-def is_enabled_blocking(
-    feature: str, distinct_id: str, default: bool = False
-) -> bool:
+def is_enabled_blocking(feature: str, distinct_id: str, default: bool = False) -> bool:
     """Evaluate one flag, blocking. Call :func:`is_enabled` from async code.
 
     ``default`` is what the caller decides "the server did not say" means,
@@ -337,9 +335,7 @@ def is_enabled_blocking(
     cache_key = f"{key}|{distinct_id}"
 
     cached = _cache_read(cache_key)
-    if cached is not None and (time.monotonic() - cached.fetched_at) < (
-        FLAG_CACHE_TTL_SECONDS
-    ):
+    if cached is not None and (time.monotonic() - cached.fetched_at) < (FLAG_CACHE_TTL_SECONDS):
         return cached.value
 
     client = get_client()
@@ -417,9 +413,7 @@ def evaluate_all_blocking(distinct_id: str) -> dict[str, bool]:
             # "never seen" is not "known false", so it is not cached, and a
             # previously observed value still wins over the default.
             cached = _cache_read(f"{flag_key(feature)}|{distinct_id}")
-            resolved[feature] = (
-                cached.value if cached is not None else default_for(feature)
-            )
+            resolved[feature] = cached.value if cached is not None else default_for(feature)
             continue
         value = bool(raw)
         _cache_write(f"{flag_key(feature)}|{distinct_id}", value)
@@ -512,9 +506,7 @@ async def product_gate_refusal(
         required = licensing.FEATURE_MIN_TIER[product_type]
         current = await licensing.resolve_tier()
         return (
-            dataclasses.asdict(
-                licensing.upgrade_required(product_type, required, current)
-            ),
+            dataclasses.asdict(licensing.upgrade_required(product_type, required, current)),
             403,
         )
 

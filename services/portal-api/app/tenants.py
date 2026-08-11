@@ -19,29 +19,7 @@ from typing import Any
 from quart import Blueprint, request
 from quart_schema import validate_request, validate_response
 
-from .middleware import auth_required, get_current_user
 from . import licensing, quotas
-from .models import (
-    add_tenant_member,
-    create_audit_log,
-    create_tenant,
-    get_db,
-    get_tenant_by_id,
-    get_tenant_by_slug,
-    get_tenant_member_count,
-    get_tenant_members,
-    get_tenant_product_count,
-    get_tenant_product_connections,
-    get_user_by_id,
-    get_user_tenant_role,
-    get_user_tenants,
-    tenant_quota,
-    DEFAULT_MAX_PRODUCTS,
-    DEFAULT_MAX_USERS,
-    VALID_PLANS,
-    VALID_TENANT_KINDS,
-    VALID_TENANT_ROLES,
-)
 from .authz import (
     SCOPE_MEMBERS_MANAGE,
     SCOPE_MEMBERS_READ,
@@ -52,6 +30,28 @@ from .authz import (
     SCOPE_TENANTS_SWITCH,
     has_tenant_scope,
     require_scope,
+)
+from .middleware import auth_required, get_current_user
+from .models import (
+    DEFAULT_MAX_PRODUCTS,
+    DEFAULT_MAX_USERS,
+    VALID_PLANS,
+    VALID_TENANT_KINDS,
+    VALID_TENANT_ROLES,
+    add_tenant_member,
+    create_audit_log,
+    create_tenant,
+    get_db,
+    get_tenant_by_id,
+    get_tenant_by_slug,
+    get_tenant_member_count,
+    get_tenant_members,
+    get_tenant_product_connections,
+    get_tenant_product_count,
+    get_user_by_id,
+    get_user_tenant_role,
+    get_user_tenants,
+    tenant_quota,
 )
 from .tenancy import (
     get_hierarchy,
@@ -268,14 +268,11 @@ def to_member(row: dict[str, Any]) -> TenantMemberResponse:
     )
 
 
-async def _member_with_identity(
-    tenant_id: int, member_user_id: int
-) -> TenantMemberResponse | None:
+async def _member_with_identity(tenant_id: int, member_user_id: int) -> TenantMemberResponse | None:
     """Load one membership row joined to its user's contact identity."""
     db = get_db()
     rows: Any = await db(
-        (db.tenant_members.tenant_id == tenant_id)
-        & (db.tenant_members.user_id == member_user_id)
+        (db.tenant_members.tenant_id == tenant_id) & (db.tenant_members.user_id == member_user_id)
     ).select()
     if not rows:
         return None
@@ -306,9 +303,7 @@ def validate_tenant_slug(slug: str) -> bool:
     return all(c.isalnum() or c == "-" for c in slug) and slug[0].isalnum()
 
 
-async def _capability_refusal(
-    feature: str, why: str
-) -> tuple[dict[str, Any], int] | None:
+async def _capability_refusal(feature: str, why: str) -> tuple[dict[str, Any], int] | None:
     """403 + upgrade body when the licence does not entitle ``feature``.
 
     The numeric wall in :mod:`app.quotas` and this are two halves of one
@@ -322,17 +317,13 @@ async def _capability_refusal(
     if await licensing.is_feature_entitled(feature):
         return None
     required = licensing.FEATURE_MIN_TIER[feature]
-    body = licensing.upgrade_required(
-        feature, required, await licensing.resolve_tier()
-    )
+    body = licensing.upgrade_required(feature, required, await licensing.resolve_tier())
     payload = asdict(body)
     payload["message"] = f"{why}: {payload['message']}"
     return payload, 403
 
 
-async def _delegated_admin_capability_refusal() -> (
-    tuple[dict[str, Any], int] | None
-):
+async def _delegated_admin_capability_refusal() -> tuple[dict[str, Any], int] | None:
     """403 when delegated tenant administration is not licensed here."""
     return await _capability_refusal(
         "delegated_admin",
@@ -368,17 +359,13 @@ async def create_tenant_endpoint() -> tuple[dict[str, Any], int]:
         return {"error": "Tenant name required (1-255 chars)"}, 400
 
     if not slug or not validate_tenant_slug(slug):
-        return {
-            "error": "Invalid slug (3-63 chars, lowercase alphanumeric + hyphens)"
-        }, 400
+        return {"error": "Invalid slug (3-63 chars, lowercase alphanumeric + hyphens)"}, 400
 
     if plan not in VALID_PLANS:
         return {"error": f"Invalid plan. Must be one of: {', '.join(VALID_PLANS)}"}, 400
 
     if kind not in VALID_TENANT_KINDS:
-        return {
-            "error": f"Invalid kind. Must be one of: {', '.join(VALID_TENANT_KINDS)}"
-        }, 400
+        return {"error": f"Invalid kind. Must be one of: {', '.join(VALID_TENANT_KINDS)}"}, 400
 
     parent_tenant_id = data.get("parent_tenant_id")
     depth = 0
@@ -469,13 +456,9 @@ async def list_user_tenants() -> tuple[Any, int]:
     include_children = request.args.get("include_children", "false").lower() == "true"
 
     user_tenants = await get_user_tenants(user["id"])
-    direct_ids = {
-        int(t["id"]) for t in user_tenants if isinstance(t.get("id"), int)
-    }
+    direct_ids = {int(t["id"]) for t in user_tenants if isinstance(t.get("id"), int)}
 
-    rows: list[dict[str, Any]] = [
-        asdict(to_detail(t, t.get("user_role"))) for t in user_tenants
-    ]
+    rows: list[dict[str, Any]] = [asdict(to_detail(t, t.get("user_role"))) for t in user_tenants]
 
     if include_children:
         subtree_ids: set[int] = set()
@@ -487,9 +470,7 @@ async def list_user_tenants() -> tuple[Any, int]:
             # parent. Asked as a scope against that tenant, not as a
             # comparison on the joined `user_role` column, so a delegated
             # admin (no membership row here at all) is answered identically.
-            if not await has_tenant_scope(
-                user["id"], tenant_id_val, SCOPE_TENANTS_MANAGE
-            ):
+            if not await has_tenant_scope(user["id"], tenant_id_val, SCOPE_TENANTS_MANAGE):
                 continue
             try:
                 hierarchy = await get_hierarchy(tenant_id_val)
@@ -600,9 +581,7 @@ async def update_tenant_endpoint(tenant_id: int) -> tuple[dict[str, Any], int]:
 @tenancy_aware
 @require_scope(SCOPE_TENANTS_MANAGE, tenant_arg="tenant_id")
 @validate_request(ReparentRequest)
-async def reparent_tenant_endpoint(
-    tenant_id: int, data: ReparentRequest
-) -> tuple[Any, int]:
+async def reparent_tenant_endpoint(tenant_id: int, data: ReparentRequest) -> tuple[Any, int]:
     """Move a tenant (and its subtree) under a new parent, or to a root.
 
     Requires admin authority in BOTH the tenant being moved and the
@@ -737,6 +716,7 @@ async def switch_tenant(tenant_id: int) -> tuple[Any, int]:
     scopes = await resolve_scopes(user["id"], tenant_id)
 
     from quart import g
+
     from .auth import create_token_set_async
 
     # Home tenant is the original scoped tenant from the login session
@@ -833,9 +813,7 @@ async def add_tenant_member_endpoint(tenant_id: int) -> tuple[Any, int]:
     # gated here rather than only by the tenant's own max_users quota. A
     # member/viewer is unlimited at every tier and passes straight through.
     if member_role == "admin":
-        refusal = await quotas.quota_refusal(
-            "tenant_admins", await quotas.count_tenant_admins()
-        )
+        refusal = await quotas.quota_refusal("tenant_admins", await quotas.count_tenant_admins())
         if refusal is not None:
             return refusal
         capability = await _delegated_admin_capability_refusal()
@@ -868,9 +846,7 @@ async def add_tenant_member_endpoint(tenant_id: int) -> tuple[Any, int]:
 @tenancy_aware
 @require_scope(SCOPE_MEMBERS_MANAGE, tenant_arg="tenant_id")
 @validate_response(TenantMemberResponse)
-async def update_tenant_member_role(
-    tenant_id: int, member_user_id: int
-) -> tuple[Any, int]:
+async def update_tenant_member_role(tenant_id: int, member_user_id: int) -> tuple[Any, int]:
     """Update member role (holders of members:manage, incl. delegated)."""
     user = get_current_user()
     if not user:  # pragma: no cover
@@ -885,12 +861,8 @@ async def update_tenant_member_role(
     # Promotion is the OTHER way to acquire a delegated admin. Gating only
     # the add path would leave "add as member, then promote" as an
     # unmetered route to the same structure the licence sells.
-    if new_role == "admin" and await get_user_tenant_role(
-        member_user_id, tenant_id
-    ) != "admin":
-        refusal = await quotas.quota_refusal(
-            "tenant_admins", await quotas.count_tenant_admins()
-        )
+    if new_role == "admin" and await get_user_tenant_role(member_user_id, tenant_id) != "admin":
+        refusal = await quotas.quota_refusal("tenant_admins", await quotas.count_tenant_admins())
         if refusal is not None:
             return refusal
         capability = await _delegated_admin_capability_refusal()
@@ -899,8 +871,7 @@ async def update_tenant_member_role(
 
     db = get_db()
     await db(
-        (db.tenant_members.tenant_id == tenant_id)
-        & (db.tenant_members.user_id == member_user_id)
+        (db.tenant_members.tenant_id == tenant_id) & (db.tenant_members.user_id == member_user_id)
     ).update(role=new_role)
 
     await invalidate_tenant(tenant_id)
@@ -915,9 +886,7 @@ async def update_tenant_member_role(
 @auth_required
 @tenancy_aware
 @require_scope(SCOPE_MEMBERS_MANAGE, tenant_arg="tenant_id")
-async def remove_tenant_member(
-    tenant_id: int, member_user_id: int
-) -> tuple[dict[str, Any], int]:
+async def remove_tenant_member(tenant_id: int, member_user_id: int) -> tuple[dict[str, Any], int]:
     """Remove member from tenant (holders of members:manage, incl. delegated)."""
     user = get_current_user()
     if not user:  # pragma: no cover
@@ -930,8 +899,7 @@ async def remove_tenant_member(
 
     db = get_db()
     deleted = await db(
-        (db.tenant_members.tenant_id == tenant_id)
-        & (db.tenant_members.user_id == member_user_id)
+        (db.tenant_members.tenant_id == tenant_id) & (db.tenant_members.user_id == member_user_id)
     ).delete()
 
     if not deleted:

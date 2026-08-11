@@ -19,13 +19,13 @@ from typing import Any, Final
 
 from quart import request
 
+from . import flags
 from .adapters.base import (
     AdapterContext,
     AdapterError,
     adapter_error_status,
     product_scope,
 )
-from . import flags
 from .authz import require_tenant_scope
 from .encryption import decrypt_value
 from .middleware import get_current_user
@@ -135,9 +135,7 @@ async def resolve_product_context(
     # Before decryption, deliberately: a disabled module's stored credential
     # is never decrypted at all, so "off" means the secret stays at rest
     # rather than merely not being sent.
-    gate = await flags.product_gate_refusal(
-        str(conn_raw["product_type"]), str(user["id"])
-    )
+    gate = await flags.product_gate_refusal(str(conn_raw["product_type"]), str(user["id"]))
     if gate is not None:
         return None, None, gate
 
@@ -149,15 +147,9 @@ async def resolve_product_context(
         external_kind=(mapping or {}).get("external_kind", ""),
         base_url=conn_raw.get("base_url", ""),
         auth_type=conn_raw.get("auth_type", "bearer"),
-        api_key=(
-            decrypt_value(conn_raw.get("api_key", ""))
-            if conn_raw.get("api_key")
-            else ""
-        ),
+        api_key=(decrypt_value(conn_raw.get("api_key", "")) if conn_raw.get("api_key") else ""),
         api_secret=(
-            decrypt_value(conn_raw.get("api_secret", ""))
-            if conn_raw.get("api_secret")
-            else ""
+            decrypt_value(conn_raw.get("api_secret", "")) if conn_raw.get("api_secret") else ""
         ),
         correlation_id=request.headers.get("X-Correlation-ID", ""),
     )

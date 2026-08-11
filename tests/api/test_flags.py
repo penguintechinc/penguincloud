@@ -21,7 +21,6 @@ import time
 from typing import Any
 
 import pytest
-
 from app import flags, licensing
 from app.models import PRODUCT_TYPES
 
@@ -52,21 +51,18 @@ def _clean_flag_state() -> Any:
 class TestUnconfigured:
     """No POSTHOG_KEY means no flag server, and therefore no network."""
 
-    def test_client_is_none_without_a_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_client_is_none_without_a_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Client is none without a key."""
         monkeypatch.delenv("POSTHOG_KEY", raising=False)
         assert flags.get_client() is None
 
-    def test_flags_default_off_without_a_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_flags_default_off_without_a_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Flags default off without a key."""
         monkeypatch.delenv("POSTHOG_KEY", raising=False)
         assert flags.is_enabled_blocking("gough", "user-1") is False
 
-    def test_an_explicit_default_is_honoured(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_an_explicit_default_is_honoured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An explicit default is honoured."""
         monkeypatch.delenv("POSTHOG_KEY", raising=False)
         assert flags.is_enabled_blocking("gough", "user-1", default=True) is True
 
@@ -74,9 +70,7 @@ class TestUnconfigured:
 class TestClientConstruction:
     """The SDK call itself, so a signature break is loud rather than silent."""
 
-    def test_a_configured_key_builds_a_client(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_a_configured_key_builds_a_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Guards the graceful-degradation path from hiding a real break.
 
         ``get_client`` catches construction failures and returns None, which
@@ -95,9 +89,7 @@ class TestClientConstruction:
             "silently resolving to its default"
         )
 
-    def test_client_construction_is_latched(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_client_construction_is_latched(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """One client per process, built once, not per evaluation."""
         monkeypatch.setenv("POSTHOG_KEY", "phc_test_key_not_a_real_secret")
         assert flags.get_client() is flags.get_client()
@@ -109,9 +101,7 @@ class TestDegradation:
     def _install(self, monkeypatch: pytest.MonkeyPatch, fake: _FakePosthog) -> None:
         monkeypatch.setattr(flags, "get_client", lambda: fake)
 
-    def test_last_known_value_survives_an_outage(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_last_known_value_survives_an_outage(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A flag that was ON stays ON when the server stops answering.
 
         This is the requirement that makes the fallback worth having. A TTL
@@ -141,9 +131,7 @@ class TestDegradation:
         self._install(monkeypatch, _FakePosthog(raises=True))
         assert flags.is_enabled_blocking("nest", "user-1") is False
 
-    def test_unknown_flag_is_off_and_not_cached(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unknown_flag_is_off_and_not_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """PostHog answers None for a flag it does not know.
 
         Not cached, because "never seen" is not "known false" — caching it
@@ -163,9 +151,7 @@ class TestDegradation:
         assert flags.is_enabled_blocking("not_a_declared_flag", "user-1") is False
         assert fake.calls == []
 
-    def test_a_fresh_value_is_reused_within_the_ttl(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_a_fresh_value_is_reused_within_the_ttl(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The request path must not hit the flag server per evaluation."""
         fake = _FakePosthog(answer=True)
         self._install(monkeypatch, fake)
@@ -175,9 +161,7 @@ class TestDegradation:
 
         assert len(fake.calls) == 1
 
-    def test_the_cache_is_partitioned_by_principal(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_the_cache_is_partitioned_by_principal(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Percentage rollouts differ per user; one cache slot would leak."""
         fake = _FakePosthog(answer=True)
         self._install(monkeypatch, fake)
@@ -192,6 +176,7 @@ class TestKeyConvention:
     """`{product}.{feature-name}`, spelled in one place."""
 
     def test_keys_are_namespaced(self) -> None:
+        """Keys are namespaced."""
         assert flags.flag_key("gough") == "penguincloud.gough"
 
     @pytest.mark.parametrize("feature", sorted(flags.KNOWN_FLAGS))
@@ -266,9 +251,7 @@ class TestFlagsMeetWhatChecksThem:
         connectable and proxyable with nothing able to turn it off — and it
         would look exactly like the flagged ones at the call site.
         """
-        undeclared = (
-            set(PRODUCT_TYPES) - flags.PRODUCT_FLAGS - flags.UNFLAGGED_PRODUCT_TYPES
-        )
+        undeclared = set(PRODUCT_TYPES) - flags.PRODUCT_FLAGS - flags.UNFLAGGED_PRODUCT_TYPES
         assert not undeclared, (
             f"product types neither flagged nor declared unflagged: "
             f"{sorted(undeclared)}. Add a flag, or list it in "
@@ -311,9 +294,7 @@ class TestFlagAndLicenseConjunction:
     ) -> None:
         """The other direction: an entitlement does not bypass the rollout."""
         monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=False))
-        monkeypatch.setattr(
-            licensing, "is_feature_entitled_blocking", lambda feature: True
-        )
+        monkeypatch.setattr(licensing, "is_feature_entitled_blocking", lambda feature: True)
 
         assert await flags.is_feature_available("sso_integration", "user-1") is False
 
@@ -321,9 +302,7 @@ class TestFlagAndLicenseConjunction:
     async def test_both_on_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """And the conjunction is reachable — not a gate that never opens."""
         monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=True))
-        monkeypatch.setattr(
-            licensing, "is_feature_entitled_blocking", lambda feature: True
-        )
+        monkeypatch.setattr(licensing, "is_feature_entitled_blocking", lambda feature: True)
 
         assert await flags.is_feature_available("sso_integration", "user-1") is True
 
@@ -343,9 +322,7 @@ class TestEvaluateAll:
     """The shape the /features endpoint publishes."""
 
     @pytest.mark.asyncio
-    async def test_every_declared_flag_is_present(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_every_declared_flag_is_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """No key may be absent: the webui must not read absence as false.
 
         An absent key rendering as "off" is the same defect as an absent
@@ -360,9 +337,7 @@ class TestEvaluateAll:
         assert all(value is False for value in result.values())
 
     @pytest.mark.asyncio
-    async def test_an_outage_still_returns_every_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_an_outage_still_returns_every_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Degradation must not truncate the response shape."""
         monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(raises=True))
 
@@ -393,9 +368,7 @@ class TestBulkEvaluation:
             return True
 
     @pytest.mark.asyncio
-    async def test_the_whole_set_costs_one_call(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_the_whole_set_costs_one_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The per-flag loop was ~20 sequential round trips per page load."""
         server = self._BulkFake({flags.flag_key("gough"): True})
         monkeypatch.setattr(flags, "get_client", lambda: server)
@@ -430,7 +403,7 @@ class TestBulkEvaluation:
     async def test_a_previously_observed_value_survives_an_unknown_answer(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """"Never seen" is not "known false", in the bulk path too."""
+        """Never-seen is not known-false, in the bulk path too."""
         monkeypatch.setattr(
             flags, "get_client", lambda: self._BulkFake({flags.flag_key("gough"): True})
         )
@@ -443,9 +416,8 @@ class TestBulkEvaluation:
 class TestCacheIsBounded:
     """The cache is keyed by principal, so an unbounded one is a leak."""
 
-    def test_the_cache_never_exceeds_its_ceiling(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_the_cache_never_exceeds_its_ceiling(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The cache never exceeds its ceiling."""
         monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=True))
         monkeypatch.setattr(flags, "FLAG_CACHE_MAX_ENTRIES", 16)
 
@@ -480,6 +452,7 @@ class TestProductModulesAreKillSwitchesNotGates:
 
     @pytest.mark.parametrize("feature", sorted(flags.PRODUCT_FLAGS))
     def test_product_flags_default_on(self, feature: str) -> None:
+        """Product flags default on."""
         assert flags.default_for(feature) is True
 
     @pytest.mark.parametrize("feature", sorted(flags.FEATURE_FLAGS))
@@ -492,35 +465,25 @@ class TestProductModulesAreKillSwitchesNotGates:
         assert flags.PRODUCT_FLAG_DEFAULT is True
         assert flags.default_for("gough") != flags.default_for("saml_sso")
 
-    def test_unconfigured_leaves_a_module_on(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unconfigured_leaves_a_module_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unconfigured leaves a module on."""
         monkeypatch.delenv("POSTHOG_KEY", raising=False)
         assert flags.get_client() is None
-        assert (
-            flags.is_enabled_blocking("gough", "user-1", flags.default_for("gough"))
-            is True
-        )
+        assert flags.is_enabled_blocking("gough", "user-1", flags.default_for("gough")) is True
 
     def test_an_explicit_false_still_kills_the_module(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The kill switch must still work, or the flag means nothing."""
         monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=False))
-        assert (
-            flags.is_enabled_blocking("gough", "user-1", flags.default_for("gough"))
-            is False
-        )
+        assert flags.is_enabled_blocking("gough", "user-1", flags.default_for("gough")) is False
 
     def test_a_server_that_has_never_heard_of_the_flag_kills_nothing(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Unknown is not off: connecting PostHog must not lose modules."""
         monkeypatch.setattr(flags, "get_client", lambda: _FakePosthog(answer=None))
-        assert (
-            flags.is_enabled_blocking("gough", "user-1", flags.default_for("gough"))
-            is True
-        )
+        assert flags.is_enabled_blocking("gough", "user-1", flags.default_for("gough")) is True
 
     @pytest.mark.asyncio
     async def test_the_conjunction_uses_the_right_default_per_flag(

@@ -33,10 +33,9 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
-from quart import Quart
-
 from app import licensing, quotas
 from app.license import LicenseManager
+from quart import Quart
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _APP_DIR: Final[Path] = _REPO_ROOT / "services" / "portal-api" / "app"
@@ -96,7 +95,9 @@ def _gated_feature_names() -> set[str]:
             called = (
                 func.attr
                 if isinstance(func, ast.Attribute)
-                else func.id if isinstance(func, ast.Name) else ""
+                else func.id
+                if isinstance(func, ast.Name)
+                else ""
             )
             if called not in _ENFORCEMENT_CALLS:
                 continue
@@ -144,9 +145,10 @@ class TestNoEnvVarBypass:
         tree = ast.parse((_APP_DIR / "license.py").read_text(encoding="utf-8"))
         bodies: list[ast.stmt] = []
         for node in ast.walk(tree):
-            if isinstance(
-                node, (ast.FunctionDef, ast.AsyncFunctionDef)
-            ) and node.name in ("is_feature_enabled", "is_feature_entitled"):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name in (
+                "is_feature_enabled",
+                "is_feature_entitled",
+            ):
                 statements = list(node.body)
                 if ast.get_docstring(node) is not None:
                     statements = statements[1:]
@@ -156,12 +158,8 @@ class TestNoEnvVarBypass:
 
         for statement in bodies:
             referenced = {
-                child.attr
-                for child in ast.walk(statement)
-                if isinstance(child, ast.Attribute)
-            } | {
-                child.id for child in ast.walk(statement) if isinstance(child, ast.Name)
-            }
+                child.attr for child in ast.walk(statement) if isinstance(child, ast.Attribute)
+            } | {child.id for child in ast.walk(statement) if isinstance(child, ast.Name)}
             assert "release_mode" not in referenced, (
                 "an entitlement path branches on RELEASE_MODE again — that "
                 "is the env-var license bypass general.md forbids"
@@ -190,6 +188,7 @@ class TestDomainBypassBoundary:
         ],
     )
     def test_managed_domains_are_exempt(self, host: str) -> None:
+        """Managed domains are exempt."""
         assert licensing.host_is_license_exempt(host) is True
 
     @pytest.mark.parametrize(
@@ -276,16 +275,12 @@ class TestDomainBypassBoundary:
             "anything.penguintech.cloud",
             "x.localhost.local",
         ):
-            async with app.test_request_context(
-                "/api/v1/license/status", headers={"Host": spoof}
-            ):
+            async with app.test_request_context("/api/v1/license/status", headers={"Host": spoof}):
                 assert licensing.configured_host() == "portal.customer.example.com"
                 assert licensing.current_host_is_license_exempt() is False
                 assert await licensing.is_feature_entitled("sso_integration") is False
                 limits = await quotas.resolve_limits()
-                assert limits == quotas.DEFAULT_TIER_LIMITS[
-                    licensing.TIER_COMMUNITY
-                ]
+                assert limits == quotas.DEFAULT_TIER_LIMITS[licensing.TIER_COMMUNITY]
 
     @pytest.mark.asyncio
     async def test_an_unconfigured_deployment_is_not_exempt(
@@ -310,6 +305,7 @@ class TestDomainBypassBoundary:
     def test_configured_host_is_reduced_to_a_bare_host(
         self, configured: str, expected: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Configured host is reduced to a bare host."""
         monkeypatch.delenv("SERVER_NAME", raising=False)
         if configured:
             monkeypatch.setenv("BASE_URL", configured)
@@ -422,8 +418,7 @@ class TestGateAndMintMeet:
         unenforced = {
             feature
             for feature in licensing.FEATURE_MIN_TIER
-            if feature not in enforced
-            and feature not in licensing.NOT_YET_IMPLEMENTED
+            if feature not in enforced and feature not in licensing.NOT_YET_IMPLEMENTED
         }
 
         assert not unenforced, (
@@ -445,9 +440,7 @@ class TestGateAndMintMeet:
             f"Remove them from NOT_YET_IMPLEMENTED."
         )
 
-    @pytest.mark.parametrize(
-        "feature,tier", sorted(licensing.FEATURE_MIN_TIER.items())
-    )
+    @pytest.mark.parametrize("feature,tier", sorted(licensing.FEATURE_MIN_TIER.items()))
     def test_every_minted_tier_is_a_real_tier(self, feature: str, tier: str) -> None:
         """A typo'd tier string would deny forever via ``_TIER_RANK``'s 99."""
         assert tier in licensing.TIER_ORDER, feature

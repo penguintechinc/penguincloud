@@ -31,19 +31,14 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
-
 from app import licensing
 
-_APP_DIR: Final[Path] = (
-    Path(__file__).resolve().parents[2] / "services" / "portal-api" / "app"
-)
+_APP_DIR: Final[Path] = Path(__file__).resolve().parents[2] / "services" / "portal-api" / "app"
 
 #: Reaching one of these means the request touches the connected product
 #: itself — an outbound call carrying decrypted credentials, or the shared
 #: authorisation path that builds the context for one.
-_PRODUCT_ENTRY_POINTS: Final[frozenset[str]] = frozenset(
-    {"get_adapter", "resolve_product_context"}
-)
+_PRODUCT_ENTRY_POINTS: Final[frozenset[str]] = frozenset({"get_adapter", "resolve_product_context"})
 
 #: The gate. Reaching this — directly, or through a helper that does — is
 #: what makes a product-touching route gated.
@@ -87,7 +82,7 @@ def _build_call_graph() -> tuple[dict[str, set[str]], dict[str, list[str]]]:
     definitions: dict[str, list[str]] = {}
     for path, tree in _iter_app_modules():
         for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             definitions.setdefault(node.name, []).append(str(path))
             calls.setdefault(node.name, set()).update(_called_names(node))
@@ -99,7 +94,7 @@ def _route_functions() -> dict[str, tuple[str, str]]:
     routes: dict[str, tuple[str, str]] = {}
     for path, tree in _iter_app_modules():
         for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             for decorator in node.decorator_list:
                 if not isinstance(decorator, ast.Call):
@@ -140,6 +135,7 @@ class TestEveryProductRouteIsGated:
 
     @pytest.fixture(scope="class")
     def analysis(self) -> dict[str, Any]:
+        """Analysis."""
         calls, definitions = _build_call_graph()
         routes = _route_functions()
         reach = {name: _reachable_from(name, calls) for name in routes}
@@ -148,16 +144,12 @@ class TestEveryProductRouteIsGated:
             "definitions": definitions,
             "routes": routes,
             "reaching": {
-                name
-                for name, closure in reach.items()
-                if closure & _PRODUCT_ENTRY_POINTS
+                name for name, closure in reach.items() if closure & _PRODUCT_ENTRY_POINTS
             },
             "gated": {name for name, closure in reach.items() if _GATE in closure},
         }
 
-    def test_the_names_this_guard_resolves_are_unambiguous(
-        self, analysis: dict[str, Any]
-    ) -> None:
+    def test_the_names_this_guard_resolves_are_unambiguous(self, analysis: dict[str, Any]) -> None:
         """Bare-name resolution is only sound while the names are unique."""
         for name in {*_PRODUCT_ENTRY_POINTS, _GATE}:
             sites = analysis["definitions"].get(name, [])
@@ -174,20 +166,14 @@ class TestEveryProductRouteIsGated:
         for known in ("proxy_request", "create_resource", "get_product_schema"):
             assert known in analysis["reaching"], sorted(analysis["reaching"])
 
-    def test_every_product_touching_route_is_gated(
-        self, analysis: dict[str, Any]
-    ) -> None:
+    def test_every_product_touching_route_is_gated(self, analysis: dict[str, Any]) -> None:
         """Derived, not listed — an eleventh route cannot arrive ungated.
 
         ``penguincloud.{product}`` set to false left resource create still
         creating and resource actions still executing, because the gate ran
         only at connection create and in the proxy.
         """
-        ungated = (
-            analysis["reaching"]
-            - analysis["gated"]
-            - PRODUCT_ROUTES_INTENTIONALLY_UNGATED
-        )
+        ungated = analysis["reaching"] - analysis["gated"] - PRODUCT_ROUTES_INTENTIONALLY_UNGATED
 
         assert not ungated, (
             "routes reach the connected product with no flag/licence check: "
@@ -199,9 +185,7 @@ class TestEveryProductRouteIsGated:
             "PRODUCT_ROUTES_INTENTIONALLY_UNGATED with the reason."
         )
 
-    def test_the_exception_list_names_real_routes(
-        self, analysis: dict[str, Any]
-    ) -> None:
+    def test_the_exception_list_names_real_routes(self, analysis: dict[str, Any]) -> None:
         """A stale exception silently re-opens the hole it documented."""
         unknown = PRODUCT_ROUTES_INTENTIONALLY_UNGATED - set(analysis["routes"])
         assert not unknown, sorted(unknown)
@@ -221,7 +205,9 @@ def _implementation_evidence(feature: str) -> list[str]:
         segments = {
             part
             for chunk in (rule, name)
-            for part in chunk.replace("<", "/").replace(">", "/").replace("-", "/")
+            for part in chunk.replace("<", "/")
+            .replace(">", "/")
+            .replace("-", "/")
             .replace("_", "/")
             .split("/")
             if part
@@ -258,14 +244,12 @@ class TestNothingBuiltHidesInNotYetImplemented:
         """A detector that matches anything proves nothing."""
         assert not _implementation_evidence("no_such_capability_at_all")
 
-    @pytest.mark.parametrize(
-        "feature", sorted(licensing.NOT_YET_IMPLEMENTED)
-    )
-    def test_no_implementation_exists_for_an_unbuilt_feature(
-        self, feature: str
-    ) -> None:
-        """Being in this set exempts a feature from the mint-vs-enforce
-        guard, so the set must not contain anything that is actually built.
+    @pytest.mark.parametrize("feature", sorted(licensing.NOT_YET_IMPLEMENTED))
+    def test_no_implementation_exists_for_an_unbuilt_feature(self, feature: str) -> None:
+        """Nothing declared unbuilt may have an implementation.
+
+        Being in this set exempts a feature from the mint-vs-enforce guard,
+        so the set must not contain anything that is actually built.
         """
         evidence = _implementation_evidence(feature)
         assert not evidence, (

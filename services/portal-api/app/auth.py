@@ -7,11 +7,10 @@ from typing import Any, Final
 
 import bcrypt
 import pyotp
-from quart import Blueprint, current_app, request
-
 from penguin_aaa.authn.oidc_provider import OIDCProvider
 from penguin_aaa.authn.types import Claims
 from penguintechinc_utils.logging import get_logger
+from quart import Blueprint, current_app, request
 
 from . import devmode, quotas
 from .config import UNSCOPED_TENANT
@@ -42,9 +41,7 @@ log = get_logger(__name__)
 #: must not distinguish the two, or the endpoint becomes an unauthenticated
 #: account-enumeration oracle. It carries no reset token — the token leaves
 #: the system out of band only (see _deliver_password_reset_token).
-PASSWORD_RESET_ACK: Final[dict[str, str]] = {
-    "message": "If email exists, reset link sent"
-}
+PASSWORD_RESET_ACK: Final[dict[str, str]] = {"message": "If email exists, reset link sent"}
 
 
 def get_oidc_provider() -> OIDCProvider:
@@ -71,8 +68,7 @@ async def hash_password_async(password: str) -> str:
     """Hash password using bcrypt (async-wrapped)."""
     loop = asyncio.get_event_loop()
     hashed = await loop.run_in_executor(
-        None,
-        lambda: bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+        None, lambda: bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
     )
     return hashed.decode("utf-8")
 
@@ -82,10 +78,7 @@ async def verify_password_async(password: str, password_hash: str) -> bool:
     loop = asyncio.get_event_loop()
     pwd_bytes = password.encode("utf-8")
     hash_bytes = password_hash.encode("utf-8")
-    return await loop.run_in_executor(
-        None,
-        lambda: bcrypt.checkpw(pwd_bytes, hash_bytes)
-    )
+    return await loop.run_in_executor(None, lambda: bcrypt.checkpw(pwd_bytes, hash_bytes))
 
 
 async def create_token_set_async(
@@ -134,9 +127,7 @@ async def create_token_set_async(
 
     oidc = get_oidc_provider()
     now = datetime.now(UTC)
-    ttl: timedelta = current_app.config.get(
-        "JWT_ACCESS_TOKEN_EXPIRES", timedelta(hours=1)
-    )
+    ttl: timedelta = current_app.config.get("JWT_ACCESS_TOKEN_EXPIRES", timedelta(hours=1))
     exp = now + ttl
 
     # Build extra claims dict
@@ -194,9 +185,7 @@ async def issue_and_store_token_set(
     """
     token_set = await create_token_set_async(user_id, tenant_id, role, teams)
 
-    refresh_ttl: timedelta = current_app.config.get(
-        "JWT_REFRESH_TOKEN_EXPIRES", timedelta(days=7)
-    )
+    refresh_ttl: timedelta = current_app.config.get("JWT_REFRESH_TOKEN_EXPIRES", timedelta(days=7))
     await store_refresh_token(
         user_id=user_id,
         token_hash=hash_refresh_token(token_set["refresh_token"]),
@@ -374,9 +363,7 @@ async def get_me() -> tuple[dict[str, Any], int]:
             "full_name": user.get("full_name", ""),
             "role": user["role"],
             "is_active": user["is_active"],
-            "created_at": (
-                user["created_at"].isoformat() if user.get("created_at") else None
-            ),
+            "created_at": (user["created_at"].isoformat() if user.get("created_at") else None),
         },
         200,
     )
@@ -485,17 +472,13 @@ async def register() -> tuple[dict[str, Any], int]:
             "personal_team": personal_team_info,
             # Present only when the team was refused, carrying the same
             # quota body every other wall answers with.
-            "personal_team_refused": (
-                team_refusal[0] if team_refusal is not None else None
-            ),
+            "personal_team_refused": (team_refusal[0] if team_refusal is not None else None),
         },
         201,
     )
 
 
-async def _deliver_password_reset_token(
-    user_id: int, token: str, expires_at: datetime
-) -> None:
+async def _deliver_password_reset_token(user_id: int, token: str, expires_at: datetime) -> None:
     """Deliver a reset token to the user out of band.
 
     No SMTP transport is configured in this service, so delivery cannot

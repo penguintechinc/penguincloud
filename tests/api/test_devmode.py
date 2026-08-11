@@ -23,9 +23,8 @@ import sys
 from typing import Any
 
 import pytest
-from quart import Quart
-
 from app import devmode, licensing, quotas
+from quart import Quart
 
 
 @pytest.fixture(autouse=True)
@@ -51,10 +50,12 @@ class TestArgvRecording:
     """The flag records an input; it never records a decision."""
 
     def test_flag_is_recognised(self) -> None:
+        """Flag is recognised."""
         assert devmode.request_from_argv(["--dev"]) is True
         assert devmode.is_requested() is True
 
     def test_absent_flag_is_not_requested(self) -> None:
+        """Absent flag is not requested."""
         assert devmode.request_from_argv(["--verbose", "8000"]) is False
         assert devmode.is_requested() is False
 
@@ -89,6 +90,7 @@ class TestConditionMatrix:
     async def test_inert_when_flag_not_passed(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Inert when flag not passed."""
         _activate(monkeypatch, users=0)
         monkeypatch.setattr(devmode, "_requested", False)
         assert await devmode.is_active() is False
@@ -97,6 +99,7 @@ class TestConditionMatrix:
     async def test_inert_on_a_non_penguintech_domain(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Inert on a non penguintech domain."""
         _activate(monkeypatch, users=0)
         monkeypatch.setattr(devmode, "domain_permits", lambda: False)
         assert await devmode.is_active() is False
@@ -105,6 +108,7 @@ class TestConditionMatrix:
     async def test_inert_when_more_than_one_user_exists(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Inert when more than one user exists."""
         _activate(monkeypatch, users=2)
         assert await devmode.is_active() is False
 
@@ -147,12 +151,11 @@ class TestDomainCondition:
     def test_domain_permits(
         self, host: str, permitted: bool, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Domain permits."""
         monkeypatch.setattr(devmode, "resolved_host", lambda: host)
         assert devmode.domain_permits() is permitted
 
-    def test_host_comes_from_configuration(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_host_comes_from_configuration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The configured domain is the domain, request or no request."""
         monkeypatch.setenv("BASE_URL", "penguincloud.localhost.local")
         assert devmode.resolved_host() == "penguincloud.localhost.local"
@@ -192,6 +195,7 @@ class TestDomainCondition:
     def test_product_app_domains_permit_dev_mode_but_not_the_bypass(
         self, host: str, permitted: bool, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Product app domains permit dev mode but not the bypass."""
         monkeypatch.setattr(devmode, "resolved_host", lambda: host)
         assert devmode.domain_permits() is permitted
         # The licence bypass is deliberately NOT widened to match.
@@ -249,6 +253,7 @@ class TestOperatorNotice:
     """Verbatim, on stderr, never suppressible."""
 
     def test_notice_is_the_general_md_text(self) -> None:
+        """Notice is the general md text."""
         for line in (
             "DEVELOPMENT MODE (--dev) — ALL PREMIUM FEATURES UNLOCKED",
             "For testing and evaluation only, limited to a single user.",
@@ -267,7 +272,7 @@ class TestOperatorNotice:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """stdout is piped and parsed; a licensing warning there is lost."""
+        """Stdout is piped and parsed; a licensing warning there is lost."""
         _activate(monkeypatch, users=0)
 
         assert await devmode.is_active() is True
@@ -283,6 +288,7 @@ class TestOperatorNotice:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
+        """The notice is printed once not per request."""
         _activate(monkeypatch, users=0)
 
         for _ in range(4):
@@ -319,6 +325,7 @@ class TestOperatorNotice:
     def test_startup_announcement_requires_the_flag(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        """Startup announcement requires the flag."""
         devmode.request_from_argv([])
         devmode.announce_at_startup()
         assert "DEVELOPMENT MODE" not in capsys.readouterr().err
@@ -344,6 +351,7 @@ class TestUserCap:
     async def test_second_user_is_refused_with_a_reason(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Second user is refused with a reason."""
         _activate(monkeypatch, users=1)
         refusal = await devmode.user_creation_refusal()
 
@@ -382,7 +390,7 @@ class TestUserCap:
         asking.
         """
         _activate(monkeypatch, users=1)
-        with pytest.raises(devmode.DevModeUserCapExceeded):
+        with pytest.raises(devmode.DevModeUserCapExceededError):
             await devmode.assert_user_creation_allowed()
 
     @pytest.mark.asyncio
@@ -440,9 +448,7 @@ class TestUserCap:
         assert (await response.get_json())["error"] == "dev_mode_user_cap"
 
     @pytest.mark.asyncio
-    async def test_registration_still_works_without_dev_mode(
-        self, client: Any
-    ) -> None:
+    async def test_registration_still_works_without_dev_mode(self, client: Any) -> None:
         """The cap must not leak into a normal deployment."""
         response = await client.post(
             "/api/v1/auth/register",
@@ -463,6 +469,7 @@ class TestDevModeUnlocksFeaturesOnly:
     async def test_unauthenticated_calls_are_still_rejected(
         self, client: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Unauthenticated calls are still rejected."""
         _activate(monkeypatch, users=0)
 
         response = await client.get("/api/v1/features")
@@ -489,11 +496,12 @@ class TestFlagIsUndocumented:
     """Not a security control, but asserted so it stays true."""
 
     def test_dev_flag_is_absent_from_the_openapi_document(self) -> None:
+        """Dev flag is absent from the openapi document."""
         from pathlib import Path
 
-        spec = (
-            Path(__file__).resolve().parents[2] / "openapi" / "v1.yaml"
-        ).read_text(encoding="utf-8")
+        spec = (Path(__file__).resolve().parents[2] / "openapi" / "v1.yaml").read_text(
+            encoding="utf-8"
+        )
 
         assert "--dev" not in spec
 
@@ -511,10 +519,7 @@ class TestFlagIsUndocumented:
         from pathlib import Path
 
         run_py = (
-            Path(__file__).resolve().parents[2]
-            / "services"
-            / "portal-api"
-            / "run.py"
+            Path(__file__).resolve().parents[2] / "services" / "portal-api" / "run.py"
         ).read_text(encoding="utf-8")
 
         assert "argparse" not in run_py
@@ -525,6 +530,7 @@ class TestArgvSourceIsTheProcess:
     """``request_from_argv()`` with no argument reads the real argv."""
 
     def test_defaults_to_sys_argv(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Defaults to sys argv."""
         monkeypatch.setattr(sys, "argv", ["run.py", "--dev"])
         assert devmode.request_from_argv() is True
 

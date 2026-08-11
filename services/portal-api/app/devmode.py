@@ -42,7 +42,8 @@ from __future__ import annotations
 
 import sys
 import threading
-from typing import Any, Final, Sequence
+from collections.abc import Sequence
+from typing import Any, Final
 
 import structlog
 from penguin_dal.quart_ext import get_db
@@ -166,10 +167,7 @@ def _matches_app_domain(host: str) -> bool:
     ``gough.app``.
     """
     bare = host.split(":")[0].lower()
-    return any(
-        bare == domain or bare.endswith(f".{domain}")
-        for domain in DEV_MODE_APP_DOMAINS
-    )
+    return any(bare == domain or bare.endswith(f".{domain}") for domain in DEV_MODE_APP_DOMAINS)
 
 
 def domain_permits() -> bool:
@@ -315,7 +313,7 @@ async def user_creation_refusal() -> tuple[dict[str, Any], int] | None:
     )
 
 
-class DevModeUserCapExceeded(RuntimeError):
+class DevModeUserCapExceededError(RuntimeError):
     """Raised by the model-layer backstop when the cap would be breached."""
 
 
@@ -330,6 +328,4 @@ async def assert_user_creation_allowed() -> None:
     if not await is_active():
         return
     if await user_count() >= MAX_DEV_MODE_USERS:
-        raise DevModeUserCapExceeded(
-            f"development mode permits {MAX_DEV_MODE_USERS} user"
-        )
+        raise DevModeUserCapExceededError(f"development mode permits {MAX_DEV_MODE_USERS} user")

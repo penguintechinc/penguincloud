@@ -115,9 +115,7 @@ DIMENSION_LABELS: Final[dict[str, str]] = {
 
 #: Dimension names, derived from the dataclass so the three tables above
 #: cannot drift from it silently (tests assert all four agree).
-DIMENSIONS: Final[tuple[str, ...]] = tuple(
-    field.name for field in fields(TierLimits)
-)
+DIMENSIONS: Final[tuple[str, ...]] = tuple(field.name for field in fields(TierLimits))
 
 
 def _coerce_limit(raw: Any) -> int | None:
@@ -135,9 +133,7 @@ def _coerce_limit(raw: Any) -> int | None:
     return None
 
 
-def limits_for_tier(
-    tier: str, payload_limits: dict[str, Any] | None = None
-) -> TierLimits:
+def limits_for_tier(tier: str, payload_limits: dict[str, Any] | None = None) -> TierLimits:
     """Resolve the effective limits for a tier, applying payload overrides.
 
     An unrecognised tier resolves to the NARROWEST table entry, never the
@@ -288,7 +284,7 @@ async def count_objects() -> int:
 SCALE_REFUSAL_STATUS: Final[int] = 402
 
 
-class QuotaExceeded(RuntimeError):
+class QuotaExceededError(RuntimeError):
     """Raised by the model-layer backstop when a limit would be breached."""
 
 
@@ -339,9 +335,8 @@ async def assert_within(dimension: str) -> None:
             limit=limit,
             detail="a write path reached the model layer without metering",
         )
-        raise QuotaExceeded(
-            f"this deployment is licensed for {limit} "
-            f"{DIMENSION_LABELS.get(dimension, dimension)}"
+        raise QuotaExceededError(
+            f"this deployment is licensed for {limit} {DIMENSION_LABELS.get(dimension, dimension)}"
         )
 
 
@@ -410,9 +405,9 @@ async def quota_refusal(
     # operator is told to "upgrade to community". In that case the binding
     # constraint is the deployment's own contract, not the plan, and the
     # honest answer is that no tier lifts it — contact sales.
-    if upgrade is not None and licensing.TIER_ORDER.index(
-        upgrade
-    ) <= licensing.TIER_ORDER.index(tier):
+    if upgrade is not None and licensing.TIER_ORDER.index(upgrade) <= licensing.TIER_ORDER.index(
+        tier
+    ):
         upgrade = None
 
     log.warning(

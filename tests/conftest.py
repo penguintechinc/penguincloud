@@ -1,12 +1,14 @@
 """Pytest configuration and shared fixtures for API tests."""
 
-from typing import Any, AsyncGenerator
 import atexit
 import os
 import shutil
 import sys
 import tempfile
 import uuid
+from collections.abc import AsyncGenerator
+from typing import Any
+
 import jwt
 import pytest
 import pytest_asyncio
@@ -41,10 +43,10 @@ pytest_plugins = ("pytest_asyncio",)
 
 
 @pytest_asyncio.fixture
-async def app() -> AsyncGenerator[Quart, None]:
+async def app() -> AsyncGenerator[Quart]:
     """Create and configure a test Quart app (async)."""
-    from app.config import TestingConfig
     from app import create_app
+    from app.config import TestingConfig
     from app.models_sqlalchemy import Base
     from penguin_dal.quart_ext import get_db
     from sqlalchemy import create_engine
@@ -95,7 +97,7 @@ def _clear_tenancy_cache() -> Any:
 
 
 @pytest_asyncio.fixture
-async def app_context(app: Quart) -> AsyncGenerator[None, None]:
+async def app_context(app: Quart) -> AsyncGenerator[None]:
     """Provide active app context for tests calling model functions directly."""
     async with app.app_context():
         yield
@@ -135,9 +137,7 @@ async def user_id(client: Any) -> int:
         "/api/v1/auth/login",
         json={"email": unique_email, "password": "testpass123"},
     )
-    assert (
-        login_response.status_code == 200
-    ), f"Failed to login: {await login_response.get_json()}"
+    assert login_response.status_code == 200, f"Failed to login: {await login_response.get_json()}"
 
     token = (await login_response.get_json())["access_token"]
 
@@ -188,9 +188,7 @@ async def admin_headers(client: Any, app: Quart) -> dict[str, str]:
         "/api/v1/auth/login",
         json={"email": unique_email, "password": "adminpass123"},
     )
-    assert (
-        response.status_code == 200
-    ), f"Failed to login: {await response.get_json()}"
+    assert response.status_code == 200, f"Failed to login: {await response.get_json()}"
 
     token = (await response.get_json())["access_token"]
     return {"Authorization": f"Bearer {token}"}
@@ -214,9 +212,7 @@ async def tenant_id(client: Any, admin_headers: dict[str, str]) -> int:
             "plan": "free",
         },
     )
-    assert (
-        response.status_code == 201
-    ), f"Failed to create tenant: {await response.get_json()}"
+    assert response.status_code == 201, f"Failed to create tenant: {await response.get_json()}"
     return int((await response.get_json())["id"])
 
 
@@ -247,9 +243,7 @@ async def auth_headers(client: Any) -> dict[str, str]:
         json={"email": unique_email, "password": "testpass123"},
     )
 
-    assert (
-        login_response.status_code == 200
-    ), f"Failed to login: {await login_response.get_json()}"
+    assert login_response.status_code == 200, f"Failed to login: {await login_response.get_json()}"
     token = (await login_response.get_json())["access_token"]
     return {"Authorization": f"Bearer {token}"}
 
@@ -397,9 +391,5 @@ def enterprise_license(monkeypatch: pytest.MonkeyPatch) -> None:
         return quotas.DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE]
 
     monkeypatch.setattr(quotas, "resolve_limits", _enterprise_license)
-    monkeypatch.setattr(
-        licensing, "resolve_tier_blocking", lambda: licensing.TIER_ENTERPRISE
-    )
-    monkeypatch.setattr(
-        licensing, "is_feature_entitled_blocking", lambda feature: True
-    )
+    monkeypatch.setattr(licensing, "resolve_tier_blocking", lambda: licensing.TIER_ENTERPRISE)
+    monkeypatch.setattr(licensing, "is_feature_entitled_blocking", lambda feature: True)

@@ -5,5 +5,21 @@ line-length = 100            # matches Prettier printWidth + dart format
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
 
+[tool.ruff.lint.per-file-ignores]
+# pytest expresses every assertion with `assert`, so bandit's S101 ("assert
+# detected") flags every test in the repo — 373 findings across the suite,
+# none of them a defect. S101 exists because `python -O` strips asserts from
+# PRODUCTION code; a test runner never runs under -O, and rewriting pytest
+# assertions to satisfy it would make the suite worse, not safer.
+#
+# Without this, `ruff` fails on any commit that stages a test file, so no
+# test in this repo could be changed at all. The repo already draws exactly
+# this boundary for the same class of rule: the bandit hook is invoked as
+# `-ll -r` over the app tree, never over tests.
+#
+# Deliberately narrow — one rule, one tree. Everything else in `select`
+# still applies to tests.
+"tests/**" = ["S101"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"

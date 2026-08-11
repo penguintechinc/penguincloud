@@ -99,14 +99,14 @@ async def create_default_admin(app: Quart) -> None:
                 full_name="System Administrator",
                 role="admin",
             )
-        except devmode.DevModeUserCapExceeded as exc:
+        except devmode.DevModeUserCapExceededError as exc:
             # Seeding is a user-creation path and the dev-mode cap sits
             # underneath it. The guard above skips seeding when any user
             # exists, so this is reachable only in a race, but an unhandled
             # exception here kills the process at startup with a bare
             # traceback — an operator needs the reason, not a stack.
             print(
-                f"Skipping admin seeding: {exc}. Remove --dev to seed an " "administrator.",
+                f"Skipping admin seeding: {exc}. Remove --dev to seed an administrator.",
                 file=sys.stderr,
                 flush=True,
             )

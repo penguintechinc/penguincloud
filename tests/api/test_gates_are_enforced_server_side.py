@@ -27,11 +27,9 @@ import uuid
 from typing import Any
 
 import pytest
-from quart import Quart
-
-from conftest import _FakeFlagServer
-
 from app import devmode, flags, licensing, models, quotas
+from conftest import _FakeFlagServer
+from quart import Quart
 
 
 def _flag_server(
@@ -80,13 +78,9 @@ class TestProductFlagGatesTheApi:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Direct API call, no browser involved — the gate must still hold."""
-        _flag_server(
-            monkeypatch, flags.PRODUCT_FLAGS - {"gough"}, disabled=frozenset({"gough"})
-        )
+        _flag_server(monkeypatch, flags.PRODUCT_FLAGS - {"gough"}, disabled=frozenset({"gough"}))
 
-        response = await _register_connection(
-            client, admin_headers, tenant_id, "gough"
-        )
+        response = await _register_connection(client, admin_headers, tenant_id, "gough")
 
         assert response.status_code == 403
         body = await response.get_json()
@@ -104,9 +98,7 @@ class TestProductFlagGatesTheApi:
         """The positive case, so the refusal above is not vacuous."""
         _flag_server(monkeypatch, flags.PRODUCT_FLAGS)
 
-        response = await _register_connection(
-            client, admin_headers, tenant_id, "gough"
-        )
+        response = await _register_connection(client, admin_headers, tenant_id, "gough")
 
         assert response.status_code == 201
 
@@ -129,9 +121,7 @@ class TestProductFlagGatesTheApi:
         _no_flag_server(monkeypatch)
 
         assert flags.get_client() is None
-        response = await _register_connection(
-            client, admin_headers, tenant_id, "gough"
-        )
+        response = await _register_connection(client, admin_headers, tenant_id, "gough")
 
         assert response.status_code == 201
 
@@ -151,9 +141,7 @@ class TestProductFlagGatesTheApi:
         """
         _flag_server(monkeypatch, frozenset())
 
-        response = await _register_connection(
-            client, admin_headers, tenant_id, "gough"
-        )
+        response = await _register_connection(client, admin_headers, tenant_id, "gough")
 
         assert response.status_code == 201
 
@@ -172,15 +160,11 @@ class TestProductFlagGatesTheApi:
         path would leave every existing connection fully usable.
         """
         _flag_server(monkeypatch, flags.PRODUCT_FLAGS)
-        created = await _register_connection(
-            client, admin_headers, tenant_id, "gough"
-        )
+        created = await _register_connection(client, admin_headers, tenant_id, "gough")
         assert created.status_code == 201
         connection_id = (await created.get_json())["id"]
 
-        _flag_server(
-            monkeypatch, flags.PRODUCT_FLAGS - {"gough"}, disabled=frozenset({"gough"})
-        )
+        _flag_server(monkeypatch, flags.PRODUCT_FLAGS - {"gough"}, disabled=frozenset({"gough"}))
 
         response = await client.get(
             f"/api/v1/products/{connection_id}/proxy/api/v1/nodes",
@@ -199,13 +183,9 @@ class TestProductFlagGatesTheApi:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """``generic`` has no module to switch off — see UNFLAGGED_PRODUCT_TYPES."""
-        _flag_server(
-            monkeypatch, frozenset(), disabled=frozenset(flags.PRODUCT_FLAGS)
-        )
+        _flag_server(monkeypatch, frozenset(), disabled=frozenset(flags.PRODUCT_FLAGS))
 
-        response = await _register_connection(
-            client, admin_headers, tenant_id, "generic"
-        )
+        response = await _register_connection(client, admin_headers, tenant_id, "generic")
 
         assert response.status_code == 201
 
@@ -239,9 +219,7 @@ class TestValidationPrecedesMetering:
 
         monkeypatch.setattr(quotas, "resolve_limits", _no_objects)
 
-        response = await _register_connection(
-            client, admin_headers, tenant_id, "not-a-product"
-        )
+        response = await _register_connection(client, admin_headers, tenant_id, "not-a-product")
 
         assert response.status_code == 400
         assert (await response.get_json())["error"] == "Invalid product type"
@@ -268,9 +246,7 @@ class TestValidationPrecedesMetering:
 
         monkeypatch.setattr(quotas, "resolve_limits", _no_objects)
 
-        response = await _register_connection(
-            client, admin_headers, tenant_id, "gough"
-        )
+        response = await _register_connection(client, admin_headers, tenant_id, "gough")
 
         assert response.status_code == 402
         assert (await response.get_json())["dimension"] == "objects"
@@ -342,7 +318,7 @@ class TestLicensedCapabilitiesAreChecked:
         user_id: int,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """"Add as member, then promote" must not route around the gate."""
+        """Promotion must not route around the gate that enrolment carries."""
         enrolled = await client.post(
             f"/api/v1/tenants/{tenant_id}/members",
             headers=admin_headers,
@@ -417,9 +393,7 @@ class TestRegistrationIsMetered:
         assert "team limit" in refused["message"]
 
     @pytest.mark.asyncio
-    async def test_registration_under_the_limit_still_gets_a_team(
-        self, client: Any
-    ) -> None:
+    async def test_registration_under_the_limit_still_gets_a_team(self, client: Any) -> None:
         """The wall must not have removed the feature it meters."""
         response = await client.post(
             "/api/v1/auth/register",
@@ -484,7 +458,7 @@ class TestModelLayerBackstop:
         }
 
         async with app.app_context():
-            with pytest.raises(quotas.QuotaExceeded):
+            with pytest.raises(quotas.QuotaExceededError):
                 await getattr(models, call)(**arguments[call])
 
     @pytest.mark.asyncio
@@ -563,7 +537,7 @@ class TestDevModeActuallyWidensEntitlement:
     async def test_dev_mode_widens_the_limits_table_too(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """"All premium features" includes the structures the paywall gates."""
+        """Premium unlock includes the structures the paywall gates."""
         self._dev_domain(monkeypatch)
         monkeypatch.setattr(devmode, "_requested", True)
 
@@ -573,8 +547,9 @@ class TestDevModeActuallyWidensEntitlement:
         monkeypatch.setattr(devmode, "user_count", _one_user)
 
         async with app.app_context():
-            assert await quotas.resolve_limits() == (
-                quotas.DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE]
+            assert (
+                await quotas.resolve_limits()
+                == (quotas.DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE])
             )
 
         devmode.reset()
@@ -668,6 +643,7 @@ class TestAuditIsEnterpriseLicensed:
     async def test_unlicensed_deployments_are_refused(
         self, client: Any, admin_headers: dict[str, str], tenant_id: int, route: str
     ) -> None:
+        """Unlicensed deployments are refused."""
         response = await client.get(
             f"/api/v1/audit/{route}?tenant_id={tenant_id}", headers=admin_headers
         )

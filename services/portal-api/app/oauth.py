@@ -2,8 +2,8 @@
 
 import asyncio
 import secrets
-from datetime import datetime, timedelta, UTC
-from typing import Any, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
@@ -12,6 +12,7 @@ from quart import Blueprint, current_app, redirect, request, session
 from . import devmode
 from .auth import issue_and_store_token_set
 from .config import Config
+
 # The local stub this replaces returned the view unconditionally in BOTH
 # branches — a gate that never gated. license.require_feature is the real
 # entitlement check (LicenseManager.is_feature_enabled) and 403s when the
@@ -58,7 +59,7 @@ def validate_state_token(state: str) -> bool:
     return secrets.compare_digest(str(stored), state)
 
 
-def get_provider_config(provider: str) -> Optional[dict[str, Any]]:
+def get_provider_config(provider: str) -> dict[str, Any] | None:
     """Get provider configuration."""
     if provider not in Config.OAUTH_PROVIDERS:
         return None
@@ -67,9 +68,7 @@ def get_provider_config(provider: str) -> Optional[dict[str, Any]]:
     # Handle Okta tenant URL substitution
     if provider == "okta" and config.get("tenant_url"):
         tenant_url = config["tenant_url"]
-        config["authorization_url"] = config["authorization_url"].format(
-            tenant_url=tenant_url
-        )
+        config["authorization_url"] = config["authorization_url"].format(tenant_url=tenant_url)
         config["token_url"] = config["token_url"].format(tenant_url=tenant_url)
         config["userinfo_url"] = config["userinfo_url"].format(tenant_url=tenant_url)
 
@@ -78,11 +77,7 @@ def get_provider_config(provider: str) -> Optional[dict[str, Any]]:
 
 async def get_redirect_uri(provider: str) -> str:
     """Get OAuth2 redirect URI."""
-    root = (
-        request.url_root.rstrip("/")
-        if hasattr(request, "url_root")
-        else "http://localhost:8000"
-    )
+    root = request.url_root.rstrip("/") if hasattr(request, "url_root") else "http://localhost:8000"
     return f"{root}/api/v1/auth/oauth/{provider}/callback"
 
 
@@ -151,9 +146,7 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
         }
 
         async with httpx.AsyncClient(timeout=10.0) as client:
-            token_response = await client.post(
-                config["token_url"], data=token_data
-            )
+            token_response = await client.post(config["token_url"], data=token_data)
             token_response.raise_for_status()
             tokens: dict[str, Any] = token_response.json()
 
@@ -173,9 +166,7 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
             return {"error": "Failed to get user info from provider"}, 400
 
         # Check if OAuth connection exists
-        existing_connection = await get_oauth_connection_by_provider_id(
-            provider, provider_user_id
-        )
+        existing_connection = await get_oauth_connection_by_provider_id(provider, provider_user_id)
 
         if existing_connection:
             # Link to existing user
@@ -203,9 +194,9 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
                 random_password = secrets.token_urlsafe(32)
 
                 def _hash_password() -> str:
-                    return bcrypt.hashpw(
-                        random_password.encode("utf-8"), bcrypt.gensalt()
-                    ).decode("utf-8")
+                    return bcrypt.hashpw(random_password.encode("utf-8"), bcrypt.gensalt()).decode(
+                        "utf-8"
+                    )
 
                 password_hash = await asyncio.to_thread(_hash_password)
 
@@ -223,7 +214,7 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
             return {"error": "Failed to create or retrieve user"}, 500
 
         # Store/update OAuth connection
-        expires_at: Optional[datetime] = None
+        expires_at: datetime | None = None
         if "expires_in" in tokens:
             expires_at = datetime.now(UTC) + timedelta(seconds=tokens["expires_in"])
 
@@ -269,7 +260,7 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
         return {"error": "Failed to complete OAuth flow"}, 500
 
 
-def _extract_provider_user_id(provider: str, userinfo: dict[str, Any]) -> Optional[str]:
+def _extract_provider_user_id(provider: str, userinfo: dict[str, Any]) -> str | None:
     """Extract provider-specific user ID."""
     if provider == "google":
         return userinfo.get("sub")
@@ -280,7 +271,7 @@ def _extract_provider_user_id(provider: str, userinfo: dict[str, Any]) -> Option
     return None
 
 
-def _extract_provider_email(provider: str, userinfo: dict[str, Any]) -> Optional[str]:
+def _extract_provider_email(provider: str, userinfo: dict[str, Any]) -> str | None:
     """Extract provider-specific email."""
     if provider == "google":
         return userinfo.get("email")

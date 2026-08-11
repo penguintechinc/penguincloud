@@ -17,17 +17,14 @@ Two requirements shape these tests:
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import fields
 from typing import Any
 
-import uuid
-
 import pytest
-from quart import Quart
-
-from penguin_dal.quart_ext import get_db
-
 from app import licensing, quotas
+from penguin_dal.quart_ext import get_db
+from quart import Quart
 
 #: The REAL resolver, captured at import time.
 #:
@@ -123,6 +120,7 @@ class TestDefaultTable:
         ],
     )
     def test_table(self, tier: str, dimension: str, expected: int) -> None:
+        """Table."""
         assert getattr(quotas.DEFAULT_TIER_LIMITS[tier], dimension) == expected
 
     def test_limits_never_narrow_as_the_tier_widens(self) -> None:
@@ -142,6 +140,7 @@ class TestLicenseConfigurableLimits:
     """The numbers are defaults; a licence may move them."""
 
     def test_payload_raises_a_limit(self) -> None:
+        """Payload raises a limit."""
         limits = quotas.limits_for_tier("community", {"max_teams": 25})
         assert limits.teams == 25
         assert limits.tenants == 1, "an override must not disturb its neighbours"
@@ -153,15 +152,12 @@ class TestLicenseConfigurableLimits:
         assert limits.teams == quotas.UNLIMITED
 
     def test_payload_can_grant_unlimited(self) -> None:
+        """Payload can grant unlimited."""
         limits = quotas.limits_for_tier("community", {"max_objects": quotas.UNLIMITED})
         assert limits.objects == quotas.UNLIMITED
 
-    @pytest.mark.parametrize(
-        "bad", ["ten", None, True, -2, 1.5, [], {}]
-    )
-    def test_a_malformed_override_falls_back_to_the_tier_default(
-        self, bad: Any
-    ) -> None:
+    @pytest.mark.parametrize("bad", ["ten", None, True, -2, 1.5, [], {}])
+    def test_a_malformed_override_falls_back_to_the_tier_default(self, bad: Any) -> None:
         """Neither 0 nor unlimited is a safe reading of a broken value.
 
         Zero locks the deployment out of its own product; unlimited hands
@@ -172,14 +168,17 @@ class TestLicenseConfigurableLimits:
         assert limits.teams == 1
 
     def test_an_unknown_tier_resolves_to_the_narrowest(self) -> None:
-        """"We do not recognise this licence" is not "unlimited"."""
-        assert quotas.limits_for_tier("platinum") == (
-            quotas.DEFAULT_TIER_LIMITS[licensing.TIER_COMMUNITY]
+        """An unrecognised licence must not read as unlimited."""
+        assert (
+            quotas.limits_for_tier("platinum")
+            == (quotas.DEFAULT_TIER_LIMITS[licensing.TIER_COMMUNITY])
         )
 
     def test_no_payload_is_the_plain_default(self) -> None:
-        assert quotas.limits_for_tier("professional", None) == (
-            quotas.DEFAULT_TIER_LIMITS[licensing.TIER_PROFESSIONAL]
+        """No payload is the plain default."""
+        assert (
+            quotas.limits_for_tier("professional", None)
+            == (quotas.DEFAULT_TIER_LIMITS[licensing.TIER_PROFESSIONAL])
         )
 
     @pytest.mark.asyncio
@@ -195,19 +194,22 @@ class TestLicenseConfigurableLimits:
         monkeypatch.delenv("SERVER_NAME", raising=False)
         monkeypatch.setenv("BASE_URL", "https://portal.penguincloud.io")
         async with app.app_context():
-            assert await _REAL_RESOLVE_LIMITS() == (
-                quotas.DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE]
+            assert (
+                await _REAL_RESOLVE_LIMITS()
+                == (quotas.DEFAULT_TIER_LIMITS[licensing.TIER_ENTERPRISE])
             )
 
     @pytest.mark.asyncio
     async def test_an_ordinary_domain_does_not(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """An ordinary domain does not."""
         monkeypatch.delenv("SERVER_NAME", raising=False)
         monkeypatch.setenv("BASE_URL", "https://customer.example.com")
         async with app.app_context():
-            assert await _REAL_RESOLVE_LIMITS() == (
-                quotas.DEFAULT_TIER_LIMITS[licensing.TIER_COMMUNITY]
+            assert (
+                await _REAL_RESOLVE_LIMITS()
+                == (quotas.DEFAULT_TIER_LIMITS[licensing.TIER_COMMUNITY])
             )
 
     @pytest.mark.asyncio
@@ -220,8 +222,9 @@ class TestLicenseConfigurableLimits:
         async with app.test_request_context(
             "/api/v1/features", headers={"Host": "portal.penguincloud.io"}
         ):
-            assert await _REAL_RESOLVE_LIMITS() == (
-                quotas.DEFAULT_TIER_LIMITS[licensing.TIER_COMMUNITY]
+            assert (
+                await _REAL_RESOLVE_LIMITS()
+                == (quotas.DEFAULT_TIER_LIMITS[licensing.TIER_COMMUNITY])
             )
 
 
@@ -247,16 +250,10 @@ class TestTenantAdminsAreCountedDeploymentWide:
             second = await db.tenants.async_insert(
                 name="B", slug=f"b-{uuid.uuid4().hex[:8]}", owner_id=1
             )
-            await db.tenant_members.async_insert(
-                tenant_id=first, user_id=1, role="admin"
-            )
-            await db.tenant_members.async_insert(
-                tenant_id=second, user_id=1, role="admin"
-            )
+            await db.tenant_members.async_insert(tenant_id=first, user_id=1, role="admin")
+            await db.tenant_members.async_insert(tenant_id=second, user_id=1, role="admin")
             # Owners are excluded, so only the two admins above count.
-            await db.tenant_members.async_insert(
-                tenant_id=second, user_id=2, role="owner"
-            )
+            await db.tenant_members.async_insert(tenant_id=second, user_id=2, role="owner")
 
             assert await quotas.count_tenant_admins() == 2
 
@@ -268,6 +265,7 @@ class TestRefusalShape:
     async def test_under_the_limit_is_allowed(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Under the limit is allowed."""
         _limits(monkeypatch, teams=1)
         assert await quotas.quota_refusal("teams", 0) is None
 
@@ -275,6 +273,7 @@ class TestRefusalShape:
     async def test_at_the_limit_refuses_the_next_one(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """At the limit refuses the next one."""
         _limits(monkeypatch, teams=1)
         refusal = await quotas.quota_refusal("teams", 1)
 
@@ -291,6 +290,7 @@ class TestRefusalShape:
     async def test_unlimited_never_refuses(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Unlimited never refuses."""
         _limits(monkeypatch, teams=quotas.UNLIMITED)
         assert await quotas.quota_refusal("teams", 10_000) is None
 
@@ -316,7 +316,7 @@ class TestRefusalShape:
     async def test_an_override_below_the_tier_default_names_no_upgrade(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """"Upgrade to the tier you are already on" is not an instruction.
+        """Upgrading to the tier you are already on is not an instruction.
 
         A licence may LOWER a limit below its tier default. minimum_tier_for
         reads the default table on purpose (it should say what the PRODUCT
@@ -357,9 +357,7 @@ class TestRefusalShape:
             ("tenants", 1, "community"),
         ],
     )
-    def test_minimum_tier_for(
-        self, dimension: str, wanted: int, expected: str
-    ) -> None:
+    def test_minimum_tier_for(self, dimension: str, wanted: int, expected: str) -> None:
         """The upgrade named must actually admit what was refused."""
         assert quotas.minimum_tier_for(dimension, wanted) == expected
 
@@ -418,9 +416,7 @@ class TestEnforcementAtTheWritePaths:
         """
         async with app.app_context():
             _limits(monkeypatch, tenants=await quotas.count_tenants() + 1)
-        monkeypatch.setattr(
-            licensing, "is_feature_entitled_blocking", lambda feature: True
-        )
+        monkeypatch.setattr(licensing, "is_feature_entitled_blocking", lambda feature: True)
 
         response = await client.post(
             "/api/v1/tenants",
@@ -469,6 +465,7 @@ class TestEnforcementAtTheWritePaths:
         admin_headers: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """Second team is refused on free."""
         async with app.app_context():
             _limits(monkeypatch, teams=await quotas.count_teams() + 1)
 
@@ -550,7 +547,7 @@ class TestEnforcementAtTheWritePaths:
         user_id: int,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """"Add as member, then promote" must not be an unmetered route.
+        """Add-as-member-then-promote must not be an unmetered route.
 
         Gating only the add path leaves the same structure reachable in two
         calls, which is the shape of every cap that has ever leaked.
@@ -712,7 +709,7 @@ class TestEnforcementAtTheWritePaths:
         admin_headers: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """"Create as viewer, then promote" must not be an unmetered route.
+        """Create-as-viewer-then-promote must not be an unmetered route.
 
         Added after a revert check: deleting the promotion gate in
         users.py left every quota test green, so the cap was enforced on
@@ -754,6 +751,7 @@ class TestEnforcementAtTheWritePaths:
         admin_headers: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """A non admin user is never metered."""
         async with app.app_context():
             _limits(monkeypatch, global_admins=await quotas.count_global_admins())
 
