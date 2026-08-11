@@ -96,6 +96,73 @@ def _clear_tenancy_cache() -> Any:
     clear_local_cache()
 
 
+@pytest_asyncio.fixture(autouse=True)
+def _reset_killkrill_manager() -> Any:
+    """Disable the process-wide KillKrillManager singleton after every test.
+
+    Discovered while adding tests/api/test_background_tasks.py, the first
+    tests in this suite to ever drive the app's real ASGI lifespan
+    (app.test_app()). Doing so runs create_app's `_init_killkrill`
+    before_serving hook, which -- because KILLKRILL_ENABLED defaults to
+    "true" and TestingConfig does not override it -- flips the SINGLETON
+    `app.killkrill.killkrill_manager` to enabled=True for the rest of the
+    pytest PROCESS. Every subsequent test's HTTP request then also calls
+    killkrill_manager.log() via middleware.setup_request_logging's
+    after_request hook, appending to an in-memory queue nothing ever
+    flushes (app.killkrill.KillKrillManager._flush_queues is itself dead
+    code -- not called from anywhere) and emitting one
+    `datetime.utcnow()` DeprecationWarning per request. Without this reset
+    the effect is silent everywhere except the warnings count, but it is a
+    genuine test-isolation gap: which tests run before a lifespan-driving
+    one changes their behaviour.
+    """
+    yield
+    from app.killkrill import killkrill_manager
+
+    killkrill_manager.enabled = False
+    killkrill_manager.client = None
+    killkrill_manager._log_queue.clear()
+    killkrill_manager._metric_queue.clear()
+
+
+@pytest_asyncio.fixture(autouse=True)
+def _clear_health_cache() -> Any:
+    """Empty the health poller's module-level cache state around every test.
+
+    Same reasoning as _clear_tenancy_cache above: app.health_cache keeps a
+    per-process in-memory fallback dict plus a memoised Valkey client, both
+    module-level. Without this, a connection_id reused across tests (SQLite
+    autoincrement restarts per test DB, but the shared file-based DB means
+    ids are NOT guaranteed test-local — see conftest's TEST_DB_PATH comment)
+    could read another test's cached health, and a test that monkeypatches
+    CACHE_HOST to exercise the Valkey path would leak a stale client into
+    whatever runs next.
+    """
+    from app.health_cache import clear_local_cache, reset_cache_client_for_tests
+
+    clear_local_cache()
+    reset_cache_client_for_tests()
+    yield
+    clear_local_cache()
+    reset_cache_client_for_tests()
+
+
+@pytest_asyncio.fixture(autouse=True)
+def _reset_tracked_health_series() -> Any:
+    """Forget which connections hold a Prometheus series around every test.
+
+    Same module-level-state reasoning as _clear_health_cache: without
+    this, a connection_id one test's sweep tracked can make a LATER
+    test's "did this series get released" assertion pass or fail based on
+    execution order rather than its own fixture data.
+    """
+    from app.health_poller import reset_tracked_connections_for_tests
+
+    reset_tracked_connections_for_tests()
+    yield
+    reset_tracked_connections_for_tests()
+
+
 @pytest_asyncio.fixture
 async def app_context(app: Quart) -> AsyncGenerator[None]:
     """Provide active app context for tests calling model functions directly."""

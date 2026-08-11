@@ -20,8 +20,8 @@ own hook, so the real client, real header assembly and real retry loop are
 all exercised; only the socket is replaced.
 """
 
-from typing import Any
 import uuid
+from typing import Any
 
 import httpx
 import pytest
@@ -148,7 +148,14 @@ def upstream(monkeypatch: pytest.MonkeyPatch) -> _Upstream:
 
     fake = _Upstream()
 
-    async def _get_transport(timeout: float = 10.0) -> Any:
+    # noqa justification: this replaces app.adapters.transport.get_transport
+    # via monkeypatch, so its parameter must literally be named `timeout` to
+    # accept that function's existing `timeout=` keyword call sites -- the
+    # same `timeout` parameter ASYNC109 flags, unsuppressed, on the real
+    # get_transport it stands in for. Renaming here alone would break the
+    # substitution without fixing anything; changing the real function's
+    # calling convention is out of scope for this fixture.
+    async def _get_transport(timeout: float = 10.0) -> Any:  # noqa: ASYNC109
         instance = transport_module.Transport(timeout=timeout)
         instance._client = httpx.AsyncClient(
             transport=httpx.MockTransport(fake.handler),
@@ -201,9 +208,7 @@ class TestAllowlistMatrix:
         tenant_id = await _create_tenant(client, headers, "ProxyUnlisted")
         conn_id = await _create_connection(app, tenant_id)
 
-        response = await client.get(
-            _proxy_url(conn_id, "/admin/users"), headers=headers
-        )
+        response = await client.get(_proxy_url(conn_id, "/admin/users"), headers=headers)
 
         assert response.status_code == 404
         assert upstream.requests == [], "denied route still reached the product"
@@ -218,9 +223,7 @@ class TestAllowlistMatrix:
         tenant_id = await _create_tenant(client, headers, "ProxyMethod")
         conn_id = await _create_connection(app, tenant_id)
 
-        response = await client.post(
-            _proxy_url(conn_id, "/healthz"), headers=headers, json={}
-        )
+        response = await client.post(_proxy_url(conn_id, "/healthz"), headers=headers, json={})
 
         assert response.status_code == 404
         assert upstream.requests == []
@@ -238,9 +241,7 @@ class TestAllowlistMatrix:
         _, outsider_email = await _register(client)
         outsider_headers = await _headers(client, outsider_email)
 
-        response = await client.get(
-            _proxy_url(conn_id, "/healthz"), headers=outsider_headers
-        )
+        response = await client.get(_proxy_url(conn_id, "/healthz"), headers=outsider_headers)
 
         assert response.status_code == 403
         assert upstream.requests == []
@@ -318,9 +319,7 @@ class TestAllowlistMatrix:
         original = transport_module.MAX_RESPONSE_SIZE
         transport_module.MAX_RESPONSE_SIZE = 128
         try:
-            response = await client.get(
-                _proxy_url(conn_id, "/healthz"), headers=headers
-            )
+            response = await client.get(_proxy_url(conn_id, "/healthz"), headers=headers)
         finally:
             transport_module.MAX_RESPONSE_SIZE = original
 
@@ -462,9 +461,7 @@ class TestCredentialContainment:
             api_secret=PRODUCT_SECRET_2,
         )
 
-        blob = base64.b64encode(
-            f"{PRODUCT_SECRET}:{PRODUCT_SECRET_2}".encode()
-        ).decode()
+        blob = base64.b64encode(f"{PRODUCT_SECRET}:{PRODUCT_SECRET_2}".encode()).decode()
         upstream.body = f'{{"echo": "Basic {blob}"}}'.encode()
 
         response = await client.get(_proxy_url(conn_id, "/healthz"), headers=headers)
@@ -567,9 +564,7 @@ class TestDelegatedAdminThroughProxy:
             # The premise: authority is delegated, not direct.
             assert await get_user_tenant_role(int(msp_user["id"]), child_id) is None
 
-        response = await client.get(
-            _proxy_url(conn_id, "/healthz"), headers=msp_headers
-        )
+        response = await client.get(_proxy_url(conn_id, "/healthz"), headers=msp_headers)
 
         assert response.status_code == 200, await response.get_data()
         assert upstream.requests, "delegated admin was not proxied through"
@@ -644,9 +639,7 @@ class TestTenantSubstitution:
         tenant_id = await _create_tenant(client, headers, "ProxySub")
         conn_id = await _create_connection(app, tenant_id, external_id="acme-corp-9000")
 
-        response = await client.get(
-            _proxy_url(conn_id, "/orgs/{tenant}/vms"), headers=headers
-        )
+        response = await client.get(_proxy_url(conn_id, "/orgs/{tenant}/vms"), headers=headers)
 
         assert response.status_code == 200, await response.get_data()
         assert upstream.last.url.path == "/orgs/acme-corp-9000/vms"

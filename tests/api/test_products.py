@@ -11,6 +11,10 @@ from typing import Any
 import pytest
 
 PLAINTEXT_KEY = "sekrit-api-key-value"
+# S105 (hardcoded-password) for both: synthetic fixture values this test
+# asserts are masked on every egress path (see module docstring), not
+# credentials. Covered by pyproject.toml's tests/** per-file-ignore, not an
+# inline noqa -- see that file's comment for why the rule is scoped there.
 PLAINTEXT_SECRET = "sekrit-api-secret-value"
 MASK = "***"
 
@@ -33,9 +37,7 @@ async def _register_product(
     }
     payload.update(overrides)
     response = await client.post("/api/v1/products", headers=headers, json=payload)
-    assert (
-        response.status_code == 201
-    ), f"Failed to register product: {await response.get_json()}"
+    assert response.status_code == 201, f"Failed to register product: {await response.get_json()}"
     body: dict[str, Any] = await response.get_json()
     return body
 
@@ -73,9 +75,7 @@ async def test_get_product_masks_credentials(
     """GET /products/<id> masks api_key and api_secret."""
     created = await _register_product(client, admin_headers, tenant_id)
 
-    response = await client.get(
-        f"/api/v1/products/{created['id']}", headers=admin_headers
-    )
+    response = await client.get(f"/api/v1/products/{created['id']}", headers=admin_headers)
     assert response.status_code == 200
     _assert_masked(await response.get_json())
 
@@ -87,9 +87,7 @@ async def test_list_products_masks_credentials(
     """GET /products masks credentials on every row in the collection."""
     await _register_product(client, admin_headers, tenant_id)
 
-    response = await client.get(
-        f"/api/v1/products?tenant_id={tenant_id}", headers=admin_headers
-    )
+    response = await client.get(f"/api/v1/products?tenant_id={tenant_id}", headers=admin_headers)
     assert response.status_code == 200
     body = await response.get_json()
     assert body["count"] >= 1
@@ -158,19 +156,15 @@ async def test_health_check_records_status_and_timestamp(
     """
     created = await _register_product(client, admin_headers, tenant_id)
 
-    from app.adapters.base import HealthResult, AdapterContext
+    from app.adapters.base import AdapterContext, HealthResult
     from app.adapters.nest import NestAdapter
 
     async def mock_health(self: Any, ctx: AdapterContext) -> HealthResult:
-        return HealthResult(
-            status="healthy", status_code=200, response_time_ms=7, error=None
-        )
+        return HealthResult(status="healthy", status_code=200, response_time_ms=7, error=None)
 
     monkeypatch.setattr(NestAdapter, "health", mock_health)
 
-    response = await client.post(
-        f"/api/v1/products/{created['id']}/test", headers=admin_headers
-    )
+    response = await client.post(f"/api/v1/products/{created['id']}/test", headers=admin_headers)
     assert response.status_code == 200
     assert (await response.get_json())["status"] == "healthy"
 
@@ -194,20 +188,16 @@ async def test_health_endpoint_reports_recorded_check(
     """GET /products/<id>/health surfaces what the test run recorded."""
     created = await _register_product(client, admin_headers, tenant_id)
 
-    from app.adapters.base import HealthResult, AdapterContext
+    from app.adapters.base import AdapterContext, HealthResult
     from app.adapters.nest import NestAdapter
 
     async def mock_health(self: Any, ctx: AdapterContext) -> HealthResult:
-        return HealthResult(
-            status="degraded", status_code=429, response_time_ms=0, error=None
-        )
+        return HealthResult(status="degraded", status_code=429, response_time_ms=0, error=None)
 
     monkeypatch.setattr(NestAdapter, "health", mock_health)
     await client.post(f"/api/v1/products/{created['id']}/test", headers=admin_headers)
 
-    response = await client.get(
-        f"/api/v1/products/{created['id']}/health", headers=admin_headers
-    )
+    response = await client.get(f"/api/v1/products/{created['id']}/health", headers=admin_headers)
     assert response.status_code == 200
 
     body = await response.get_json()
@@ -246,9 +236,7 @@ async def test_set_product_tenant_mapping_creates_new_mapping(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
     """POST /products/<id>/tenants/<id>/map creates a new mapping."""
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="gough"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="gough")
     product_id = created["id"]
 
     response = await client.post(
@@ -269,9 +257,7 @@ async def test_get_product_tenant_mapping_returns_existing(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
     """GET /products/<id>/tenants/<id>/map returns existing mapping."""
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="gough"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="gough")
     product_id = created["id"]
 
     # Create mapping first
@@ -296,9 +282,7 @@ async def test_update_product_tenant_mapping_updates_external_id(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
     """PUT /products/<id>/tenants/<id>/map updates external_id."""
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="gough"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="gough")
     product_id = created["id"]
 
     # Create mapping
@@ -324,9 +308,7 @@ async def test_delete_product_tenant_mapping_removes_mapping(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
     """DELETE /products/<id>/tenants/<id>/map removes the mapping."""
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="gough"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="gough")
     product_id = created["id"]
 
     # Create mapping
@@ -356,9 +338,7 @@ async def test_product_tenant_mapping_validates_external_kind_for_gough(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
     """Gough product type requires tenant_id external_kind."""
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="gough"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="gough")
     product_id = created["id"]
 
     response = await client.post(
@@ -376,9 +356,7 @@ async def test_product_tenant_mapping_validates_external_kind_for_waddleai(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
     """WaddleAI product type requires organization_id external_kind."""
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="waddleai"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="waddleai")
     product_id = created["id"]
 
     response = await client.post(
@@ -396,9 +374,7 @@ async def test_product_tenant_mapping_validates_external_kind_for_waddlebot(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
     """WaddleBot product type requires namespace external_kind."""
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="waddlebot"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="waddlebot")
     product_id = created["id"]
 
     response = await client.post(
@@ -416,9 +392,7 @@ async def test_product_tenant_mapping_rejects_unsupported_product_type(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
     """Product types without mapping support return 400."""
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="squawk"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="squawk")
     product_id = created["id"]
 
     response = await client.post(
@@ -471,9 +445,7 @@ async def test_product_tenant_mapping_requires_admin_for_write(
     outsider is refused by the membership check and would leave the
     admin-vs-member role gate — the thing this test names — unexercised.
     """
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="gough"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="gough")
     product_id = created["id"]
 
     member_headers = await _member_of(client, admin_headers, tenant_id, "member")
@@ -601,8 +573,7 @@ async def test_product_tenant_mapping_rejects_cross_tenant_bind(
             client, victim_headers, victim_tenant, product_type="gough"
         )
         check = await client.get(
-            f"/api/v1/products/{victim_product['id']}"
-            f"/tenants/{victim_tenant}/map",
+            f"/api/v1/products/{victim_product['id']}" f"/tenants/{victim_tenant}/map",
             headers=victim_headers,
         )
         assert check.status_code == 404
@@ -626,9 +597,7 @@ async def test_product_tenant_mapping_allows_descendant_bind_by_admin(
     provider_headers, _ = await _new_owner(client)
 
     provider_tenant = await _make_tenant(client, provider_headers, "Prov")
-    customer_tenant = await _make_tenant(
-        client, provider_headers, "Cust", parent=provider_tenant
-    )
+    customer_tenant = await _make_tenant(client, provider_headers, "Cust", parent=provider_tenant)
 
     created = await _register_product(
         client, provider_headers, provider_tenant, product_type="waddleai"
@@ -657,12 +626,8 @@ async def test_product_tenant_mapping_descendant_bind_denied_to_member(
     provider_headers, _ = await _new_owner(client)
 
     provider_tenant = await _make_tenant(client, provider_headers, "Prov")
-    customer_tenant = await _make_tenant(
-        client, provider_headers, "Cust", parent=provider_tenant
-    )
-    member_headers = await _member_of(
-        client, provider_headers, provider_tenant, "member"
-    )
+    customer_tenant = await _make_tenant(client, provider_headers, "Cust", parent=provider_tenant)
+    member_headers = await _member_of(client, provider_headers, provider_tenant, "member")
 
     created = await _register_product(
         client, provider_headers, provider_tenant, product_type="gough"
@@ -681,9 +646,7 @@ async def test_product_tenant_mapping_get_not_found_returns_404(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
     """GET nonexistent mapping returns 404."""
-    created = await _register_product(
-        client, admin_headers, tenant_id, product_type="gough"
-    )
+    created = await _register_product(client, admin_headers, tenant_id, product_type="gough")
     product_id = created["id"]
 
     response = await client.get(

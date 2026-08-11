@@ -1,8 +1,8 @@
 """Tests for hierarchical tenancy and delegated admin access control."""
 
-import jwt
 from typing import Any
 
+import jwt
 import pytest
 from quart import Quart
 
@@ -74,9 +74,7 @@ class TestHierarchicalTenancyMatrix:
         )
 
         # Switch to it (should work)
-        response = await client.post(
-            f"/api/v1/tenants/{tenant_id}/switch", headers=auth_headers
-        )
+        response = await client.post(f"/api/v1/tenants/{tenant_id}/switch", headers=auth_headers)
         assert response.status_code == 200
         data = await response.get_json()
         assert "access_token" in data
@@ -88,9 +86,7 @@ class TestHierarchicalTenancyMatrix:
         assert payload["tenant"] == str(tenant_id)
 
     @pytest.mark.asyncio
-    async def test_provider_admin_can_switch_to_descendant(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_provider_admin_can_switch_to_descendant(self, client: Any, app: Quart) -> None:
         """Provider admin can switch to descendant tenant via delegated admin."""
         # Create two users: provider admin and descendant member
         import uuid
@@ -147,9 +143,7 @@ class TestHierarchicalTenancyMatrix:
         from app.models import get_db
 
         db = get_db()
-        update_result = await db(db.tenants.id == customer_id).update(
-            parent_tenant_id=provider_id
-        )
+        update_result = await db(db.tenants.id == customer_id).update(parent_tenant_id=provider_id)
         assert update_result is not None
 
         # Add member to customer (not provider)
@@ -167,9 +161,7 @@ class TestHierarchicalTenancyMatrix:
         assert response.status_code == 403
 
         # Admin can switch to customer (delegated admin)
-        response = await client.post(
-            f"/api/v1/tenants/{customer_id}/switch", headers=admin_headers
-        )
+        response = await client.post(f"/api/v1/tenants/{customer_id}/switch", headers=admin_headers)
         assert response.status_code == 200
         data = await response.get_json()
         token = data["access_token"]
@@ -201,25 +193,17 @@ class TestHierarchicalTenancyMatrix:
         other_headers = {"Authorization": f"Bearer {other_body['access_token']}"}
 
         # User 1 creates tenant A
-        tenant_a = await self._create_tenant_as_user(
-            client, auth_headers, "Tenant A", "tenant-a"
-        )
+        tenant_a = await self._create_tenant_as_user(client, auth_headers, "Tenant A", "tenant-a")
 
         # User 2 creates tenant B
-        tenant_b = await self._create_tenant_as_user(
-            client, other_headers, "Tenant B", "tenant-b"
-        )
+        tenant_b = await self._create_tenant_as_user(client, other_headers, "Tenant B", "tenant-b")
 
         # User 1 tries to switch to B (not a member, no ancestor bridge)
-        response = await client.post(
-            f"/api/v1/tenants/{tenant_b}/switch", headers=auth_headers
-        )
+        response = await client.post(f"/api/v1/tenants/{tenant_b}/switch", headers=auth_headers)
         assert response.status_code == 403
 
         # User 2 tries to switch to A
-        response = await client.post(
-            f"/api/v1/tenants/{tenant_a}/switch", headers=other_headers
-        )
+        response = await client.post(f"/api/v1/tenants/{tenant_a}/switch", headers=other_headers)
         assert response.status_code == 403
 
     @pytest.mark.asyncio
@@ -232,9 +216,7 @@ class TestHierarchicalTenancyMatrix:
             client, auth_headers, "Home Tenant", "home-tenant"
         )
 
-        response = await client.post(
-            f"/api/v1/tenants/{tenant_id}/switch", headers=auth_headers
-        )
+        response = await client.post(f"/api/v1/tenants/{tenant_id}/switch", headers=auth_headers)
         assert response.status_code == 200
         data = await response.get_json()
         token = data["access_token"]
@@ -285,9 +267,7 @@ class TestHierarchicalTenancyMatrix:
         from app.models import get_db
 
         db = get_db()
-        update_result = await db(db.tenants.id == customer_id).update(
-            parent_tenant_id=provider_id
-        )
+        update_result = await db(db.tenants.id == customer_id).update(parent_tenant_id=provider_id)
         assert update_result is not None
 
         # Add member to customer only (not provider)
@@ -303,17 +283,13 @@ class TestHierarchicalTenancyMatrix:
         assert data["tenants"][0]["id"] == customer_id
 
         # Member's include_children shows nothing extra (not admin anywhere)
-        response = await client.get(
-            "/api/v1/tenants?include_children=true", headers=member_headers
-        )
+        response = await client.get("/api/v1/tenants?include_children=true", headers=member_headers)
         assert response.status_code == 200
         data = await response.get_json()
         assert len(data["tenants"]) == 1
 
         # Admin's include_children shows provider + customer
-        response = await client.get(
-            "/api/v1/tenants?include_children=true", headers=auth_headers
-        )
+        response = await client.get("/api/v1/tenants?include_children=true", headers=auth_headers)
         assert response.status_code == 200
         data = await response.get_json()
         assert len(data["tenants"]) == 2

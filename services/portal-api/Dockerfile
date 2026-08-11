@@ -24,11 +24,14 @@ FROM python:3.13-slim-bookworm@sha256:01f42367a0a94ad4bc17111776fd66e3500c1d87c1
 
 WORKDIR /app
 
-# Install runtime dependencies only
+# Install runtime dependencies only. Explicit numeric UID/GID (1000) rather
+# than an unqualified name: matches devops-kubernetes.md's securityContext
+# (runAsUser: 1000) and resolves on host systems that can't look a named
+# user up (hadolint DL3066).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5=15.18-0+deb12u1 \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd -r appuser && useradd -r -g appuser appuser
+    && groupadd -r -g 1000 appuser && useradd -r -u 1000 -g appuser appuser
 
 # Copy python packages from builder
 COPY --from=builder /usr/local/lib/python3.13/site-packages \
@@ -38,7 +41,7 @@ COPY --from=builder /usr/local/lib/python3.13/site-packages \
 COPY --chown=appuser:appuser . .
 
 # Switch to non-root user
-USER appuser
+USER 1000
 
 # Environment variables
 # Container binds all interfaces by design (it's the only process in its
@@ -48,12 +51,18 @@ ENV PORT=8000
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Expose port
+# Expose ports: 8000 the API, 9090 Prometheus metrics (health poller --
+# app/health_poller.py start_metrics_server, a separate listener from the
+# authenticated API port so a default unauthenticated scrape still works).
 EXPOSE 8000
+EXPOSE 9090
 
-# Health check (native Python, no curl needed)
+# Health check (native Python, no curl needed). JSON/exec form: no shell,
+# so an uncaught exception from http.client (e.g. connection refused)
+# already exits non-zero on its own -- there was never a code path where a
+# trailing shell `|| exit 1` did anything the script's own exit() did not.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python3 -c "import http.client; c = http.client.HTTPConnection('localhost', 8000); c.request('GET', '/healthz'); exit(0 if c.getresponse().status == 200 else 1)" || exit 1
+    CMD ["python3", "-c", "import http.client; c = http.client.HTTPConnection('localhost', 8000); c.request('GET', '/healthz'); exit(0 if c.getresponse().status == 200 else 1)"]
 
 # Run with hypercorn (async ASGI server for Quart)
 CMD ["hypercorn", "--bind", "0.0.0.0:8000", "--workers", "1", \

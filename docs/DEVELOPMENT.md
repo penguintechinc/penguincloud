@@ -117,6 +117,48 @@ WEBUI_PORT=3000
 REDIS_PORT=6379
 ```
 
+### Health Cache (Valkey/Redis) — `portal-api`
+
+`app/health_poller.py`'s background health sweep (`GET /api/v1/products/health`)
+writes through `app/health_cache.py` to a shared Valkey/Redis-protocol store, so
+every worker/pod sees the same cached status. The variables it reads:
+
+```bash
+CACHE_HOST=            # unset (default) = no shared cache; see below
+CACHE_PORT=6379
+CACHE_DB=0
+CACHE_PASS=
+CACHE_SSL=false
+```
+
+**`REDIS_URL` is NOT read by this code.** `docker-compose.yml`'s `portal-api`
+service sets `REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0` for a
+different, older integration path — setting only `REDIS_URL` and expecting
+the health cache to be shared is the trap this note exists to prevent. Set
+`CACHE_HOST` (at minimum) explicitly.
+
+**Unset `CACHE_HOST` is a supported, not a broken, state** — the poller
+degrades to a per-process in-memory fallback (Task 6 requirement 4) rather
+than crashing or losing data. The service logs an unmistakable WARNING at
+startup when this is the case (`health_cache_is_per_process_only`), because
+the practical consequence is easy to miss otherwise: `GET
+/api/v1/products/health` then returns each worker's OWN last-observed
+status rather than a value shared across workers or replicas — two requests
+that happen to land on different pods can disagree about the same
+connection's health. Set `CACHE_HOST` (pointing at a Valkey instance --
+`valkey/valkey:8-bookworm`, the org standard; see devops-containers.md) to
+get the shared-cache behaviour the brief describes. No `k8s/helm/portal-api`
+values currently wire this up — `k8s/helm/portal-api/` is still a stub
+(`templates/_helpers.tpl` only); Phase 7 owns authoring the chart, including
+a `CACHE_HOST` default pointing at wherever it deploys Valkey.
+
+**Prometheus metrics** (`app/health_poller.py`) are served on `:9090`,
+separate from the API's `:8000` (see `services/portal-api/Dockerfile`'s
+`EXPOSE`). Nothing in this repo currently scrapes it —
+`infrastructure/monitoring/prometheus/`, which `docker-compose.yml` mounts a
+config from, does not exist as a directory. The port is real and open; a
+Prometheus server pointed at it will work, but none is wired up yet.
+
 ### Database Initialization
 
 ```bash

@@ -132,14 +132,14 @@ def main() -> int:
         sort_keys=True,
         default_flow_style=False,
         allow_unicode=True,
-        # PyYAML's width is a SOFT limit: it folds at the first break
-        # opportunity AFTER the column, so an emitted line can exceed it by
-        # the length of the token being placed. At 120 a docstring produced
-        # a 131-character line and tripped yamllint's 130 limit. 100 leaves
-        # 30 characters of headroom, which is more than any single YAML
-        # token this document emits, so the class of failure is closed
-        # rather than the one line being shortened.
-        width=100,
+        # PyYAML's width is a soft break-at-or-after-this-column preference,
+        # not a hard cap -- it can overshoot to the next space by the length
+        # of one word. .yamllint.yml's line-length max is 130. width=120
+        # overshot it twice independently: a 131-char line from a docstring,
+        # and GET /api/v1/products/health's description. 90 leaves a 40-char
+        # margin -- more headroom than either overshoot needed -- so the
+        # class of failure is closed rather than one line being shortened.
+        width=90,
     )
     header = (
         "# GENERATED FILE — DO NOT EDIT.\n"
@@ -154,7 +154,7 @@ def main() -> int:
             return 1
         if args.output.read_text() != document:
             print(
-                f"{args.output} is stale; run `make openapi` and commit " "the result",
+                f"{args.output} is stale; run `make openapi` and commit the result",
                 file=sys.stderr,
             )
             return 1

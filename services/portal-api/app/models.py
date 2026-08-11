@@ -15,6 +15,7 @@ from penguin_dal.quart_ext import get_db
 #: Bound to a name so the expression reads as a SQL predicate and does not trip
 #: flake8's E712, which targets Python identity comparisons rather than these.
 SQL_FALSE: Any = False
+SQL_TRUE: Any = True
 
 #: Placeholder substituted for stored credentials on every read that can reach
 #: a response body. Matches the pre-migration masking value byte-for-byte.
@@ -59,6 +60,7 @@ __all__ = [
     "create_product_connection",
     "get_product_connection_by_id",
     "get_product_connection_raw",
+    "get_active_product_connections",
     "get_tenant_product_connections",
     "get_tenant_product_types",
     "update_product_health",
@@ -630,6 +632,24 @@ async def get_product_connection_raw(conn_id: int) -> dict[str, Any] | None:
         # api_key and api_secret remain encrypted at this layer
         return conn
     return None
+
+
+async def get_active_product_connections() -> list[dict[str, Any]]:
+    """Get every ACTIVE product connection, across every tenant (async).
+
+    INTERNAL USE ONLY, like get_product_connection_raw: credentials remain
+    encrypted ciphertext, never masked or dropped. Feeds the background
+    health poller (app/health_poller.py), which sweeps every connection
+    once per interval regardless of which tenant owns it -- a per-tenant
+    accessor would need one query per tenant per sweep for the same rows.
+
+    is_active is honoured here, not just at connection creation: a
+    deactivated connection must stop being polled immediately rather than
+    the poller resurrecting its health status via a stale kill switch.
+    """
+    db = get_db()
+    rows = await db(db.product_connections.is_active == SQL_TRUE).select()
+    return [dict(row) for row in rows]
 
 
 async def get_tenant_product_connections(tenant_id: int) -> list[dict[str, Any]]:

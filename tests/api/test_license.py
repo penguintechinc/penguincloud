@@ -1,5 +1,4 @@
-"""
-License Server Integration Tests
+"""License Server Integration Tests.
 
 Tests for license validation, feature gating, and checkin.
 """
@@ -10,13 +9,13 @@ import pytest
 
 
 class TestLicenseValidation:
-    """Test license validation on startup"""
+    """Test license validation on startup."""
 
     @pytest.mark.asyncio
     async def test_license_status_endpoint(
         self, client: Any, admin_headers: dict[str, str]
     ) -> None:
-        """Test getting license status"""
+        """Test getting license status."""
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
         assert response.status_code == 200
@@ -29,7 +28,7 @@ class TestLicenseValidation:
     async def test_license_status_requires_admin(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
-        """Test that license endpoint requires admin"""
+        """Test that license endpoint requires admin."""
         response = await client.get("/api/v1/license/status", headers=auth_headers)
 
         assert response.status_code == 403
@@ -38,7 +37,7 @@ class TestLicenseValidation:
     async def test_license_contains_expiration(
         self, client: Any, admin_headers: dict[str, str]
     ) -> None:
-        """Test that license status includes expiration"""
+        """Test that license status includes expiration."""
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
         assert response.status_code == 200
@@ -47,12 +46,10 @@ class TestLicenseValidation:
 
 
 class TestFeatureGating:
-    """Test feature gating based on license"""
+    """Test feature gating based on license."""
 
     @pytest.mark.asyncio
-    async def test_sso_feature_gating(
-        self, client: Any, admin_headers: dict[str, str]
-    ) -> None:
+    async def test_sso_feature_gating(self, client: Any, admin_headers: dict[str, str]) -> None:
         """Test SSO feature is gated by license.
 
         Was xfailed on a 500: ``RELEASE_MODE`` is false under TESTING, so
@@ -76,7 +73,7 @@ class TestFeatureGating:
     async def test_audit_logging_feature(
         self, client: Any, admin_headers: dict[str, str], tenant_id: int
     ) -> None:
-        """Test audit logging access"""
+        """Test audit logging access."""
         response = await client.get(
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
         )
@@ -85,10 +82,8 @@ class TestFeatureGating:
         assert response.status_code in [200, 402, 403]
 
     @pytest.mark.asyncio
-    async def test_feature_check_manual(
-        self, client: Any, admin_headers: dict[str, str]
-    ) -> None:
-        """Test manually checking feature"""
+    async def test_feature_check_manual(self, client: Any, admin_headers: dict[str, str]) -> None:
+        """Test manually checking feature."""
         # This tests the require_feature decorator
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
@@ -102,13 +97,13 @@ class TestFeatureGating:
 
 
 class TestLicenseTiers:
-    """Test different license tiers"""
+    """Test different license tiers."""
 
     @pytest.mark.asyncio
     async def test_community_tier_features(
         self, client: Any, admin_headers: dict[str, str]
     ) -> None:
-        """Test features available in community tier"""
+        """Test features available in community tier."""
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
         assert response.status_code == 200
@@ -122,7 +117,7 @@ class TestLicenseTiers:
     async def test_professional_tier_features(
         self, client: Any, admin_headers: dict[str, str]
     ) -> None:
-        """Test features in professional tier"""
+        """Test features in professional tier."""
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
         assert response.status_code == 200
@@ -135,7 +130,7 @@ class TestLicenseTiers:
     async def test_enterprise_tier_features(
         self, client: Any, admin_headers: dict[str, str]
     ) -> None:
-        """Test features in enterprise tier"""
+        """Test features in enterprise tier."""
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
         assert response.status_code == 200
@@ -146,13 +141,13 @@ class TestLicenseTiers:
 
 
 class TestLicenseLimits:
-    """Test usage limits from license"""
+    """Test usage limits from license."""
 
     @pytest.mark.asyncio
     async def test_license_limits_returned(
         self, client: Any, admin_headers: dict[str, str]
     ) -> None:
-        """Test that license returns usage limits"""
+        """Test that license returns usage limits."""
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
         assert response.status_code == 200
@@ -162,10 +157,8 @@ class TestLicenseLimits:
             assert isinstance(data["limits"], dict)
 
     @pytest.mark.asyncio
-    async def test_user_count_limit(
-        self, client: Any, admin_headers: dict[str, str]
-    ) -> None:
-        """Test user count limit enforcement"""
+    async def test_user_count_limit(self, client: Any, admin_headers: dict[str, str]) -> None:
+        """Test user count limit enforcement."""
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
         assert response.status_code == 200
@@ -175,10 +168,8 @@ class TestLicenseLimits:
             assert limits["user_count"] > 0
 
     @pytest.mark.asyncio
-    async def test_team_count_limit(
-        self, client: Any, admin_headers: dict[str, str]
-    ) -> None:
-        """Test team count limit enforcement"""
+    async def test_team_count_limit(self, client: Any, admin_headers: dict[str, str]) -> None:
+        """Test team count limit enforcement."""
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
         assert response.status_code == 200
@@ -189,11 +180,11 @@ class TestLicenseLimits:
 
 
 class TestLicenseKeepalive:
-    """Test license keepalive/checkin"""
+    """Test license keepalive/checkin."""
 
     @pytest.mark.asyncio
     async def test_keepalive_background_task(self, client: Any) -> None:
-        """Test that keepalive task runs"""
+        """Test that keepalive task runs."""
         # This would need to check if task is scheduled
         # For now, just verify endpoint doesn't error
         response = await client.get("/healthz")
@@ -202,7 +193,7 @@ class TestLicenseKeepalive:
 
     @pytest.mark.asyncio
     async def test_keepalive_includes_usage(self, client: Any) -> None:
-        """Test that keepalive reports usage stats"""
+        """Test that keepalive reports usage stats."""
         # Keepalive should include:
         # - active_users
         # - team_count
@@ -214,11 +205,11 @@ class TestLicenseKeepalive:
 
 
 class TestInvalidLicense:
-    """Test handling of invalid licenses"""
+    """Test handling of invalid licenses."""
 
     @pytest.mark.asyncio
     async def test_invalid_license_format(self, client: Any) -> None:
-        """Test handling invalid license format"""
+        """Test handling invalid license format."""
         # This would need env var override for testing
         # Verify app handles gracefully
         response = await client.get("/healthz")
@@ -227,10 +218,8 @@ class TestInvalidLicense:
         assert response.status_code in [200, 503]
 
     @pytest.mark.asyncio
-    async def test_expired_license(
-        self, client: Any, admin_headers: dict[str, str]
-    ) -> None:
-        """Test handling expired license"""
+    async def test_expired_license(self, client: Any, admin_headers: dict[str, str]) -> None:
+        """Test handling expired license."""
         response = await client.get("/api/v1/license/status", headers=admin_headers)
 
         assert response.status_code == 200

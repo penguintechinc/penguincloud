@@ -26,13 +26,12 @@ promises they are all present.
 
 from __future__ import annotations
 
+from dataclasses import asdict as dataclass_asdict
 from dataclasses import dataclass
 from typing import Any
 
 from quart import Blueprint
 from quart_schema import validate_response
-
-from dataclasses import asdict as dataclass_asdict
 
 from . import devmode, flags, licensing, quotas
 from .middleware import auth_required, get_current_user

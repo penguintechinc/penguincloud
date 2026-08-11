@@ -31,14 +31,13 @@ from typing import Any
 
 import jwt
 import pytest
-from quart import Quart
-
 from app.adapters.base import PRODUCT_SCOPE_NAMESPACE, RBACEnforcer, product_scope
 from app.adapters.gough import GOUGH_ROUTE_ALLOWLIST, PRODUCT_TYPE
 from app.tenancy.authz import (
     PRODUCT_SCOPE_ACTIONS,
     is_valid_product_type_for_scope,
 )
+from quart import Quart
 
 GOUGH_READ = product_scope(PRODUCT_TYPE, "read")
 GOUGH_MANAGE = product_scope(PRODUCT_TYPE, "manage")
@@ -120,9 +119,7 @@ class TestScopesAreMinted:
     """The mint side. A rule may only require what something issues."""
 
     @pytest.mark.asyncio
-    async def test_connecting_gough_mints_the_gough_scopes(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_connecting_gough_mints_the_gough_scopes(self, client: Any, app: Quart) -> None:
         """A tenant with a Gough connection resolves Gough scopes."""
         user_id, email = await _register(client)
         headers = await _headers(client, email)
@@ -153,9 +150,7 @@ class TestScopesAreMinted:
         tenant_id = await _create_tenant(client, headers, "MintToken")
         await _connect(app, tenant_id, PRODUCT_TYPE)
 
-        response = await client.post(
-            f"/api/v1/tenants/{tenant_id}/switch", headers=headers
-        )
+        response = await client.post(f"/api/v1/tenants/{tenant_id}/switch", headers=headers)
         assert response.status_code == 200, await response.get_json()
         body = await response.get_json()
 
@@ -167,14 +162,10 @@ class TestScopesAreMinted:
         # And the minted scope satisfies a real rule from the shipped
         # allowlist -- the mint and enforce halves meeting on live data.
         for rule in GOUGH_ROUTE_ALLOWLIST:
-            assert RBACEnforcer(rule.required_scope).enforce(
-                payload["scope"]
-            ), rule.path_regex
+            assert RBACEnforcer(rule.required_scope).enforce(payload["scope"]), rule.path_regex
 
     @pytest.mark.asyncio
-    async def test_a_viewer_gets_read_but_never_manage(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_a_viewer_gets_read_but_never_manage(self, client: Any, app: Quart) -> None:
         """Expansion is derived from the coarse grant, so it cannot widen.
 
         A bundle without ``products:manage`` must not acquire a per-product
@@ -218,9 +209,7 @@ class TestScopesAreMinted:
         owner_headers = await _headers(client, owner_email)
         delegate_id, _ = await _register(client)
 
-        provider_id = await _create_tenant(
-            client, owner_headers, "MspProv", kind="provider"
-        )
+        provider_id = await _create_tenant(client, owner_headers, "MspProv", kind="provider")
         customer_id = await _create_tenant(
             client, owner_headers, "MspCust", parent_tenant_id=provider_id
         )
@@ -324,9 +313,7 @@ class TestCoarseGrantStillWorks:
         assert not RBACEnforcer("tenants:billing:extra").enforce(["tenants:billing"])
         assert not RBACEnforcer("users:gough:manage").enforce(["users:manage"])
         # Four segments is not the per-product shape and must not resolve.
-        assert not RBACEnforcer("products:gough:nodes:manage").enforce(
-            ["products:manage"]
-        )
+        assert not RBACEnforcer("products:gough:nodes:manage").enforce(["products:manage"])
         # A per-product scope must not imply the coarse one (one-directional).
         assert not RBACEnforcer("products:manage").enforce([GOUGH_MANAGE])
 
@@ -345,18 +332,14 @@ class TestScopeStringSafety:
         from app.tenancy.authz import product_scope as minter_product_scope
 
         assert PRODUCT_SCOPE_NAMESPACE == MINTER_NAMESPACE
-        assert product_scope(PRODUCT_TYPE, "manage") == minter_product_scope(
-            PRODUCT_TYPE, "manage"
-        )
+        assert product_scope(PRODUCT_TYPE, "manage") == minter_product_scope(PRODUCT_TYPE, "manage")
 
     def test_every_action_the_minter_knows_has_a_coarse_counterpart(self) -> None:
         """Expansion keys off the coarse scope, so the names must line up."""
         from app.authz import SCOPE_PRODUCTS_MANAGE, SCOPE_PRODUCTS_READ
 
         coarse = {SCOPE_PRODUCTS_READ, SCOPE_PRODUCTS_MANAGE}
-        assert {
-            f"{PRODUCT_SCOPE_NAMESPACE}:{action}" for action in PRODUCT_SCOPE_ACTIONS
-        } == coarse
+        assert {f"{PRODUCT_SCOPE_NAMESPACE}:{action}" for action in PRODUCT_SCOPE_ACTIONS} == coarse
 
     def test_a_product_type_cannot_forge_a_differently_shaped_scope(self) -> None:
         """product_type is operator-supplied at connection time.
@@ -381,9 +364,7 @@ class TestScopeStringSafety:
             assert is_valid_product_type_for_scope(legitimate), legitimate
 
     @pytest.mark.asyncio
-    async def test_a_hostile_product_type_mints_nothing(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_a_hostile_product_type_mints_nothing(self, client: Any, app: Quart) -> None:
         """The guard is applied by the minter, not merely available to it."""
         user_id, email = await _register(client)
         headers = await _headers(client, email)

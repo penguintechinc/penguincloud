@@ -23,10 +23,11 @@ accident.
 import asyncio
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import datetime
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, Optional, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 import httpx
 from quart import jsonify
@@ -39,7 +40,7 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-class FeatureNotEntitledException(Exception):
+class FeatureNotEntitledError(Exception):
     """Exception raised when feature is not entitled."""
 
     pass
@@ -52,6 +53,7 @@ class LicenseManager:
     _lock = False
 
     def __new__(cls) -> "LicenseManager":
+        """Return the single shared LicenseManager instance, creating it once."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -60,9 +62,7 @@ class LicenseManager:
         """Initialize license manager."""
         if not hasattr(self, "_initialized"):
             self.license_key = os.getenv("LICENSE_KEY", "")
-            self.server_url = os.getenv(
-                "LICENSE_SERVER_URL", "https://license.penguintech.io"
-            )
+            self.server_url = os.getenv("LICENSE_SERVER_URL", "https://license.penguintech.io")
             self.product_name = os.getenv("PRODUCT_NAME", "project-template")
             self.release_mode = os.getenv("RELEASE_MODE", "false").lower() == "true"
 
@@ -155,13 +155,12 @@ class LicenseManager:
         """
         return licensing.resolve_tier_blocking()
 
-    def get_limits(self) -> Dict[str, Any]:
+    def get_limits(self) -> dict[str, Any]:
         """Get usage limits, from the same client the gates read."""
         return dict(licensing.get_client().validate().limits)
 
-    def checkin(self, usage_stats: Optional[Dict[str, Any]] = None) -> bool:
-        """
-        Send keepalive to license server.
+    def checkin(self, usage_stats: dict[str, Any] | None = None) -> bool:
+        """Send keepalive to license server.
 
         Args:
             usage_stats: Optional usage statistics to report.
@@ -173,7 +172,7 @@ class LicenseManager:
             return True
 
         try:
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "license_key": self.license_key,
                 "product_name": self.product_name,
                 "timestamp": datetime.utcnow().isoformat(),
@@ -194,7 +193,7 @@ class LicenseManager:
             logger.warning(f"Checkin failed: {str(e)}")
             return False
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get current license status.
 
         Every field comes from the one ``penguin_licensing`` client, so this
@@ -242,9 +241,7 @@ def require_feature(
         async def decorated_function(*args: P.args, **kwargs: P.kwargs) -> Any:
             manager = LicenseManager()
             if not await manager.is_feature_entitled(feature_name):
-                required = licensing.FEATURE_MIN_TIER.get(
-                    feature_name, licensing.TIER_ENTERPRISE
-                )
+                required = licensing.FEATURE_MIN_TIER.get(feature_name, licensing.TIER_ENTERPRISE)
                 body = licensing.upgrade_required(
                     feature_name, required, await licensing.resolve_tier()
                 )

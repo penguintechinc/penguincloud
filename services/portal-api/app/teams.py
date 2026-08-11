@@ -6,8 +6,8 @@ from typing import Any
 
 from quart import Blueprint, request
 
-from .authz import SCOPE_TEAMS_MANAGE, SCOPE_TEAMS_READ, require_team_scope
 from . import quotas
+from .authz import SCOPE_TEAMS_MANAGE, SCOPE_TEAMS_READ, require_team_scope
 from .middleware import auth_required, get_current_user
 from .models import (
     add_team_member,
@@ -232,9 +232,7 @@ async def add_team_member_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
 
 @teams_bp.route("/<int:team_id>/members/<int:member_user_id>", methods=["PUT"])
 @auth_required
-async def update_member_role(
-    team_id: int, member_user_id: int
-) -> tuple[dict[str, Any], int]:
+async def update_member_role(team_id: int, member_user_id: int) -> tuple[dict[str, Any], int]:
     """Update member role (team admin only)."""
     user = get_current_user()
     if not user:
@@ -253,14 +251,12 @@ async def update_member_role(
 
     db = get_db()
     await db(
-        (db.team_members.team_id == team_id)
-        & (db.team_members.user_id == member_user_id)
+        (db.team_members.team_id == team_id) & (db.team_members.user_id == member_user_id)
     ).update(role=new_role)
     await db.commit()
 
     members = await db(
-        (db.team_members.team_id == team_id)
-        & (db.team_members.user_id == member_user_id)
+        (db.team_members.team_id == team_id) & (db.team_members.user_id == member_user_id)
     ).select()
     member = dict(members[0]) if members else {}
 
@@ -269,9 +265,7 @@ async def update_member_role(
 
 @teams_bp.route("/<int:team_id>/members/<int:member_user_id>", methods=["DELETE"])
 @auth_required
-async def remove_team_member(
-    team_id: int, member_user_id: int
-) -> tuple[dict[str, Any], int]:
+async def remove_team_member(team_id: int, member_user_id: int) -> tuple[dict[str, Any], int]:
     """Remove member from team (team admin only)."""
     user = get_current_user()
     if not user:
@@ -282,8 +276,7 @@ async def remove_team_member(
 
     db = get_db()
     deleted = await db(
-        (db.team_members.team_id == team_id)
-        & (db.team_members.user_id == member_user_id)
+        (db.team_members.team_id == team_id) & (db.team_members.user_id == member_user_id)
     ).delete()
     await db.commit()
 
@@ -321,8 +314,7 @@ async def send_invitation(team_id: int) -> tuple[dict[str, Any], int]:
         target = target_users[0]
         # Check if already member
         existing = await db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == target["id"])
+            (db.team_members.team_id == team_id) & (db.team_members.user_id == target["id"])
         ).select()
         if existing:
             return {"error": "User already member"}, 409
@@ -380,17 +372,14 @@ async def accept_invitation(token: str) -> tuple[dict[str, Any], int]:
 
     # Check if already member
     existing = await db(
-        (db.team_members.team_id == invite["team_id"])
-        & (db.team_members.user_id == user["id"])
+        (db.team_members.team_id == invite["team_id"]) & (db.team_members.user_id == user["id"])
     ).select()
     if existing:
         return {"error": "User already member"}, 409
 
     # Add as member
     await add_team_member(invite["team_id"], user["id"], invite["role"])
-    await db(db.team_invitations.id == invite["id"]).update(
-        accepted_at=datetime.now(UTC)
-    )
+    await db(db.team_invitations.id == invite["id"]).update(accepted_at=datetime.now(UTC))
     await db.commit()
 
     return {"message": "Invitation accepted"}, 200

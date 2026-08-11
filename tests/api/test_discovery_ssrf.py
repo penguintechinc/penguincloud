@@ -92,9 +92,7 @@ class TestDiscoveryScanSSRF:
     """The scan endpoint may only reach operator-allowlisted, non-special-use IPs."""
 
     @pytest.mark.asyncio
-    async def test_cloud_metadata_ip_rejected(
-        self, client: Any, probed: list[str]
-    ) -> None:
+    async def test_cloud_metadata_ip_rejected(self, client: Any, probed: list[str]) -> None:
         """169.254.169.254 is the payload that made this a critical finding."""
         headers, _ = await _new_user(client)
         tenant_id = await _new_tenant(client, headers)
@@ -174,9 +172,7 @@ class TestDiscoveryScanSSRF:
         assert probed == []
 
     @pytest.mark.asyncio
-    async def test_range_outside_allowlist_rejected(
-        self, client: Any, probed: list[str]
-    ) -> None:
+    async def test_range_outside_allowlist_rejected(self, client: Any, probed: list[str]) -> None:
         """A routable public address the operator never allowlisted."""
         headers, _ = await _new_user(client)
         tenant_id = await _new_tenant(client, headers)
@@ -214,9 +210,7 @@ class TestDiscoveryScanSSRF:
         assert probed == []
 
     @pytest.mark.asyncio
-    async def test_allowlisted_private_range_accepted(
-        self, client: Any, probed: list[str]
-    ) -> None:
+    async def test_allowlisted_private_range_accepted(self, client: Any, probed: list[str]) -> None:
         """The feature still works: an allowlisted LAN range is scanned.
 
         The counterweight to every rejection above — a fix that blocked
@@ -235,9 +229,7 @@ class TestDiscoveryScanSSRF:
         assert probed == ["10.0.0.1", "10.0.0.2"]
 
     @pytest.mark.asyncio
-    async def test_allowlisted_single_host_accepted(
-        self, client: Any, probed: list[str]
-    ) -> None:
+    async def test_allowlisted_single_host_accepted(self, client: Any, probed: list[str]) -> None:
         """A single allowlisted host is the common real-world call."""
         headers, _ = await _new_user(client)
         tenant_id = await _new_tenant(client, headers)

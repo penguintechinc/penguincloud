@@ -628,6 +628,31 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/products/health": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Cached health for the caller's tenant, optionally + its subtree.
+     * @description Query params:
+     *       - tenant_id: required unless the token carries an active
+     *         tenant claim.
+     *       - include_children=true: also include descendant tenants'
+     *         connections, when the caller holds tenants:manage on
+     *         tenant_id (see module docstring).
+     */
+    get: operations["get_get_products_health"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/products/types": {
     parameters: {
       query?: never;
@@ -1473,7 +1498,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    /** ActionResourceView */
+    /**
+     * ActionResourceView
+     * @description The affected resource's post-action state, when the product returned it.
+     *
+     *     A named subset rather than the whole :class:`~app.adapters.base.Resource`:
+     *     ``metadata`` is the adapter's free-form bag and is not published here for
+     *     the same reason :class:`OperationView` omits it.
+     */
     ActionResourceView: {
       /** Id */
       id: string;
@@ -1484,7 +1516,23 @@ export interface components {
       /** Status */
       status: string | null;
     };
-    /** AuditRecord */
+    /**
+     * AuditRecord
+     * @description One entry in a tenant's audit trail.
+     *
+     *     Attributes:
+     *         id: Identifier of this audit entry.
+     *         user_id: Identifier of the user who performed the action, if the
+     *             action had an authenticated actor.
+     *         action: The event that was recorded, e.g. ``product.register``.
+     *         resource_type: The kind of resource acted on, e.g. ``tenant``.
+     *         resource_id: Identifier of the resource acted on.
+     *         tenant_id: The tenant this entry belongs to.
+     *         product_connection_id: The product connection involved, when the
+     *             action was performed against a connected product.
+     *         ip_address: Source address the action came from.
+     *         created_at: When the action occurred, ISO-8601.
+     */
     AuditRecord: {
       /** Action */
       action: string;
@@ -1505,14 +1553,20 @@ export interface components {
       /** User Id */
       user_id: number | null;
     };
-    /** MetricPointView */
+    /**
+     * MetricPointView
+     * @description One sample in a series.
+     */
     MetricPointView: {
       /** Timestamp */
       timestamp: string;
       /** Value */
       value: number;
     };
-    /** MetricSeriesView */
+    /**
+     * MetricSeriesView
+     * @description A named, unit-carrying sequence of samples.
+     */
     MetricSeriesView: {
       /** Key */
       key: string;
@@ -1523,7 +1577,10 @@ export interface components {
       /** Unit */
       unit: string;
     };
-    /** OperationLogLineView */
+    /**
+     * OperationLogLineView
+     * @description Wire shape for one log line.
+     */
     OperationLogLineView: {
       /** Level */
       level: string;
@@ -1532,7 +1589,16 @@ export interface components {
       /** Timestamp */
       timestamp: string | null;
     };
-    /** OperationView */
+    /**
+     * OperationView
+     * @description Wire shape for one operation.
+     *
+     *     An explicit DTO rather than serialising the dataclass directly: the
+     *     response schema is enforced field by field, so a future field added to
+     *     :class:`Operation` for internal use cannot silently start being published
+     *     (see the output-validation rule — an unvalidated response is as dangerous
+     *     as an unvalidated request, just harder to notice).
+     */
     OperationView: {
       /** Completed At */
       completed_at: string | null;
@@ -1555,7 +1621,9 @@ export interface components {
       /** Resource Kind */
       resource_kind: string | null;
       /** Result */
-      result: Record<string, never> | null;
+      result: {
+        [key: string]: unknown;
+      } | null;
       /** State */
       state: string;
       /** Status */
@@ -1563,7 +1631,32 @@ export interface components {
       /** Updated At */
       updated_at: string | null;
     };
-    /** RollupEntry */
+    /**
+     * ProductHealthEntry
+     * @description One product connection's cached health, as the endpoint reports it.
+     */
+    ProductHealthEntry: {
+      /** Checked At */
+      checked_at: string | null;
+      /** Connection Id */
+      connection_id: number;
+      /** Display Name */
+      display_name: string;
+      /** Error */
+      error?: string | null;
+      /** Latency Ms */
+      latency_ms: number | null;
+      /** Product Type */
+      product_type: string;
+      /** Status */
+      status: string;
+      /** Tenant Id */
+      tenant_id: number;
+    };
+    /**
+     * RollupEntry
+     * @description Per-tenant rollup row.
+     */
     RollupEntry: {
       /** Products */
       products: components["schemas"]["RollupProduct"][];
@@ -1572,7 +1665,10 @@ export interface components {
       /** Tenant Name */
       tenant_name: string;
     };
-    /** RollupProduct */
+    /**
+     * RollupProduct
+     * @description One product connection's status inside a rollup row.
+     */
     RollupProduct: {
       /** Connection Id */
       connection_id: number;
@@ -1581,7 +1677,10 @@ export interface components {
       /** Status */
       status: string;
     };
-    /** TenantDetail */
+    /**
+     * TenantDetail
+     * @description The projection a member (or delegated admin) may see.
+     */
     TenantDetail: {
       /** Depth */
       depth: number;
@@ -1610,7 +1709,21 @@ export interface components {
       /** User Role */
       user_role: string | null;
     };
-    /** TenantMemberResponse */
+    /**
+     * TenantMemberResponse
+     * @description A tenant membership row plus the member's contact identity.
+     *
+     *     PII policy (deliberate, not incidental): ``user_email`` and
+     *     ``user_full_name`` ARE included, because administering a tenant means
+     *     administering its member accounts and an MSP admin cannot do that
+     *     against opaque user ids. NO other column from the users table is
+     *     exposed here — not role, not is_active, not timestamps, not
+     *     password_hash — and this DTO is the only path membership data takes to a
+     *     response body. Adding a column to `users` must not widen this.
+     *
+     *     Field set is reconciled with the webui's TenantMember interface
+     *     (services/webui/src/client/types/index.ts).
+     */
     TenantMemberResponse: {
       /** Id */
       id: number;
@@ -2304,6 +2417,31 @@ export interface operations {
       };
     };
   };
+  get_get_products_health: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Envelope for GET /api/v1/products/health. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Count */
+            count: number;
+            /** Products */
+            products: components["schemas"]["ProductHealthEntry"][];
+          };
+        };
+      };
+    };
+  };
   get_list_product_types: {
     parameters: {
       query?: never;
@@ -2650,7 +2788,9 @@ export interface operations {
             /** Resource Kind */
             resource_kind: string | null;
             /** Result */
-            result: Record<string, never> | null;
+            result: {
+              [key: string]: unknown;
+            } | null;
             /** State */
             state: string;
             /** Status */
@@ -2711,7 +2851,9 @@ export interface operations {
             /** Resource Kind */
             resource_kind: string | null;
             /** Result */
-            result: Record<string, never> | null;
+            result: {
+              [key: string]: unknown;
+            } | null;
             /** State */
             state: string;
             /** Status */
@@ -3359,7 +3501,9 @@ export interface operations {
             /** Count */
             count: number;
             /** Tenants */
-            tenants: Record<string, never>[];
+            tenants: {
+              [key: string]: unknown;
+            }[];
           };
         };
       };
