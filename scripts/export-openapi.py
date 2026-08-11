@@ -73,9 +73,9 @@ def _normalise(node: Any) -> Any:
     """
     if isinstance(node, dict):
         return {str(key): _normalise(value) for key, value in node.items()}
-    if isinstance(node, (list, tuple)):
+    if isinstance(node, list | tuple):
         return [_normalise(value) for value in node]
-    if isinstance(node, (set, frozenset)):
+    if isinstance(node, set | frozenset):
         return sorted(_normalise(value) for value in node)
     return node
 
@@ -124,9 +124,7 @@ def main() -> int:
 
     spec = _normalise(_build_spec())
     spec["paths"] = {
-        path: item
-        for path, item in spec.get("paths", {}).items()
-        if path not in EXCLUDED_PATHS
+        path: item for path, item in spec.get("paths", {}).items() if path not in EXCLUDED_PATHS
     }
     rendered = yaml.dump(
         spec,
@@ -134,7 +132,13 @@ def main() -> int:
         sort_keys=True,
         default_flow_style=False,
         allow_unicode=True,
-        width=120,
+        # PyYAML's width is a soft break-at-or-after-this-column preference,
+        # not a hard cap -- it can overshoot to the next space by the length
+        # of one word. .yamllint.yml's line-length max is 130; 90 leaves a
+        # 40-char margin so a single long identifier/word in a docstring
+        # description can't push the wrapped line over the limit the way
+        # width=120 did for GET /api/v1/products/health's description.
+        width=90,
     )
     header = (
         "# GENERATED FILE — DO NOT EDIT.\n"
@@ -149,7 +153,7 @@ def main() -> int:
             return 1
         if args.output.read_text() != document:
             print(
-                f"{args.output} is stale; run `make openapi` and commit " "the result",
+                f"{args.output} is stale; run `make openapi` and commit the result",
                 file=sys.stderr,
             )
             return 1

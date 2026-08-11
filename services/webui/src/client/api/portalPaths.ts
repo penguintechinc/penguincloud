@@ -79,6 +79,7 @@ export function proxyRequestUrl(
  */
 export const PORTAL_TYPED_RULES = {
   "/api/v1/products": "products.list_products",
+  "/api/v1/products/health": "health_api.get_products_health",
   "/api/v1/products/types": "products.list_product_types",
   "/api/v1/products/{product_id}": "products.get_product",
   "/api/v1/products/{product_id}/health": "products.get_product_health",

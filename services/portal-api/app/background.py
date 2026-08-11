@@ -3,6 +3,14 @@
 Runs as asyncio tasks on the app's event loop rather than daemon threads:
 penguin-dal's AsyncDB and Quart's app context are both loop-bound, so a
 bare thread cannot reach either.
+
+``start()``/``stop()`` are wired to the app's own lifespan in
+``app/__init__.py`` (``@app.before_serving`` / ``@app.after_serving``).
+Previously nothing called ``start()`` from anywhere in ``create_app`` --
+the license keepalive loop below had therefore never run in any
+deployment. Task 6 fixes that and adds the product health poller
+(``app.health_poller``) as a second task on the same manager, so both
+start and stop together.
 """
 
 import asyncio
@@ -10,6 +18,7 @@ import logging
 import time
 from typing import Any
 
+from .health_cache import close_cache_client
 from .license import license_manager
 from .models import get_db
 
@@ -33,6 +42,7 @@ class BackgroundTaskManager:
 
         self._running = True
         self._tasks.append(asyncio.create_task(self._license_keepalive_loop()))
+        self._tasks.append(asyncio.create_task(self._health_poll_loop()))
         logger.info("Background tasks started")
 
     async def stop(self) -> None:
@@ -46,7 +56,21 @@ class BackgroundTaskManager:
             except asyncio.CancelledError:
                 pass
         self._tasks.clear()
+        await close_cache_client()
         logger.info("Background tasks stopped")
+
+    async def _health_poll_loop(self) -> None:
+        """Run the product health poller until stopped.
+
+        Delegates the actual sweep/jitter/backoff logic to
+        ``app.health_poller`` (which owns its own SanitizedLogger and
+        Prometheus series) rather than duplicating it here -- this method
+        exists only to give the poller a task this manager's ``stop()``
+        already knows how to cancel and await.
+        """
+        from .health_poller import poll_forever
+
+        await poll_forever(lambda: self._running)
 
     async def _license_keepalive_loop(self) -> None:
         """Send a license keepalive with usage stats once per hour."""
@@ -82,6 +106,21 @@ class BackgroundTaskManager:
             # runtime (DAL's __getattr__ confuses the type checker) --
             # narrow, single-line suppression per mypy.ini's documented
             # policy for third-party stub limitations.
+            #
+            # KEEP THIS SUPPRESSION even though the isolated portal-api
+            # venv's pinned penguin-dal==0.4.1 (services/portal-api/
+            # requirements.txt) resolves executesql as a properly-typed
+            # method and reports the ignore as unused under that
+            # environment: pre-commit's mypy hook is `language: system`, so
+            # it resolves `penguin_dal` via whatever this machine's ambient
+            # `~/code/penguin-libs` editable install/branch currently is --
+            # confirmed on 2026-08-11 to be `fix/pypi-publish-action-bump`,
+            # which predates the executesql method entirely (0 matches for
+            # "executesql" in its db.py). Removing this line makes `mypy
+            # --ignore-missing-imports services/portal-api/app/background.py`
+            # fail with `"TableProxy" not callable [operator]` via the
+            # system mypy, even though `.venv/bin/python3 -m mypy --strict`
+            # against the pinned venv is clean either way.
             rows = await db.executesql(  # type: ignore[operator]
                 "SELECT COUNT(*) FROM users WHERE email_confirmed = true"
             )

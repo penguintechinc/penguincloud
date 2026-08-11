@@ -90,6 +90,35 @@ def _clear_tenancy_cache() -> Any:
 
 
 @pytest_asyncio.fixture(autouse=True)
+def _reset_killkrill_manager() -> Any:
+    """Disable the process-wide KillKrillManager singleton after every test.
+
+    Discovered while adding tests/api/test_background_tasks.py, the first
+    tests in this suite to ever drive the app's real ASGI lifespan
+    (app.test_app()). Doing so runs create_app's `_init_killkrill`
+    before_serving hook, which -- because KILLKRILL_ENABLED defaults to
+    "true" and TestingConfig does not override it -- flips the SINGLETON
+    `app.killkrill.killkrill_manager` to enabled=True for the rest of the
+    pytest PROCESS. Every subsequent test's HTTP request then also calls
+    killkrill_manager.log() via middleware.setup_request_logging's
+    after_request hook, appending to an in-memory queue nothing ever
+    flushes (app.killkrill.KillKrillManager._flush_queues is itself dead
+    code -- not called from anywhere) and emitting one
+    `datetime.utcnow()` DeprecationWarning per request. Without this reset
+    the effect is silent everywhere except the warnings count, but it is a
+    genuine test-isolation gap: which tests run before a lifespan-driving
+    one changes their behaviour.
+    """
+    yield
+    from app.killkrill import killkrill_manager
+
+    killkrill_manager.enabled = False
+    killkrill_manager.client = None
+    killkrill_manager._log_queue.clear()
+    killkrill_manager._metric_queue.clear()
+
+
+@pytest_asyncio.fixture(autouse=True)
 def _clear_health_cache() -> Any:
     """Empty the health poller's module-level cache state around every test.
 

@@ -8,12 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from penguin_aaa.authn.oidc_provider import OIDCProvider, OIDCProviderConfig
-from penguin_dal.quart_ext import get_db, init_dal
 from penguin_aaa.crypto.keystore import FileKeyStore, KeyStore, MemoryKeyStore
+from penguin_dal.quart_ext import get_db, init_dal
 from quart import Quart
 from quart_cors import cors
 from quart_schema import HttpSecurityScheme, Info, QuartSchema
 
+from .background import get_background_manager
 from .config import Config
 from .killkrill import killkrill_manager
 from .license import license_manager
@@ -86,9 +87,7 @@ def create_app(config_class: type[Config] = Config) -> Quart:
         redoc_ui_path=None,
         scalar_ui_path=None,
         info=Info(title="PenguinCloud Portal API", version="1.0.0"),
-        security_schemes={
-            "bearerAuth": HttpSecurityScheme(scheme="bearer", bearer_format="JWT")
-        },
+        security_schemes={"bearerAuth": HttpSecurityScheme(scheme="bearer", bearer_format="JWT")},
         security=[{"bearerAuth": []}],
     )
 
@@ -143,22 +142,48 @@ def create_app(config_class: type[Config] = Config) -> Quart:
             enabled=bool(app.config.get("KILLKRILL_ENABLED", False)),
         )
 
+    # Start background tasks (license keepalive + product health poller).
+    #
+    # BackgroundTaskManager.start() was previously called from nowhere in
+    # create_app -- the license keepalive loop it has always owned had
+    # therefore never run in any deployment. Wiring it into the app's own
+    # lifespan starts both that loop and Task 6's health poller together;
+    # _stop_background_tasks below cancels both cleanly on shutdown.
+    @app.before_serving
+    async def _start_background_tasks() -> None:
+        """Start the license keepalive and product health poller loops."""
+        get_background_manager().start()
+
+        # Metrics get their own :9090 listener (app/health_poller.py) --
+        # never in the test suite, which creates a fresh app per test and
+        # would otherwise repeatedly (and pointlessly) attempt a real
+        # socket bind.
+        if not app.config.get("TESTING"):
+            from .health_poller import start_metrics_server
+
+            start_metrics_server(int(app.config.get("HEALTH_METRICS_PORT", 9090)))
+
+    @app.after_serving
+    async def _stop_background_tasks() -> None:
+        """Cancel and await every background task on shutdown."""
+        await get_background_manager().stop()
+
     # Setup structured request logging middleware
     setup_request_logging(app)
 
     # Register blueprints
-    from .openapi import register_openapi_routes
-
-    from .auth import auth_bp
     from .audit import audit_bp
+    from .auth import auth_bp
     from .dashboard_api import dashboard_bp
     from .discovery import discovery_bp
+    from .health_api import health_api_bp
     from .hello import hello_bp
     from .license_api import license_bp
     from .mfa import mfa_bp
     from .oauth import oauth_bp
-    from .products import products_bp
+    from .openapi import register_openapi_routes
     from .operations_api import operations_bp
+    from .products import products_bp
     from .proxy import proxy_bp
     from .resources_api import resources_bp
     from .teams import teams_bp
@@ -174,6 +199,11 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     app.register_blueprint(mfa_bp, url_prefix="/api/v1/mfa")
     app.register_blueprint(tenants_bp, url_prefix="/api/v1/tenants")
     app.register_blueprint(products_bp, url_prefix="/api/v1/products")
+    # Cached, tenant-scoped health rollup -- shares the products prefix for
+    # the same reason operations/resources do (see below), and is its own
+    # blueprint/module (app/health_api.py) rather than another route in
+    # products.py, which is already close to this repo's largest module.
+    app.register_blueprint(health_api_bp, url_prefix="/api/v1/products")
     # Long-running operation polling shares the products prefix: an
     # operation is always addressed through the connection that owns it.
     app.register_blueprint(operations_bp, url_prefix="/api/v1/products")
