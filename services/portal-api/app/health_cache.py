@@ -75,6 +75,41 @@ def _cache_key(connection_id: int) -> str:
     return f"{CACHE_KEY_PREFIX}{connection_id}"
 
 
+def log_startup_state(app_config: Any) -> None:
+    """Log, unmistakably, whether the shared health cache is reachable.
+
+    Fix wave 1 (I4): CACHE_HOST has no consumer outside this module in any
+    deployment definition currently in this repo (docker-compose.yml sets
+    REDIS_URL, which this does NOT read; the Helm charts under
+    k8s/helm/{portal-api,webui,project-template}/ are stubs), so a
+    deployment that never set CACHE_HOST would silently run the
+    per-process-only fallback with no operator-visible signal beyond a
+    DEBUG-level line on the first cache read. Called once at app startup
+    (app/__init__.py's _start_background_tasks) rather than left to that
+    lazy first read, so the consequence is visible in the FIRST few lines
+    of a fresh deployment's logs, not buried after the first poll cycle.
+
+    Mirrors the operator-notice reasoning general.md requires for --dev
+    mode: someone who did not configure the deployment needs to know what
+    mode it is running in, in terms of the actual consequence, not a bare
+    state label.
+    """
+    host = str(app_config.get("CACHE_HOST", "") or "")
+    if host:
+        logger.info("health_cache_shared_store_configured host=%s", host)
+        return
+
+    logger.warning(
+        "health_cache_is_per_process_only reason=CACHE_HOST_not_configured "
+        "consequence='GET /api/v1/products/health results are NOT shared "
+        "across workers or replicas -- each process answers only from what "
+        "its own poller has observed, and two requests landing on "
+        "different pods can disagree about the same connection' "
+        "fix='set CACHE_HOST (docs/DEVELOPMENT.md: Health Cache (Valkey/Redis)); "
+        "REDIS_URL is a different variable and is NOT read here'"
+    )
+
+
 def _ttl_seconds() -> int:
     try:
         return int(current_app.config.get("HEALTH_POLL_CACHE_TTL_SECONDS", _DEFAULT_TTL_SECONDS))

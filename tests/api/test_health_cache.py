@@ -139,3 +139,33 @@ async def test_corrupt_cached_payload_is_treated_as_a_miss(
         got = await get_health(404)
 
     assert got is None
+
+
+class TestLogStartupState:
+    """Fix wave 1 (I4): the CACHE_HOST-unset degradation must be unmistakable."""
+
+    def test_warns_with_the_actual_consequence_when_cache_host_unset(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Names what breaks (cross-worker sharing), not just a state label."""
+        with caplog.at_level("WARNING", logger="app.health_cache"):
+            health_cache.log_startup_state({"CACHE_HOST": ""})
+
+        assert len(caplog.records) == 1
+        message = caplog.records[0].message
+        assert caplog.records[0].levelname == "WARNING"
+        assert "NOT shared across workers or replicas" in message
+        # The whole point: REDIS_URL looking like it should be enough is
+        # the trap this warning exists to prevent (docker-compose.yml sets
+        # it; this module does not read it).
+        assert "REDIS_URL" in message
+
+    def test_no_warning_when_cache_host_is_configured(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A configured CACHE_HOST logs informational confirmation, not a warning."""
+        with caplog.at_level("INFO", logger="app.health_cache"):
+            health_cache.log_startup_state({"CACHE_HOST": "valkey.example.internal"})
+
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelname == "INFO"

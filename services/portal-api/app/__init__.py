@@ -174,6 +174,13 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     @app.before_serving
     async def _start_background_tasks() -> None:
         """Start the license keepalive and product health poller loops."""
+        from .health_cache import log_startup_state
+
+        # Unmistakable at startup whether the health cache is shared
+        # (CACHE_HOST set) or per-process-only -- see health_cache.py's
+        # log_startup_state docstring (Task 6 fix wave 1, I4).
+        log_startup_state(app.config)
+
         get_background_manager().start()
 
         # Metrics get their own :9090 listener (app/health_poller.py) --
