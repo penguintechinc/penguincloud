@@ -76,7 +76,19 @@ def _cache_key(connection_id: int) -> str:
 
 
 def log_startup_state(app_config: Any) -> None:
-    """Log, unmistakably, whether the shared health cache is reachable.
+    """Log, unmistakably, whether the shared health cache is CONFIGURED.
+
+    Fix wave 2 (W2-3): deliberately checks config presence, not actual
+    reachability -- a startup hook must not block app boot on a network
+    round-trip to Valkey. "Configured" and "reachable" are different
+    claims: CACHE_HOST set but pointing at something unreachable (wrong
+    host, valkey library missing, network policy denying it) still logs
+    ``health_cache_shared_store_configured`` here, and then
+    ``health_cache_disabled`` from the lazy first read in
+    _get_cache_client -- which is correct, not a contradiction, once this
+    function only claims "configured". Read the two log lines together
+    for the full picture: this one at startup, the other (if it ever
+    fires) on the first actual cache access.
 
     Fix wave 1 (I4): CACHE_HOST has no consumer outside this module in any
     deployment definition currently in this repo (docker-compose.yml sets

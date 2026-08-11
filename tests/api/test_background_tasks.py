@@ -68,6 +68,34 @@ def test_background_tasks_stop_before_the_dal_closes(app: Quart) -> None:
 
 
 @pytest.mark.asyncio
+async def test_start_background_tasks_logs_cache_degradation_warning(
+    app: Quart, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Fix wave 2 (W2-1): the I4 startup warning must fire at the WIRING point.
+
+    Both of I4's original tests called app.health_cache.log_startup_state()
+    directly with a plain dict -- nothing asserted that
+    _start_background_tasks (app/__init__.py) actually CALLS it. Deleting
+    that call left every existing test green, which defeats the entire
+    point of a startup warning whose purpose is that an operator cannot
+    miss the degraded cache. Drives the real ASGI lifespan
+    (app.test_app()), the same way test_background_tasks_start_on_app_startup
+    proves BackgroundTaskManager.start() is actually wired rather than
+    merely callable in isolation.
+    """
+    assert app.config.get("CACHE_HOST", "") == ""  # TestingConfig default
+
+    with caplog.at_level("WARNING", logger="app.health_cache"):
+        async with app.test_app():
+            pass
+
+    messages = [r.message for r in caplog.records if r.name == "app.health_cache"]
+    assert any(
+        "health_cache_is_per_process_only" in m for m in messages
+    ), f"expected the cache-degradation warning during startup; captured: {messages}"
+
+
+@pytest.mark.asyncio
 async def test_background_manager_is_idempotent_across_restarts(app: Quart) -> None:
     """Two startup/shutdown cycles on the same (singleton) manager both work.
 
