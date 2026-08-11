@@ -59,7 +59,16 @@ log = SanitizedLogger(__name__)
 BASE_INTERVAL_SECONDS: float = 15.0
 JITTER_FRACTION: float = 0.2
 
-#: Requirement 1: "per-call timeout (10s)".
+#: Requirement 1: "per-call timeout (10s)" -- an OUTER guard around the
+#: whole ``adapter.health(ctx)`` call, not the HTTP request timeout itself.
+#: For every adapter built on ``HealthOnlyAdapter`` (all of them today),
+#: ``transport.Transport.health_check`` applies its OWN ``timeout=5.0`` to
+#: the actual GET (app/adapters/transport.py:363), so the real bound on a
+#: healthy HTTP round-trip is 5s -- this 10s only fires for something
+#: `health()` does beyond that single request (a bug, retry logic a future
+#: adapter adds, a non-HTTP check), which is exactly why it exists as a
+#: distinct, wider guard rather than being tuned to match transport's
+#: number.
 PER_CALL_TIMEOUT_SECONDS: float = 10.0
 
 #: Requirement 1: "asyncio.Semaphore(50)".
@@ -265,13 +274,64 @@ async def _check_one(conn: dict[str, Any], semaphore: asyncio.Semaphore) -> None
                 log.warning("health_poll_db_write_failed", {"connection_id": connection_id})
 
 
+#: connection_id -> product_type, for every connection that reported a
+#: metric series as of the last sweep. product_type is immutable once a
+#: connection is created (products.update_product's editable field list
+#: does not include it), so remembering it here is enough to build the
+#: exact label tuple a stale series needs removed with -- see
+#: _release_stale_series.
+_tracked_connections: dict[int, str] = {}
+
+
+def _release_stale_series(current: dict[int, str]) -> None:
+    """Drop metric series for connections no longer in the active set.
+
+    Fix wave 1 (I3): without this, a deleted or deactivated connection's
+    gauge/histogram/counter series keep reporting their LAST value
+    forever -- concretely, an alert on ``portal_product_health == 0``
+    fires indefinitely for a connection an operator already removed -- and
+    the series set grows monotonically with connection churn for the
+    life of the process.
+    """
+    stale = _tracked_connections.keys() - current.keys()
+    for connection_id in stale:
+        product_type = _tracked_connections[connection_id]
+        labelvalues = (str(connection_id), product_type)
+        for metric in (PRODUCT_HEALTH_GAUGE, POLL_LATENCY_HISTOGRAM, POLL_ERRORS_COUNTER):
+            try:
+                metric.remove(*labelvalues)
+            except KeyError:
+                # Nothing to remove -- e.g. a connection that was created
+                # and deactivated between sweeps without ever being
+                # checked, so it never had a series to begin with.
+                pass
+    _tracked_connections.clear()
+    _tracked_connections.update(current)
+
+
+def reset_tracked_connections_for_tests() -> None:
+    """Forget which connections currently hold a metric series. Test hook only.
+
+    ``_tracked_connections`` is module-level (same reasoning as
+    ``app.health_cache``'s in-process fallback), so without this a
+    connection_id a previous test tracked can shadow what a later test
+    expects to see as newly-active or newly-stale.
+    """
+    _tracked_connections.clear()
+
+
 async def run_sweep() -> None:
     """One full pass over every active product connection.
 
-    Fetches the connection list once, then checks all of them concurrently
-    under a shared semaphore (requirement 1: ``asyncio.Semaphore(50)``).
+    Fetches the connection list once, releases metric series for any
+    connection that dropped out since the last sweep, then checks every
+    remaining connection concurrently under a shared semaphore
+    (requirement 1: ``asyncio.Semaphore(50)``).
     """
     connections = await get_active_product_connections()
+    current = {int(conn["id"]): str(conn.get("product_type") or "unknown") for conn in connections}
+    _release_stale_series(current)
+
     if not connections:
         return
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHECKS)

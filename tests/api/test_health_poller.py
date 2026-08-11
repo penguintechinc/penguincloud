@@ -20,6 +20,21 @@ from app.health_cache import get_health
 from app.models import get_active_product_connections
 
 
+def _has_series(metric: Any, connection_id: int, product: str) -> bool:
+    """True if `metric` currently reports a sample for this label pair.
+
+    `metric` is a prometheus_client Gauge/Histogram/Counter. Uses
+    metric.collect() rather than metric.labels(...), which would create
+    the label pair as a side effect of merely checking it.
+    """
+    wanted = {"connection": str(connection_id), "product": product}
+    for family in metric.collect():
+        for sample in family.samples:
+            if all(sample.labels.get(k) == v for k, v in wanted.items()):
+                return True
+    return False
+
+
 async def _register_connection(
     client: Any,
     headers: dict[str, str],
@@ -394,3 +409,79 @@ async def test_deactivated_connection_is_not_polled(
         connections = await get_active_product_connections()
 
     assert all(int(c["id"]) != int(conn["id"]) for c in connections)
+
+
+@pytest.mark.asyncio
+async def test_stale_connection_releases_its_metric_series(
+    app: Any,
+    client: Any,
+    admin_headers: dict[str, str],
+    tenant_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fix wave 1 (I3): a connection leaving the active set loses its series.
+
+    Without this, a deleted/deactivated connection's gauge/histogram
+    series keep reporting their LAST value forever -- an alert on
+    portal_product_health == 0 would fire indefinitely for a connection
+    an operator already removed.
+    """
+
+    async def healthy(self: Any, ctx: Any) -> HealthResult:
+        return HealthResult(status="healthy", status_code=200, response_time_ms=5)
+
+    monkeypatch.setattr(GenericAdapter, "health", healthy)
+
+    conn = await _register_connection(client, admin_headers, tenant_id)
+    connection_id = int(conn["id"])
+
+    async with app.app_context():
+        await health_poller.run_sweep()
+
+    assert _has_series(health_poller.PRODUCT_HEALTH_GAUGE, connection_id, "generic")
+    assert _has_series(health_poller.POLL_LATENCY_HISTOGRAM, connection_id, "generic")
+
+    response = await client.put(
+        f"/api/v1/products/{connection_id}",
+        headers=admin_headers,
+        json={"is_active": False},
+    )
+    assert response.status_code == 200
+
+    async with app.app_context():
+        await health_poller.run_sweep()
+
+    assert not _has_series(health_poller.PRODUCT_HEALTH_GAUGE, connection_id, "generic")
+    assert not _has_series(health_poller.POLL_LATENCY_HISTOGRAM, connection_id, "generic")
+
+
+@pytest.mark.asyncio
+async def test_deleted_connection_releases_its_metric_series(
+    app: Any,
+    client: Any,
+    admin_headers: dict[str, str],
+    tenant_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same as above, for an outright DELETE rather than is_active=False."""
+
+    async def healthy(self: Any, ctx: Any) -> HealthResult:
+        return HealthResult(status="healthy", status_code=200, response_time_ms=5)
+
+    monkeypatch.setattr(GenericAdapter, "health", healthy)
+
+    conn = await _register_connection(client, admin_headers, tenant_id)
+    connection_id = int(conn["id"])
+
+    async with app.app_context():
+        await health_poller.run_sweep()
+
+    assert _has_series(health_poller.PRODUCT_HEALTH_GAUGE, connection_id, "generic")
+
+    response = await client.delete(f"/api/v1/products/{connection_id}", headers=admin_headers)
+    assert response.status_code == 200
+
+    async with app.app_context():
+        await health_poller.run_sweep()
+
+    assert not _has_series(health_poller.PRODUCT_HEALTH_GAUGE, connection_id, "generic")

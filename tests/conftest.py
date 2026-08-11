@@ -140,6 +140,22 @@ def _clear_health_cache() -> Any:
     reset_cache_client_for_tests()
 
 
+@pytest_asyncio.fixture(autouse=True)
+def _reset_tracked_health_series() -> Any:
+    """Forget which connections hold a Prometheus series around every test.
+
+    Same module-level-state reasoning as _clear_health_cache: without
+    this, a connection_id one test's sweep tracked can make a LATER
+    test's "did this series get released" assertion pass or fail based on
+    execution order rather than its own fixture data.
+    """
+    from app.health_poller import reset_tracked_connections_for_tests
+
+    reset_tracked_connections_for_tests()
+    yield
+    reset_tracked_connections_for_tests()
+
+
 @pytest_asyncio.fixture
 async def app_context(app: Quart) -> AsyncGenerator[None]:
     """Provide active app context for tests calling model functions directly."""
