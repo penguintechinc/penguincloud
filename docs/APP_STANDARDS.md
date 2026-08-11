@@ -142,7 +142,7 @@ The stakes are set by the licensing ruling: `/dashboard/activity` is reachable o
 
 Two test layers, deliberately (`tests/api/test_audit_response_shape.py`): the DTO's fields are pinned as **literal names** — that is what fails when someone adds a column to the DTO — and each route's live response is asserted **equal to** the DTO. Deriving both from the DTO would let one edit move both sides at once, which is how a schema check comes to assert only that a program agrees with itself.
 
-Response DTO docstrings are exported into `openapi/v1.yaml` as schema descriptions, so they are written for API readers; the reasoning lives in module docstrings and comments, which are not published.
+Write response DTO docstrings **as if they will be published**, for API readers — and keep reasoning in module docstrings and comments. Whether they are actually exported into `openapi/v1.yaml` depends on the pydantic version: the pinned `2.10` does **not** emit dataclass docstrings as schema descriptions, while ambient `2.13` does. That is why the committed spec currently carries no `components.schemas` descriptions, and why an ambient-generated spec was permanently stale against it until `make openapi` was moved onto the venv. Treat the export as version-dependent rather than guaranteed in either direction: a pydantic bump can start publishing every DTO docstring without anyone deciding to, so a docstring is never the place for internal detail or a narrative of a fixed defect.
 
 ### Bypass is domain-based, and only domain-based
 
