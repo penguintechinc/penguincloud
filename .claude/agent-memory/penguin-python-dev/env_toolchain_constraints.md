@@ -1,6 +1,6 @@
 ---
 name: env-toolchain-constraints
-description: Local Python env is PEP 668 externally-managed (pip install fails); repo lints YAML/OpenAPI with tools beyond flake8
+description: Local Python env is PEP 668 externally-managed (pip install fails); penguin-dal editable checkout drifts and breaks 37 tests; repo lints YAML/OpenAPI beyond flake8
 metadata:
   type: project
 ---
@@ -24,11 +24,59 @@ with a comment, which the file also sanctions.
 `uv` IS available (`~/.local/bin/uv`) and is the required way to recompile
 `requirements.txt`.
 
+## penguin-dal is an EDITABLE install of a shared checkout that drifts
+
+`penguin_dal` resolves to `~/code/penguin-libs/packages/python-dal/src`, not
+to the hash-pinned PyPI `penguin-dal==0.4.1`. Whatever branch that shared
+checkout happens to be on is what penguincloud's tests run against, and other
+people/agents switch it.
+
+Seen 2026-08-10: the checkout sat on `fix/aaa-quart-safe-import`, which
+predates `AsyncDB.executesql`, giving **37 failures** in
+tenancy/resolver/hierarchy/rollup paths (`TableNotFoundError: Table
+'executesql' not found`, from `app/tenancy/resolver.py:395`) on a clean
+worktree. It looks exactly like a regression from your own work.
+
+**How to apply:** before trusting a baseline, check
+`python3 -c "import penguin_dal.db as d; print(hasattr(d.AsyncDB,'executesql'))"`.
+If False, restore the released behaviour **without touching the shared
+checkout or the system env** — no branch switch, no `--break-system-packages`,
+no venv build needed:
+
+```bash
+git -C ~/code/penguin-libs archive origin/main packages/python-dal/src \
+  | tar -x -C "$SCRATCH/dalmain"
+PYTHONPATH=$SCRATCH/dalmain/packages/python-dal/src python3 -m pytest tests -q
+```
+
+PYTHONPATH wins over the editable install. This restored the documented
+baseline exactly (1190 passed / 12 skipped / 18 xfailed). Run **every** gate
+under that PYTHONPATH — pytest, mypy, `make openapi-check` — or they disagree.
+
+**SUPERSEDED 2026-08-11 — prefer `make test-api`.** The archive+PYTHONPATH
+dance above is now the fallback, not the first move. `make venv-portal-api`
+builds a project-local venv from `services/portal-api/requirements.txt
+--require-hashes` (idempotent: ~33s cold, instant warm), and `make test-api`
+runs the suite through it, so results no longer depend on the shared
+penguin-libs checkout at all — leave that checkout alone entirely. Expected:
+**985 passed / 22 skipped / 19 xfailed**. The count differs from the 1190
+baseline above because building the venv honestly exposed three deps the suite
+had been borrowing from the ambient environment (`quart-schema`, pinned `==0.19.0`
+because `app/openapi.py` uses a private API removed later; `greenlet` for
+SQLAlchemy's AsyncEngine; `aiosqlite` for penguin-dal's async sqlite dialect),
+and 10 tests now `importorskip` on `opentelemetry`/`redis` because they execute
+Nest's and Tobogganing's own app code and need *their* deps, not this service's.
+See `docs/DEVELOPMENT.md`.
+
 Beyond flake8/black/isort/mypy, the repo also gates on:
 - `yamllint -c .yamllint.yml` — rejects PyYAML's default sequence indentation,
   so generated YAML must be emitted with an indenting Dumper
 - `spectral` (via `npx @stoplight/spectral-cli`) — OpenAPI ruleset
 - `checkov --framework openapi` — runs on pre-push, catches things spectral
   does not (e.g. arrays without `maxItems`)
+
+`make lint`/`make typecheck` invoke `mypy . --ignore-missing-imports`, which
+is clean; a bare `mypy --strict services/portal-api` reports a pre-existing
+`grpc` stub error. Quote the repo's own invocation, not yours.
 
 See [[feedback-gates-block-push]].
