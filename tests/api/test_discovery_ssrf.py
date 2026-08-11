@@ -319,6 +319,9 @@ class TestDiscoveryScanAuthorization:
         assert probed == []
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Builds a multi-tenant / delegated-admin structure, which the tier
+    # model sells at Enterprise.
     async def test_tenant_admin_accepted(
         self,
         client: Any,

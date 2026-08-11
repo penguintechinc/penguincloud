@@ -1,11 +1,14 @@
 """Dashboard API — Aggregated stats and health overview."""
 
+from dataclasses import dataclass
 from typing import Any
 
 from quart import Blueprint, request
+from quart_schema import validate_response
 
-from .middleware import auth_required, get_current_user
+from .audit_view import AuditRecord, to_audit_records
 from .authz import SCOPE_TENANTS_READ, require_tenant_scope
+from .middleware import auth_required, get_current_user
 from .models import (
     get_db,
     get_tenant_by_id,
@@ -136,9 +139,26 @@ async def dashboard_health() -> tuple[dict[str, Any], int]:
     return {"health": health_matrix, "count": len(health_matrix)}, 200
 
 
+# Docstring below is exported as the ActivityResponse schema description;
+# the rationale (this route returned raw audit rows on every tier) lives in
+# app/audit_view.py, which is not published.
+@dataclass(slots=True, frozen=True)
+class ActivityResponse:
+    """Recent audit events for one tenant, newest first.
+
+    Attributes:
+        activity: The audit entries.
+        count: Number of entries returned.
+    """
+
+    activity: list[AuditRecord]
+    count: int
+
+
 @dashboard_bp.route("/activity", methods=["GET"])
 @auth_required
-async def dashboard_activity() -> tuple[dict[str, Any], int]:
+@validate_response(ActivityResponse)
+async def dashboard_activity() -> tuple[Any, int]:
     """Recent audit events for the tenant."""
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
@@ -164,10 +184,12 @@ async def dashboard_activity() -> tuple[dict[str, Any], int]:
         limitby=(0, limit),
     )
 
-    return {
-        "activity": [dict(log) for log in logs],
-        "count": len(logs),
-    }, 200
+    # Projected, not passed through. This route is reachable on EVERY tier
+    # (see AUDIT_ROUTES_INTENTIONALLY_UNLICENSED) and was returning the raw
+    # audit row — request_body, user_agent, metadata and all — making the
+    # least-gated audit surface in the portal also the most revealing one.
+    records = to_audit_records(logs)
+    return ActivityResponse(activity=records, count=len(records)), 200
 
 
 @dashboard_bp.route("/alerts", methods=["GET"])

@@ -18,7 +18,11 @@ SQL_FALSE: Any = False
 
 #: Placeholder substituted for stored credentials on every read that can reach
 #: a response body. Matches the pre-migration masking value byte-for-byte.
-MASKED_SECRET = "***"
+# noqa justification: this is the MASK, not a credential — the literal
+# that REPLACES a secret on its way to a response body. S105 pattern-
+# matches the variable name; suppressed at the line so the rule keeps
+# working everywhere else in this module.
+MASKED_SECRET = "***"  # noqa: S105
 
 #: Credential columns on product_connections. Stored encrypted at rest; even
 #: the ciphertext never leaves the service, so both are masked on egress.
@@ -150,7 +154,18 @@ async def create_user(
     full_name: str = "",
     role: str = "viewer",
 ) -> dict[str, Any] | None:
-    """Create a new user (async)."""
+    """Create a new user (async).
+
+    Enforces the development-mode single-user cap before inserting. The
+    routes check it first and answer a clean 403; this is the backstop, so
+    a call site that forgets — a future route, a seed script, a background
+    job — cannot silently breach the cap. Raises
+    :class:`~app.devmode.DevModeUserCapExceededError`.
+    """
+    from . import devmode
+
+    await devmode.assert_user_creation_allowed()
+
     db = get_db()
     now = datetime.now(UTC)
     user_id = await db.users.async_insert(
@@ -182,9 +197,7 @@ async def get_user_by_id(user_id: int) -> dict[str, Any] | None:
     return dict(row[0]) if row else None
 
 
-async def store_refresh_token(
-    user_id: int, token_hash: str, expires_at: Any
-) -> int | None:
+async def store_refresh_token(user_id: int, token_hash: str, expires_at: Any) -> int | None:
     """Store refresh token (async)."""
     db = get_db()
     new_id: int | None = await db.refresh_tokens.async_insert(
@@ -280,7 +293,16 @@ async def create_tenant(
     in the service layer rather than in a trigger. Callers must validate the
     parent (existence, authority, cycles) before calling — see
     ``app.tenancy.hierarchy.validate_parent``.
+
+    Enforces the licensed tenant limit before inserting. Routes answer a
+    clean 402 first; this is the backstop, so a call site that forgets
+    cannot silently breach the wall. Raises
+    :class:`~app.quotas.QuotaExceededError`.
     """
+    from . import quotas
+
+    await quotas.assert_within("tenants")
+
     db = get_db()
     new_id: int | None = await db.tenants.async_insert(
         name=name,
@@ -311,7 +333,18 @@ async def get_tenant_by_id(tenant_id: int) -> dict[str, Any] | None:
 
 
 async def create_team(name: str, slug: str, owner_id: int) -> dict[str, Any] | None:
-    """Create a new team (async)."""
+    """Create a new team (async).
+
+    Enforces the licensed team limit before inserting. This backstop exists
+    because it was already breached: ``POST /api/v1/auth/register`` creates
+    a personal team and did not meter it, so self-service registration
+    walked past the Free tier's limit of one team on every deployment.
+    Raises :class:`~app.quotas.QuotaExceededError`.
+    """
+    from . import quotas
+
+    await quotas.assert_within("teams")
+
     db = get_db()
     team_id = await db.teams.async_insert(name=name, slug=slug, owner_id=owner_id)
     if team_id:
@@ -334,9 +367,7 @@ async def get_team_members(team_id: int) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-async def add_team_member(
-    team_id: int, user_id: int, role: str = "member"
-) -> int | None:
+async def add_team_member(team_id: int, user_id: int, role: str = "member") -> int | None:
     """Add user to team (async)."""
     db = get_db()
     new_id: int | None = await db.team_members.async_insert(
@@ -398,9 +429,7 @@ async def delete_user(user_id: int) -> bool:
     return bool(rows)
 
 
-async def list_users(
-    page: int = 1, per_page: int = 20
-) -> tuple[list[dict[str, Any]], int]:
+async def list_users(page: int = 1, per_page: int = 20) -> tuple[list[dict[str, Any]], int]:
     """List users with pagination (async)."""
     # NOTE: Client-side pagination; penguin-dal server-side support deferred
     db = get_db()
@@ -418,9 +447,7 @@ async def list_users(
     return paginated, len(rows)
 
 
-async def create_mfa_secret(
-    user_id: int, secret: str, backup_codes: str
-) -> dict[str, Any] | None:
+async def create_mfa_secret(user_id: int, secret: str, backup_codes: str) -> dict[str, Any] | None:
     """Store MFA secret for user (async)."""
     db = get_db()
     await db.mfa_secrets.async_insert(
@@ -478,8 +505,7 @@ async def get_user_tenant_role(user_id: int, tenant_id: int) -> str | None:
     """Get user's role in a tenant (async)."""
     db = get_db()
     row = await db(
-        (db.tenant_members.user_id == user_id)
-        & (db.tenant_members.tenant_id == tenant_id)
+        (db.tenant_members.user_id == user_id) & (db.tenant_members.tenant_id == tenant_id)
     ).select()
     return row[0].role if row else None
 
@@ -502,7 +528,19 @@ async def get_tenant_members(tenant_id: int) -> list[dict[str, Any]]:
 async def add_tenant_member(
     tenant_id: int, user_id: int, role: str = "member", invited_by_id: int | None = None
 ) -> dict[str, Any] | None:
-    """Add a member to a tenant (async)."""
+    """Add a member to a tenant (async).
+
+    A delegated ``admin`` is a licensed structure and is metered here as a
+    backstop beneath the routes. Members and viewers are unlimited at every
+    tier and pass straight through — the tier model caps delegated
+    authority, never participation. Raises
+    :class:`~app.quotas.QuotaExceededError`.
+    """
+    if role == "admin":
+        from . import quotas
+
+        await quotas.assert_within("tenant_admins")
+
     db = get_db()
     member_id = await db.tenant_members.async_insert(
         tenant_id=tenant_id,
@@ -628,9 +666,7 @@ async def get_tenant_product_count(tenant_id: int) -> int:
     return len(rows)
 
 
-async def update_product_health(
-    conn_id: int, status: str, last_check: Any = None
-) -> bool:
+async def update_product_health(conn_id: int, status: str, last_check: Any = None) -> bool:
     """Update product connection health status and timestamp (async).
 
     The column is `last_health_check` (models_sqlalchemy.ProductConnection);
@@ -679,8 +715,7 @@ async def get_oauth_connection(user_id: int, provider: str) -> dict[str, Any] | 
     """Get OAuth connection for user and provider (async)."""
     db = get_db()
     row = await db(
-        (db.oauth_connections.user_id == user_id)
-        & (db.oauth_connections.provider == provider)
+        (db.oauth_connections.user_id == user_id) & (db.oauth_connections.provider == provider)
     ).select()
     return dict(row[0]) if row else None
 
@@ -711,8 +746,7 @@ async def store_oauth_connection(
     if existing:
         # Update existing connection
         await db(
-            (db.oauth_connections.user_id == user_id)
-            & (db.oauth_connections.provider == provider)
+            (db.oauth_connections.user_id == user_id) & (db.oauth_connections.provider == provider)
         ).update(
             provider_user_id=provider_user_id,
             access_token=access_token,
@@ -733,9 +767,7 @@ async def store_oauth_connection(
         return new_id
 
 
-async def get_product_tenant_map(
-    connection_id: int, tenant_id: int
-) -> dict[str, Any] | None:
+async def get_product_tenant_map(connection_id: int, tenant_id: int) -> dict[str, Any] | None:
     """Get product tenant mapping by connection and tenant (async)."""
     db = get_db()
     row = await db(

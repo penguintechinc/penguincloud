@@ -15,6 +15,14 @@ penguin-aaa>=0.2.0
 penguin-utils>=0.1.0
 penguin-licensing>=0.1.0
 
+# Feature flags. penguin-licensing covers license ENTITLEMENT but ships no
+# flag client on the Python side (the Rust libs have one), so the portal
+# talks to the self-hosted PostHog inside license.penguintech.io through the
+# vendor SDK — see app/flags.py. penguin-libs issue filed proposing this be
+# contributed upstream into penguin-licensing; until it lands, the local
+# wrapper is the whole integration and is deliberately thin.
+posthog>=3.7.0,<4.0.0
+
 # Database ORM & Migrations (schema authority only)
 SQLAlchemy>=2.0.0
 greenlet>=3.5.0              # required by SQLAlchemy's AsyncEngine

@@ -49,23 +49,23 @@ class TestLicenseValidation:
 class TestFeatureGating:
     """Test feature gating based on license"""
 
-    @pytest.mark.xfail(
-        reason=(
-            "oauth_redirect (oauth.py:81) 500s when a configured provider "
-            "is missing client_id/client_secret env vars, instead of a "
-            "4xx — Config.OAUTH_PROVIDERS statically lists 'google' (so "
-            "get_provider_config() finds it), but "
-            "OAUTH_GOOGLE_CLIENT_ID/_SECRET are unset in TESTING, hitting "
-            "oauth.py:89's `return jsonify(...), 500` — not one of "
-            "[200, 302, 402, 403]"
-        ),
-        strict=False,
-    )
     @pytest.mark.asyncio
     async def test_sso_feature_gating(
         self, client: Any, admin_headers: dict[str, str]
     ) -> None:
-        """Test SSO feature is gated by license"""
+        """Test SSO feature is gated by license.
+
+        Was xfailed on a 500: ``RELEASE_MODE`` is false under TESTING, so
+        the old ``is_feature_enabled`` returned True before checking
+        anything and the route ran on to
+        ``OAUTH_GOOGLE_CLIENT_ID``/``_SECRET`` being unset. That short
+        circuit was an env-var license bypass and has been removed, so the
+        gate now denies first and the route never reaches the unconfigured
+        provider. The xfail is deleted rather than re-reasoned because the
+        condition it described can no longer arise on this path — the
+        underlying "unset credentials 500 instead of 4xx" defect still
+        exists behind the gate and is a separate finding.
+        """
         # Try to access SSO endpoint
         response = await client.get("/api/v1/auth/oauth/google", headers=admin_headers)
 

@@ -436,6 +436,28 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/features": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Report flag state, licensed tier and dev-mode status for this caller.
+     * @description Flags are evaluated against the authenticated user as the PostHog
+     *     ``distinct_id``, so a percentage rollout is stable per person rather
+     *     than per request.
+     */
+    get: operations["get_get_features"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/hello": {
     parameters: {
       query?: never;
@@ -1329,7 +1351,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Get audit logs (Admin only). */
+    /** Get audit logs for one tenant. Requires audit:read and tenants:manage. */
     get: operations["get_get_audit_logs_endpoint"];
     put?: never;
     post?: never;
@@ -1451,14 +1473,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    /**
-     * ActionResourceView
-     * @description The affected resource's post-action state, when the product returned it.
-     *
-     *     A named subset rather than the whole :class:`~app.adapters.base.Resource`:
-     *     ``metadata`` is the adapter's free-form bag and is not published here for
-     *     the same reason :class:`OperationView` omits it.
-     */
+    /** ActionResourceView */
     ActionResourceView: {
       /** Id */
       id: string;
@@ -1469,20 +1484,35 @@ export interface components {
       /** Status */
       status: string | null;
     };
-    /**
-     * MetricPointView
-     * @description One sample in a series.
-     */
+    /** AuditRecord */
+    AuditRecord: {
+      /** Action */
+      action: string;
+      /** Created At */
+      created_at: string | null;
+      /** Id */
+      id: number;
+      /** Ip Address */
+      ip_address: string | null;
+      /** Product Connection Id */
+      product_connection_id: number | null;
+      /** Resource Id */
+      resource_id: string | null;
+      /** Resource Type */
+      resource_type: string | null;
+      /** Tenant Id */
+      tenant_id: number | null;
+      /** User Id */
+      user_id: number | null;
+    };
+    /** MetricPointView */
     MetricPointView: {
       /** Timestamp */
       timestamp: string;
       /** Value */
       value: number;
     };
-    /**
-     * MetricSeriesView
-     * @description A named, unit-carrying sequence of samples.
-     */
+    /** MetricSeriesView */
     MetricSeriesView: {
       /** Key */
       key: string;
@@ -1493,10 +1523,7 @@ export interface components {
       /** Unit */
       unit: string;
     };
-    /**
-     * OperationLogLineView
-     * @description Wire shape for one log line.
-     */
+    /** OperationLogLineView */
     OperationLogLineView: {
       /** Level */
       level: string;
@@ -1505,16 +1532,7 @@ export interface components {
       /** Timestamp */
       timestamp: string | null;
     };
-    /**
-     * OperationView
-     * @description Wire shape for one operation.
-     *
-     *     An explicit DTO rather than serialising the dataclass directly: the
-     *     response schema is enforced field by field, so a future field added to
-     *     :class:`Operation` for internal use cannot silently start being published
-     *     (see the output-validation rule — an unvalidated response is as dangerous
-     *     as an unvalidated request, just harder to notice).
-     */
+    /** OperationView */
     OperationView: {
       /** Completed At */
       completed_at: string | null;
@@ -1537,9 +1555,7 @@ export interface components {
       /** Resource Kind */
       resource_kind: string | null;
       /** Result */
-      result: {
-        [key: string]: unknown;
-      } | null;
+      result: Record<string, never> | null;
       /** State */
       state: string;
       /** Status */
@@ -1547,10 +1563,7 @@ export interface components {
       /** Updated At */
       updated_at: string | null;
     };
-    /**
-     * RollupEntry
-     * @description Per-tenant rollup row.
-     */
+    /** RollupEntry */
     RollupEntry: {
       /** Products */
       products: components["schemas"]["RollupProduct"][];
@@ -1559,10 +1572,7 @@ export interface components {
       /** Tenant Name */
       tenant_name: string;
     };
-    /**
-     * RollupProduct
-     * @description One product connection's status inside a rollup row.
-     */
+    /** RollupProduct */
     RollupProduct: {
       /** Connection Id */
       connection_id: number;
@@ -1571,10 +1581,7 @@ export interface components {
       /** Status */
       status: string;
     };
-    /**
-     * TenantDetail
-     * @description The projection a member (or delegated admin) may see.
-     */
+    /** TenantDetail */
     TenantDetail: {
       /** Depth */
       depth: number;
@@ -1603,21 +1610,7 @@ export interface components {
       /** User Role */
       user_role: string | null;
     };
-    /**
-     * TenantMemberResponse
-     * @description A tenant membership row plus the member's contact identity.
-     *
-     *     PII policy (deliberate, not incidental): ``user_email`` and
-     *     ``user_full_name`` ARE included, because administering a tenant means
-     *     administering its member accounts and an MSP admin cannot do that
-     *     against opaque user ids. NO other column from the users table is
-     *     exposed here — not role, not is_active, not timestamps, not
-     *     password_hash — and this DTO is the only path membership data takes to a
-     *     response body. Adding a column to `users` must not widen this.
-     *
-     *     Field set is reconciled with the webui's TenantMember interface
-     *     (services/webui/src/client/types/index.ts).
-     */
+    /** TenantMemberResponse */
     TenantMemberResponse: {
       /** Id */
       id: number;
@@ -1952,12 +1945,25 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Recent audit events for one tenant, newest first.
+       *
+       *     Attributes:
+       *         activity: The audit entries.
+       *         count: Number of entries returned.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Activity */
+            activity: components["schemas"]["AuditRecord"][];
+            /** Count */
+            count: number;
+          };
+        };
       };
     };
   };
@@ -2068,6 +2074,53 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  get_get_features: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Everything the UI needs to decide what to render.
+       *
+       *     An explicit DTO rather than a dict: the response schema is enforced
+       *     field by field, so nothing added to the flag or licensing modules for
+       *     internal use can start being published by accident.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Dev Mode */
+            dev_mode: boolean;
+            /** Dev Mode Max Users */
+            dev_mode_max_users: number;
+            /** Flags */
+            flags: {
+              [key: string]: boolean;
+            };
+            /** Licensed Features */
+            licensed_features: {
+              [key: string]: string;
+            };
+            /** Limits */
+            limits: {
+              [key: string]: number;
+            };
+            /** Tier */
+            tier: string;
+            /** Tiers */
+            tiers: string[];
+          };
+        };
       };
     };
   };
@@ -2597,9 +2650,7 @@ export interface operations {
             /** Resource Kind */
             resource_kind: string | null;
             /** Result */
-            result: {
-              [key: string]: unknown;
-            } | null;
+            result: Record<string, never> | null;
             /** State */
             state: string;
             /** Status */
@@ -2660,9 +2711,7 @@ export interface operations {
             /** Resource Kind */
             resource_kind: string | null;
             /** Result */
-            result: {
-              [key: string]: unknown;
-            } | null;
+            result: Record<string, never> | null;
             /** State */
             state: string;
             /** Status */
@@ -3310,9 +3359,7 @@ export interface operations {
             /** Count */
             count: number;
             /** Tenants */
-            tenants: {
-              [key: string]: unknown;
-            }[];
+            tenants: Record<string, never>[];
           };
         };
       };

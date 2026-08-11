@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { EmptyState } from "../../../components/kit";
-import { isProductEnabled } from "../../../lib/featureGates";
+import { useProductEnabled } from "../../../lib/featureGates";
 
 interface GoughScreenProps {
   title: string;
@@ -30,7 +30,11 @@ export function GoughScreen({
   isConnectionLoading,
   children,
 }: GoughScreenProps) {
-  if (!isProductEnabled("gough")) {
+  // Hook call hoisted out of the `if` so it is unconditional at the top of
+  // the component — rules-of-hooks, and it reads better besides.
+  const isEnabled = useProductEnabled("gough");
+
+  if (!isEnabled) {
     return (
       <EmptyState
         title="Gough is not enabled"

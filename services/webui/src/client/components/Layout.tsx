@@ -12,8 +12,10 @@ import { useAuth } from "../hooks/useAuth";
 import { useTenantStore } from "../stores/tenantStore";
 import { useProductConnections } from "../hooks/useProducts";
 import { useTenantScopeBootstrap } from "../hooks/useTenantScopeBootstrap";
+import { useFeatures } from "../hooks/useFeatures";
 import { TenantScopeSwitcher } from "./kit/TenantScopeSwitcher";
 import { ActingAsBanner } from "./kit/ActingAsBanner";
+import DevModeBanner from "./DevModeBanner";
 import { Breadcrumbs } from "./kit/Breadcrumbs";
 import { buildMenuCategories } from "./layout/menuCategories";
 
@@ -36,6 +38,11 @@ export default function Layout() {
   const currentTenant = useTenantStore((state) => state.currentTenant);
 
   useTenantScopeBootstrap();
+  // The single fetch of GET /api/v1/features, mounted here because Layout
+  // wraps every authenticated route. Every gate elsewhere reads the store
+  // this populates, so two screens rendered at the same moment cannot
+  // disagree about what is enabled.
+  useFeatures();
   const connections = useProductConnections(currentTenant?.id).data ?? [];
 
   const categories = buildMenuCategories(connections, (roles) => {
@@ -71,6 +78,9 @@ export default function Layout() {
 
       <div className="lg:pl-64 flex flex-col min-h-screen min-w-0">
         <div className="border-b border-slate-700 bg-slate-900 sticky top-0 z-20">
+          {/* Above ActingAsBanner and inside the sticky header: an
+              unlicensed deployment must be visible without scrolling. */}
+          <DevModeBanner />
           <ActingAsBanner />
 
           <div className="flex items-center justify-between h-16 px-4 sm:px-6 py-3 gap-3">
