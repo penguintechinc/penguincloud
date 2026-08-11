@@ -1,0 +1,9 @@
+[tool.ruff]
+target-version = "py313"     # py312 only while migrating
+line-length = 100            # matches Prettier printWidth + dart format
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

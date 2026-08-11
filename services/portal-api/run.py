@@ -10,14 +10,12 @@ import asyncio
 import os
 import sys
 
+from app import create_app, devmode
+from app.config import Config
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HypercornConfig
 from penguin_dal.quart_ext import get_db
 from quart import Quart
-
-from app import create_app
-from app import devmode
-from app.config import Config
 
 #: A seeded admin is a real credential; refuse anything short enough to be a
 #: placeholder. There is deliberately no default password — an unset
@@ -25,9 +23,7 @@ from app.config import Config
 MIN_ADMIN_PASSWORD_LENGTH = 12
 
 
-async def wait_for_database(
-    app: Quart, max_retries: int = 30, retry_delay: float = 2.0
-) -> bool:
+async def wait_for_database(app: Quart, max_retries: int = 30, retry_delay: float = 2.0) -> bool:
     """Poll the database until it answers a trivial query, or give up.
 
     Uses penguin-dal through the app context — the same path the running
@@ -39,7 +35,11 @@ async def wait_for_database(
     for attempt in range(1, max_retries + 1):
         try:
             async with app.app_context():
-                await get_db().executesql("SELECT 1")
+                # mypy infers `.executesql` as pydal's dynamic-attribute
+                # TableProxy rather than the bound method it resolves to at
+                # runtime -- narrow suppression per mypy.ini's documented
+                # policy for third-party stub limitations (see background.py).
+                await get_db().executesql("SELECT 1")  # type: ignore[operator]
             print(f"Database ready after {attempt} attempt(s)", flush=True)
             return True
         except Exception as e:
@@ -106,8 +106,7 @@ async def create_default_admin(app: Quart) -> None:
             # exception here kills the process at startup with a bare
             # traceback — an operator needs the reason, not a stack.
             print(
-                f"Skipping admin seeding: {exc}. Remove --dev to seed an "
-                "administrator.",
+                f"Skipping admin seeding: {exc}. Remove --dev to seed an " "administrator.",
                 file=sys.stderr,
                 flush=True,
             )

@@ -58,7 +58,8 @@ main() {
     log_header "Alpha Smoke Test Suite for $PROJECT_NAME"
     log_info "Starting full alpha smoke test suite..."
 
-    local start_time=$(date +%s)
+    local start_time
+    start_time=$(date +%s)
 
     # Run all tests in order
     run_test "01-build-images.sh" "Step 1: Build Docker Images" || exit 1
@@ -70,7 +71,8 @@ main() {
     run_test "07-page-load.sh" "Step 7: Page Load Tests" || exit 1
     run_test "08-cleanup.sh" "Step 8: Cleanup" || exit 1
 
-    local end_time=$(date +%s)
+    local end_time
+    end_time=$(date +%s)
     local duration=$((end_time - start_time))
 
     log_header "All Alpha Smoke Tests Passed!"
