@@ -20,6 +20,14 @@ PYTHON_VERSION := 3.12
 NODE_VERSION := 18
 FLUTTER_VERSION := 3.38.9
 
+# Project-local venv for the portal-api test suite (tests/). Built ONLY from
+# services/portal-api/requirements.txt --require-hashes, so `make test-api`
+# reflects exactly what's declared/pinned and what CI installs — never
+# whatever penguin-libs (or any other editable/global package) happens to be
+# on. See docs/DEVELOPMENT.md "Isolated test venv".
+PORTAL_API_VENV := .venv
+PORTAL_API_PYTHON := python3.13
+
 # Colors for output
 RED := \033[31m
 GREEN := \033[32m
@@ -540,9 +548,31 @@ refresh-product-source-fixtures: ## Testing - Re-vendor Gough/Nest/Tobogganing r
 	@echo "$(BLUE)Refreshing vendored product source fixtures...$(RESET)"
 	@python3 scripts/refresh_product_source_fixtures.py
 
-test-api-live: ## Testing - Run the API suite with product checkouts REQUIRED (no silent skips)
+venv-portal-api: ## Setup - Create/refresh the isolated portal-api test venv (idempotent)
+	@$(PORTAL_API_PYTHON) --version >/dev/null 2>&1 || (echo "$(RED)$(PORTAL_API_PYTHON) not installed$(RESET)" && exit 1)
+	@if [ ! -x "$(PORTAL_API_VENV)/bin/python" ]; then \
+		echo "$(BLUE)Creating $(PORTAL_API_VENV) ($(PORTAL_API_PYTHON))...$(RESET)"; \
+		$(PORTAL_API_PYTHON) -m venv $(PORTAL_API_VENV); \
+		$(PORTAL_API_VENV)/bin/python -m pip install --upgrade pip --quiet; \
+	fi
+	@reqs_hash=$$(sha256sum services/portal-api/requirements.txt | cut -d' ' -f1); \
+	stamp=$(PORTAL_API_VENV)/.requirements.sha256; \
+	if [ ! -f "$$stamp" ] || [ "$$(cat $$stamp 2>/dev/null)" != "$$reqs_hash" ]; then \
+		echo "$(BLUE)Installing services/portal-api/requirements.txt (--require-hashes)...$(RESET)"; \
+		$(PORTAL_API_VENV)/bin/pip install --require-hashes -r services/portal-api/requirements.txt || exit 1; \
+		echo "$$reqs_hash" > "$$stamp"; \
+		echo "$(GREEN)$(PORTAL_API_VENV) up to date$(RESET)"; \
+	else \
+		echo "$(GREEN)$(PORTAL_API_VENV) already up to date (requirements.txt unchanged)$(RESET)"; \
+	fi
+
+test-api: venv-portal-api ## Testing - Run tests/ through the isolated venv (declared/pinned deps only, no penguin-libs editable install)
+	@echo "$(BLUE)Running tests/ via $(PORTAL_API_VENV) (isolated from ~/code/penguin-libs)...$(RESET)"
+	@$(PORTAL_API_VENV)/bin/python -m pytest tests/ -q
+
+test-api-live: venv-portal-api ## Testing - Run the API suite with product checkouts REQUIRED (no silent skips)
 	@echo "$(BLUE)Running API tests with REQUIRE_PRODUCT_SOURCE=1...$(RESET)"
-	@REQUIRE_PRODUCT_SOURCE=1 python3 -m pytest tests/api -q
+	@REQUIRE_PRODUCT_SOURCE=1 $(PORTAL_API_VENV)/bin/python -m pytest tests/api -q
 
 # Missing Standard Targets (added for standards compliance)
 test-unit: ## Testing - Run unit tests

@@ -365,6 +365,39 @@ pytest tests/unit/test_auth.py
 make test-multiarch
 ```
 
+#### Isolated test venv (`make test-api`)
+
+`tests/` (root pytest suite, mostly `tests/api/`) imports `penguin-dal`,
+`penguin-aaa`, and friends. If your global/user `pip` has any of these
+installed **editable** — `pip install -e ~/code/penguin-libs/packages/...`,
+common when working on `penguin-libs` itself — the suite's pass/fail no
+longer depends on this repo's code, it depends on whichever branch/commit
+that sibling checkout happens to be sitting on. An editable `penguin-dal`
+missing a method the released version has (or vice versa) silently changes
+the test count with no code change here at all.
+
+`make test-api` avoids this entirely: it builds a project-local venv
+(`.venv/`, gitignored) from **only** `services/portal-api/requirements.txt`
+via `pip install --require-hashes`, then runs `pytest tests/ -q` through
+that venv's interpreter. Nothing in `.venv/` can reference a path outside
+this repo — hash verification fails the install outright if it tried. This
+is exactly what CI installs, so a green `make test-api` locally means the
+same thing a green CI run means.
+
+```bash
+make venv-portal-api   # create/refresh .venv/ (idempotent — no-op if
+                        # services/portal-api/requirements.txt is unchanged
+                        # since the last install)
+make test-api          # venv-portal-api, then pytest tests/ -q through it
+```
+
+`test-api-live` (product-checkout-required mode) now runs through the same
+venv. Refresh whenever `services/portal-api/requirements.in` changes:
+regenerate the lock with
+`uv pip compile services/portal-api/requirements.in --generate-hashes -o services/portal-api/requirements.txt`,
+then `make venv-portal-api` picks up the new hash automatically (it keys
+its no-op check off `requirements.txt`'s own sha256, not a manual flag).
+
 ### 7. Create Pull Request
 
 Once tests pass:
