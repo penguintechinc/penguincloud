@@ -122,6 +122,10 @@ A feature ships only when the **flag is on** *and* the **licence entitles it**. 
 `audit_logs` and `audit_export` are separate `FEATURE_MIN_TIER` entries, both Enterprise, gated at `GET /api/v1/audit/logs` and `GET /api/v1/audit/export`. Two entries rather than one because one name meaning two capabilities is the `unlimited_hierarchy` failure this codebase already deleted once.
 
 `models.create_audit_log` is **not** gated and must not be: rows are written on every tier because that is a security property. Gating the write would make audit a locked module, which the tier model forbids; the paywall is on reading the trail.
+
+**Every route that reads `audit_logs` is tenant-scoped, without exception.** `GET /api/v1/users/audit-logs` was a third door: it served `db(db.audit_logs.id > 0)` — the whole deployment — behind a scope check with no tenant predicate and no licence gate, so any caller holding `audit:read` in any tenant read every other tenant's trail. It is now scoped and gated like the other two. `auth_features.get_audit_logs` takes `tenant_id` as a required first parameter so a caller that forgets it gets a `TypeError`, not a deployment-wide result set; the dead `auth_features.audit_log` writer likewise now requires a tenant, because the rows it produced carried a NULL tenant and were unreadable by any scoped reader.
+
+`tests/api/test_gate_coverage_is_derived.py` derives this per table from the code: every reader of a `TENANT_SCOPED_TABLES` entry must carry a tenant predicate, and every route reaching one must be licence-gated. It found a **fourth** reader nobody had enumerated — `GET /api/v1/dashboard/activity` — which is correctly tenant-scoped but unlicensed, and now sits in `AUDIT_ROUTES_INTENTIONALLY_UNLICENSED` with its reasoning. **That list can excuse a licence gate and never a tenant predicate**, asserted by its own test: pricing is a decision someone may make, cross-tenant reads are not.
 - Same discipline for products: every `PRODUCT_TYPES` value is either in `PRODUCT_FLAGS` or in `flags.UNFLAGGED_PRODUCT_TYPES` (retired products, products with no portal module of their own, and the `generic` escape hatch).
 - **The conjunction is enforced server-side, on every route that reaches a product.** `flags.product_gate_refusal()` runs at connection create, in the proxy, in `product_access.resolve_product_context()` (the shared path for the whole typed surface — operations, logs, cancel, resource create/delete, resource actions, metrics), and in `POST /<id>/test` and `GET /<id>/schema`, which build their own adapter context. It is checked **before credential decryption**, so a disabled module's secret stays at rest rather than merely not being sent. `featureGates.ts` decides what the browser draws; it is not a control.
 - **The covering set is derived, not listed.** `tests/api/test_gate_coverage_is_derived.py` walks the app's call graph, finds every route that transitively reaches `get_adapter`/`resolve_product_context`, and asserts each is gated. Two call sites were correct while ten other routes reached the product ungated; a hand-written list would have passed and been wrong at the eleventh route. A deliberate exception goes in `PRODUCT_ROUTES_INTENTIONALLY_UNGATED` with its reason — never a silent omission.
@@ -237,6 +241,6 @@ adapter and repoint the constant.
 
 ---
 
-**Last Updated:** 2026-08-07  
-**Maintained By:** PenguinTech Platform Team  
+**Last Updated:** 2026-08-07
+**Maintained By:** PenguinTech Platform Team
 **Related Documentation:** CLAUDE.md, docs/DEVELOPMENT.md, docs/TESTING.md, docs/PRE_COMMIT.md

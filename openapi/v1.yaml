@@ -2845,7 +2845,7 @@ paths:
         default:
           description: Response shape is not yet declared for this operation. The view has no @validate_response annotation,
             so no schema is published for it; do not rely on a specific body until one is.
-      summary: Get audit logs (Admin only).
+      summary: Get audit logs for one tenant. Requires audit:read and tenants:manage.
   /api/v1/users/me:
     get:
       description: ''

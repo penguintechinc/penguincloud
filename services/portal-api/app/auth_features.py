@@ -82,9 +82,7 @@ async def validate_email_token(token: str) -> int | None:
 async def confirm_email(token: str) -> bool:
     """Mark email as confirmed (async)."""
     db = get_db()
-    await db(db.email_confirmation_tokens.token == token).update(
-        confirmed_at=datetime.now(UTC)
-    )
+    await db(db.email_confirmation_tokens.token == token).update(confirmed_at=datetime.now(UTC))
     return True
 
 
@@ -128,26 +126,22 @@ async def validate_api_key(key: str) -> dict[str, Any] | None:
 async def revoke_api_key(key_id: int, user_id: int) -> bool:
     """Revoke an API key (async)."""
     db = get_db()
-    updated = await db(
-        (db.api_keys.id == key_id) & (db.api_keys.user_id == user_id)
-    ).update(is_active=False)
+    updated = await db((db.api_keys.id == key_id) & (db.api_keys.user_id == user_id)).update(
+        is_active=False
+    )
     return updated > 0
 
 
 async def get_user_api_keys(user_id: int) -> list[dict[str, Any]]:
     """List API keys for user (without full key) (async)."""
     db = get_db()
-    keys = await db(db.api_keys.user_id == user_id).select(
-        orderby=~db.api_keys.created_at
-    )
+    keys = await db(db.api_keys.user_id == user_id).select(orderby=~db.api_keys.created_at)
     return [
         {
             "id": k["id"],
             "name": k["name"],
             "prefix": k["key_prefix"],
-            "last_used_at": (
-                k["last_used_at"].isoformat() if k.get("last_used_at") else None
-            ),
+            "last_used_at": (k["last_used_at"].isoformat() if k.get("last_used_at") else None),
             "expires_at": k["expires_at"].isoformat() if k.get("expires_at") else None,
             "created_at": k["created_at"].isoformat() if k.get("created_at") else None,
         }
@@ -158,6 +152,7 @@ async def get_user_api_keys(user_id: int) -> list[dict[str, Any]]:
 # Audit logging
 async def audit_log(
     action: str,
+    tenant_id: int,
     resource_type: str | None = None,
     resource_id: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -167,12 +162,21 @@ async def audit_log(
 
     Writes `action_type` (the schema's column name, not `action`) via
     async_insert so the coroutine is actually awaited.
+
+    ``tenant_id`` is required. It was absent, so every row this writer
+    produced carried a NULL tenant — unreachable by any tenant-scoped
+    reader, and therefore an audit record that exists but can never be
+    read. It has no callers today; requiring the tenant means a future one
+    cannot reintroduce untenanted rows for the readers above to miss.
+    ``models.create_audit_log`` is the writer the app actually uses and has
+    always required it.
     """
     db = get_db()
     remote_addr = request.remote_addr if request else None
     user_agent = request.headers.get("User-Agent") if request else None
     await db.audit_logs.async_insert(
         user_id=user_id,
+        tenant_id=tenant_id,
         action_type=action,
         resource_type=resource_type,
         resource_id=resource_id,
@@ -182,10 +186,25 @@ async def audit_log(
     )
 
 
-async def get_audit_logs(limit: int = 100) -> list[dict[str, Any]]:
-    """Get recent audit logs (async)."""
+async def get_audit_logs(tenant_id: int, limit: int = 100) -> list[dict[str, Any]]:
+    """Get recent audit logs for ONE tenant (async).
+
+    ``tenant_id`` is the first parameter and has no default, deliberately.
+    This function used to read ``db(db.audit_logs.id > 0)`` — every row in
+    the deployment — and was served by ``GET /api/v1/users/audit-logs``
+    behind a scope check with no tenant predicate at all. Any caller
+    holding ``audit:read`` in any tenant read every other tenant's audit
+    trail: who did what, to which resource, under which user id. In a
+    portal whose entire premise is provider/customer isolation that is the
+    worst-shaped disclosure available, because audit rows describe other
+    customers' activity by name.
+
+    Making the parameter required rather than optional is the point: a
+    caller that forgets it gets a TypeError at the call site, not a
+    silently deployment-wide result set.
+    """
     db = get_db()
-    logs = await db(db.audit_logs.id > 0).select(
+    logs = await db(db.audit_logs.tenant_id == tenant_id).select(
         orderby=~db.audit_logs.created_at,
         limitby=(0, limit),
     )
@@ -197,9 +216,7 @@ async def get_audit_logs(limit: int = 100) -> list[dict[str, Any]]:
             "resource_type": log["resource_type"],
             "resource_id": log["resource_id"],
             "ip_address": log["ip_address"],
-            "created_at": (
-                log["created_at"].isoformat() if log.get("created_at") else None
-            ),
+            "created_at": (log["created_at"].isoformat() if log.get("created_at") else None),
         }
         for log in logs
     ]

@@ -12,10 +12,18 @@ from typing import Any
 
 from quart import Blueprint, request
 
-from .auth import hash_password_async, verify_password_async
 from . import devmode, quotas
-from .authz import SCOPE_AUDIT_READ, SCOPE_USERS_MANAGE, SCOPE_USERS_READ, require_scope
-from .middleware import auth_required, get_current_user
+from .auth import hash_password_async, verify_password_async
+from .authz import (
+    SCOPE_AUDIT_READ,
+    SCOPE_TENANTS_MANAGE,
+    SCOPE_USERS_MANAGE,
+    SCOPE_USERS_READ,
+    require_scope,
+    require_tenant_scope,
+)
+from .license import require_feature
+from .middleware import auth_required, get_current_tenant_id, get_current_user
 from .models import (
     VALID_ROLES,
     create_user,
@@ -27,6 +35,25 @@ from .models import (
 )
 
 users_bp = Blueprint("users", __name__)
+
+
+def _resolve_tenant_id() -> int | None:
+    """The tenant this request acts on: verified claim, else explicit param.
+
+    Same resolution the dashboard uses. The claim is read from what
+    ``auth_required`` already verified — never re-decoded here — and the
+    explicit parameter exists for a delegated admin acting on a descendant,
+    whose own active tenant is the provider rather than the target.
+    """
+    claim_tenant = get_current_tenant_id()
+    if claim_tenant:
+        try:
+            return int(claim_tenant)
+        except ValueError:
+            # A non-numeric tenant claim cannot address this schema's
+            # integer tenants.id; fall through to the explicit param.
+            pass
+    return request.args.get("tenant_id", type=int)
 
 
 @users_bp.route("", methods=["GET"])
@@ -174,9 +201,7 @@ async def update_existing_user(user_id: int) -> tuple[dict[str, Any], int]:
     if "role" in data:
         role = data["role"]
         if role not in VALID_ROLES:
-            return {
-                "error": f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}"
-            }, 400
+            return {"error": f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}"}, 400
         # Promoting an existing user is the other way to gain a global
         # admin. Metering only the create path would leave "create as
         # viewer, then promote" as an unmetered route to the same
@@ -321,9 +346,7 @@ async def change_password() -> tuple[dict[str, Any], int]:
     if not data or not data.get("current_password") or not data.get("new_password"):
         return {"error": "Current and new password required"}, 400
 
-    pwd_valid = await verify_password_async(
-        data["current_password"], user["password_hash"]
-    )
+    pwd_valid = await verify_password_async(data["current_password"], user["password_hash"])
     if not pwd_valid:
         return {"error": "Current password incorrect"}, 401
 
@@ -406,11 +429,50 @@ async def delete_api_key(key_id: int) -> tuple[dict[str, Any], int]:
 @users_bp.route("/audit-logs", methods=["GET"])
 @auth_required
 @require_scope(SCOPE_AUDIT_READ)
+@require_feature("audit_logs")
 async def get_audit_logs_endpoint() -> tuple[dict[str, Any], int]:
-    """Get audit logs (Admin only)."""
+    """Get audit logs for one tenant. Requires audit:read and tenants:manage."""
+    # NOTE: this docstring is EXPORTED into openapi/v1.yaml as the
+    # operation description, so the rationale lives in comments. Publishing
+    # a narrative of a fixed disclosure defect to anyone who can read the
+    # spec is not documentation.
+    #
+    # This route had no tenant predicate: it served db(db.audit_logs.id > 0)
+    # — the whole deployment — to any caller holding audit:read in any
+    # tenant. It also carried no licence gate, so it was a third door onto
+    # the audit trail that walked around the Enterprise gate on
+    # /api/v1/audit/logs and /api/v1/audit/export.
+    #
+    # Both are fixed, and the tenant scoping is the load-bearing half: it
+    # would be required even if audit were free on every tier.
+    #
+    # Tenancy follows the same shape as /api/v1/audit/logs and the
+    # dashboard: the tenant comes from the verified claim, or from an
+    # explicit tenant_id for a delegated MSP admin acting on a descendant —
+    # and authority over it is asked as a SCOPE, so a delegated admin (who
+    # has no tenant_members row in the descendant) is answered the same way
+    # the rest of the API answers them, rather than being silently refused.
     from .auth_features import get_audit_logs
+
+    user = get_current_user()
+    if not user:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
+
+    tenant_id = _resolve_tenant_id()
+    if not tenant_id:
+        return {"error": "tenant_id required"}, 400
+
+    # TENANT authority is asked with a TENANT-minted scope. `audit:read` is
+    # platform-only (_PLATFORM_ROLE_SCOPES); resolve_scopes never mints it
+    # per tenant, so requiring it here would 403 every token the portal can
+    # issue — a gate that looks tighter and is simply dead. `tenants:manage`
+    # is what /api/v1/audit/logs asks for the same trail, so the two routes
+    # answer the same caller the same way.
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_TENANTS_MANAGE)
+    if denied:
+        return denied
 
     limit = request.args.get("limit", 100, type=int)
     # get_audit_logs is async — see list_api_keys above.
-    logs = await get_audit_logs(min(limit, 1000))
+    logs = await get_audit_logs(tenant_id, min(limit, 1000))
     return {"logs": logs}, 200

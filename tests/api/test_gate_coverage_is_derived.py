@@ -21,7 +21,43 @@ fails the test on arrival rather than when someone remembers to update a
 list.
 
 A hand-maintained list of the ten routes would have passed today and been
-wrong at the eleventh.
+wrong at the eleventh. The same move found a FOURTH audit route
+(``dashboard_activity``) that three rounds of review had not enumerated.
+
+WHAT THESE GUARDS CANNOT SEE
+============================
+Stated because a guard whose blind spots are undocumented is how three of
+these defects were shipped in the first place. None of the below is wrong
+today; all of it is where to look next.
+
+* **The route scanner assumes the ``@bp.route(...)`` decorator form.** True
+  for all 99 routes today. A route registered via ``add_url_rule``, a
+  class-based view, or a blueprint built in a loop is invisible, and an
+  invisible route is an ungated one as far as these checks are concerned.
+* **Call resolution is by bare NAME.** ``test_the_names_this_guard_resolves_
+  are_unambiguous`` pins the three names the product-gate check decides on,
+  but six route names already collide with adapter method names elsewhere in
+  the package. A future homonym could make an ungated route look gated. The
+  audit reader set is keyed by ``(module, name)`` for this reason; the
+  product-gate closure is not.
+* **The not-yet-implemented detector is a HEURISTIC** — a segment match over
+  the route rule and the view name. A rename defeats it. More importantly,
+  a capability that is not a route (``external_kms``, ``whitelabel``,
+  ``byok_ai``) can never produce evidence, so those entries pass
+  structurally vacuously; non-vacuity is pinned for ``audit_export`` alone,
+  which is the only one that has ever been wrong.
+* **"Reads a tenant-scoped table" is syntactic.** It matches ``db.<table>``
+  plus a ``.select``/``.count`` in the same function. A read reached through
+  a variable alias, raw SQL (``executesql``), or a helper that takes the
+  table as a parameter is invisible. Likewise "filters by tenant" matches
+  the presence of ``db.<table>.tenant_id`` anywhere in the function — it
+  cannot tell a predicate from a projection, so it proves a tenant column is
+  MENTIONED, not that the query is correctly restricted. The behavioural
+  test in ``test_audit_isolation.py`` is what proves restriction; this one
+  exists to catch the route nobody wrote a behavioural test for.
+* **One table is enumerated** (``audit_logs``). Other tenant-scoped tables
+  are not checked; adding one is adding a name to
+  ``TENANT_SCOPED_TABLES``.
 """
 
 from __future__ import annotations
@@ -260,3 +296,194 @@ class TestNothingBuiltHidesInNotYetImplemented:
     def test_the_set_is_not_empty(self) -> None:
         """Guards the parametrised check above from vanishing silently."""
         assert licensing.NOT_YET_IMPLEMENTED
+
+
+#: Tables whose rows belong to exactly one tenant, so that a query without a
+#: tenant predicate returns other customers' data.
+#:
+#: One name today. Extending the guard to another table is adding a name
+#: here, which is the point of naming them at all — the alternative, a
+#: hand-written list of "routes that serve audit data", is what let a third
+#: audit route exist for months without either gate.
+TENANT_SCOPED_TABLES: Final[frozenset[str]] = frozenset({"audit_logs"})
+
+#: Calls that turn a query into rows. An INSERT (`async_insert`) is not a
+#: read, and audit rows must be written on every tier — see
+#: `models.create_audit_log`.
+_READ_CALLS: Final[frozenset[str]] = frozenset({"select", "count"})
+
+#: Routes that read a tenant-scoped table and are deliberately NOT licence
+#: gated. An entry here excuses the LICENCE gate and nothing else — the
+#: tenant-predicate assertion applies to every reader without exception,
+#: because that one is a security property rather than a commercial one.
+#:
+#: ``dashboard_activity`` (``GET /api/v1/dashboard/activity``) was found by
+#: this guard, not by review. It reads ``audit_logs`` correctly scoped to
+#: one tenant behind ``tenants:read``, and returns at most 100 recent rows
+#: with no filtering, no pagination and no export.
+#:
+#: The judgement: what the tier table sells at Enterprise is
+#: "auditability & compliance" — querying, filtering and exporting the
+#: trail, which is what ``/api/v1/audit/logs`` and ``/api/v1/audit/export``
+#: are. A bounded recent-activity card on the dashboard is the product's
+#: own UI, and gating it would leave a visibly broken dashboard on Free,
+#: which is the "locked or crippled module" the tier model forbids outright.
+#:
+#: FLAGGED FOR CONFIRMATION rather than assumed — see the report. If the
+#: answer is that any read of the trail is Enterprise, deleting this entry
+#: is the whole change, and the test will then require the gate.
+AUDIT_ROUTES_INTENTIONALLY_UNLICENSED: Final[frozenset[str]] = frozenset({"dashboard_activity"})
+
+
+def _table_access(node: ast.AST, table: str) -> tuple[bool, bool]:
+    """``(reads the table, filters it by tenant_id)`` for one function."""
+    touches_table = False
+    filters_by_tenant = False
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Attribute):
+            continue
+        # db.<table>
+        if child.attr == table and isinstance(child.value, ast.Name) and child.value.id == "db":
+            touches_table = True
+        # db.<table>.tenant_id
+        if (
+            child.attr == "tenant_id"
+            and isinstance(child.value, ast.Attribute)
+            and child.value.attr == table
+        ):
+            filters_by_tenant = True
+    reads = touches_table and bool(_called_names(node) & _READ_CALLS)
+    return reads, filters_by_tenant
+
+
+def _tenant_table_readers(table: str) -> dict[tuple[str, str], bool]:
+    """``(module, function) -> is tenant-filtered`` for readers of ``table``.
+
+    Keyed by module AND name on purpose: ``get_audit_logs`` exists in both
+    ``audit.py`` (a route) and ``auth_features.py`` (its helper), and a
+    name-keyed dict would silently keep one and drop the other — losing a
+    reader is precisely the failure this guard exists to prevent.
+    """
+    readers: dict[tuple[str, str], bool] = {}
+    for path, tree in _iter_app_modules():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            reads, filtered = _table_access(node, table)
+            if reads:
+                readers[(path.name, node.name)] = filtered
+    return readers
+
+
+def _reader_names(table: str) -> set[str]:
+    """Bare names of every reader, for call-graph matching."""
+    return {name for _, name in _tenant_table_readers(table)}
+
+
+def _serves_table(route: str, calls: dict[str, set[str]], readers: set[str]) -> bool:
+    """True when a route reads the table itself or calls something that does.
+
+    The route's own name is included deliberately: ``audit.py``'s two routes
+    ARE the readers, and a closure that only looked at callees found neither.
+    """
+    return bool(({route} | _reachable_from(route, calls)) & readers)
+
+
+class TestTenantScopedTablesAreNotReadGlobally:
+    """Every route serving a tenant-private table must scope AND licence it.
+
+    ``GET /api/v1/users/audit-logs`` read every audit row in the deployment
+    and carried no licence gate, so it both leaked across tenants and walked
+    around the Enterprise wall on the other two audit routes. Neither
+    existing guard could see it: the mint-vs-enforce check is satisfied by a
+    single enforcement site anywhere, and the not-yet-implemented converse
+    only interrogates features claimed to be unbuilt.
+
+    Derived from the code, per table, so a fourth audit route cannot arrive
+    unscoped.
+    """
+
+    @pytest.mark.parametrize("table", sorted(TENANT_SCOPED_TABLES))
+    def test_every_reader_filters_by_tenant(self, table: str) -> None:
+        """A read with no tenant predicate returns other customers' rows."""
+        readers = _tenant_table_readers(table)
+
+        assert readers, (
+            f"found no readers of {table} at all — the scanner has stopped "
+            f"working and this check is passing vacuously"
+        )
+
+        unscoped = [
+            f"{module}:{name}" for (module, name), filtered in readers.items() if not filtered
+        ]
+        assert not unscoped, (
+            f"these functions read {table} without a tenant predicate, so "
+            f"they return every tenant's rows: {unscoped}"
+        )
+
+    @pytest.mark.parametrize("table", sorted(TENANT_SCOPED_TABLES))
+    def test_every_route_reaching_a_reader_is_licence_gated(self, table: str) -> None:
+        """Audit access is Enterprise; a third door makes the wall optional."""
+        calls, _ = _build_call_graph()
+        routes = _route_functions()
+        readers = _reader_names(table)
+
+        serving = {name: routes[name] for name in routes if _serves_table(name, calls, readers)}
+        assert serving, (
+            f"no route appears to serve {table} — the scanner has stopped "
+            f"working and this check is passing vacuously"
+        )
+
+        ungated = {
+            name: rule
+            for name, rule in serving.items()
+            if "require_feature" not in _reachable_from(name, calls)
+            and name not in AUDIT_ROUTES_INTENTIONALLY_UNLICENSED
+        }
+        assert not ungated, (
+            f"routes serve {table} with no licence gate: {ungated}. The "
+            f"Enterprise wall on the other audit routes is only as strong "
+            f"as the weakest door onto the same data."
+        )
+
+    def test_the_scanner_sees_all_three_audit_doors(self) -> None:
+        """Non-vacuity, named: three routes serve this table, not one."""
+        calls, _ = _build_call_graph()
+        routes = _route_functions()
+        readers = _reader_names("audit_logs")
+        serving = {name for name in routes if _serves_table(name, calls, readers)}
+
+        for known in (
+            "get_audit_logs_endpoint",  # /api/v1/users/audit-logs
+            "get_audit_logs",  # /api/v1/audit/logs
+            "export_audit_logs",  # /api/v1/audit/export
+        ):
+            assert known in serving, sorted(serving)
+
+    def test_the_unlicensed_exceptions_name_real_routes(self) -> None:
+        """A stale exception silently re-opens the hole it documented."""
+        unknown = AUDIT_ROUTES_INTENTIONALLY_UNLICENSED - set(_route_functions())
+        assert not unknown, sorted(unknown)
+
+    def test_an_exception_can_never_excuse_the_tenant_predicate(self) -> None:
+        """The exception list is commercial, never a security waiver.
+
+        Being unlicensed is a pricing decision someone can make. Reading
+        another tenant's rows is not, so the tenant assertion above takes no
+        exceptions at all — asserted here so nobody later "extends" this
+        list to silence an isolation failure.
+        """
+        readers = _tenant_table_readers("audit_logs")
+        for route in AUDIT_ROUTES_INTENTIONALLY_UNLICENSED:
+            matching = [filtered for (_, name), filtered in readers.items() if name == route]
+            assert matching, f"{route} no longer reads audit_logs"
+            assert all(matching), f"{route} is exempt from LICENSING, not isolation"
+
+    def test_the_writer_is_not_mistaken_for_a_reader(self) -> None:
+        """Audit rows are WRITTEN on every tier; only reading is licensed.
+
+        If the scanner counted `create_audit_log` as a reader it would
+        demand a licence gate on writing, which would make audit a locked
+        module — exactly what the tier model forbids.
+        """
+        assert "create_audit_log" not in _reader_names("audit_logs")
