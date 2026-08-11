@@ -50,22 +50,60 @@ from urllib.parse import urlsplit
 import structlog
 from penguin_licensing.client import LicenseClient
 
-# The domain matcher is IMPORTED, not reimplemented. It is the security
-# boundary of the only bypass that exists, and it already handles the case a
-# hand-written version gets wrong: `evilpenguincloud.io` must not match
-# `.penguincloud.io`, while the bare apex `penguincloud.io` must. Two copies
-# of that rule is how one of them quietly loosens.
-#
-# It is private upstream (`_is_bypass_domain`) because penguin-licensing
-# only ever calls it from its own Flask-shaped decorator, which reads
-# `flask.request` and therefore fails closed — never bypasses — inside a
-# Quart app. penguin-libs issue filed to publish it alongside a
-# framework-agnostic host parameter; until then the import is deliberate and
-# `test_licensing_domain_bypass.py` pins the boundary semantics locally, so
-# an upstream change that loosens them fails here rather than in production.
-from penguin_licensing.decorators import _is_bypass_domain
-
 log = structlog.get_logger()
+
+#: The PenguinTech-managed domains that skip licence gating, from
+#: penguintech.md's License Bypass Domains.
+#:
+#: Implemented HERE rather than imported. This module used to do::
+#:
+#:     from penguin_licensing.decorators import _is_bypass_domain
+#:
+#: which worked only because an editable ~/code/penguin-libs checkout was on
+#: the path. The RELEASED penguin-licensing==0.1.0 that requirements.txt
+#: hash-pins exports no such name — nor any bypass logic at all — so the
+#: container, which installs with `uv pip install --require-hashes`, failed
+#: at import. The service could not start from its own declared
+#: dependencies, and the failure was in the one code path that decides
+#: whether the paywall applies.
+#:
+#: The leading underscore was upstream saying "this may vanish without
+#: notice". It had already vanished. A local shim with an upstream-
+#: compatible signature is this project's stated mitigation: never block a
+#: phase on a libs release.
+#:
+#: NOT widened to the product ``.app`` domains penguintech.md also lists.
+#: Two reasons, both deliberate: widening a security boundary while fixing
+#: an import is how a fix becomes a regression, and dev mode's domain set
+#: (devmode.DEV_MODE_APP_DOMAINS) is wider precisely so `--dev` can be
+#: proven to unlock on its own rather than riding this bypass. Widening is
+#: a policy decision — see the report.
+#:
+#: penguin-libs issue for a PUBLIC, framework-agnostic matcher:
+#: https://github.com/penguintechinc/penguin-libs/issues/77
+LICENSE_BYPASS_DOMAINS: Final[tuple[str, ...]] = (
+    ".penguincloud.io",
+    ".penguintech.cloud",
+    ".localhost.local",
+)
+
+
+def _is_bypass_domain(host: str) -> bool:
+    """True when ``host`` is a PenguinTech-managed domain that skips gating.
+
+    Signature and semantics match the upstream private helper this replaced,
+    so adopting a public upstream API later is a one-line swap.
+
+    Matches on a DOT BOUNDARY only. ``evilpenguincloud.io`` must not match
+    ``.penguincloud.io`` while the bare apex ``penguincloud.io`` must — a
+    plain ``endswith`` against the apex would grant a free licence to anyone
+    who registered a domain ending in those characters.
+    """
+    bare = host.split(":")[0].lower()
+    return any(
+        bare == domain.lstrip(".") or bare.endswith(domain) for domain in LICENSE_BYPASS_DOMAINS
+    )
+
 
 #: Environment keys naming the host this deployment is configured to answer
 #: on, in precedence order. ``BASE_URL`` is the key devops-kubernetes.md
@@ -345,9 +383,7 @@ def is_feature_entitled_blocking(feature_name: str) -> bool:
         # additional grant path, never a narrower one.
         return client.check_feature(feature_name)
     except Exception:
-        log.warning(
-            "feature_entitlement_check_failed", feature=feature_name, exc_info=True
-        )
+        log.warning("feature_entitlement_check_failed", feature=feature_name, exc_info=True)
         return False
 
 
@@ -384,9 +420,7 @@ async def is_feature_entitled(feature_name: str) -> bool:
     return await asyncio.to_thread(is_feature_entitled_blocking, feature_name)
 
 
-def upgrade_required(
-    feature: str, required_tier: str, current_tier: str
-) -> UpgradeRequired:
+def upgrade_required(feature: str, required_tier: str, current_tier: str) -> UpgradeRequired:
     """Build the 403 body a refused gate answers with."""
     return UpgradeRequired(
         error="feature_not_entitled",

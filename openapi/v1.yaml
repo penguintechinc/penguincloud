@@ -27,14 +27,6 @@ components:
       title: ActionResourceView
       type: object
     AuditRecord:
-      description: "One entry in a tenant's audit trail.\n\nAttributes:\n    id: Identifier of this audit\
-        \ entry.\n    user_id: Identifier of the user who performed the action, if the\n        action\
-        \ had an authenticated actor.\n    action: The event that was recorded, e.g. ``product.register``.\n\
-        \    resource_type: The kind of resource acted on, e.g. ``tenant``.\n    resource_id: Identifier\
-        \ of the resource acted on.\n    tenant_id: The tenant this entry belongs to.\n    product_connection_id:\
-        \ The product connection involved, when the\n        action was performed against a connected\
-        \ product.\n    ip_address: Source address the action came from.\n    created_at: When the action\
-        \ occurred, ISO-8601."
       properties:
         action:
           title: Action
@@ -603,8 +595,6 @@ paths:
           content:
             application/json:
               schema:
-                description: "Recent audit events for one tenant, newest first.\n\nAttributes:\n    activity:\
-                  \ The audit entries.\n    count: Number of entries returned."
                 properties:
                   activity:
                     items:
@@ -730,14 +720,6 @@ paths:
           content:
             application/json:
               schema:
-                description: 'Everything the UI needs to decide what to render.
-
-
-                  An explicit DTO rather than a dict: the response schema is enforced
-
-                  field by field, so nothing added to the flag or licensing modules for
-
-                  internal use can start being published by accident.'
                 properties:
                   dev_mode:
                     title: Dev Mode

@@ -113,10 +113,14 @@ def reset() -> None:
 #:
 #: general.md's dev-mode domain condition names "``*.penguincloud.io``,
 #: ``*.penguintech.cloud``, ``*.localhost.local``, product ``.app`` domains".
-#: The first three are exactly ``penguin_licensing``'s licence-bypass list,
-#: which is reused rather than copied. The product ``.app`` domains are NOT
-#: in that list — penguin-licensing does not carry them — so they are
-#: declared here, and only for dev mode.
+#: The first three are exactly the licence-bypass list in
+#: ``licensing.LICENSE_BYPASS_DOMAINS``, which is reused rather than copied.
+#: The product ``.app`` domains are NOT in that list, so they are declared
+#: here, and only for dev mode.
+#:
+#: (That list used to be imported from ``penguin_licensing``; the released
+#: package carries no bypass logic at all, so it is now implemented in
+#: ``app/licensing.py`` — see the note there.)
 #:
 #: That divergence is deliberate and load-bearing in both directions:
 #:
