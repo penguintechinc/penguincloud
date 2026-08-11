@@ -116,6 +116,10 @@ FEATURE_MIN_TIER: Final[dict[str, str]] = {
     "waddleai_assist": TIER_PROFESSIONAL,
     # Enterprise
     "saml_sso": TIER_ENTERPRISE,
+    # Reading the audit trail is the Enterprise product. Audit rows are
+    # WRITTEN on every tier — that is a security property, not a feature,
+    # and gating it would be a locked module.
+    "audit_logs": TIER_ENTERPRISE,
     "audit_export": TIER_ENTERPRISE,
     "external_kms": TIER_ENTERPRISE,
     "advanced_analytics": TIER_ENTERPRISE,
@@ -148,12 +152,17 @@ FEATURE_MIN_TIER: Final[dict[str, str]] = {
 #: and adding a new licensed feature without gating it fails immediately.
 #:
 #: Removing a name from this set is the last step of implementing it, not
-#: the first.
+#: the first — and forgetting that step is not a theoretical risk.
+#: ``audit_export`` sat here while ``GET /api/v1/audit/export`` was fully
+#: built and reachable behind nothing but a tenant scope: membership of this
+#: set EXEMPTS a feature from the mint-vs-enforce guard, so a built feature
+#: parked here is invisible to the very check meant to catch it. The
+#: converse assertion — no implementation may exist for anything listed here
+#: — is what closes that, and it is the load-bearing half.
 NOT_YET_IMPLEMENTED: Final[frozenset[str]] = frozenset(
     {
         "waddleai_assist",
         "saml_sso",
-        "audit_export",
         "external_kms",
         "advanced_analytics",
         "whitelabel",

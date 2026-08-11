@@ -714,3 +714,82 @@ class TestGoughThroughTheTypedRoutes:
         assert deleted.status_code == 403
         assert StubAdapter.seen_create is None
         assert StubAdapter.seen_delete is None
+
+
+@pytest.mark.asyncio
+class TestTheModuleKillSwitchReachesTheTypedSurface:
+    """`penguincloud.{product}` false must stop the routes that do the work.
+
+    The gate ran at connection create and in the proxy only, so with a
+    module switched off resource create still created and resource actions
+    still executed. "Disable a module without a redeploy" was not true of
+    the typed surface.
+
+    These are behavioural: the structural guard in
+    ``test_gate_coverage_is_derived.py`` proves no route ESCAPES the gate;
+    these two prove the gate actually refuses.
+    """
+
+    @staticmethod
+    def _kill(monkeypatch: pytest.MonkeyPatch, product: str = "nest") -> None:
+        from conftest import _FakeFlagServer
+
+        from app import flags
+
+        monkeypatch.setattr(
+            flags,
+            "_client",
+            _FakeFlagServer(
+                flags.PRODUCT_FLAGS - {product}, disabled=frozenset({product})
+            ),
+        )
+        monkeypatch.setattr(flags, "_client_built", True)
+        flags._CACHE.clear()
+
+    async def test_resource_create_is_refused(
+        self, client: Any, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        conn_id, headers = await _setup(client, app)
+        self._kill(monkeypatch)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "orders-primary", "resourceType": "postgres"},
+        )
+
+        assert response.status_code == 403
+        assert (await response.get_json())["error"] == "feature_disabled"
+        # And nothing reached the product: the refusal happens before the
+        # adapter is built, so a disabled module's credential is never even
+        # decrypted.
+        assert StubAdapter.seen_create is None
+
+    async def test_resource_delete_is_refused(
+        self, client: Any, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        conn_id, headers = await _setup(client, app)
+        self._kill(monkeypatch)
+
+        response = await client.delete(
+            f"/api/v1/products/{conn_id}/resources/database/orders-primary",
+            headers=headers,
+        )
+
+        assert response.status_code == 403
+        assert (await response.get_json())["error"] == "feature_disabled"
+        assert StubAdapter.seen_delete is None
+
+    async def test_an_enabled_module_still_works(
+        self, client: Any, app: Quart
+    ) -> None:
+        """The positive case, so the refusals above are not vacuous."""
+        conn_id, headers = await _setup(client, app)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "orders-primary", "resourceType": "postgres"},
+        )
+
+        assert response.status_code == 201

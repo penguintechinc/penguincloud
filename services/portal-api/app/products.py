@@ -349,6 +349,15 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
     if not conn_raw:
         return {"error": "Product connection not found"}, 404
 
+    # This route makes a live call to the product, so the module kill switch
+    # applies. Checked before decryption: a disabled module's credential is
+    # never decrypted, not merely never sent.
+    gate = await flags.product_gate_refusal(
+        str(conn_raw["product_type"]), str(user["id"])
+    )
+    if gate is not None:
+        return gate
+
     # Decrypt credentials
     api_key = (
         decrypt_value(conn_raw.get("api_key", ""))
@@ -442,6 +451,15 @@ async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
     conn_raw = await get_product_connection_raw(product_id)
     if not conn_raw:
         return {"error": "Product connection not found"}, 404
+
+    # A disabled module publishes no capability schema: the schema describes
+    # actions the API would now refuse, and a UI that renders them builds a
+    # menu of 403s.
+    gate = await flags.product_gate_refusal(
+        str(conn_raw["product_type"]), str(user["id"])
+    )
+    if gate is not None:
+        return gate
 
     # Decrypt credentials
     api_key = (

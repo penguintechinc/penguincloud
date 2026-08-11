@@ -1,4 +1,23 @@
-"""Audit Log APIs — Query, filter, and export audit logs (async Quart)."""
+"""Audit Log APIs — Query, filter, and export audit logs (async Quart).
+
+Both routes are Enterprise-licensed. The commercial table sells
+"Auditability & compliance (audit logs), advanced analytics" at Enterprise,
+and *reading* the trail is the product being sold — the platform WRITES
+audit rows on every tier regardless, because that is a security property,
+not a feature. Gating the write would be a locked module; gating access to
+it is the paywall the table describes.
+
+``audit_export`` sat in ``licensing.NOT_YET_IMPLEMENTED`` while
+``GET /export`` was fully built (CSV + JSON) and reachable behind nothing
+but a tenant scope. A name parked in the "not built yet" set is exempt from
+the mint-vs-enforce guard by construction, so the one thing that set must
+never contain is something that is, in fact, built.
+
+``audit_logs`` is a separate entry rather than reusing ``audit_export``:
+one name meaning two capabilities is how half the call sites end up
+checking a gate that does not mean what the reader thinks (see
+``unlimited_hierarchy``, deleted for exactly this).
+"""
 
 import csv
 import io
@@ -8,6 +27,7 @@ from typing import Any
 from quart import Blueprint, Response, request
 
 from .authz import SCOPE_TENANTS_MANAGE, require_tenant_scope
+from .license import require_feature
 from .middleware import auth_required, get_current_user
 from .models import get_db
 
@@ -16,6 +36,7 @@ audit_bp = Blueprint("audit", __name__)
 
 @audit_bp.route("/logs", methods=["GET"])
 @auth_required
+@require_feature("audit_logs")
 async def get_audit_logs() -> tuple[dict[str, Any], int]:
     """Get audit logs with filtering and pagination."""
     user = get_current_user()
@@ -75,6 +96,7 @@ async def get_audit_logs() -> tuple[dict[str, Any], int]:
 
 @audit_bp.route("/export", methods=["GET"])
 @auth_required
+@require_feature("audit_export")
 async def export_audit_logs() -> tuple[dict[str, Any], int] | dict[str, Any] | Response:
     """Export audit logs as CSV or JSON."""
     user = get_current_user()

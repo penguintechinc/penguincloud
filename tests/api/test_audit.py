@@ -82,6 +82,10 @@ class TestAuditLogRetrieval:
     """Test retrieving audit logs"""
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Reading the audit trail is Enterprise-licensed (app/audit.py),
+    # so the licence is stated here and the assertion below names ONE
+    # status instead of tolerating both answers.
     async def test_list_audit_logs_admin(
         self, client: Any, admin_headers: dict[str, str], tenant_id: int
     ) -> None:
@@ -90,10 +94,11 @@ class TestAuditLogRetrieval:
             f"/api/v1/audit/logs?tenant_id={tenant_id}", headers=admin_headers
         )
 
-        assert response.status_code in [200, 402, 403]  # 402 if not entitled
-        if response.status_code == 200:
-            data = await response.get_json()
-            assert "logs" in data
+        # ONE status. "in [200, 402, 403]" accepted the gate firing and the
+        # gate being absent, so it could not tell them apart — which is the
+        # whole thing it was there to check.
+        assert response.status_code == 200
+        assert "logs" in await response.get_json()
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("enterprise_license")
@@ -137,13 +142,17 @@ class TestAuditLogRetrieval:
         )
 
         # Should either be 403 forbidden or 402 not entitled
-        assert response.status_code in [403, 402]
+        assert response.status_code == 403
 
 
 class TestAuditLogFiltering:
     """Test filtering audit logs"""
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Reading the audit trail is Enterprise-licensed (app/audit.py),
+    # so the licence is stated here and the assertion below names ONE
+    # status instead of tolerating both answers.
     async def test_filter_by_action(
         self, client: Any, admin_headers: dict[str, str], tenant_id: int
     ) -> None:
@@ -153,15 +162,18 @@ class TestAuditLogFiltering:
             headers=admin_headers,
         )
 
-        assert response.status_code in [200, 402]
-        if response.status_code == 200:
-            data = await response.get_json()
-            for log in data.get("logs", []):
-                # Schema field is action_type, not action (see models.py
-                # audit_logs table)
-                assert log.get("action_type") == "login"
+        assert response.status_code == 200
+        data = await response.get_json()
+        for log in data.get("logs", []):
+            # Schema field is action_type, not action (see models.py
+            # audit_logs table)
+            assert log.get("action_type") == "login"
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Reading the audit trail is Enterprise-licensed (app/audit.py),
+    # so the licence is stated here and the assertion below names ONE
+    # status instead of tolerating both answers.
     async def test_filter_by_resource(
         self, client: Any, admin_headers: dict[str, str], tenant_id: int
     ) -> None:
@@ -171,9 +183,13 @@ class TestAuditLogFiltering:
             headers=admin_headers,
         )
 
-        assert response.status_code in [200, 402]
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Reading the audit trail is Enterprise-licensed (app/audit.py),
+    # so the licence is stated here and the assertion below names ONE
+    # status instead of tolerating both answers.
     async def test_filter_by_date_range(
         self, client: Any, admin_headers: dict[str, str], tenant_id: int
     ) -> None:
@@ -184,9 +200,13 @@ class TestAuditLogFiltering:
             headers=admin_headers,
         )
 
-        assert response.status_code in [200, 402]
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Reading the audit trail is Enterprise-licensed (app/audit.py),
+    # so the licence is stated here and the assertion below names ONE
+    # status instead of tolerating both answers.
     async def test_filter_by_user(
         self, client: Any, admin_headers: dict[str, str], tenant_id: int
     ) -> None:
@@ -196,7 +216,7 @@ class TestAuditLogFiltering:
             headers=admin_headers,
         )
 
-        assert response.status_code in [200, 402]
+        assert response.status_code == 200
 
 
 class TestAuditLogDetails:
@@ -322,6 +342,10 @@ class TestAuditLogPagination:
     """Test audit log pagination"""
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Reading the audit trail is Enterprise-licensed (app/audit.py),
+    # so the licence is stated here and the assertion below names ONE
+    # status instead of tolerating both answers.
     async def test_audit_log_pagination(
         self, client: Any, admin_headers: dict[str, str], tenant_id: int
     ) -> None:
@@ -331,7 +355,7 @@ class TestAuditLogPagination:
             headers=admin_headers,
         )
 
-        assert response.status_code in [200, 402]
+        assert response.status_code == 200
         if response.status_code == 200:
             data = await response.get_json()
             assert "page" in data

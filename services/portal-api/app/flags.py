@@ -158,6 +158,7 @@ FEATURE_FLAGS: Final[frozenset[str]] = frozenset(
         "waddleai_assist",
         "byok_ai",
         "saml_sso",
+        "audit_logs",
         "audit_export",
         "external_kms",
         "advanced_analytics",
@@ -317,9 +318,14 @@ def is_enabled_blocking(
 ) -> bool:
     """Evaluate one flag, blocking. Call :func:`is_enabled` from async code.
 
-    ``default`` exists for callers that have a considered reason to differ;
-    it is False everywhere today and a new flag must not be given a True
-    default just to skip the rollout step.
+    ``default`` is what the caller decides "the server did not say" means,
+    and the two classes of flag decide it differently — see
+    :func:`default_for`, which every call site uses rather than passing a
+    literal. Product call sites therefore pass ``True`` (a kill switch is
+    off until something switches it on); rollout flags pass ``False``. The
+    parameter still defaults to ``False`` so a caller that forgets fails
+    closed, and a NEW rollout flag must not be handed ``True`` to skip the
+    rollout step.
     """
     if feature not in KNOWN_FLAGS:
         # Same failure class as an unminted scope: the call site reads like

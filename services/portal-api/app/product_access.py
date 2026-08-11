@@ -25,6 +25,7 @@ from .adapters.base import (
     adapter_error_status,
     product_scope,
 )
+from . import flags
 from .authz import require_tenant_scope
 from .encryption import decrypt_value
 from .middleware import get_current_user
@@ -120,6 +121,25 @@ async def resolve_product_context(
         # Same kill switch the proxy honours: a deactivated connection must
         # not have its credential decrypted, let alone used.
         return None, None, ({"error": "Product connection is deactivated"}, 403)
+
+    # The OTHER kill switch, and it belongs here for the same reason the
+    # deactivation check does: this is the shared path every typed product
+    # route takes, so gating it once gates all of them.
+    #
+    # `penguincloud.{product}` was enforced only at connection create and in
+    # the proxy, which left the whole typed surface — operations, logs,
+    # cancel, resource create/delete, resource actions, metrics — running
+    # against a module the operator had switched off. "Disable a module
+    # without a redeploy" was not true of the routes that do the work.
+    #
+    # Before decryption, deliberately: a disabled module's stored credential
+    # is never decrypted at all, so "off" means the secret stays at rest
+    # rather than merely not being sent.
+    gate = await flags.product_gate_refusal(
+        str(conn_raw["product_type"]), str(user["id"])
+    )
+    if gate is not None:
+        return None, None, gate
 
     mapping = await get_product_tenant_map(product_id, conn["tenant_id"])
     ctx = AdapterContext(

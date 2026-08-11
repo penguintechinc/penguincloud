@@ -133,11 +133,14 @@ class LicenseManager:
     async def is_feature_entitled(self, feature_name: str) -> bool:
         """Entitlement plus the domain bypass, off the event loop.
 
-        Split from :meth:`is_feature_enabled` so the bypass is evaluated in
-        the request context (where a host exists to trust) while the
-        entitlement lookup — which can block on the license server — runs in
-        a worker thread. Calls back through ``self.is_feature_enabled`` so a
-        test that patches the sync predicate still governs the decision.
+        Split from :meth:`is_feature_enabled` so the entitlement lookup —
+        which can block on the license server — runs in a worker thread
+        while the bypass, which cannot block, does not. The bypass reads
+        CONFIGURATION (``licensing.configured_host``), not the request: it
+        used to read ``request.host``, which meant any caller could claim
+        the exemption with a header. Calls back through
+        ``self.is_feature_enabled`` so a test that patches the sync
+        predicate still governs the decision.
         """
         if licensing.current_host_is_license_exempt():
             return True

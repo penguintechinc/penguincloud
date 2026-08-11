@@ -651,3 +651,64 @@ class TestOauthSignupRespectsTheCap:
             "oauth_callback creates a user before consulting the dev-mode "
             "cap, so the second SSO signup 500s instead of answering 402"
         )
+
+
+class TestAuditIsEnterpriseLicensed:
+    """Audit access is sold at Enterprise, and was shipping unpaywalled.
+
+    ``audit_export`` sat in ``NOT_YET_IMPLEMENTED`` while
+    ``GET /api/v1/audit/export`` was fully built (CSV + JSON) behind nothing
+    but a tenant scope. Membership of that set exempts a feature from the
+    mint-vs-enforce guard, so the one thing it must never contain is
+    something that is actually built.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("route", ["logs", "export"])
+    async def test_unlicensed_deployments_are_refused(
+        self, client: Any, admin_headers: dict[str, str], tenant_id: int, route: str
+    ) -> None:
+        response = await client.get(
+            f"/api/v1/audit/{route}?tenant_id={tenant_id}", headers=admin_headers
+        )
+
+        assert response.status_code == 403
+        body = await response.get_json()
+        assert body["error"] == "feature_not_entitled"
+        assert body["required_tier"] == licensing.TIER_ENTERPRISE
+        assert body["feature"] == f"audit_{route}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("route", ["logs", "export"])
+    async def test_an_enterprise_licence_admits_both(
+        self,
+        client: Any,
+        admin_headers: dict[str, str],
+        tenant_id: int,
+        route: str,
+        enterprise_license: None,
+    ) -> None:
+        """The positive case, so the refusals above are not vacuous."""
+        response = await client.get(
+            f"/api/v1/audit/{route}?tenant_id={tenant_id}", headers=admin_headers
+        )
+
+        assert response.status_code == 200
+
+    def test_audit_export_is_no_longer_declared_unbuilt(self) -> None:
+        """It is built; parking it as unbuilt is what hid it."""
+        assert "audit_export" not in licensing.NOT_YET_IMPLEMENTED
+        assert "audit_logs" not in licensing.NOT_YET_IMPLEMENTED
+
+    def test_writing_audit_rows_is_not_licensed(self) -> None:
+        """Only READING is the product.
+
+        Audit rows are written on every tier — that is a security property,
+        and gating it would make audit a locked module rather than a paid
+        capability, which the tier model forbids outright.
+        """
+        import inspect
+
+        from app import models
+
+        assert "require_feature" not in inspect.getsource(models.create_audit_log)
