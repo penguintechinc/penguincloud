@@ -5,6 +5,9 @@
 Quart>=0.20.0
 hypercorn>=0.17.0
 quart-cors>=0.7.0
+quart-schema==0.19.0  # PINNED, not a floor: app/openapi.py imports the
+                       # private quart_schema.extension._build_openapi_schema,
+                       # which does not exist past 0.19 - see app/openapi.py
 
 # PenguinTech Libraries
 penguin-dal>=0.4.0
@@ -14,13 +17,18 @@ penguin-licensing>=0.1.0
 
 # Database ORM & Migrations (schema authority only)
 SQLAlchemy>=2.0.0
+greenlet>=3.5.0              # required by SQLAlchemy's AsyncEngine
+                              # (util/concurrency.py run_in_greenlet) - not
+                              # pulled in automatically by base SQLAlchemy
 alembic>=1.14.0
 
 # Database Drivers (PostgreSQL async, MySQL/MariaDB, SQLite)
 asyncpg>=0.31.0              # PostgreSQL async driver (preferred over psycopg2)
 PyMySQL>=1.1.0               # MySQL/MariaDB driver (pure Python, sync)
 cryptography>=50.0.0          # Required for MySQL/MariaDB SSL connections
-# SQLite driver is built into Python stdlib - no package needed
+aiosqlite>=0.20.0            # penguin_dal.backends maps DB_TYPE=sqlite to the
+                              # sqlite+aiosqlite dialect for AsyncDB - stdlib
+                              # sqlite3 alone is not enough for the async engine
 
 # Authentication & Cryptography
 bcrypt>=4.2.0
