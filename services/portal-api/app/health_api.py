@@ -64,6 +64,15 @@ def _resolve_tenant_id() -> int | None:
     just a *selector* -- ``require_tenant_scope`` below is what actually
     authorises it, so a caller cannot widen what they see by editing the
     query string.
+
+    Consequence worth stating plainly: an explicit ``?tenant_id=`` is
+    SILENTLY IGNORED whenever the caller's token already carries an
+    active tenant claim -- the claim always wins, the query param is only
+    ever consulted for an unscoped token. A caller passing both expecting
+    the query param to select a *different* tenant than the one their
+    token is switched into will not get that; they get 403 (if
+    unauthorised for the claimed tenant) or the claimed tenant's data
+    (if authorised), never the queried one.
     """
     claim_tenant = get_current_tenant_id()
     if claim_tenant:
@@ -103,8 +112,20 @@ async def get_products_health() -> tuple[Any, int]:
     tenant_ids = {tenant_id}
     include_children = request.args.get("include_children", "false").lower() == "true"
     if include_children and await has_tenant_scope(user["id"], tenant_id, SCOPE_TENANTS_MANAGE):
-        hierarchy = await get_hierarchy(tenant_id)
-        tenant_ids.update(hierarchy.descendants)
+        # Mirrors tenants.list_user_tenants' identical guard (tenants.py):
+        # get_hierarchy raises ValueError for a tenant_id whose row no
+        # longer exists. require_tenant_scope above already read a scope
+        # for this tenant_id moments ago, so the row existed then -- a
+        # ValueError here means it was deleted in the gap, not that the
+        # caller did anything wrong. Falling back to the caller's own
+        # tenant alone (no subtree) is the same "row read moments ago"
+        # race the mirror accepts, not a new failure mode.
+        try:
+            hierarchy = await get_hierarchy(tenant_id)
+        except ValueError:  # pragma: no cover - row read moments ago
+            hierarchy = None
+        if hierarchy is not None:
+            tenant_ids.update(hierarchy.descendants)
 
     entries: list[ProductHealthEntry] = []
     for tid in sorted(tenant_ids):
