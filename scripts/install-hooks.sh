@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-HOOKS_DIR="${REPO_ROOT}/.git/hooks"
+# Use --git-common-dir, not --show-toplevel + /.git: inside a worktree
+# (see using-git-worktrees), <worktree>/.git is a *file* (a gitlink
+# pointing at the common dir's per-worktree metadata), not a directory, so
+# `${toplevel}/.git/hooks` fails with "Not a directory". Hooks are shared
+# across all worktrees via the common .git dir regardless — this resolves
+# to the same real hooks/ directory whether run from the main checkout or
+# any worktree.
+HOOKS_DIR="$(git rev-parse --git-common-dir)/hooks"
 
 mkdir -p "${HOOKS_DIR}"
 
@@ -97,7 +103,11 @@ if [ -n "$OSV_TARGETS" ]; then
 fi
 
 semgrep scan --config=auto --error --quiet . 2>/dev/null || true
-command -v bandit      &>/dev/null && bandit -r . -q -ll
+# -x excludes gitignored local venvs (e.g. .venv/ created by
+# `make venv-portal-api`) — without it bandit recurses into vendored
+# third-party site-packages and reports findings that are not this repo's
+# code and cannot be fixed here.
+command -v bandit      &>/dev/null && bandit -r . -q -ll -x ./.venv,./venv
 command -v gosec       &>/dev/null && gosec -quiet ./... 2>/dev/null || true
 
 trivy config --exit-code 1 --severity HIGH,CRITICAL --quiet .
