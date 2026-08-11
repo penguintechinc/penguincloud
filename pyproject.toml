@@ -24,7 +24,19 @@ select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
 # pre-commit (staged-files-only, see .pre-commit-config.yaml), so this had
 # never been surfaced against the existing suite before a Task 6 test file
 # was the first to be staged post-migration.
-"tests/**" = ["S101"]
+#
+# S105/S107 (hardcoded-password string / default arg) joined S101 here
+# during the Phase 5 merge for the same reason: bandit's password/token
+# heuristics pattern-match variable and parameter NAMES
+# (password/secret/token/...), not values, and every test fixture in this
+# repo that registers or logs in a user needs a `password=` literal or
+# parameter to do it. Three call sites (test_products.py, test_scope_
+# enforcement.py) had picked up inline `# noqa: S105`/`# noqa: S107`
+# instead of landing here, which left the codebase disagreeing with
+# itself -- identical fixture patterns in untouched files were still
+# unsuppressed findings waiting to surface the next time ruff touched
+# them. Consolidated to this one rule, one tree, stated once.
+"tests/**" = ["S101", "S105", "S107"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

@@ -11,11 +11,11 @@ from typing import Any
 import pytest
 
 PLAINTEXT_KEY = "sekrit-api-key-value"
-# noqa justification: a synthetic fixture value this test asserts is masked
-# on every egress path (see module docstring) -- not a credential. Mirrors
-# app/models.py's MASKED_SECRET noqa: S105 pattern-matches the variable
-# name, not the value.
-PLAINTEXT_SECRET = "sekrit-api-secret-value"  # noqa: S105
+# S105 (hardcoded-password) for both: synthetic fixture values this test
+# asserts are masked on every egress path (see module docstring), not
+# credentials. Covered by pyproject.toml's tests/** per-file-ignore, not an
+# inline noqa -- see that file's comment for why the rule is scoped there.
+PLAINTEXT_SECRET = "sekrit-api-secret-value"
 MASK = "***"
 
 

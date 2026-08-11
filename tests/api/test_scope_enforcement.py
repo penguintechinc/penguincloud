@@ -31,11 +31,11 @@ from quart import Quart
 pytestmark = pytest.mark.usefixtures("enterprise_license")
 
 
-# noqa justification: fixed test-fixture literals, not credentials -- every
-# test user in this file is disposable and scoped to its own run. S107
-# pattern-matches the parameter name against every call site, not the
-# value; mirrors app/models.py's MASKED_SECRET noqa: S105.
-async def _register(client: Any, password: str = "testpass123") -> tuple[int, str]:  # noqa: S107
+# S107 (hardcoded-password default arg) for both functions below: fixed
+# test-fixture literals, not credentials -- every test user in this file is
+# disposable and scoped to its own run. Covered by pyproject.toml's
+# tests/** per-file-ignore, not an inline noqa.
+async def _register(client: Any, password: str = "testpass123") -> tuple[int, str]:
     """Register a fresh user; return (user_id, email)."""
     email = f"scope-{uuid.uuid4().hex[:8]}@example.com"
     response = await client.post(
@@ -46,7 +46,7 @@ async def _register(client: Any, password: str = "testpass123") -> tuple[int, st
     return int((await response.get_json())["user"]["id"]), email
 
 
-async def _login(client: Any, email: str, password: str = "testpass123") -> str:  # noqa: S107
+async def _login(client: Any, email: str, password: str = "testpass123") -> str:
     """Log in and return the raw access token."""
     response = await client.post("/api/v1/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200, await response.get_json()
