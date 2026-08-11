@@ -12,7 +12,7 @@ import { tobogganingApi } from "../../../api/resources/tobogganing";
 import { queryKeys } from "../../../api/keys";
 import { useProductConnections } from "../../../hooks/useProducts";
 import { useTenantStore } from "../../../stores/tenantStore";
-import { isProductEnabled } from "../../../lib/featureGates";
+import { useProductEnabled } from "../../../lib/featureGates";
 import type {
   TobogganingBlockPage,
   TobogganingClient,
@@ -45,7 +45,7 @@ export function useTobogganingConnection(): {
   isEnabled: boolean;
 } {
   const tenantId = useActiveTenantId();
-  const isEnabled = isProductEnabled("tobogganing");
+  const isEnabled = useProductEnabled("tobogganing");
   const { data, isLoading } = useProductConnections(tenantId);
   const connection = data?.find((item) => item.product_type === "tobogganing");
   return { tenantId, productId: connection?.id, isLoading, isEnabled };

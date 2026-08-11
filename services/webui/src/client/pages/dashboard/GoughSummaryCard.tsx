@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router";
 import Card from "../../components/Card";
-import { isProductEnabled } from "../../lib/featureGates";
+import { useProductEnabled } from "../../lib/featureGates";
 import { useGoughAgents, useGoughNodes } from "../products/gough/useGough";
 import {
   useGoughMetrics,
@@ -60,7 +60,9 @@ export default function GoughSummaryCard() {
   const operations = useGoughOperations();
   const metrics = useGoughMetrics();
 
-  if (!isProductEnabled("gough") || nodes.productId === undefined) return null;
+  const isEnabled = useProductEnabled("gough");
+
+  if (!isEnabled || nodes.productId === undefined) return null;
 
   const nodeRows = nodes.data ?? [];
   const ready = nodeRows.filter((node) => node.state === "ready").length;

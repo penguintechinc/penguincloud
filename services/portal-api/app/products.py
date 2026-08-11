@@ -8,11 +8,20 @@ from typing import Any
 from quart import Blueprint, request
 from quart_schema import validate_request, validate_response
 
+from . import flags, quotas
 from .adapters import get_adapter, get_all_product_types
 from .adapters.base import AdapterCapabilityError, AdapterContext
+from .authz import (
+    SCOPE_PRODUCTS_MANAGE,
+    SCOPE_PRODUCTS_READ,
+    require_tenant_scope,
+)
 from .encryption import decrypt_value
 from .middleware import auth_required, get_current_user
 from .models import (
+    DEFAULT_MAX_PRODUCTS,
+    PRODUCT_TYPES,
+    VALID_AUTH_TYPES,
     create_audit_log,
     create_product_connection,
     delete_product_tenant_map,
@@ -26,14 +35,6 @@ from .models import (
     set_product_tenant_map,
     tenant_quota,
     update_product_health,
-    DEFAULT_MAX_PRODUCTS,
-    PRODUCT_TYPES,
-    VALID_AUTH_TYPES,
-)
-from .authz import (
-    SCOPE_PRODUCTS_MANAGE,
-    SCOPE_PRODUCTS_READ,
-    require_tenant_scope,
 )
 from .tenancy import (
     may_bind_tenant,
@@ -115,15 +116,14 @@ async def register_product() -> tuple[dict[str, Any], int]:
     if denied:
         return denied
 
-    # Check quota
     tenant = await get_tenant_by_id(tenant_id)
     if not tenant:
         return {"error": "Tenant not found"}, 404
 
-    current_count = await get_tenant_product_count(tenant_id)
-    if current_count >= tenant_quota(tenant, "max_products", DEFAULT_MAX_PRODUCTS):
-        return {"error": "Product connection limit reached"}, 403
-
+    # VALIDATE THE REQUEST BEFORE METERING IT. The quota checks used to run
+    # first, so an over-quota request carrying an invalid product_type was
+    # answered 402 "upgrade your plan" when the actual problem was a typo in
+    # the body — a refusal that sends the operator to sales for a 400.
     product_type = data.get("product_type", "generic")
     if product_type not in PRODUCT_TYPES:
         return {"error": "Invalid product type"}, 400
@@ -138,6 +138,29 @@ async def register_product() -> tuple[dict[str, Any], int]:
         return {"error": "base_url required"}, 400
     if auth_type not in VALID_AUTH_TYPES:
         return {"error": "Invalid auth_type"}, 400
+
+    # Flag AND licence, server-side. `penguincloud.{product}` gates whether
+    # this product module is on at all; without this check the flag governed
+    # only what the browser chose to render, and any direct API call
+    # connected a product the deployment had switched off.
+    gate = await flags.product_gate_refusal(product_type, str(user["id"]))
+    if gate is not None:
+        return gate
+
+    current_count = await get_tenant_product_count(tenant_id)
+    if current_count >= tenant_quota(tenant, "max_products", DEFAULT_MAX_PRODUCTS):
+        return {"error": "Product connection limit reached"}, 403
+
+    # Deployment-wide OBJECT quota, distinct from the per-tenant
+    # `max_products` row quota above. That one is an operator-set ceiling on
+    # one tenant; this one is what the LICENCE sells (Free 1,000, paid
+    # unlimited), so both apply and neither substitutes for the other.
+    #
+    # See quotas.count_objects: on this product the 1,000 wall is unlikely
+    # to ever bind, and that is documented rather than assumed.
+    refusal = await quotas.quota_refusal("objects", await quotas.count_objects())
+    if refusal is not None:
+        return refusal
 
     conn_id = await create_product_connection(
         tenant_id=tenant_id,
@@ -203,9 +226,7 @@ async def get_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(
-        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ
-    )
+    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ)
     if denied:
         return denied
 
@@ -225,9 +246,7 @@ async def update_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(
-        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE
-    )
+    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 
@@ -281,9 +300,7 @@ async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(
-        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE
-    )
+    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 
@@ -316,9 +333,7 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
     if not conn_masked:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(
-        user["id"], conn_masked["tenant_id"], SCOPE_PRODUCTS_READ
-    )
+    denied = await require_tenant_scope(user["id"], conn_masked["tenant_id"], SCOPE_PRODUCTS_READ)
     if denied:
         return denied
 
@@ -326,17 +341,16 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
     if not conn_raw:
         return {"error": "Product connection not found"}, 404
 
+    # This route makes a live call to the product, so the module kill switch
+    # applies. Checked before decryption: a disabled module's credential is
+    # never decrypted, not merely never sent.
+    gate = await flags.product_gate_refusal(str(conn_raw["product_type"]), str(user["id"]))
+    if gate is not None:
+        return gate
+
     # Decrypt credentials
-    api_key = (
-        decrypt_value(conn_raw.get("api_key", ""))
-        if conn_raw.get("api_key")
-        else ""
-    )
-    api_secret = (
-        decrypt_value(conn_raw.get("api_secret", ""))
-        if conn_raw.get("api_secret")
-        else ""
-    )
+    api_key = decrypt_value(conn_raw.get("api_key", "")) if conn_raw.get("api_key") else ""
+    api_secret = decrypt_value(conn_raw.get("api_secret", "")) if conn_raw.get("api_secret") else ""
 
     # Try to get product tenant mapping (may not exist yet)
     mapping = await get_product_tenant_map(product_id, conn_masked["tenant_id"])
@@ -384,9 +398,7 @@ async def get_product_health(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(
-        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ
-    )
+    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ)
     if denied:
         return denied
 
@@ -410,9 +422,7 @@ async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(
-        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ
-    )
+    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ)
     if denied:
         return denied
 
@@ -420,17 +430,16 @@ async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn_raw:
         return {"error": "Product connection not found"}, 404
 
+    # A disabled module publishes no capability schema: the schema describes
+    # actions the API would now refuse, and a UI that renders them builds a
+    # menu of 403s.
+    gate = await flags.product_gate_refusal(str(conn_raw["product_type"]), str(user["id"]))
+    if gate is not None:
+        return gate
+
     # Decrypt credentials
-    api_key = (
-        decrypt_value(conn_raw.get("api_key", ""))
-        if conn_raw.get("api_key")
-        else ""
-    )
-    api_secret = (
-        decrypt_value(conn_raw.get("api_secret", ""))
-        if conn_raw.get("api_secret")
-        else ""
-    )
+    api_key = decrypt_value(conn_raw.get("api_key", "")) if conn_raw.get("api_key") else ""
+    api_secret = decrypt_value(conn_raw.get("api_secret", "")) if conn_raw.get("api_secret") else ""
 
     # Build adapter context
     ctx = AdapterContext(
@@ -491,9 +500,7 @@ def _validate_external_kind(product_type: str) -> tuple[str, bool]:
 @auth_required
 @tenancy_aware
 @validate_response(ProductTenantMapResponse)
-async def get_product_tenant_mapping(
-    product_id: int, tenant_id: int
-) -> tuple[Any, int]:
+async def get_product_tenant_mapping(product_id: int, tenant_id: int) -> tuple[Any, int]:
     """Get product tenant external mapping."""
     user = get_current_user()
     if not user:
@@ -504,9 +511,7 @@ async def get_product_tenant_mapping(
         return {"error": "Product connection not found"}, 404
 
     scope_tenant_id = int(conn["tenant_id"])
-    denied = await require_tenant_scope(
-        user["id"], scope_tenant_id, SCOPE_PRODUCTS_READ
-    )
+    denied = await require_tenant_scope(user["id"], scope_tenant_id, SCOPE_PRODUCTS_READ)
     if denied:
         return denied
 
@@ -552,9 +557,7 @@ async def set_product_tenant_mapping(
         return ({"error": "Product connection not found"}, 404)
 
     scope_tenant_id = int(conn["tenant_id"])
-    denied = await require_tenant_scope(
-        user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE
-    )
+    denied = await require_tenant_scope(user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 
@@ -569,9 +572,7 @@ async def set_product_tenant_mapping(
     if not is_valid_product:
         product_type = conn["product_type"]
         return (
-            {
-                "error": f"Product type '{product_type}' unsupported for mapping"
-            },
+            {"error": f"Product type '{product_type}' unsupported for mapping"},
             400,
         )
 
@@ -626,9 +627,7 @@ async def update_product_tenant_mapping(
         return ({"error": "Product connection not found"}, 404)
 
     scope_tenant_id = int(conn["tenant_id"])
-    denied = await require_tenant_scope(
-        user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE
-    )
+    denied = await require_tenant_scope(user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 
@@ -643,9 +642,7 @@ async def update_product_tenant_mapping(
     if not is_valid_product:
         product_type = conn["product_type"]
         return (
-            {
-                "error": f"Product type '{product_type}' unsupported for mapping"
-            },
+            {"error": f"Product type '{product_type}' unsupported for mapping"},
             400,
         )
 
@@ -702,9 +699,7 @@ async def delete_product_tenant_mapping(
         return {"error": "Product connection not found"}, 404
 
     scope_tenant_id = int(conn["tenant_id"])
-    denied = await require_tenant_scope(
-        user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE
-    )
+    denied = await require_tenant_scope(user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 

@@ -107,6 +107,7 @@ export const PORTAL_TYPED_RULES = {
     "tenants.update_tenant_member_role",
   "/api/v1/tenants/{tenant_id}/switch": "tenants.switch_tenant",
   "/api/v1/tenants/{tenant_id}/usage": "tenants.get_tenant_usage",
+  "/api/v1/features": "features.get_features",
   "/api/v1/dashboard/activity": "dashboard.dashboard_activity",
   "/api/v1/dashboard/alerts": "dashboard.dashboard_alerts",
   "/api/v1/dashboard/health": "dashboard.dashboard_health",
@@ -199,6 +200,12 @@ export const portalUrl = {
 
   tenantMember: (tenantId: number, userId: number): string =>
     `/tenants/${tenantId}/members/${seg(userId)}`,
+
+  /**
+   * Flag state, licensed tier and the dev-mode signal. Authenticated: the
+   * response enumerates every integrated product and licensed capability.
+   */
+  features: (): string => "/features",
 
   dashboardOverview: (): string => "/dashboard/overview",
 

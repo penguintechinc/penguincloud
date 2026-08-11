@@ -18,26 +18,21 @@ top-level /api/v1/api-keys surface and is skipped pending Phase 1B.
 from typing import Any
 
 import pytest
+from app.audit_view import AUDIT_RECORD_FIELDS
 
 
 async def _create_key(
     client: Any, headers: dict[str, str], name: str = "Test Key"
 ) -> dict[str, Any]:
     """Create an API key via the users blueprint and return the response body."""
-    response = await client.post(
-        "/api/v1/users/api-keys", headers=headers, json={"name": name}
-    )
-    assert (
-        response.status_code == 201
-    ), f"Failed to create API key: {await response.get_json()}"
+    response = await client.post("/api/v1/users/api-keys", headers=headers, json={"name": name})
+    assert response.status_code == 201, f"Failed to create API key: {await response.get_json()}"
     body: dict[str, Any] = await response.get_json()
     return body
 
 
 @pytest.mark.asyncio
-async def test_list_api_keys_returns_real_list(
-    client: Any, auth_headers: dict[str, str]
-) -> None:
+async def test_list_api_keys_returns_real_list(client: Any, auth_headers: dict[str, str]) -> None:
     """GET /users/api-keys returns actual rows, not an un-awaited coroutine."""
     await _create_key(client, auth_headers, name="Listable Key")
 
@@ -59,9 +54,7 @@ async def test_list_api_keys_returns_real_list(
 
 
 @pytest.mark.asyncio
-async def test_created_key_is_listed_once_only(
-    client: Any, auth_headers: dict[str, str]
-) -> None:
+async def test_created_key_is_listed_once_only(client: Any, auth_headers: dict[str, str]) -> None:
     """The full key value is returned at creation and never re-listed."""
     created = await _create_key(client, auth_headers, name="Once Only")
     assert created["key"].startswith("pk_")
@@ -88,9 +81,7 @@ async def test_revoked_key_is_actually_revoked(
 
         assert await validate_api_key(raw_key) is not None, "key should start valid"
 
-    response = await client.delete(
-        f"/api/v1/users/api-keys/{created['id']}", headers=auth_headers
-    )
+    response = await client.delete(f"/api/v1/users/api-keys/{created['id']}", headers=auth_headers)
     assert response.status_code == 200
 
     async with app.app_context():
@@ -130,9 +121,7 @@ async def test_revoking_another_users_key_returns_404(
         json={"email": attacker_email, "password": "attackerpass123"},
     )
     assert login.status_code == 200
-    attacker_headers = {
-        "Authorization": f"Bearer {(await login.get_json())['access_token']}"
-    }
+    attacker_headers = {"Authorization": f"Bearer {(await login.get_json())['access_token']}"}
 
     response = await client.delete(
         f"/api/v1/users/api-keys/{victim['id']}", headers=attacker_headers
@@ -147,37 +136,36 @@ async def test_revoking_another_users_key_returns_404(
 
 
 @pytest.mark.asyncio
-async def test_revoking_unknown_key_returns_404(
-    client: Any, auth_headers: dict[str, str]
-) -> None:
+async def test_revoking_unknown_key_returns_404(client: Any, auth_headers: dict[str, str]) -> None:
     """Revoking an id that does not exist is a 404, not a false success."""
-    response = await client.delete(
-        "/api/v1/users/api-keys/99999999", headers=auth_headers
-    )
+    response = await client.delete("/api/v1/users/api-keys/99999999", headers=auth_headers)
     assert response.status_code == 404
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("enterprise_license")
 async def test_audit_logs_endpoint_returns_real_list(
-    client: Any, admin_headers: dict[str, str]
+    client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
-    """GET /users/audit-logs returns actual rows, not an un-awaited coroutine."""
-    response = await client.get("/api/v1/users/audit-logs", headers=admin_headers)
+    """GET /users/audit-logs returns actual rows, not an un-awaited coroutine.
+
+    Now tenant-scoped and Enterprise-licensed, so the request names a
+    tenant and the test states the licence. Both are asserted in their own
+    right by tests/api/test_audit_isolation.py.
+    """
+    response = await client.get(
+        f"/api/v1/users/audit-logs?tenant_id={tenant_id}", headers=admin_headers
+    )
     assert response.status_code == 200
 
     body = await response.get_json()
     assert isinstance(body["logs"], list)
     for entry in body["logs"]:
-        # Serialised shape, not raw rows — action_type is exposed as `action`.
-        assert set(entry) == {
-            "id",
-            "user_id",
-            "action",
-            "resource_type",
-            "resource_id",
-            "ip_address",
-            "created_at",
-        }
+        # Serialised shape, not raw rows. Derived from the DTO so this route
+        # cannot drift from it; the field set ITSELF is pinned literally in
+        # tests/api/test_audit_response_shape.py, which is what fails if
+        # someone adds a column to the DTO.
+        assert set(entry) == set(AUDIT_RECORD_FIELDS)
 
 
 @pytest.mark.asyncio

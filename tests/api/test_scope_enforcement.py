@@ -16,14 +16,26 @@ descendant id into the token. Resolving the target tenant's scopes through
 ``resolve_scopes`` is what avoids both.
 """
 
-from typing import Any
 import uuid
+from typing import Any
 
 import pytest
 from quart import Quart
 
+#: Every test in this file builds a multi-tenant / delegated-admin
+#: structure, which the tier model sells at Enterprise (tenants 1/1/∞,
+#: tenant admins 0/10/∞). Under the default Community licence the quota
+#: walls refuse the second tenant and the first delegated admin, so these
+#: tests licence themselves for what they exercise rather than the suite
+#: silently lifting every wall for every file.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
 
-async def _register(client: Any, password: str = "testpass123") -> tuple[int, str]:
+
+# noqa justification: fixed test-fixture literals, not credentials -- every
+# test user in this file is disposable and scoped to its own run. S107
+# pattern-matches the parameter name against every call site, not the
+# value; mirrors app/models.py's MASKED_SECRET noqa: S105.
+async def _register(client: Any, password: str = "testpass123") -> tuple[int, str]:  # noqa: S107
     """Register a fresh user; return (user_id, email)."""
     email = f"scope-{uuid.uuid4().hex[:8]}@example.com"
     response = await client.post(
@@ -34,11 +46,9 @@ async def _register(client: Any, password: str = "testpass123") -> tuple[int, st
     return int((await response.get_json())["user"]["id"]), email
 
 
-async def _login(client: Any, email: str, password: str = "testpass123") -> str:
+async def _login(client: Any, email: str, password: str = "testpass123") -> str:  # noqa: S107
     """Log in and return the raw access token."""
-    response = await client.post(
-        "/api/v1/auth/login", json={"email": email, "password": password}
-    )
+    response = await client.post("/api/v1/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200, await response.get_json()
     return str((await response.get_json())["access_token"])
 
@@ -89,9 +99,7 @@ class TestDelegatedAdminThroughScopeGates:
     """An MSP admin reaches a descendant's data through scope-gated routes."""
 
     @pytest.mark.asyncio
-    async def test_delegated_admin_manages_descendant_tenant(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_delegated_admin_manages_descendant_tenant(self, client: Any, app: Quart) -> None:
         """Owner of a parent may manage a child they are not a member of.
 
         This is the acceptance property for the whole migration: the caller
@@ -110,9 +118,8 @@ class TestDelegatedAdminThroughScopeGates:
         await _attach_child(app, child_id, parent_id)
 
         async with app.app_context():
-            from app.models import get_user_tenant_role
+            from app.models import get_user_by_email, get_user_tenant_role
             from app.tenancy.authz import resolve_scopes
-            from app.models import get_user_by_email
 
             msp_user = await get_user_by_email(msp_email)
             assert msp_user is not None
@@ -135,9 +142,7 @@ class TestDelegatedAdminThroughScopeGates:
         assert detail.status_code == 200, await detail.get_json()
 
         # A @require_scope(SCOPE_MEMBERS_READ) gated read.
-        members = await client.get(
-            f"/api/v1/tenants/{child_id}/members", headers=msp_headers
-        )
+        members = await client.get(f"/api/v1/tenants/{child_id}/members", headers=msp_headers)
         assert members.status_code == 200, await members.get_json()
 
         # A @require_scope(SCOPE_TENANTS_MANAGE) gated WRITE — the case that
@@ -170,9 +175,7 @@ class TestDelegatedAdminThroughScopeGates:
         await _attach_child(app, child_id, parent_id)
 
         # Delete is refused outright.
-        deleted = await client.delete(
-            f"/api/v1/tenants/{child_id}", headers=msp_headers
-        )
+        deleted = await client.delete(f"/api/v1/tenants/{child_id}", headers=msp_headers)
         assert deleted.status_code == 403, await deleted.get_json()
 
         # An update naming `plan` succeeds as a request but must NOT move the
@@ -212,9 +215,7 @@ class TestDelegatedAdminThroughScopeGates:
             assert (await response.get_json())["error"] == "insufficient_scope"
 
     @pytest.mark.asyncio
-    async def test_member_denied_manage_scope_but_granted_read(
-        self, client: Any
-    ) -> None:
+    async def test_member_denied_manage_scope_but_granted_read(self, client: Any) -> None:
         """A plain member reads but does not manage — the scope split itself."""
         _, owner_email = await _register(client)
         owner_headers = await _headers(client, owner_email)
@@ -229,9 +230,7 @@ class TestDelegatedAdminThroughScopeGates:
         assert added.status_code == 201, await added.get_json()
         member_headers = await _headers(client, member_email)
 
-        readable = await client.get(
-            f"/api/v1/tenants/{tenant_id}", headers=member_headers
-        )
+        readable = await client.get(f"/api/v1/tenants/{tenant_id}", headers=member_headers)
         assert readable.status_code == 200, await readable.get_json()
 
         refused = await client.put(
@@ -278,9 +277,7 @@ class TestPlatformScopeGates:
         assert (await created.get_json())["required_scope"] == ["users:manage"]
 
     @pytest.mark.asyncio
-    async def test_scope_gate_denies_before_the_view_body_runs(
-        self, client: Any
-    ) -> None:
+    async def test_scope_gate_denies_before_the_view_body_runs(self, client: Any) -> None:
         """An unauthorized caller cannot distinguish a missing resource.
 
         The decorator answers first, so a nonexistent tenant id and a real
@@ -299,9 +296,7 @@ class TestScopeHelpers:
     """Unit-level cover for the enforcement primitives themselves."""
 
     @pytest.mark.asyncio
-    async def test_current_scopes_accepts_string_and_list_claims(
-        self, app: Quart
-    ) -> None:
+    async def test_current_scopes_accepts_string_and_list_claims(self, app: Quart) -> None:
         """RFC 6749's space-delimited form parses the same as the list form."""
         from app.authz import current_scopes
         from quart import g
@@ -404,9 +399,7 @@ class TestDiscoveryAndPlatformScopeGates:
         assert "discovered" in body and "count" in body
 
     @pytest.mark.asyncio
-    async def test_outsider_is_still_refused_scan_results(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_outsider_is_still_refused_scan_results(self, client: Any, app: Quart) -> None:
         """Widening to scopes must not widen who gets in."""
         _, owner_email = await _register(client)
         owner_headers = await _headers(client, owner_email)
@@ -479,9 +472,7 @@ class TestDiscoveryAndPlatformScopeGates:
         assert body["required_scope"] == ["products:manage"]
 
     @pytest.mark.asyncio
-    async def test_license_status_is_gated_on_a_scope_not_a_role_name(
-        self, client: Any
-    ) -> None:
+    async def test_license_status_is_gated_on_a_scope_not_a_role_name(self, client: Any) -> None:
         """`@admin_required` compared user['role']; `license:read` replaces it.
 
         A freshly registered user carries the default platform role, which
@@ -498,9 +489,7 @@ class TestDiscoveryAndPlatformScopeGates:
         assert (await response.get_json())["required_scope"] == ["license:read"]
 
     @pytest.mark.asyncio
-    async def test_platform_read_gate_replaces_maintainer_or_admin(
-        self, client: Any
-    ) -> None:
+    async def test_platform_read_gate_replaces_maintainer_or_admin(self, client: Any) -> None:
         """Same authority set as the removed decorator, decided on scope."""
         _, email = await _register(client)
         headers = await _headers(client, email)

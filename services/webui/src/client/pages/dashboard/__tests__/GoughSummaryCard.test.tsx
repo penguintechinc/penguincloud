@@ -21,6 +21,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const mockIsProductEnabled = jest.fn();
 jest.mock("../../../lib/featureGates", () => ({
   isProductEnabled: (key: string) => mockIsProductEnabled(key),
+  // Components read the reactive form; the sidebar builder still reads the
+  // sync one. Both are mocked to the same answer so a test cannot pass
+  // against one gate while the component consults the other.
+  useProductEnabled: (key: string) => mockIsProductEnabled(key),
 }));
 
 const mockConnections = jest.fn();

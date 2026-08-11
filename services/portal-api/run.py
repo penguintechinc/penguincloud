@@ -10,7 +10,7 @@ import asyncio
 import os
 import sys
 
-from app import create_app
+from app import create_app, devmode
 from app.config import Config
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HypercornConfig
@@ -92,12 +92,25 @@ async def create_default_admin(app: Quart) -> None:
             return
 
         print(f"Creating default admin user: {admin_email}", flush=True)
-        await create_user(
-            email=admin_email,
-            password_hash=await hash_password_async(admin_password),
-            full_name="System Administrator",
-            role="admin",
-        )
+        try:
+            await create_user(
+                email=admin_email,
+                password_hash=await hash_password_async(admin_password),
+                full_name="System Administrator",
+                role="admin",
+            )
+        except devmode.DevModeUserCapExceededError as exc:
+            # Seeding is a user-creation path and the dev-mode cap sits
+            # underneath it. The guard above skips seeding when any user
+            # exists, so this is reachable only in a race, but an unhandled
+            # exception here kills the process at startup with a bare
+            # traceback — an operator needs the reason, not a stack.
+            print(
+                f"Skipping admin seeding: {exc}. Remove --dev to seed an administrator.",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
         print(
             "Default admin created - change this password immediately",
             flush=True,
@@ -105,7 +118,13 @@ async def create_default_admin(app: Quart) -> None:
 
 
 async def main() -> None:
-    """Bring up the database, seed if configured, then serve under hypercorn."""
+    """Bring up the database, seed if configured, then serve under hypercorn.
+
+    ``--dev`` is recognised here and inside ``create_app()``; neither is a
+    ``--help`` entry, and it never reaches the OpenAPI document. Recording
+    it is not activating it — see ``app/devmode.py``.
+    """
+    devmode.request_from_argv()
     app = create_app()
 
     if not await wait_for_database(app):

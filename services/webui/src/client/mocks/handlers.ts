@@ -139,7 +139,15 @@ export const handlers = [
     });
   }),
 
-  /** GET /api/v1/dashboard/activity */
+  /**
+   * GET /api/v1/dashboard/activity
+   *
+   * Field set mirrors the server's AuditRecord DTO exactly
+   * (services/portal-api/app/audit_view.py). It previously carried `action`
+   * while the server returned the raw row's `action_type`, so the mock
+   * agreed with the component and neither agreed with the API — the badge
+   * rendered undefined in the real app and every test passed.
+   */
   http.get(`${API_BASE}/dashboard/activity`, () =>
     HttpResponse.json({
       activity: [

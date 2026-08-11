@@ -15,20 +15,20 @@ service); repeating it here would test httpx twice and the route logic once.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any, Iterator
+from typing import Any
 from unittest import mock
 
 import pytest
-from quart import Quart
-
 from app.adapters.base import (
-    AdapterCapabilityError,
     RESOURCE_OPERATION_ID_KEY,
+    AdapterCapabilityError,
     Resource,
     ResourceConflictError,
 )
+from quart import Quart
 
 PRODUCT_SECRET = "-".join(("not", "a", "real", "resources", "credential"))
 
@@ -130,9 +130,7 @@ class StubAdapter:
     def __init__(self) -> None:
         """Match the registry's zero-argument construction."""
 
-    async def create_resource(
-        self, kind: str, payload: dict[str, Any], ctx: Any
-    ) -> Resource:
+    async def create_resource(self, kind: str, payload: dict[str, Any], ctx: Any) -> Resource:
         """Return the staged resource or raise the staged error."""
         StubAdapter.seen_ctx = ctx
         StubAdapter.seen_create = (kind, payload)
@@ -213,9 +211,7 @@ class TestCreate:
         assert body["status"] == "pending"
         assert body["operation_id"] == "op-9"
 
-    async def test_a_synchronous_create_reports_no_handle(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_a_synchronous_create_reports_no_handle(self, client: Any, app: Quart) -> None:
         """``None`` is how the UI tells "nothing to poll" from "poll this"."""
         conn_id, headers = await _setup(client, app)
         StubAdapter.resource = _resource(metadata={})
@@ -229,9 +225,7 @@ class TestCreate:
         assert response.status_code == 201
         assert (await response.get_json())["operation_id"] is None
 
-    async def test_response_publishes_only_declared_fields(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_response_publishes_only_declared_fields(self, client: Any, app: Quart) -> None:
         """The wire shape is an explicit DTO, not the dataclass.
 
         ``metadata`` is the adapter's free-form bag with no declared schema.
@@ -262,9 +256,7 @@ class TestCreate:
         assert "metadata" not in body
         assert "nest_id" not in body
 
-    async def test_the_handle_is_read_under_the_contract_key(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_the_handle_is_read_under_the_contract_key(self, client: Any, app: Quart) -> None:
         """The route and the adapter must agree on one spelling.
 
         Asserted through the constant rather than the literal: an adapter that
@@ -273,9 +265,7 @@ class TestCreate:
         in the suite would notice.
         """
         conn_id, headers = await _setup(client, app)
-        StubAdapter.resource = _resource(
-            metadata={RESOURCE_OPERATION_ID_KEY: "op-contract"}
-        )
+        StubAdapter.resource = _resource(metadata={RESOURCE_OPERATION_ID_KEY: "op-contract"})
 
         response = await client.post(
             f"/api/v1/products/{conn_id}/resources/database",
@@ -285,9 +275,7 @@ class TestCreate:
 
         assert (await response.get_json())["operation_id"] == "op-contract"
 
-    async def test_payload_reaches_the_adapter_unmodified(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_payload_reaches_the_adapter_unmodified(self, client: Any, app: Quart) -> None:
         """The route does not rewrite a create body.
 
         Nest's create/read field-name asymmetry is normalised in the ADAPTER
@@ -307,9 +295,7 @@ class TestCreate:
             {"name": "orders", "resourceType": "postgres"},
         )
 
-    async def test_a_non_object_body_is_refused(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_a_non_object_body_is_refused(self, client: Any, app: Quart) -> None:
         """A list or a bare string is not a create payload."""
         conn_id, headers = await _setup(client, app)
 
@@ -322,9 +308,7 @@ class TestCreate:
         assert response.status_code == 400
         assert StubAdapter.seen_create is None
 
-    async def test_an_unsupported_kind_is_not_implemented(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_an_unsupported_kind_is_not_implemented(self, client: Any, app: Quart) -> None:
         """501, from the adapter's own literal table — never a built URL."""
         conn_id, headers = await _setup(client, app)
         StubAdapter.raises = AdapterCapabilityError("nest does not serve 'widget'")
@@ -358,10 +342,8 @@ class TestDelete:
         assert body == {"kind": "database", "id": "orders-primary", "deleted": True}
         assert StubAdapter.seen_delete == ("database", "orders-primary")
 
-    async def test_a_still_referenced_resource_answers_409(
-        self, client: Any, app: Quart
-    ) -> None:
-        """"Still referenced" and "already gone" are different answers.
+    async def test_a_still_referenced_resource_answers_409(self, client: Any, app: Quart) -> None:
+        """Both "Still referenced" and "already gone" are different answers.
 
         This is why delete is typed rather than proxied: the adapter maps
         Nest's 409 onto ``ResourceConflictError`` and the shared taxonomy
@@ -383,9 +365,7 @@ class TestDelete:
 class TestAuthorisation:
     """Membership, scope and the kill switch, in that order."""
 
-    async def test_a_non_member_gets_404_not_403(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_a_non_member_gets_404_not_403(self, client: Any, app: Quart) -> None:
         """403 would confirm the id exists in someone else's tenant.
 
         A caller could then walk product_ids and map every connection in the
@@ -414,9 +394,7 @@ class TestAuthorisation:
         assert StubAdapter.seen_create is None
         assert StubAdapter.seen_delete is None
 
-    async def test_read_scope_cannot_create_or_delete(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_read_scope_cannot_create_or_delete(self, client: Any, app: Quart) -> None:
         """Both verbs change product state, so both require ``manage``."""
         conn_id, headers = await _setup(client, app)
 
@@ -436,9 +414,7 @@ class TestAuthorisation:
         assert created.status_code == 403, "read scope reached a mutating route"
         assert deleted.status_code == 403, "read scope reached a mutating route"
 
-    async def test_a_nest_only_manage_scope_is_sufficient(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_a_nest_only_manage_scope_is_sufficient(self, client: Any, app: Quart) -> None:
         """The per-product model must not stop at the proxy.
 
         The principal these scopes exist for holds ``products:nest:manage`` and
@@ -477,9 +453,7 @@ class TestAuthorisation:
 
         assert created.status_code == 403
 
-    async def test_a_deactivated_connection_is_refused(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_a_deactivated_connection_is_refused(self, client: Any, app: Quart) -> None:
         """The kill switch the proxy honours applies here too.
 
         A deactivated connection must not have its credential decrypted, let
@@ -496,9 +470,7 @@ class TestAuthorisation:
         assert response.status_code == 403
         assert StubAdapter.seen_create is None
 
-    async def test_an_anonymous_caller_is_rejected(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_an_anonymous_caller_is_rejected(self, client: Any, app: Quart) -> None:
         """No token, no route."""
         conn_id, _ = await _setup(client, app)
 
@@ -659,9 +631,7 @@ class TestGoughThroughTheTypedRoutes:
 
         assert (await response.get_json())["operation_id"] is None
 
-    async def test_delete_reaches_the_gough_adapter(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_delete_reaches_the_gough_adapter(self, client: Any, app: Quart) -> None:
         """The delete path is equally live for Gough, and equally untested."""
         conn_id, headers = await _setup(client, app, product_type="gough")
 
@@ -714,3 +684,79 @@ class TestGoughThroughTheTypedRoutes:
         assert deleted.status_code == 403
         assert StubAdapter.seen_create is None
         assert StubAdapter.seen_delete is None
+
+
+@pytest.mark.asyncio
+class TestTheModuleKillSwitchReachesTheTypedSurface:
+    """`penguincloud.{product}` false must stop the routes that do the work.
+
+    The gate ran at connection create and in the proxy only, so with a
+    module switched off resource create still created and resource actions
+    still executed. "Disable a module without a redeploy" was not true of
+    the typed surface.
+
+    These are behavioural: the structural guard in
+    ``test_gate_coverage_is_derived.py`` proves no route ESCAPES the gate;
+    these two prove the gate actually refuses.
+    """
+
+    @staticmethod
+    def _kill(monkeypatch: pytest.MonkeyPatch, product: str = "nest") -> None:
+        from app import flags
+        from conftest import _FakeFlagServer
+
+        monkeypatch.setattr(
+            flags,
+            "_client",
+            _FakeFlagServer(flags.PRODUCT_FLAGS - {product}, disabled=frozenset({product})),
+        )
+        monkeypatch.setattr(flags, "_client_built", True)
+        flags._CACHE.clear()
+
+    async def test_resource_create_is_refused(
+        self, client: Any, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A killed product flag refuses resource creation before the adapter builds."""
+        conn_id, headers = await _setup(client, app)
+        self._kill(monkeypatch)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "orders-primary", "resourceType": "postgres"},
+        )
+
+        assert response.status_code == 403
+        assert (await response.get_json())["error"] == "feature_disabled"
+        # And nothing reached the product: the refusal happens before the
+        # adapter is built, so a disabled module's credential is never even
+        # decrypted.
+        assert StubAdapter.seen_create is None
+
+    async def test_resource_delete_is_refused(
+        self, client: Any, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A killed product flag refuses resource deletion before the adapter builds."""
+        conn_id, headers = await _setup(client, app)
+        self._kill(monkeypatch)
+
+        response = await client.delete(
+            f"/api/v1/products/{conn_id}/resources/database/orders-primary",
+            headers=headers,
+        )
+
+        assert response.status_code == 403
+        assert (await response.get_json())["error"] == "feature_disabled"
+        assert StubAdapter.seen_delete is None
+
+    async def test_an_enabled_module_still_works(self, client: Any, app: Quart) -> None:
+        """The positive case, so the refusals above are not vacuous."""
+        conn_id, headers = await _setup(client, app)
+
+        response = await client.post(
+            f"/api/v1/products/{conn_id}/resources/database",
+            headers=headers,
+            json={"name": "orders-primary", "resourceType": "postgres"},
+        )
+
+        assert response.status_code == 201

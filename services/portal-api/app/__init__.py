@@ -14,6 +14,7 @@ from quart import Quart
 from quart_cors import cors
 from quart_schema import HttpSecurityScheme, Info, QuartSchema
 
+from . import devmode
 from .background import get_background_manager
 from .config import Config
 from .killkrill import killkrill_manager
@@ -161,6 +162,16 @@ def create_app(config_class: type[Config] = Config) -> Quart:
             enabled=bool(app.config.get("KILLKRILL_ENABLED", False)),
         )
 
+    # Record whether --dev was passed. Deliberately only RECORDS the
+    # request: activation additionally requires a PenguinTech domain and
+    # at most one user, and is re-evaluated per request rather than
+    # latched here (general.md calls a boot-time latch a licensing hole).
+    # Both calls are synchronous and immediate (not before_serving hooks),
+    # so they carry no ordering dependency on init_dal or the background
+    # task hooks registered below.
+    devmode.request_from_argv()
+    devmode.announce_at_startup()
+
     # Start background tasks (license keepalive + product health poller).
     #
     # BackgroundTaskManager.start() was previously called from nowhere in
@@ -200,6 +211,7 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     from .auth import auth_bp
     from .dashboard_api import dashboard_bp
     from .discovery import discovery_bp
+    from .features_api import features_bp
     from .health_api import health_api_bp
     from .hello import hello_bp
     from .license_api import license_bp
@@ -217,6 +229,7 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(users_bp, url_prefix="/api/v1/users")
     app.register_blueprint(hello_bp, url_prefix="/api/v1")
+    app.register_blueprint(features_bp, url_prefix="/api/v1")
     app.register_blueprint(license_bp, url_prefix="/api/v1/license")
     app.register_blueprint(oauth_bp, url_prefix="/api/v1")
     app.register_blueprint(teams_bp, url_prefix="/api/v1/teams")

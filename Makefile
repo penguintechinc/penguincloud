@@ -248,13 +248,20 @@ docker-clean: ## Docker - Clean up Docker resources
 	@docker system prune -f
 
 # Code Quality Commands
-openapi: ## API - Regenerate openapi/v1.yaml from the live route table
+# Both run through the isolated venv, not ambient python3. The spec's
+# content depends on the installed pydantic/quart-schema — ambient pydantic
+# 2.13 emits dataclass docstrings as schema descriptions, the pinned 2.10
+# does not — so a spec generated with ambient packages is permanently stale
+# against the pinned ones, and test_openapi_spec.py (which runs the exporter
+# with whatever interpreter the suite is under) fails on it. The pinned
+# environment is what CI and the Dockerfile use, so it is what generates.
+openapi: venv-portal-api ## API - Regenerate openapi/v1.yaml from the live route table
 	@echo "$(BLUE)=== Exporting OpenAPI specification ===$(RESET)"
-	@python3 scripts/export-openapi.py
+	@$(PORTAL_API_VENV)/bin/python scripts/export-openapi.py
 
-openapi-check: ## API - Fail if the committed spec is stale (CI gate)
+openapi-check: venv-portal-api ## API - Fail if the committed spec is stale (CI gate)
 	@echo "$(BLUE)=== Checking OpenAPI specification is current ===$(RESET)"
-	@python3 scripts/export-openapi.py --check
+	@$(PORTAL_API_VENV)/bin/python scripts/export-openapi.py --check
 
 openapi-lint: ## API - Lint openapi/v1.yaml with spectral
 	@echo "$(BLUE)=== Linting OpenAPI specification ===$(RESET)"

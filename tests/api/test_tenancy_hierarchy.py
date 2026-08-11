@@ -15,6 +15,14 @@ import jwt
 import pytest
 from quart import Quart
 
+#: Every test in this file builds a multi-tenant / delegated-admin
+#: structure, which the tier model sells at Enterprise (tenants 1/1/∞,
+#: tenant admins 0/10/∞). Under the default Community licence the quota
+#: walls refuse the second tenant and the first delegated admin, so these
+#: tests licence themselves for what they exercise rather than the suite
+#: silently lifting every wall for every file.
+pytestmark = pytest.mark.usefixtures("enterprise_license")
+
 
 async def _new_user(client: Any) -> tuple[dict[str, str], int]:
     """Register and log in a fresh user; return (auth headers, user id)."""
@@ -79,28 +87,20 @@ class TestHierarchyConstruction:
     """I4: the API can build and reshape a tenant tree."""
 
     @pytest.mark.asyncio
-    async def test_create_tenant_with_parent_sets_depth_and_lineage(
-        self, client: Any
-    ) -> None:
+    async def test_create_tenant_with_parent_sets_depth_and_lineage(self, client: Any) -> None:
         """A tenant created under a parent records depth = parent.depth + 1."""
         headers, _ = await _new_user(client)
 
         provider_id = await _create_tenant(client, headers, "Prov", kind="provider")
-        customer_id = await _create_tenant(
-            client, headers, "Cust", parent_tenant_id=provider_id
-        )
-        grandchild_id = await _create_tenant(
-            client, headers, "Grand", parent_tenant_id=customer_id
-        )
+        customer_id = await _create_tenant(client, headers, "Cust", parent_tenant_id=provider_id)
+        grandchild_id = await _create_tenant(client, headers, "Grand", parent_tenant_id=customer_id)
 
         for tenant_id, expected_depth, expected_parent in (
             (provider_id, 0, None),
             (customer_id, 1, provider_id),
             (grandchild_id, 2, customer_id),
         ):
-            response = await client.get(
-                f"/api/v1/tenants/{tenant_id}", headers=headers
-            )
+            response = await client.get(f"/api/v1/tenants/{tenant_id}", headers=headers)
             assert response.status_code == 200
             body = await response.get_json()
             assert body["depth"] == expected_depth
@@ -123,9 +123,7 @@ class TestHierarchyConstruction:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_create_tenant_rejects_parent_without_admin(
-        self, client: Any
-    ) -> None:
+    async def test_create_tenant_rejects_parent_without_admin(self, client: Any) -> None:
         """Parenting under someone else's tenant requires authority in it."""
         owner_headers, _ = await _new_user(client)
         outsider_headers, _ = await _new_user(client)
@@ -149,9 +147,7 @@ class TestHierarchyConstruction:
         headers, _ = await _new_user(client)
 
         root_id = await _create_tenant(client, headers, "Root")
-        child_id = await _create_tenant(
-            client, headers, "Child", parent_tenant_id=root_id
-        )
+        child_id = await _create_tenant(client, headers, "Child", parent_tenant_id=root_id)
 
         response = await client.put(
             f"/api/v1/tenants/{root_id}/parent",
@@ -175,9 +171,7 @@ class TestHierarchyConstruction:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_reparent_moves_subtree_and_updates_depth(
-        self, client: Any
-    ) -> None:
+    async def test_reparent_moves_subtree_and_updates_depth(self, client: Any) -> None:
         """Moving a node rewrites depth for everything beneath it."""
         headers, _ = await _new_user(client)
 
@@ -194,12 +188,8 @@ class TestHierarchyConstruction:
         )
         assert response.status_code == 200, await response.get_json()
 
-        mid_body = await (
-            await client.get(f"/api/v1/tenants/{mid}", headers=headers)
-        ).get_json()
-        leaf_body = await (
-            await client.get(f"/api/v1/tenants/{leaf}", headers=headers)
-        ).get_json()
+        mid_body = await (await client.get(f"/api/v1/tenants/{mid}", headers=headers)).get_json()
+        leaf_body = await (await client.get(f"/api/v1/tenants/{leaf}", headers=headers)).get_json()
 
         assert mid_body["parent_tenant_id"] == root_b
         assert mid_body["depth"] == 1
@@ -211,9 +201,7 @@ class TestHierarchyConstruction:
         """Passing a null parent promotes the tenant back to a root."""
         headers, _ = await _new_user(client)
         root_id = await _create_tenant(client, headers, "Root")
-        child_id = await _create_tenant(
-            client, headers, "Child", parent_tenant_id=root_id
-        )
+        child_id = await _create_tenant(client, headers, "Child", parent_tenant_id=root_id)
 
         response = await client.put(
             f"/api/v1/tenants/{child_id}/parent",
@@ -222,9 +210,7 @@ class TestHierarchyConstruction:
         )
         assert response.status_code == 200
 
-        body = await (
-            await client.get(f"/api/v1/tenants/{child_id}", headers=headers)
-        ).get_json()
+        body = await (await client.get(f"/api/v1/tenants/{child_id}", headers=headers)).get_json()
         assert body["parent_tenant_id"] is None
         assert body["depth"] == 0
 
@@ -234,9 +220,7 @@ class TestReparentOriginAuthority:
     """A move must be authorized at the ORIGIN, not only the destination."""
 
     @pytest.mark.asyncio
-    async def test_mid_tier_admin_cannot_detach_subtree_from_provider(
-        self, client: Any
-    ) -> None:
+    async def test_mid_tier_admin_cannot_detach_subtree_from_provider(self, client: Any) -> None:
         """Admin on the moved node alone cannot sever the provider above it.
 
         Detaching to a root passes `parent_tenant_id: null`, which has no
@@ -247,12 +231,8 @@ class TestReparentOriginAuthority:
         provider_headers, _ = await _new_user(client)
         mid_admin_headers, mid_admin_id = await _new_user(client)
 
-        provider_id = await _create_tenant(
-            client, provider_headers, "Prov", kind="provider"
-        )
-        mid_id = await _create_tenant(
-            client, provider_headers, "Mid", parent_tenant_id=provider_id
-        )
+        provider_id = await _create_tenant(client, provider_headers, "Prov", kind="provider")
+        mid_id = await _create_tenant(client, provider_headers, "Mid", parent_tenant_id=provider_id)
         await _create_tenant(client, provider_headers, "Leaf", parent_tenant_id=mid_id)
 
         # Admin on the mid tier ONLY.
@@ -266,9 +246,7 @@ class TestReparentOriginAuthority:
         assert detach.status_code == 403, await detach.get_json()
 
         # The tree is unchanged.
-        still = await client.get(
-            f"/api/v1/tenants/{mid_id}", headers=provider_headers
-        )
+        still = await client.get(f"/api/v1/tenants/{mid_id}", headers=provider_headers)
         assert (await still.get_json())["parent_tenant_id"] == provider_id
 
     @pytest.mark.asyncio
@@ -276,12 +254,8 @@ class TestReparentOriginAuthority:
         """Authority in the current parent is what makes a detach legitimate."""
         provider_headers, _ = await _new_user(client)
 
-        provider_id = await _create_tenant(
-            client, provider_headers, "Prov", kind="provider"
-        )
-        mid_id = await _create_tenant(
-            client, provider_headers, "Mid", parent_tenant_id=provider_id
-        )
+        provider_id = await _create_tenant(client, provider_headers, "Prov", kind="provider")
+        mid_id = await _create_tenant(client, provider_headers, "Mid", parent_tenant_id=provider_id)
 
         detach = await client.put(
             f"/api/v1/tenants/{mid_id}/parent",
@@ -295,22 +269,14 @@ class TestReparentOriginAuthority:
         assert body["depth"] == 0
 
     @pytest.mark.asyncio
-    async def test_move_between_providers_requires_authority_in_both(
-        self, client: Any
-    ) -> None:
+    async def test_move_between_providers_requires_authority_in_both(self, client: Any) -> None:
         """Origin authority and destination authority are both mandatory."""
         alice_headers, alice_id = await _new_user(client)
         bob_headers, bob_id = await _new_user(client)
 
-        provider_a = await _create_tenant(
-            client, alice_headers, "ProvA", kind="provider"
-        )
-        provider_b = await _create_tenant(
-            client, bob_headers, "ProvB", kind="provider"
-        )
-        child = await _create_tenant(
-            client, alice_headers, "Child", parent_tenant_id=provider_a
-        )
+        provider_a = await _create_tenant(client, alice_headers, "ProvA", kind="provider")
+        provider_b = await _create_tenant(client, bob_headers, "ProvB", kind="provider")
+        child = await _create_tenant(client, alice_headers, "Child", parent_tenant_id=provider_a)
 
         # Alice owns the origin but has no authority in the destination.
         alice_move = await client.put(
@@ -344,9 +310,7 @@ class TestReparentOriginAuthority:
         """A tenant with no parent can be parented without an origin check."""
         owner_headers, _ = await _new_user(client)
         root = await _create_tenant(client, owner_headers, "Root")
-        destination = await _create_tenant(
-            client, owner_headers, "Dest", kind="provider"
-        )
+        destination = await _create_tenant(client, owner_headers, "Dest", kind="provider")
 
         response = await client.put(
             f"/api/v1/tenants/{root}/parent",
@@ -378,9 +342,7 @@ class TestEffectiveRoleResolution:
         owner_headers, _ = await _new_user(client)
         delegate_headers, delegate_id = await _new_user(client)
 
-        provider_id = await _create_tenant(
-            client, owner_headers, "Prov", kind="provider"
-        )
+        provider_id = await _create_tenant(client, owner_headers, "Prov", kind="provider")
         customer_id = await _create_tenant(
             client, owner_headers, "Cust", parent_tenant_id=provider_id
         )
@@ -389,10 +351,7 @@ class TestEffectiveRoleResolution:
 
         async with app.app_context():
             # With no local row, the hierarchy confers admin.
-            assert (
-                await resolve_effective_role(delegate_id, customer_id)
-                == "delegated_admin"
-            )
+            assert await resolve_effective_role(delegate_id, customer_id) == "delegated_admin"
 
         await _add_member(client, owner_headers, customer_id, delegate_id, "viewer")
 
@@ -413,17 +372,14 @@ class TestDeleteDoesNotLeakTenantExistence:
     """Cheap adjacent: align DELETE with switch/GET authz-before-existence."""
 
     @pytest.mark.asyncio
-    async def test_unknown_and_unowned_tenants_are_indistinguishable(
-        self, client: Any
-    ) -> None:
+    async def test_unknown_and_unowned_tenants_are_indistinguishable(self, client: Any) -> None:
+        """DELETE on a nonexistent ID and one the caller can't manage both 403 identically."""
         caller_headers, _ = await _new_user(client)
         other_headers, _ = await _new_user(client)
 
         real_but_unowned = await _create_tenant(client, other_headers, "Theirs")
 
-        unknown = await client.delete(
-            "/api/v1/tenants/987654", headers=caller_headers
-        )
+        unknown = await client.delete("/api/v1/tenants/987654", headers=caller_headers)
         existing = await client.delete(
             f"/api/v1/tenants/{real_but_unowned}", headers=caller_headers
         )
@@ -487,9 +443,7 @@ class TestCacheInvalidation:
         async with app.app_context():
             assert await get_descendants(root_id) == set()
 
-        child_id = await _create_tenant(
-            client, headers, "Child", parent_tenant_id=root_id
-        )
+        child_id = await _create_tenant(client, headers, "Child", parent_tenant_id=root_id)
 
         async with app.app_context():
             assert await get_descendants(root_id) == {child_id}
@@ -506,15 +460,11 @@ class TestDelegatedAuthority:
         provider_id = await _create_tenant(client, headers, "Prov", kind="provider")
         await _create_tenant(client, headers, "Cust", parent_tenant_id=provider_id)
 
-        response = await client.post(
-            f"/api/v1/tenants/{provider_id}/switch", headers=headers
-        )
+        response = await client.post(f"/api/v1/tenants/{provider_id}/switch", headers=headers)
         assert response.status_code == 200
         body = await response.get_json()
 
-        payload = jwt.decode(
-            body["access_token"], options={"verify_signature": False}
-        )
+        payload = jwt.decode(body["access_token"], options={"verify_signature": False})
         assert payload["scope"] == body["scope"]
         assert "tenants:manage" in payload["scope"]
         assert "products:manage" in payload["scope"]
@@ -538,9 +488,7 @@ class TestDelegatedAuthority:
         tenant_id = await _create_tenant(client, owner_headers, "T")
         await _add_member(client, owner_headers, tenant_id, member_id, "member")
 
-        response = await client.post(
-            f"/api/v1/tenants/{tenant_id}/switch", headers=member_headers
-        )
+        response = await client.post(f"/api/v1/tenants/{tenant_id}/switch", headers=member_headers)
         assert response.status_code == 200
         scopes = (await response.get_json())["scope"]
 
@@ -549,9 +497,7 @@ class TestDelegatedAuthority:
         assert "products:manage" not in scopes
 
     @pytest.mark.asyncio
-    async def test_delegated_admin_can_manage_descendant_after_switch(
-        self, client: Any
-    ) -> None:
+    async def test_delegated_admin_can_manage_descendant_after_switch(self, client: Any) -> None:
         """An ancestor admin can operate on a descendant via normal routes.
 
         This is the efficacy check: switching used to be the ONLY place
@@ -562,9 +508,7 @@ class TestDelegatedAuthority:
         delegate_headers, delegate_id = await _new_user(client)
         subject_headers, subject_id = await _new_user(client)
 
-        provider_id = await _create_tenant(
-            client, owner_headers, "Prov", kind="provider"
-        )
+        provider_id = await _create_tenant(client, owner_headers, "Prov", kind="provider")
         customer_id = await _create_tenant(
             client, owner_headers, "Cust", parent_tenant_id=provider_id
         )
@@ -573,9 +517,7 @@ class TestDelegatedAuthority:
         # customer tenant.
         await _add_member(client, owner_headers, provider_id, delegate_id, "admin")
 
-        members = await client.get(
-            f"/api/v1/tenants/{customer_id}/members", headers=owner_headers
-        )
+        members = await client.get(f"/api/v1/tenants/{customer_id}/members", headers=owner_headers)
         member_ids = {m["user_id"] for m in (await members.get_json())["members"]}
         assert delegate_id not in member_ids
 
@@ -584,14 +526,10 @@ class TestDelegatedAuthority:
             f"/api/v1/tenants/{customer_id}/switch", headers=delegate_headers
         )
         assert switch.status_code == 200, await switch.get_json()
-        switched = {
-            "Authorization": f"Bearer {(await switch.get_json())['access_token']}"
-        }
+        switched = {"Authorization": f"Bearer {(await switch.get_json())['access_token']}"}
 
         # ... and then actually operate on that tenant's data.
-        read = await client.get(
-            f"/api/v1/tenants/{customer_id}", headers=switched
-        )
+        read = await client.get(f"/api/v1/tenants/{customer_id}", headers=switched)
         assert read.status_code == 200, await read.get_json()
         assert (await read.get_json())["user_role"] == "delegated_admin"
 
@@ -611,9 +549,7 @@ class TestDelegatedAuthority:
         assert add.status_code == 201, await add.get_json()
 
     @pytest.mark.asyncio
-    async def test_ancestor_member_gets_no_delegated_authority(
-        self, client: Any
-    ) -> None:
+    async def test_ancestor_member_gets_no_delegated_authority(self, client: Any) -> None:
         """Membership in an ancestor is not admin over its descendants.
 
         The admin-vs-member boundary, proven with a real MEMBER of the
@@ -624,22 +560,16 @@ class TestDelegatedAuthority:
         owner_headers, _ = await _new_user(client)
         member_headers, member_id = await _new_user(client)
 
-        provider_id = await _create_tenant(
-            client, owner_headers, "Prov", kind="provider"
-        )
+        provider_id = await _create_tenant(client, owner_headers, "Prov", kind="provider")
         customer_id = await _create_tenant(
             client, owner_headers, "Cust", parent_tenant_id=provider_id
         )
         await _add_member(client, owner_headers, provider_id, member_id, "member")
 
-        switch = await client.post(
-            f"/api/v1/tenants/{customer_id}/switch", headers=member_headers
-        )
+        switch = await client.post(f"/api/v1/tenants/{customer_id}/switch", headers=member_headers)
         assert switch.status_code == 403
 
-        read = await client.get(
-            f"/api/v1/tenants/{customer_id}", headers=member_headers
-        )
+        read = await client.get(f"/api/v1/tenants/{customer_id}", headers=member_headers)
         assert read.status_code == 403
 
 
@@ -648,18 +578,14 @@ class TestSwitchDoesNotLeakTenantExistence:
     """Minor: authorize before the existence check."""
 
     @pytest.mark.asyncio
-    async def test_unknown_and_unreachable_tenants_are_indistinguishable(
-        self, client: Any
-    ) -> None:
+    async def test_unknown_and_unreachable_tenants_are_indistinguishable(self, client: Any) -> None:
         """403 for both, so the path parameter is not an existence oracle."""
         caller_headers, _ = await _new_user(client)
         other_headers, _ = await _new_user(client)
 
         real_but_unreachable = await _create_tenant(client, other_headers, "Theirs")
 
-        unknown = await client.post(
-            "/api/v1/tenants/987654/switch", headers=caller_headers
-        )
+        unknown = await client.post("/api/v1/tenants/987654/switch", headers=caller_headers)
         existing = await client.post(
             f"/api/v1/tenants/{real_but_unreachable}/switch",
             headers=caller_headers,
@@ -675,13 +601,10 @@ class TestTenancyMiddlewareOrdering:
     """I1: tenancy resolves before the view's own authorization logic."""
 
     @pytest.mark.asyncio
-    async def test_missing_tenant_claim_is_403_before_the_view_runs(
-        self, app: Quart
-    ) -> None:
+    async def test_missing_tenant_claim_is_403_before_the_view_runs(self, app: Quart) -> None:
         """No tenant claim short-circuits with 403; the view never executes."""
-        from quart import g
-
         from app.tenancy import tenancy_aware
+        from quart import g
 
         ran = {"view": False}
 
@@ -698,13 +621,10 @@ class TestTenancyMiddlewareOrdering:
         assert ran["view"] is False
 
     @pytest.mark.asyncio
-    async def test_unknown_tenant_claim_is_403_before_the_view_runs(
-        self, app: Quart
-    ) -> None:
+    async def test_unknown_tenant_claim_is_403_before_the_view_runs(self, app: Quart) -> None:
         """A tenant claim naming no row is rejected before any scope logic."""
-        from quart import g
-
         from app.tenancy import tenancy_aware
+        from quart import g
 
         ran = {"view": False}
 
@@ -722,19 +642,14 @@ class TestTenancyMiddlewareOrdering:
         assert ran["view"] is False
 
     @pytest.mark.asyncio
-    async def test_scoped_token_attaches_hierarchy_context(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_scoped_token_attaches_hierarchy_context(self, client: Any, app: Quart) -> None:
         """A real tenant claim yields a context carrying the subtree."""
-        from quart import g
-
         from app.tenancy import tenancy_aware
+        from quart import g
 
         headers, _ = await _new_user(client)
         provider_id = await _create_tenant(client, headers, "Prov", kind="provider")
-        customer_id = await _create_tenant(
-            client, headers, "Cust", parent_tenant_id=provider_id
-        )
+        customer_id = await _create_tenant(client, headers, "Cust", parent_tenant_id=provider_id)
 
         seen: dict[str, Any] = {}
 
@@ -781,9 +696,7 @@ class TestResponseFieldSets:
     TENANT_SUMMARY_FIELDS = {"id", "name", "kind", "status"}
 
     @pytest.mark.asyncio
-    async def test_get_tenant_returns_exactly_the_detail_fields(
-        self, client: Any
-    ) -> None:
+    async def test_get_tenant_returns_exactly_the_detail_fields(self, client: Any) -> None:
         """Fails on an EXTRA field, not just a missing one."""
         headers, _ = await _new_user(client)
         tenant_id = await _create_tenant(client, headers, "T")
@@ -796,9 +709,8 @@ class TestResponseFieldSets:
         assert "license_key" not in body
 
     @pytest.mark.asyncio
-    async def test_create_tenant_returns_exactly_the_detail_fields(
-        self, client: Any
-    ) -> None:
+    async def test_create_tenant_returns_exactly_the_detail_fields(self, client: Any) -> None:
+        """POST /api/v1/tenants' response has exactly the same field set as GET."""
         headers, _ = await _new_user(client)
         response = await client.post(
             "/api/v1/tenants",
@@ -831,9 +743,7 @@ class TestResponseFieldSets:
         headers, _ = await _new_user(client)
         tenant_id = await _create_tenant(client, headers, "T")
 
-        response = await client.post(
-            f"/api/v1/tenants/{tenant_id}/switch", headers=headers
-        )
+        response = await client.post(f"/api/v1/tenants/{tenant_id}/switch", headers=headers)
         body = await response.get_json()
 
         assert set(body) == {"access_token", "tenant", "tenant_role", "scope"}
@@ -866,15 +776,11 @@ class TestResponseFieldSets:
         assert upgraded.status_code == 200
         assert (await upgraded.get_json())["plan"] == "enterprise"
 
-        response = await client.post(
-            f"/api/v1/tenants/{tenant_id}/switch", headers=headers
-        )
+        response = await client.post(f"/api/v1/tenants/{tenant_id}/switch", headers=headers)
         assert (await response.get_json())["tenant"]["plan"] == "enterprise"
 
     @pytest.mark.asyncio
-    async def test_member_endpoints_share_one_exact_field_set(
-        self, client: Any
-    ) -> None:
+    async def test_member_endpoints_share_one_exact_field_set(self, client: Any) -> None:
         """List, add and update all return the same explicit member shape.
 
         add_tenant_member previously returned a raw dict(row) and the role
@@ -906,9 +812,7 @@ class TestResponseFieldSets:
         assert updated_body["id"] is not None
         assert updated_body["joined_at"] is not None
 
-        listed = await client.get(
-            f"/api/v1/tenants/{tenant_id}/members", headers=owner_headers
-        )
+        listed = await client.get(f"/api/v1/tenants/{tenant_id}/members", headers=owner_headers)
         assert listed.status_code == 200
         list_body = await listed.get_json()
         assert set(list_body) == {"members", "count"}
@@ -916,9 +820,7 @@ class TestResponseFieldSets:
             assert set(row) == self.TENANT_MEMBER_FIELDS
 
     @pytest.mark.asyncio
-    async def test_member_list_exposes_contact_identity_and_nothing_more(
-        self, client: Any
-    ) -> None:
+    async def test_member_list_exposes_contact_identity_and_nothing_more(self, client: Any) -> None:
         """Email and full name are in; every other users column is out.
 
         Deliberate policy: administering a tenant means administering its
@@ -930,9 +832,7 @@ class TestResponseFieldSets:
         tenant_id = await _create_tenant(client, owner_headers, "T")
         await _add_member(client, owner_headers, tenant_id, member_id, "member")
 
-        listed = await client.get(
-            f"/api/v1/tenants/{tenant_id}/members", headers=owner_headers
-        )
+        listed = await client.get(f"/api/v1/tenants/{tenant_id}/members", headers=owner_headers)
         rows = (await listed.get_json())["members"]
         subject = next(r for r in rows if r["user_id"] == member_id)
 
@@ -949,9 +849,7 @@ class TestResponseFieldSets:
             assert forbidden not in subject
 
     @pytest.mark.asyncio
-    async def test_include_children_exposes_only_summary_for_non_members(
-        self, client: Any
-    ) -> None:
+    async def test_include_children_exposes_only_summary_for_non_members(self, client: Any) -> None:
         """Descendant rows the caller is not a member of are summaries.
 
         A delegated admin may learn that a descendant exists and whether it
@@ -960,15 +858,11 @@ class TestResponseFieldSets:
         owner_headers, _ = await _new_user(client)
         delegate_headers, delegate_id = await _new_user(client)
 
-        provider_id = await _create_tenant(
-            client, owner_headers, "Prov", kind="provider"
-        )
+        provider_id = await _create_tenant(client, owner_headers, "Prov", kind="provider")
         customer_id = await _create_tenant(
             client, owner_headers, "Cust", parent_tenant_id=provider_id
         )
-        await _add_member(
-            client, owner_headers, provider_id, delegate_id, "admin"
-        )
+        await _add_member(client, owner_headers, provider_id, delegate_id, "admin")
 
         response = await client.get(
             "/api/v1/tenants?include_children=true", headers=delegate_headers
@@ -981,9 +875,7 @@ class TestResponseFieldSets:
         assert set(rows[customer_id]) == self.TENANT_SUMMARY_FIELDS
 
     @pytest.mark.asyncio
-    async def test_rollup_reports_real_product_type_and_exact_fields(
-        self, client: Any
-    ) -> None:
+    async def test_rollup_reports_real_product_type_and_exact_fields(self, client: Any) -> None:
         """I6: the rollup's `product` is product_type, not a dead lookup.
 
         It previously read `external_id`, which is not a column on

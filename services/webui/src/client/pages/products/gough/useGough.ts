@@ -17,7 +17,7 @@ import { goughApi } from "../../../api/resources/gough";
 import { queryKeys } from "../../../api/keys";
 import { useProductConnections } from "../../../hooks/useProducts";
 import { useTenantStore } from "../../../stores/tenantStore";
-import { isProductEnabled } from "../../../lib/featureGates";
+import { useProductEnabled } from "../../../lib/featureGates";
 import type { GoughAgent, GoughBiome, GoughNode } from "./types";
 
 /** The active tenant id, or undefined before a tenant is selected. */
@@ -48,7 +48,7 @@ export function useGoughConnection(): {
   isEnabled: boolean;
 } {
   const tenantId = useActiveTenantId();
-  const isEnabled = isProductEnabled("gough");
+  const isEnabled = useProductEnabled("gough");
   const { data, isLoading } = useProductConnections(tenantId);
   const connection = data?.find((item) => item.product_type === "gough");
   return { tenantId, productId: connection?.id, isLoading, isEnabled };

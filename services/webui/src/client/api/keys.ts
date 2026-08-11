@@ -23,6 +23,15 @@ export const queryKeys = {
   dashboardRollup: (tenantId: number | undefined) =>
     [...queryKeys.dashboard(), "rollup", tenantId] as const,
 
+  // Feature flags + licence tier + dev-mode signal.
+  //
+  // NOT tenant-scoped, unlike almost everything else here: flags are
+  // evaluated per USER (the PostHog distinct_id) and the licence is a
+  // property of the deployment, so neither changes when the active tenant
+  // does. Keying it by tenant would refetch on every switch and, worse,
+  // imply a per-tenant answer the server does not give.
+  features: () => [...queryKeys.all(), "features"] as const,
+
   // Health checks
   health: () => [...queryKeys.all(), "health"] as const,
   healthOverview: (tenantId: number | undefined) =>

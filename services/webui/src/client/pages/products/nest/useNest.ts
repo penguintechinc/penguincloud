@@ -12,7 +12,7 @@ import { nestApi } from "../../../api/resources/nest";
 import { queryKeys } from "../../../api/keys";
 import { useProductConnections } from "../../../hooks/useProducts";
 import { useTenantStore } from "../../../stores/tenantStore";
-import { isProductEnabled } from "../../../lib/featureGates";
+import { useProductEnabled } from "../../../lib/featureGates";
 import type { NestDatabase, NestSnapshot } from "./types";
 
 /** The active tenant id, or undefined before a tenant is selected. */
@@ -38,7 +38,7 @@ export function useNestConnection(): {
   isEnabled: boolean;
 } {
   const tenantId = useActiveTenantId();
-  const isEnabled = isProductEnabled("nest");
+  const isEnabled = useProductEnabled("nest");
   const { data, isLoading } = useProductConnections(tenantId);
   const connection = data?.find((item) => item.product_type === "nest");
   return { tenantId, productId: connection?.id, isLoading, isEnabled };

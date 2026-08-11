@@ -5,15 +5,26 @@ line-length = 100            # matches Prettier printWidth + dart format
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
 
+[tool.ruff.lint.per-file-ignores]
+# pytest expresses every assertion with `assert`, so bandit's S101 ("assert
+# detected") flags every test in the repo — 373 findings across the suite,
+# none of them a defect. S101 exists because `python -O` strips asserts from
+# PRODUCTION code; a test runner never runs under -O, and rewriting pytest
+# assertions to satisfy it would make the suite worse, not safer.
+#
+# Without this, `ruff` fails on any commit that stages a test file, so no
+# test in this repo could be changed at all. The repo already draws exactly
+# this boundary for the same class of rule: the bandit hook is invoked as
+# `-ll -r` over the app tree, never over tests.
+#
+# Deliberately narrow — one rule, one tree. Everything else in `select`
+# still applies to tests.
+#
+# Discovered while adding Task 6's tests: ruff only just landed in
+# pre-commit (staged-files-only, see .pre-commit-config.yaml), so this had
+# never been surfaced against the existing suite before a Task 6 test file
+# was the first to be staged post-migration.
+"tests/**" = ["S101"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
-
-[tool.ruff.lint.per-file-ignores]
-# S101 (flake8-bandit "use of assert") flags the mechanism pytest itself is
-# built on -- an assert IS the test, not a stripped-under-`-O` runtime guard
-# the way it would be in application code. Scoped to tests/ only; app/ still
-# gets the full S101 check. Discovered while adding Task 6's tests: ruff
-# only just landed in pre-commit (staged-files-only, see .pre-commit-config
-# .yaml), so this had never been surfaced against the existing suite before
-# a Task 6 test file was the first to be staged post-migration.
-"tests/**" = ["S101"]

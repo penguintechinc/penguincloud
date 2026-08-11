@@ -203,10 +203,16 @@ async def test_never_triggers_a_live_poll(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("enterprise_license")
 async def test_only_returns_the_scoped_tenants_connections(
     client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
-    """A second tenant's connections never leak into the first's response."""
+    """A second tenant's connections never leak into the first's response.
+
+    Creates a second tenant to prove isolation, which is the multi-tenant
+    shape Community's 1-tenant quota (app/quotas.py) exists to refuse --
+    enterprise_license lifts the wall this test needs to legitimately climb.
+    """
     other_tenant_id = await _create_tenant(client, admin_headers, "OtherTenant")
 
     own_conn = await _register_connection(client, admin_headers, tenant_id)
@@ -224,10 +230,15 @@ async def test_only_returns_the_scoped_tenants_connections(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("enterprise_license")
 async def test_include_children_expands_for_a_tenant_manager(
     app: Any, client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
-    """tenants:manage (owner/admin) + include_children=true sees the subtree."""
+    """tenants:manage (owner/admin) + include_children=true sees the subtree.
+
+    Creates a child tenant, which needs enterprise_license per Community's
+    1-tenant quota -- see test_only_returns_the_scoped_tenants_connections.
+    """
     child_id = await _create_tenant(client, admin_headers, "ChildTenant")
 
     from app.models import get_db
@@ -251,6 +262,7 @@ async def test_include_children_expands_for_a_tenant_manager(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("enterprise_license")
 async def test_include_children_ignored_without_tenants_manage(
     app: Any, client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:
@@ -259,6 +271,9 @@ async def test_include_children_ignored_without_tenants_manage(
     Mirrors tenants.list_user_tenants' own include_children gate: seeing a
     descendant tenant's connections requires administering the PARENT, not
     merely reading products in it.
+
+    Creates a child tenant, which needs enterprise_license per Community's
+    1-tenant quota -- see test_only_returns_the_scoped_tenants_connections.
     """
     child_id = await _create_tenant(client, admin_headers, "ChildTenant2")
 

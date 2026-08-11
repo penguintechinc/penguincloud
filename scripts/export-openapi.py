@@ -134,10 +134,11 @@ def main() -> int:
         allow_unicode=True,
         # PyYAML's width is a soft break-at-or-after-this-column preference,
         # not a hard cap -- it can overshoot to the next space by the length
-        # of one word. .yamllint.yml's line-length max is 130; 90 leaves a
-        # 40-char margin so a single long identifier/word in a docstring
-        # description can't push the wrapped line over the limit the way
-        # width=120 did for GET /api/v1/products/health's description.
+        # of one word. .yamllint.yml's line-length max is 130. width=120
+        # overshot it twice independently: a 131-char line from a docstring,
+        # and GET /api/v1/products/health's description. 90 leaves a 40-char
+        # margin -- more headroom than either overshoot needed -- so the
+        # class of failure is closed rather than one line being shortened.
         width=90,
     )
     header = (

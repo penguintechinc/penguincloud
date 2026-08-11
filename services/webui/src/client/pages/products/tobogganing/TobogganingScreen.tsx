@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { EmptyState } from "../../../components/kit";
-import { isProductEnabled } from "../../../lib/featureGates";
+import { useProductEnabled } from "../../../lib/featureGates";
 
 interface TobogganingScreenProps {
   title: string;
@@ -36,7 +36,9 @@ export function TobogganingScreen({
   isConnectionLoading,
   children,
 }: TobogganingScreenProps) {
-  if (!isProductEnabled("tobogganing")) {
+  const isEnabled = useProductEnabled("tobogganing");
+
+  if (!isEnabled) {
     return (
       <EmptyState
         title="Tobogganing is not enabled"

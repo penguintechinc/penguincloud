@@ -19,7 +19,11 @@ SQL_TRUE: Any = True
 
 #: Placeholder substituted for stored credentials on every read that can reach
 #: a response body. Matches the pre-migration masking value byte-for-byte.
-MASKED_SECRET = "***"  # noqa: S105 -- masking placeholder, not a credential
+# noqa justification: this is the MASK, not a credential — the literal
+# that REPLACES a secret on its way to a response body. S105 pattern-
+# matches the variable name; suppressed at the line so the rule keeps
+# working everywhere else in this module.
+MASKED_SECRET = "***"  # noqa: S105
 
 #: Credential columns on product_connections. Stored encrypted at rest; even
 #: the ciphertext never leaves the service, so both are masked on egress.
@@ -152,7 +156,18 @@ async def create_user(
     full_name: str = "",
     role: str = "viewer",
 ) -> dict[str, Any] | None:
-    """Create a new user (async)."""
+    """Create a new user (async).
+
+    Enforces the development-mode single-user cap before inserting. The
+    routes check it first and answer a clean 403; this is the backstop, so
+    a call site that forgets — a future route, a seed script, a background
+    job — cannot silently breach the cap. Raises
+    :class:`~app.devmode.DevModeUserCapExceededError`.
+    """
+    from . import devmode
+
+    await devmode.assert_user_creation_allowed()
+
     db = get_db()
     now = datetime.now(UTC)
     user_id = await db.users.async_insert(
@@ -280,7 +295,16 @@ async def create_tenant(
     in the service layer rather than in a trigger. Callers must validate the
     parent (existence, authority, cycles) before calling — see
     ``app.tenancy.hierarchy.validate_parent``.
+
+    Enforces the licensed tenant limit before inserting. Routes answer a
+    clean 402 first; this is the backstop, so a call site that forgets
+    cannot silently breach the wall. Raises
+    :class:`~app.quotas.QuotaExceededError`.
     """
+    from . import quotas
+
+    await quotas.assert_within("tenants")
+
     db = get_db()
     new_id: int | None = await db.tenants.async_insert(
         name=name,
@@ -311,7 +335,18 @@ async def get_tenant_by_id(tenant_id: int) -> dict[str, Any] | None:
 
 
 async def create_team(name: str, slug: str, owner_id: int) -> dict[str, Any] | None:
-    """Create a new team (async)."""
+    """Create a new team (async).
+
+    Enforces the licensed team limit before inserting. This backstop exists
+    because it was already breached: ``POST /api/v1/auth/register`` creates
+    a personal team and did not meter it, so self-service registration
+    walked past the Free tier's limit of one team on every deployment.
+    Raises :class:`~app.quotas.QuotaExceededError`.
+    """
+    from . import quotas
+
+    await quotas.assert_within("teams")
+
     db = get_db()
     team_id = await db.teams.async_insert(name=name, slug=slug, owner_id=owner_id)
     if team_id:
@@ -495,7 +530,19 @@ async def get_tenant_members(tenant_id: int) -> list[dict[str, Any]]:
 async def add_tenant_member(
     tenant_id: int, user_id: int, role: str = "member", invited_by_id: int | None = None
 ) -> dict[str, Any] | None:
-    """Add a member to a tenant (async)."""
+    """Add a member to a tenant (async).
+
+    A delegated ``admin`` is a licensed structure and is metered here as a
+    backstop beneath the routes. Members and viewers are unlimited at every
+    tier and pass straight through — the tier model caps delegated
+    authority, never participation. Raises
+    :class:`~app.quotas.QuotaExceededError`.
+    """
+    if role == "admin":
+        from . import quotas
+
+        await quotas.assert_within("tenant_admins")
+
     db = get_db()
     member_id = await db.tenant_members.async_insert(
         tenant_id=tenant_id,
