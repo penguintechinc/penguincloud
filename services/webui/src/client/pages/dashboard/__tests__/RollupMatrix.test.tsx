@@ -9,9 +9,12 @@ import { render, screen } from "@testing-library/react";
 import RollupMatrix from "../RollupMatrix";
 import { rollupProductColumns, toMatrixRows } from "../rollupMatrix";
 import { MOCK_DASHBOARD_ROLLUP } from "../../../mocks/fixtures";
-import type { DashboardRollupRow } from "../../../types";
 
-const rows = MOCK_DASHBOARD_ROLLUP as unknown as DashboardRollupRow[];
+// No cast needed: MockDashboardRollup and DashboardRollupRow are now
+// structurally identical (connection_id: number in both, matching the
+// generated schema's RollupProduct) — a `MockDashboardRollup[] as unknown as
+// DashboardRollupRow[]` here would silently mask the two drifting again.
+const rows = MOCK_DASHBOARD_ROLLUP;
 
 describe("rollupProductColumns", () => {
   it("unions every product across tenants, sorted", () => {
