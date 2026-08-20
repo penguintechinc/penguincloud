@@ -74,9 +74,11 @@ Secret name
 {{- end }}
 
 {{/*
-JWT FileKeyStore PVC name
+JWT keystore Secret name — deliberately separate from secretName above, so
+its content is never pulled in by envFrom (see values.yaml
+persistence.jwtKeystore comment).
 */}}
-{{- define "portal-api.jwtKeystorePVCName" -}}
+{{- define "portal-api.jwtKeystoreSecretName" -}}
 {{- printf "%s-jwt-keystore" (include "portal-api.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
@@ -92,18 +94,21 @@ everything".
 {{- end }}
 
 {{/*
-Per-tier default cap on THIS service type's backend node (replica) count --
+Per-tier cap on THIS service type's backend node (replica) count --
 docs/APP_STANDARDS.md "Backend nodes per service type": 1 each on
-Free/Professional, multiple/HA on Enterprise. A licence-server-configured
-override (.Values.license.maxReplicasOverride, > 0) always wins over the
-tier default, matching the commercial model where every numeric wall is a
-licence-configurable default, not a hardcoded constant.
+Free/Professional, multiple/HA on Enterprise. Absolute -- general.md
+requires licence enforcement be a hard block, and a plain values field
+(e.g. license.maxReplicasOverride, removed here) is not one: Helm
+templates cannot verify a signed licence-server claim, so any
+self-assertable override is a one-flag bypass of the entire cap, not an
+enforcement mechanism. A specific negotiated Enterprise node count
+(narrower than "unlimited") needs a real attestation path -- runtime
+verification via penguin_licensing.LicenseClient, not a Helm value -- and
+is not implemented by this chart.
 */}}
 {{- define "portal-api.maxReplicas" -}}
 {{- $tier := include "portal-api.licenseTier" . }}
-{{- if gt (int .Values.license.maxReplicasOverride) 0 }}
-{{- .Values.license.maxReplicasOverride }}
-{{- else if eq $tier "enterprise" }}
+{{- if eq $tier "enterprise" }}
 {{- 999999 }}
 {{- else }}
 {{- 1 }}

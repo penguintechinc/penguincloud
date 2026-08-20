@@ -27,15 +27,49 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 FAILED=0
 
-# Accepted deviations, every environment (full reasoning: .checkov.yaml).
-#   container-security-context-user-group-id -- devops-kubernetes.md
-#     mandates runAsUser: 1000 explicitly (webui: 999, matching its
-#     Dockerfile's actual baked-in UID -- k8s/helm/webui/values.yaml).
-#   pod-networkpolicy -- every chart ships a CiliumNetworkPolicy
-#     (cilium.io/v2), which kube-score's plain-NetworkPolicy check does
-#     not recognise as satisfying the requirement.
-#   container-image-pull-policy -- IfNotPresent is intentional; every
-#     environment uses a unique, never-reused tag or a digest.
+# Every suppression below is individually justified, not a blanket pass —
+# each is a reviewed, documented deviation from a generic scanner default
+# in favor of an explicit PenguinTech house rule or a known scanner
+# limitation, adjudicated one at a time:
+#
+#   container-security-context-user-group-id (kube-score) -- bundles TWO
+#     unrelated checks into one test ID: (a) UID/GID > 10000 (a style
+#     preference devops-kubernetes.md deliberately overrides: runAsUser:
+#     1000 explicitly, webui: 999 matching its Dockerfile's actual baked-in
+#     UID), and (b) runAsNonRoot being set at all -- (b) is a REAL,
+#     mandatory check this gate must not lose. Since kube-score's
+#     --ignore-test is all-or-nothing per test ID with no way to keep only
+#     (b), (a)+(b) are ignored here and (b) is re-implemented as its own
+#     explicit, correctly-exit-status-tested check below (never repeat the
+#     grep -qL inversion bug this script used to have) -- see the
+#     "runAsNonRoot" step per chart/env, which is what actually closes this
+#     gap rather than trusting kube-score to.
+#   pod-networkpolicy (kube-score) -- every chart ships a
+#     CiliumNetworkPolicy (cilium.io/v2), which kube-score's
+#     plain-NetworkPolicy-only check does not recognise as satisfying the
+#     requirement. checkov's equivalent (CKV2_K8S_6) has the identical
+#     limitation and is baselined the same way in .checkov.yaml.
+#   container-image-pull-policy (kube-score) -- IfNotPresent is
+#     intentional in every environment: alpha/beta/gamma use a unique,
+#     never-reused CI-built tag; production pins by SHA256 digest. Neither
+#     needs "Always" to guarantee freshness.
+#   deployment-replicas + service-type (kube-score, non-production only) --
+#     devops-kubernetes.md's resource tier table mandates exactly 1 replica
+#     for alpha/beta/gamma, and security.md's "No Direct External Access"
+#     explicitly exempts alpha's NodePort. Scoped OUT of production below
+#     (never ignored there), where either would be a real regression.
+#   deployment-strategy (kube-score, valkey only) -- Recreate is
+#     intentional (k8s/helm/valkey/templates/deployment.yaml's own
+#     comment: avoids two valkey-server processes racing to write /data).
+#   --framework kubernetes (checkov) -- the default (all frameworks) also
+#     runs checkov's generic secrets/entropy scanner against rendered
+#     ExternalSecret manifests, flagging Vault key-PATH strings like
+#     "penguincloud/gamma/portal-api#LICENSE_KEY" as "Base64 High Entropy
+#     String" (reviewed false positives: no actual secret VALUE is ever in
+#     a committed values file or a template render). This does not leave
+#     secret-leak detection uncovered: gitleaks and trufflehog are their
+#     own separate, dedicated pre-commit/pre-push hooks (devops.md's hook
+#     table) that scan the whole repo including these same files.
 KUBE_SCORE_IGNORE_ALWAYS=(
   --ignore-test container-security-context-user-group-id
   --ignore-test pod-networkpolicy
@@ -103,6 +137,26 @@ for chart_dir in k8s/helm/*/; do
       cat "${out}.err"
       FAILED=1
       continue
+    fi
+
+    # Re-enables what ignoring container-security-context-user-group-id
+    # above gives up: devops-kubernetes.md mandates runAsNonRoot: true on
+    # every container, no exceptions without explicit approval. Tested
+    # directly with plain `grep -q` (0 = found) — no -L, no inversion, the
+    # exact bug class a prior version of this script shipped
+    # (grep -qL 'runAsNonRoot' ... && echo WARNING fired on COMPLIANT
+    # manifests and stayed silent on non-compliant ones, because -q
+    # overrides -L's exit-status semantics on GNU grep). Runs against the
+    # RENDERED, already-verified-valid-YAML output, never the raw
+    # Go-template source.
+    if grep -q "kind: Deployment" "$out"; then
+      if grep -q "runAsNonRoot: false" "$out"; then
+        echo "FAIL: ${chart} ${env_name} — found runAsNonRoot: false (devops-kubernetes.md mandates true)"
+        FAILED=1
+      elif ! grep -q "runAsNonRoot: true" "$out"; then
+        echo "FAIL: ${chart} ${env_name} — no runAsNonRoot: true found in a Deployment (devops-kubernetes.md mandates it)"
+        FAILED=1
+      fi
     fi
 
     ignore_tests=("${KUBE_SCORE_IGNORE_ALWAYS[@]}")

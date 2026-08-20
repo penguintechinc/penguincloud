@@ -6,7 +6,7 @@ on), not the static replicaCount field.
 {{- $effectiveReplicas := int (include "webui.effectiveReplicas" .) }}
 {{- $maxReplicas := int (include "webui.maxReplicas" .) }}
 {{- if gt $effectiveReplicas $maxReplicas }}
-{{- fail (printf "webui: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) exceeds the %s tier's backend-node cap of %d for this service type (docs/APP_STANDARDS.md). Lower replicaCount/autoscaling.maxReplicas, raise license.maxReplicasOverride from the license server payload, or upgrade the tier." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas) (include "webui.licenseTier" .) $maxReplicas) }}
+{{- fail (printf "webui: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) exceeds the %s tier's backend-node cap of %d for this service type (docs/APP_STANDARDS.md). Lower replicaCount/autoscaling.maxReplicas or upgrade the tier." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas) (include "webui.licenseTier" .) $maxReplicas) }}
 {{- end }}
 {{- if and .Values.image.requireDigest (not .Values.image.digest) }}
 {{- fail "webui: image.requireDigest is true but image.digest is empty — production must pin by SHA256 digest (devops-containers.md), never a mutable tag." }}
@@ -21,6 +21,13 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "webui.labels" . | nindent 4 }}
+  {{- if .Values.externalSecrets.enabled }}
+  annotations:
+    # stakater/Reloader watches THIS annotation on the Deployment's own
+    # metadata, not the pod template's -- see portal-api's identical
+    # annotation/comment.
+    reloader.stakater.com/auto: "true"
+  {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
@@ -39,9 +46,6 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- if .Values.secrets.create }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
-        {{- end }}
-        {{- if .Values.externalSecrets.enabled }}
-        reloader.stakater.com/auto: "true"
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}

@@ -5,6 +5,19 @@ HA guarantee production.yml requires. Only meaningful once replicaCount > 1;
 alpha/beta/gamma leave this disabled.
 */}}
 {{- if .Values.podDisruptionBudget.enabled }}
+{{/*
+minAvailable >= effectiveReplicas deadlocks every voluntary disruption (node
+drain, cluster upgrade): there is no room to evict even one pod without
+going below minAvailable, so the eviction API refuses ALL of them forever.
+Safe only by accident today because shipped configs are 2-of-3 — not
+enforced anywhere, so a values edit that drops replicaCount/
+autoscaling.maxReplicas without also lowering minAvailable produces a
+silently un-drainable Deployment.
+*/}}
+{{- $effectiveReplicas := int (include "portal-api.effectiveReplicas" .) }}
+{{- if ge (int .Values.podDisruptionBudget.minAvailable) $effectiveReplicas }}
+{{- fail (printf "portal-api: podDisruptionBudget.minAvailable (%d) >= effective replica count (%d) — no voluntary disruption (node drain, cluster upgrade) could ever proceed; lower minAvailable to at most effectiveReplicas - 1." (int .Values.podDisruptionBudget.minAvailable) $effectiveReplicas) }}
+{{- end }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

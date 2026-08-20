@@ -16,30 +16,21 @@ pods unchecked).
 {{- $effectiveReplicas := int (include "portal-api.effectiveReplicas" .) }}
 {{- $maxReplicas := int (include "portal-api.maxReplicas" .) }}
 {{- if gt $effectiveReplicas $maxReplicas }}
-{{- fail (printf "portal-api: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) exceeds the %s tier's backend-node cap of %d for this service type (docs/APP_STANDARDS.md). Lower replicaCount/autoscaling.maxReplicas, raise license.maxReplicasOverride from the license server payload, or upgrade the tier." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas) (include "portal-api.licenseTier" .) $maxReplicas) }}
+{{- fail (printf "portal-api: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) exceeds the %s tier's backend-node cap of %d for this service type (docs/APP_STANDARDS.md). Lower replicaCount/autoscaling.maxReplicas or upgrade the tier." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas) (include "portal-api.licenseTier" .) $maxReplicas) }}
 {{- end }}
 {{/*
 JWT signing key persistence — see values.yaml persistence.jwtKeystore
 comment. A multi-replica deployment without a shared FileKeyStore signs
 each pod's tokens with a different in-memory key its siblings cannot
 verify, so refuse to render rather than ship silently-broken auth. Same
-effectiveReplicas gate as above, for the same reason.
+effectiveReplicas gate as above, for the same reason. No accessMode/RWX
+guard here any more — jwtKeystore.enabled now means "mount a
+pre-populated, read-only Secret" (values.yaml explains why a shared
+writable volume was actively wrong), and a Secret volume has no
+ReadWriteOnce/ReadWriteMany distinction to get wrong.
 */}}
 {{- if and (gt $effectiveReplicas 1) (not .Values.persistence.jwtKeystore.enabled) }}
-{{- fail (printf "portal-api: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) > 1 requires persistence.jwtKeystore.enabled (ReadWriteMany) — otherwise each replica signs JWTs with its own in-process key and tokens will not verify across pods behind the same Service (see app/__init__.py::_build_oidc_provider)." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas)) }}
-{{- end }}
-{{/*
-ReadWriteOnce + effectiveReplicas > 1 is not just "the keystore isn't
-shared" (already caught above) — it's a Deployment that CANNOT roll out at
-all: the default RollingUpdate strategy schedules a new pod alongside the
-old one(s) before terminating them, and an RWO volume cannot be mounted by
-a second pod's node at the same time, so the rollout sticks in
-Pending/ContainerCreating on top of whatever auth breakage a non-RWX mode
-would already cause. Enforced, not just documented in a comment a
-production.yml author could miss.
-*/}}
-{{- if and (gt $effectiveReplicas 1) .Values.persistence.jwtKeystore.enabled (ne .Values.persistence.jwtKeystore.accessMode "ReadWriteMany") }}
-{{- fail (printf "portal-api: effective replica count %d requires persistence.jwtKeystore.accessMode: ReadWriteMany (got %q) — ReadWriteOnce cannot be mounted by more than one pod's node at a time, so a RollingUpdate with replicaCount > 1 sticks in Pending on top of the cross-pod auth break." $effectiveReplicas .Values.persistence.jwtKeystore.accessMode) }}
+{{- fail (printf "portal-api: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) > 1 requires persistence.jwtKeystore.enabled — otherwise each replica signs JWTs with its own in-process key and tokens will not verify across pods behind the same Service (see app/__init__.py::_build_oidc_provider)." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas)) }}
 {{- end }}
 {{/*
 devops-containers.md: PenguinTech images require a SHA256 digest in
@@ -65,6 +56,17 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "portal-api.labels" . | nindent 4 }}
+  {{- if .Values.externalSecrets.enabled }}
+  annotations:
+    # stakater/Reloader watches THIS annotation on the Deployment's own
+    # metadata, not the pod template's (spec.template.metadata) -- it was
+    # rendered one level too deep before and was a silent no-op. Helm
+    # cannot hash a value it never sees (ESO resolves it from Vault
+    # independently of any `helm template`/install run), so restart on
+    # rotation is delegated to Reloader, if installed. See k8s/helm/valkey's
+    # identical annotation for the same reasoning.
+    reloader.stakater.com/auto: "true"
+  {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
@@ -83,13 +85,6 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- if .Values.secrets.create }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
-        {{- end }}
-        {{- if .Values.externalSecrets.enabled }}
-        # Helm cannot hash a value it never sees (ESO resolves it from
-        # Vault independently of any `helm template`/install run) — restart
-        # on rotation is delegated to stakater/Reloader, if installed. See
-        # k8s/helm/valkey's identical annotation for the same reasoning.
-        reloader.stakater.com/auto: "true"
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -141,15 +136,29 @@ spec:
             {{- if .Values.persistence.jwtKeystore.enabled }}
             - name: jwt-keystore
               mountPath: {{ .Values.persistence.jwtKeystore.mountPath }}
+              readOnly: true
             {{- end }}
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: {{ index .Values.resources.limits "ephemeral-storage" | default "128Mi" }}
         {{- if .Values.persistence.jwtKeystore.enabled }}
+        # Pre-populated, read-only Secret projection — not a PVC. See
+        # values.yaml persistence.jwtKeystore comment for why: FileKeyStore
+        # only ever writes via an overwriting, non-atomic _save(), reached
+        # solely through its self-bootstrap path when the file does not yet
+        # exist — a shared WRITABLE volume races N concurrently-starting
+        # replicas into overwriting each other's freshly-generated key. A
+        # file that already exists takes FileKeyStore's provably read-only
+        # _load() path instead, which a Secret volume mounts fine under
+        # readOnlyRootFilesystem: true with no PVC/StorageClass/access-mode
+        # question at all.
         - name: jwt-keystore
-          persistentVolumeClaim:
-            claimName: {{ include "portal-api.jwtKeystorePVCName" . }}
+          secret:
+            secretName: {{ include "portal-api.jwtKeystoreSecretName" . }}
+            items:
+              - key: {{ .Values.persistence.jwtKeystore.fileName }}
+                path: {{ .Values.persistence.jwtKeystore.fileName }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

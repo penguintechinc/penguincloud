@@ -78,7 +78,7 @@ networkPolicy:
   enabled: true
   extraIngress:
     - namespaceLabels:
-        kubernetes.io/metadata.name: kube-system  # Cilium Gateway/ingress-controller
+        "k8s:io.kubernetes.pod.namespace": kube-system  # Cilium Gateway/ingress-controller
       ports:
         - port: "8000"
           protocol: TCP

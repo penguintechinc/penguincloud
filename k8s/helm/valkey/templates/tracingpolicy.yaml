@@ -1,9 +1,10 @@
 {{/*
 Cluster Security Baseline — Tetragon TracingPolicy, enforcing (Sigkill).
-See values.yaml tracingPolicy comment for why this allowlist has three
-entries (sh + valkey-server + valkey-cli) instead of one, and why that is
-still the complete, honest surface for this image rather than a loosened
-policy.
+Two entries (valkey-server + valkey-cli), no shell: templates/
+deployment.yaml's command: bypasses the official image's shell-script
+ENTRYPOINT to exec valkey-server directly, and the liveness probe execs
+valkey-cli directly via its native REDISCLI_AUTH support — see values.yaml
+tracingPolicy comment for the full reasoning.
 */}}
 {{- if .Values.tracingPolicy.enabled }}
 apiVersion: cilium.io/v1alpha1

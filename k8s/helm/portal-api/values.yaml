@@ -117,9 +117,12 @@ readinessProbe:
 # explicitly opts up to a higher tier (with an OPERATOR-facing comment);
 # alpha/beta/gamma never override this at all, since replicaCount is
 # always 1 there regardless of tier.
+#
+# No numeric override field: a plain Helm value is self-assertable (an
+# operator can just set it), which is not a hard block (general.md).
+# _helpers.tpl::portal-api.maxReplicas is tier -> cap only.
 license:
   tier: community  # community | professional | enterprise
-  maxReplicasOverride: 0  # 0 = use tier default; >0 = licence-server-configured override
 
 ingress:
   enabled: false
@@ -129,28 +132,63 @@ ingress:
   tls: []
 
 # JWT signing key persistence (app/__init__.py::_build_oidc_provider). A
-# FileKeyStore is REQUIRED whenever replicaCount > 1: an unset
-# JWT_KEYSTORE_PATH falls back to an in-process MemoryKeyStore, and every
-# replica would then sign with a DIFFERENT key its siblings cannot verify —
-# tokens minted by one pod would randomly 401 on another behind the same
-# Service. templates/deployment.yaml fails chart rendering if replicaCount
-# > 1 and this is disabled, rather than shipping silently-broken auth.
+# FileKeyStore is REQUIRED whenever effectiveReplicas > 1: an unset
+# JWT_KEYSTORE_PATH now makes the APP ITSELF refuse to boot when
+# DEPLOYMENT_REPLICAS > 1 (see the config.DEPLOYMENT_REPLICAS entry below —
+# this is a config value the app trusts, not something it can autodetect,
+# so this chart is the single source of truth for it, always derived from
+# the SAME effectiveReplicas helper the guards below use, never a
+# separately-authored value that could disagree).
 #
-# accessMode MUST be ReadWriteMany once replicaCount > 1 (every replica
-# reads/writes the same key file) — verify the target cluster's default
-# StorageClass actually supports RWX before enabling in a multi-replica
-# environment; this is NOT verified by this chart.
+# NOT a PersistentVolumeClaim. penguin-aaa's FileKeyStore was read directly
+# (services/portal-api/.venv, byte-identical to the penguin-libs checkout —
+# see docs/DEVELOPMENT.md "JWT Signing Keystore" for the exact source
+# lines): it only ever WRITES via _save(), which unconditionally
+# OVERWRITES (builds the file fresh from in-memory state, no read-merge,
+# no lock, no atomic rename) and is reached ONLY through the self-bootstrap
+# path taken when the file does not yet exist. N replicas starting
+# concurrently against an empty SHARED WRITABLE volume (the RWX PVC this
+# chart used before this comment was rewritten) would all observe "file
+# does not exist", all generate their OWN key, and all overwrite each
+# other — the exact cross-pod signature mismatch this mechanism exists to
+# prevent, just moved from "every boot" to "the first concurrent rollout".
+#
+# Correct shape: a PRE-POPULATED, READ-ONLY Secret volume. FileKeyStore's
+# _load() path (taken whenever the file already exists) is provably
+# read-only — no write calls anywhere in its body — so a Secret volume
+# (not a PVC; kubelet projects it per-node, not RWX-constrained, and mounts
+# fine under readOnlyRootFilesystem: true) works with any number of
+# replicas and has no race. secrets.data.JWT_KEYSTORE_JSON /
+# externalSecrets.keys.JWT_KEYSTORE_JSON hold FileKeyStore's own JSON shape
+# ({"keys": [{"kid": ..., "pem": ...}, ...]}), generated ONCE, out-of-band,
+# before first deploy — see templates/NOTES.txt "First deploy: JWT
+# keystore bootstrap" for the exact procedure; nothing in this chart or
+# the running app generates it.
+#
 # Base values.yaml is the prod-safe baseline (replicaCount: 3 above), so
-# this defaults ENABLED with ReadWriteMany for internal consistency with
-# that replica count. alpha/beta/gamma (replicaCount: 1) turn this back off;
-# production.yml only needs to supply storageClassName for its cluster.
+# this defaults ENABLED for internal consistency with that replica count;
+# alpha/beta/gamma (replicaCount: 1) turn it back off.
 persistence:
   jwtKeystore:
     enabled: true
-    storageClassName: ""
-    accessMode: ReadWriteMany
-    size: 64Mi
     mountPath: /var/run/penguincloud/jwt-keystore
+    fileName: keystore.json
+    # Own dedicated Secret (templates/secret.yaml + externalsecret.yaml),
+    # deliberately NOT part of the general secrets.data map below and
+    # NEVER referenced via envFrom: this is a private signing key, not an
+    # API credential, and belongs only in the mounted file the
+    # FileKeyStore reads — env vars are a strictly worse place for it
+    # (kubectl exec env, /proc/<pid>/environ, crash dumps, child-process
+    # inheritance all read environment before they read a tightly-scoped
+    # mounted file).
+    #
+    # json: alpha convenience only (mirrors secrets.data.KEY="" below) --
+    # multi-line JSON, so pass via `--set-file
+    # persistence.jwtKeystore.json=<path>`, never bare --set.
+    # externalSecretKey: Vault path for the externalSecrets.enabled path
+    # (mirrors externalSecrets.keys.KEY: "vault/path#field" below).
+    json: ""
+    externalSecretKey: ""
 
 # Non-secret runtime configuration -> ConfigMap (backend.md CACHE_*
 # convention, devops-kubernetes.md per-env BASE_URL/LOG_LEVEL table).
@@ -186,6 +224,12 @@ config:
   KILLKRILL_ENABLED: "true"
   KILLKRILL_API_URL: http://killkrill-receiver:8081
   KILLKRILL_GRPC_URL: killkrill-receiver:50051
+  # NOT set here: DEPLOYMENT_REPLICAS is rendered directly in
+  # templates/configmap.yaml from the SAME effectiveReplicas helper the
+  # jwtKeystore guards use, deliberately outside this map — putting it here
+  # would let `--set config.DEPLOYMENT_REPLICAS=X` desync it from the
+  # replica count that actually governs the Deployment, which is exactly
+  # the drift app/__init__.py's boot-time refusal depends on not happening.
 
 # Secret-managed values. NEVER commit real values here — this chart only
 # ships the *shape*. Populate via `--set secrets.data.KEY=value` at install
@@ -224,8 +268,16 @@ networkPolicy:
   # Extra cross-namespace ingress allow rules beyond same-namespace and the
   # metrics scrape (security.md: "cross-namespace: explicit allowlist per
   # source/dest/port—no blanket allow"). Each entry:
-  #   namespaceLabels: {kubernetes.io/metadata.name: some-ns}
+  #   namespaceLabels: {"k8s:io.kubernetes.pod.namespace": some-ns}
   #   ports: [{port: 8000, protocol: TCP}]
+  # The key MUST be the Cilium-reserved endpoint label
+  # "k8s:io.kubernetes.pod.namespace" — plain K8s NetworkPolicy's
+  # namespaceSelector convention (kubernetes.io/metadata.name, a label on
+  # the Namespace OBJECT) does not apply here; fromEndpoints/toEndpoints
+  # matchLabels match ENDPOINT identity labels, and this reserved key is
+  # the one Cilium attaches automatically to every endpoint. Using the
+  # wrong key renders a rule that matches nothing, denying the traffic it
+  # was meant to allow — silently, since the policy still applies cleanly.
   extraIngress: []
   # Scrape source for the unauthenticated :9090 metrics listener
   # (security.md "Port-Scoped External Access" — 9090 must not be reachable

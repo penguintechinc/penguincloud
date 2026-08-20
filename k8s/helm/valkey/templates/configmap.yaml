@@ -1,9 +1,11 @@
 {{/*
-Static config only — no secrets (the ACL password is rendered at container
-startup by the init container below, straight from the Secret into an
-emptyDir, never through a ConfigMap). --aclfile is supplied via the main
-container's args, not this file, since it names a path this ConfigMap does
-not own.
+Static config only — no secrets. The users.acl file is a pre-composed
+Secret key projected directly as a read-only file (templates/secret.yaml +
+externalsecret.yaml + deployment.yaml) — never through this ConfigMap, and
+never assembled at pod startup at all (no init container, no shell — see
+values.yaml persistence.jwtKeystore-style comment in templates/
+deployment.yaml). --aclfile is supplied via the main container's args, not
+this file, since it names a path this ConfigMap does not own.
 */}}
 apiVersion: v1
 kind: ConfigMap

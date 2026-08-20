@@ -43,7 +43,6 @@ autoscaling:
 # the failure this guard exists to force you to resolve consciously.
 license:
   tier: enterprise
-  maxReplicasOverride: 0  # >0 only if the licence server issues a specific HA node count
 
 service:
   type: ClusterIP
@@ -58,17 +57,15 @@ ingress:
     - hosts: []
       secretName: portal-api-tls
 
-# REQUIRED at replicaCount > 1 — every replica reads/writes the SAME signing
-# key file (app/__init__.py::_build_oidc_provider), so accessMode MUST be
-# ReadWriteMany. OPERATOR: confirm the target cluster's StorageClass
-# actually supports RWX (e.g. an NFS/CephFS-backed class) before first
-# deploy — this chart does not and cannot verify that from here.
+# REQUIRED at replicaCount > 1 — every replica reads the SAME pre-populated,
+# read-only keystore Secret (values.yaml persistence.jwtKeystore comment).
+# OPERATOR: see templates/NOTES.txt "First deploy: JWT keystore bootstrap"
+# — the key must be generated out-of-band and stored at this Vault path
+# BEFORE the first deploy; nothing in this chart or the app generates it.
 persistence:
   jwtKeystore:
     enabled: true
-    storageClassName: ""  # REQUIRED — an RWX-capable StorageClass
-    accessMode: ReadWriteMany
-    size: 64Mi
+    externalSecretKey: penguincloud/production/portal-api-jwt-keystore#keystore.json
 
 config:
   BASE_URL: ""  # REQUIRED — matches ingress.host
@@ -105,7 +102,7 @@ networkPolicy:
   enabled: true
   extraIngress:
     - namespaceLabels:
-        kubernetes.io/metadata.name: kube-system
+        "k8s:io.kubernetes.pod.namespace": kube-system
       ports:
         - port: "8000"
           protocol: TCP

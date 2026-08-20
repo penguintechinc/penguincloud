@@ -73,6 +73,23 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+          {{- if .Values.networkPolicy.egress.allowLicenseServer }}
+          {{- /*
+          Required for toFQDNs below to match anything at all: Cilium's
+          FQDN garbage collector only learns an FQDN's IP(s) by observing
+          DNS responses it is explicitly told to intercept via this
+          rules.dns block on a DNS-allow rule. Without it, toFQDNs:
+          license.penguintech.io never gets populated and every packet to
+          it is denied by the pod-selecting policy's own default-deny —
+          the DNS query itself still succeeds (this toEndpoints rule
+          allows port 53), which is what makes the failure quiet: `dig`/
+          `nslookup` from inside the pod resolves fine, only the
+          subsequent HTTPS connection is denied.
+          */}}
+          rules:
+            dns:
+              - matchPattern: license.penguintech.io
+          {{- end }}
     {{- end }}
     {{- if .Values.networkPolicy.egress.allowLicenseServer }}
     - toFQDNs:

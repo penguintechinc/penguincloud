@@ -84,11 +84,14 @@ type"): 1 each on Free/Professional, multiple/HA on Enterprise.
 {{- default "community" .Values.license.tier }}
 {{- end }}
 
+{{/*
+Absolute -- see portal-api's identical comment. license.maxReplicasOverride
+was removed: a self-assertable Helm value is a one-flag bypass of the
+entire cap, not enforcement (general.md requires a hard block).
+*/}}
 {{- define "webui.maxReplicas" -}}
 {{- $tier := include "webui.licenseTier" . }}
-{{- if gt (int .Values.license.maxReplicasOverride) 0 }}
-{{- .Values.license.maxReplicasOverride }}
-{{- else if eq $tier "enterprise" }}
+{{- if eq $tier "enterprise" }}
 {{- 999999 }}
 {{- else }}
 {{- 1 }}

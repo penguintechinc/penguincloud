@@ -26,24 +26,21 @@ serviceAccount:
 podAnnotations: {}
 podLabels: {}
 
-# securityContext — devops-kubernetes.md mandates runAsUser: 1000, but
-# services/webui/Dockerfile creates its user with plain `useradd -r` (no
-# explicit -u), which on the node:22-bookworm-slim base assigns UID 999
-# (verified: `useradd -r -g webui webui` -> uid=999(webui) gid=999(webui)),
-# NOT 1000 — unlike portal-api's Dockerfile, which explicitly pins `-u 1000`
-# for exactly this reason (see its own comment: "resolves on host systems
-# that can't look a named user up"). Setting runAsUser: 1000 here would run
-# the container as a UID that does not own /app (chowned to 999:999 at
-# build time) and it would crash with EACCES on startup.
-#
-# This chart uses the image's REAL uid (999) so it actually runs. FIX
-# PROPERLY by pinning `-u 1000 -g 1000` in services/webui/Dockerfile (out of
-# this chart's k8s/helm/-only scope) and reverting runAsUser here to 1000 —
-# tracked as a follow-up, not silently worked around.
+# securityContext — devops-kubernetes.md mandates runAsUser: 1000.
+# services/webui/Dockerfile's `USER 1000` reuses node:22-bookworm-slim's
+# shipped `node` user rather than creating a second one (verified against
+# the base image: `docker run node:22-bookworm-slim id node` ->
+# uid=1000(node) gid=1000(node)), and `chown -R node:node /app` at build
+# time gives that same identity ownership of the app directory — so 1000
+# here matches both the org standard and the image's actual file
+# ownership. (An earlier revision of this chart ran as 999 to match a
+# prior Dockerfile revision that created its own user via a bare
+# `useradd -r`, landing at whatever UID that assigned rather than 1000;
+# that Dockerfile revision is gone.)
 securityContext:
   runAsNonRoot: true
-  runAsUser: 999
-  runAsGroup: 999
+  runAsUser: 1000
+  runAsGroup: 1000
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   capabilities:
@@ -52,7 +49,7 @@ securityContext:
     type: RuntimeDefault
 
 podSecurityContext:
-  fsGroup: 999
+  fsGroup: 1000
 
 service:
   type: ClusterIP
@@ -101,10 +98,11 @@ readinessProbe:
   failureThreshold: 3
 
 # Secure by default — see k8s/helm/portal-api/values.yaml's identical
-# comment. Only production.yml opts up to a higher tier.
+# comment. Only production.yml opts up to a higher tier. No numeric
+# override field — see portal-api's identical comment (self-assertable
+# Helm values are not a hard block).
 license:
   tier: community
-  maxReplicasOverride: 0
 
 ingress:
   enabled: false

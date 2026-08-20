@@ -49,7 +49,7 @@ networkPolicy:
   enabled: true
   extraIngress:
     - namespaceLabels:
-        kubernetes.io/metadata.name: kube-system
+        "k8s:io.kubernetes.pod.namespace": kube-system
       ports:
         - port: "3000"
           protocol: TCP

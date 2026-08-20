@@ -8,7 +8,23 @@ Public: https://{{ .Values.ingress.host }}/
 In-cluster only: http://{{ include "webui.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
 {{- end }}
 
-KNOWN ISSUE: securityContext.runAsUser is 999, not the house standard 1000
-— services/webui/Dockerfile bakes UID 999 via a plain `useradd -r`. Fix the
-Dockerfile to pin `-u 1000 -g 1000` (matching services/portal-api/Dockerfile)
-and revert this chart's runAsUser/runAsGroup/fsGroup to 1000 in a follow-up.
+{{- if .Values.tracingPolicy.enabled }}
+
+FIRST DEPLOY: Tetragon TracingPolicy validation (READ BEFORE RELYING ON IT)
+=============================================================================
+This chart's TracingPolicy enforces (Sigkill, not observe-only) an
+allowlist of exactly this pod's legitimate runtime binaries. Whether
+Tetragon's podSelector-scoped kprobe observes the container's very FIRST
+execve, and whether the runtime invokes it via a fully-resolved absolute
+path matching this policy's allowedBinaries, could not be settled without
+a live cluster (local-alpha's kubeconfig points at a stale IP, unreachable
+all session). If either resolves unfavourably, NotEquals + Sigkill kills
+PID 1 — a CRASH-LOOP, not a degraded mode. BEFORE relying on this policy
+in a real environment: deploy to a real Tetragon-enforcing cluster first
+with a single replica, confirm the pod reaches Ready and stays there, and
+only then roll out further. `kubectl logs -p <pod> -c <container>` showing
+a Sigkill with no application log output at all (vs. a normal app crash,
+which logs something first) means Tetragon killed the entrypoint exec
+itself — set tracingPolicy.enabled to false until the allowlist is
+corrected for this cluster's actual exec-attribution behaviour.
+{{- end }}
