@@ -1,0 +1,51 @@
+# webui — alpha overrides (local-alpha MicroK8s, localhost:32000 registry).
+# NodePort 30101 (portal-api takes 30100) — see portal-api/alpha.yml for the
+# cross-repo collision check this range was picked against.
+
+replicaCount: 1
+
+image:
+  repository: localhost:32000/webui
+  tag: alpha-latest
+  digest: ""
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+    ephemeral-storage: 128Mi
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+license:
+  tier: enterprise  # irrelevant at replicaCount: 1
+
+service:
+  type: NodePort
+  nodePort: 30101
+
+ingress:
+  enabled: false
+
+config:
+  NODE_ENV: development
+  PORT: "3000"
+  FLASK_API_URL: http://portal-api:8000
+
+networkPolicy:
+  enabled: true
+  extraIngress: []  # NodePort bypasses ingress entirely in alpha; nothing else needs cross-namespace access
+
+podSecurityAdmission:
+  manageNamespace: false
+  namespace: penguincloud
+  enforce: restricted

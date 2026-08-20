@@ -58,3 +58,39 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+ConfigMap name
+*/}}
+{{- define "webui.configMapName" -}}
+{{- printf "%s-config" (include "webui.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Secret name — webui has no secret config today (FLASK_API_URL is a plain
+in-cluster DNS name); templates/secret.yaml + externalsecret.yaml exist for
+parity with portal-api's pattern, gated off by default.
+*/}}
+{{- define "webui.secretName" -}}
+{{- printf "%s-secret" (include "webui.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Per-tier default cap on THIS service type's backend node (replica) count —
+same model as portal-api (docs/APP_STANDARDS.md "Backend nodes per service
+type"): 1 each on Free/Professional, multiple/HA on Enterprise.
+*/}}
+{{- define "webui.licenseTier" -}}
+{{- default "community" .Values.license.tier }}
+{{- end }}
+
+{{- define "webui.maxReplicas" -}}
+{{- $tier := include "webui.licenseTier" . }}
+{{- if gt (int .Values.license.maxReplicasOverride) 0 }}
+{{- .Values.license.maxReplicasOverride }}
+{{- else if eq $tier "enterprise" }}
+{{- 999999 }}
+{{- else }}
+{{- 1 }}
+{{- end }}
+{{- end }}

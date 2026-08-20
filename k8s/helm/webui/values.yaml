@@ -1,0 +1,157 @@
+# webui — Helm default values (prod-safe baseline). See portal-api/values.yaml
+# for the full baseline-vs-override convention this mirrors.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 3
+
+image:
+  repository: ghcr.io/penguintechinc/penguincloud/webui
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+  requireDigest: false
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+# securityContext — devops-kubernetes.md mandates runAsUser: 1000, but
+# services/webui/Dockerfile creates its user with plain `useradd -r` (no
+# explicit -u), which on the node:22-bookworm-slim base assigns UID 999
+# (verified: `useradd -r -g webui webui` -> uid=999(webui) gid=999(webui)),
+# NOT 1000 — unlike portal-api's Dockerfile, which explicitly pins `-u 1000`
+# for exactly this reason (see its own comment: "resolves on host systems
+# that can't look a named user up"). Setting runAsUser: 1000 here would run
+# the container as a UID that does not own /app (chowned to 999:999 at
+# build time) and it would crash with EACCES on startup.
+#
+# This chart uses the image's REAL uid (999) so it actually runs. FIX
+# PROPERLY by pinning `-u 1000 -g 1000` in services/webui/Dockerfile (out of
+# this chart's k8s/helm/-only scope) and reverting runAsUser here to 1000 —
+# tracked as a follow-up, not silently worked around.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+  runAsGroup: 999
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+
+podSecurityContext:
+  fsGroup: 999
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+    ephemeral-storage: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+    ephemeral-storage: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# server/index.ts: GET /healthz and GET /readyz, both unauthenticated,
+# neither checks portal-api reachability (bare 200 acks) — see
+# services/webui/src/server/index.ts.
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+license:
+  tier: enterprise
+  maxReplicasOverride: 0
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls: []
+
+# server/index.ts env vars. FLASK_API_URL points at the portal-api Service
+# DNS name (in-cluster, no ingress hop) so the /api proxy never leaves the
+# namespace. GO_API_URL is deliberately NOT set: go-backend was retired in
+# Phase 0 (docs/APP_STANDARDS.md) and nothing in this chart deploys it —
+# /api/go/* proxies to the unset default (http://localhost:8080 inside the
+# webui pod itself, where nothing listens) and 502s harmlessly if ever hit.
+config:
+  NODE_ENV: production
+  PORT: "3000"
+  FLASK_API_URL: http://portal-api:8000
+
+secrets:
+  create: false
+  data: {}
+
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+networkPolicy:
+  enabled: true
+  # webui is the product's public entry point — cross-namespace ingress
+  # source (the Cilium Gateway / ingress-controller namespace) is set per
+  # environment below, never a blanket allow.
+  extraIngress: []
+  egress:
+    allowDNS: true
+
+tracingPolicy:
+  enabled: true
+  allowedBinaries:
+    - /usr/local/bin/node
+
+# webui installs AFTER portal-api (which owns namespace creation) — assumes
+# the "penguincloud" namespace + PSA labels already exist.
+podSecurityAdmission:
+  manageNamespace: false
+  namespace: penguincloud
+  enforce: restricted
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,51 @@
+{{/*
+Cluster Security Baseline — CiliumNetworkPolicy (see portal-api's identical
+rationale). webui is the product's public entry point, so its ingress
+allowlist additionally needs the cluster's Gateway/ingress-controller
+namespace on top of same-namespace — set per environment via
+networkPolicy.extraIngress, never a blanket external allow.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "webui.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "webui.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "webui.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    {{- range .Values.networkPolicy.extraIngress }}
+    - fromEndpoints:
+        - matchLabels:
+            {{- toYaml .namespaceLabels | nindent 12 }}
+      toPorts:
+        - ports:
+            {{- toYaml .ports | nindent 12 }}
+    {{- end }}
+  egress:
+    # portal-api and any same-namespace dependency.
+    - toEndpoints:
+        - {}
+    {{- if .Values.networkPolicy.egress.allowDNS }}
+    - toEndpoints:
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    {{- end }}
+{{- end }}

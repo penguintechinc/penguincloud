@@ -1,0 +1,14 @@
+webui deployed as {{ include "webui.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+{{- if eq .Values.service.type "NodePort" }}
+Alpha NodePort: http://localhost:{{ .Values.service.nodePort }}/healthz
+{{- else if .Values.ingress.enabled }}
+Public: https://{{ .Values.ingress.host }}/
+{{- else }}
+In-cluster only: http://{{ include "webui.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- end }}
+
+KNOWN ISSUE: securityContext.runAsUser is 999, not the house standard 1000
+— services/webui/Dockerfile bakes UID 999 via a plain `useradd -r`. Fix the
+Dockerfile to pin `-u 1000 -g 1000` (matching services/portal-api/Dockerfile)
+and revert this chart's runAsUser/runAsGroup/fsGroup to 1000 in a follow-up.
