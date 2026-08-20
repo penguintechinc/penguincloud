@@ -457,6 +457,19 @@ existed until this was cleaned up; nothing imported it, and it also made
 which `--require-hashes` can't handle). Do not recreate a root-level
 requirements set — add new dependencies to `services/portal-api/`.
 
+`tests/api/test_nest_adapter.py::TestAgainstLiveNest` executes Nest's own
+Quart app from a sibling `~/code/nest` checkout and needs Nest's own
+`opentelemetry` SDK/exporter stack (`apps/api/telemetry.py`) to do it — the
+portal deliberately does NOT declare `opentelemetry` for itself just to run
+this cross-repo suite; it isn't a portal-api dependency and installing just
+the top-level package (enough to pass an `importorskip`) would still blow
+up deeper inside Nest's `configure_telemetry()`, trading a clean skip for a
+confusing failure. These 8 tests skip under plain `make test-api` (no
+checkout, or the checkout's own deps missing) and now genuinely FAIL rather
+than silently skip under `make test-api-live`
+(`REQUIRE_PRODUCT_SOURCE=1`) if the checkout is present but its
+dependencies aren't — see `_require_or_skip` in that file.
+
 ### 7. Create Pull Request
 
 Once tests pass:
