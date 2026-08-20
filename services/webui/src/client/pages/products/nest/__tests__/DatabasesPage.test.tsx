@@ -21,8 +21,11 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
+import { createAppQueryClient } from "../../../../lib/queryClient";
+import MutationErrorBanner from "../../../../components/kit/MutationErrorBanner";
+import { useMutationErrorStore } from "../../../../stores/mutationErrorStore";
 
 const mockIsProductEnabled = jest.fn();
 jest.mock("../../../../lib/featureGates", () => ({
@@ -65,12 +68,16 @@ jest.mock("../../../../api/resources/nestResources", () => ({
 
 import DatabasesPage from "../DatabasesPage";
 
+// Same factory `main.tsx` uses — carries the global `MutationCache.onError`
+// — plus the banner it feeds, so a rejected-mutation test exercises the real
+// shared path rather than a bespoke test double of it.
 function renderPage(element: ReactElement) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  const client = createAppQueryClient();
   return render(
-    <QueryClientProvider client={client}>{element}</QueryClientProvider>,
+    <QueryClientProvider client={client}>
+      <MutationErrorBanner />
+      {element}
+    </QueryClientProvider>,
   );
 }
 
@@ -91,6 +98,7 @@ const DATABASE = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  useMutationErrorStore.setState({ errors: [] });
   mockIsProductEnabled.mockReturnValue(true);
   mockConnections.mockReturnValue(CONNECTED);
   nestApi.listDatabases.mockResolvedValue([DATABASE]);
@@ -379,5 +387,35 @@ describe("operations", () => {
     expect(
       screen.getByText("nest.migrate.source_unreachable"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("mutation failures", () => {
+  it("surfaces a rejected create instead of failing silently", async () => {
+    // No Nest product hook defined onError before this fix — the global
+    // MutationCache handler in lib/queryClient.ts is what closes that gap,
+    // for this screen and the other two products alike.
+    nestResourcesApi.createDatabase.mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { error: "Quota exceeded for this tenant" } },
+    });
+
+    renderPage(<DatabasesPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("nest-database-create")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId("nest-database-create"));
+
+    const name = await screen.findByLabelText(/^Name\*$/);
+    fireEvent.change(name, { target: { value: "new-db" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(nestResourcesApi.createDatabase).toHaveBeenCalled(),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Quota exceeded for this tenant");
   });
 });

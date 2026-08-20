@@ -57,7 +57,11 @@ export default {
     },
   },
   transform: {
-    "^.+\\.[jt]sx?$": [
+    // msw's dependency tree ships plain ESM .mjs files (rettime) alongside
+    // .js/.ts — widened from `[jt]sx?` so those get the same transform
+    // instead of falling through untransformed and hitting jest's default
+    // CJS parse of a bare `import` statement.
+    "^.+\\.[cm]?[jt]sx?$": [
       "ts-jest",
       {
         useESM: true,
@@ -72,7 +76,10 @@ export default {
     ],
   },
   extensionsToTreatAsEsm: [".ts", ".tsx"],
+  // msw ships ESM-only and pulls in a tree of ESM-only runtime dependencies
+  // of its own — added so `mocks/handlers.ts` can be imported by a jest test
+  // at all; see mocks/__tests__/handlers.contract.test.ts.
   transformIgnorePatterns: [
-    "node_modules/(?!(react-router|react-router-dom|@penguintechinc)/)",
+    "node_modules/(?!(react-router|react-router-dom|@penguintechinc|msw|@mswjs|@open-draft|rettime|statuses|headers-polyfill|is-node-process|outvariant|path-to-regexp|strict-event-emitter|until-async|cookie)/)",
   ],
 };
