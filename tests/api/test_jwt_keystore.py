@@ -15,25 +15,47 @@ production) and this is not an outage: it is an intermittent 401 that
 tracks load-balancer routing, reproduces only under multi-replica, and
 disappears the instant anyone tests against a single pod.
 
+Round 1 review findings addressed here
+=======================================
+* **I1** — the first version of this fix only refused when
+  ``DEPLOYMENT_REPLICAS > 1``, and NOTHING in this repository sets
+  ``DEPLOYMENT_REPLICAS`` (the Helm chart is a stub, neither compose file
+  declared it), so the guard was inert everywhere it mattered -- it failed
+  OPEN. :class:`TestUndeclaredTopologyRefusesToStart` covers the fix: an
+  UNDECLARED replica/worker count now refuses to start, not just a
+  declared count above 1.
+* **I3** — the failure domain is PROCESSES, not Kubernetes replicas.
+  ``hypercorn --workers N`` calls ``create_app()`` once per OS process,
+  each building its own ``MemoryKeyStore`` -- the identical bug, on a
+  SINGLE pod. :class:`TestWorkerCountFoldedIntoTheCheck` covers
+  ``HYPERCORN_WORKERS`` folding into the same guard multiplicatively with
+  ``DEPLOYMENT_REPLICAS``.
+* **M6** — a hand-authored keystore Secret written as ``{"keys": []}``
+  (the exact shape docs/DEVELOPMENT.md's provisioning guidance can
+  produce) loads successfully via ``FileKeyStore._load`` and only fails
+  at the FIRST TOKEN MINT with a bare ``IndexError`` -- loud, but at the
+  wrong moment. :class:`TestEmptyKeystoreFailsAtBootNotAtFirstMint`
+  covers converting that into a boot-time ``RuntimeError``.
+
 What "fixed" means here
 ========================
-:class:`TestUndeclaredMultiReplicaRefusesToStart` is the actual regression
-test: it asserts the NEW behaviour (loud refusal at boot) that the ORIGINAL
-code does not provide -- run it against a checkout without the
-``DEPLOYMENT_REPLICAS`` guard and ``pytest.raises`` fails with
-``DID NOT RAISE``, because the original code silently proceeds. That is
-the "revert the fix and watch it go red" case.
+:class:`TestUndeclaredTopologyRefusesToStart` and
+:class:`TestWorkerCountFoldedIntoTheCheck` are the actual regression
+tests: each asserts NEW behaviour the ORIGINAL (round-1) code does not
+provide. Run them against a checkout without this round's fix and
+``pytest.raises`` fails with ``DID NOT RAISE``, because the original code
+silently proceeds -- see the module-level revert-verification recorded in
+this branch's commit history.
 
 :class:`TestMemoryKeyStoresDoNotCrossVerify` demonstrates the underlying
 mechanism the guard exists to prevent -- two apps that each, honestly,
-declare themselves single-replica (``DEPLOYMENT_REPLICAS`` at its default
-of 1) still cannot verify each other's tokens if someone runs two of them
-anyway. This class does not change behaviour across the fix (MemoryKeyStore
-was never meant to be shared, before or after), so it is not itself a
-"goes red before, green after" test -- it is here as living documentation
-of why the guard in the first class matters, and as a fenced-off baseline
-so nobody discovers by accident that the fix was to make MemoryKeyStore
-somehow shared instead.
+declare themselves single-process still cannot verify each other's tokens
+if someone runs two of them anyway. This class does not change behaviour
+across the fix (MemoryKeyStore was never meant to be shared, before or
+after), so it is not itself a "goes red before, green after" test -- it is
+here as living documentation of why the guard matters, and as a fenced-off
+baseline so nobody discovers by accident that the fix was to make
+MemoryKeyStore somehow shared instead.
 
 :class:`TestSharedFileKeystoreLetsReplicasVerify` is the "or a shared key"
 half of the brief: two independently constructed apps pointed at the SAME
@@ -59,17 +81,30 @@ from penguin_aaa.authn.types import Claims
 from quart import Quart
 
 
-def _config_class(*, keystore_path: str = "", replicas: int = 1) -> type[TestingConfig]:
+def _config_class(
+    *,
+    keystore_path: str = "",
+    replicas: int = 1,
+    replicas_declared: bool = True,
+    workers: int = 1,
+    workers_declared: bool = True,
+) -> type[TestingConfig]:
     """Build a fresh ``TestingConfig`` subclass with keystore settings overridden.
 
     A distinct subclass per call (not mutating ``TestingConfig`` itself)
     keeps each app instance's config isolated from every other test and
-    from every other app built within the same test.
+    from every other app built within the same test. Defaults match
+    ``TestingConfig``'s own explicit declaration (1 replica, 1 worker,
+    both declared) so a bare ``_config_class()`` call reproduces an
+    honestly-configured single process, matching the safe default state.
     """
 
     class _Cfg(TestingConfig):
         JWT_KEYSTORE_PATH = keystore_path
         DEPLOYMENT_REPLICAS = replicas
+        DEPLOYMENT_REPLICAS_DECLARED = replicas_declared
+        HYPERCORN_WORKERS = workers
+        HYPERCORN_WORKERS_DECLARED = workers_declared
 
     return _Cfg
 
@@ -129,21 +164,68 @@ def _verifies(verifier_app: Quart, token: str) -> bool:
     return True
 
 
-class TestUndeclaredMultiReplicaRefusesToStart:
-    """The actual regression test: loud refusal beats a silent per-replica key.
+class TestUndeclaredTopologyRefusesToStart:
+    """Round-1 I1: an UNDECLARED replica/worker count must refuse, not assume 1.
 
-    Prior to this fix, ``DEPLOYMENT_REPLICAS`` did not exist and
-    ``create_app`` never raised here -- it silently built a MemoryKeyStore
-    regardless of intended replica count. Run this against that code and
-    ``pytest.raises`` fails with "DID NOT RAISE RuntimeError", which is the
-    failing (red) run this test is required to have had.
+    Prior to this round, an unset ``DEPLOYMENT_REPLICAS`` was
+    indistinguishable from an explicit ``DEPLOYMENT_REPLICAS=1`` -- both
+    resolved to the same ``int`` and the guard only fired on ``> 1``. Since
+    nothing in this repository sets the variable (Helm chart is a stub,
+    neither compose file declared it), every real deployment silently took
+    the "assume 1" branch. Run these against that code and each
+    ``pytest.raises`` fails with "DID NOT RAISE RuntimeError".
     """
 
+    def test_neither_declared_refuses(self) -> None:
+        """Neither DEPLOYMENT_REPLICAS nor HYPERCORN_WORKERS declared -> refuse."""
+        cfg = _config_class(replicas_declared=False, workers_declared=False)
+
+        with pytest.raises(RuntimeError, match="never explicitly declared"):
+            create_app(config_class=cfg)
+
+    def test_only_replicas_declared_still_refuses(self) -> None:
+        """Declaring one axis but not the other is still an undeclared topology."""
+        cfg = _config_class(replicas_declared=True, workers_declared=False)
+
+        with pytest.raises(RuntimeError, match="never explicitly declared"):
+            create_app(config_class=cfg)
+
+    def test_only_workers_declared_still_refuses(self) -> None:
+        """Same as above, the other axis undeclared."""
+        cfg = _config_class(replicas_declared=False, workers_declared=True)
+
+        with pytest.raises(RuntimeError, match="never explicitly declared"):
+            create_app(config_class=cfg)
+
+    def test_both_declared_as_one_starts_fine(self) -> None:
+        """The safe, fully-declared single-process case is unaffected."""
+        cfg = _config_class(replicas_declared=True, workers_declared=True)
+
+        app = create_app(config_class=cfg)
+
+        assert app.extensions["oidc_provider"] is not None
+
+    def test_shared_keystore_bypasses_the_declaration_requirement(self, tmp_path: Path) -> None:
+        """A configured JWT_KEYSTORE_PATH makes the topology irrelevant."""
+        cfg = _config_class(
+            keystore_path=str(tmp_path / "keys.json"),
+            replicas_declared=False,
+            workers_declared=False,
+        )
+
+        app = create_app(config_class=cfg)
+
+        assert app.extensions["oidc_provider"] is not None
+
+
+class TestDeclaredMultiProcessRefusesToStart:
+    """Declared >1 effective processes with no shared keystore still refuses."""
+
     def test_refuses_to_start_without_shared_keystore(self) -> None:
-        """Declaring >1 replicas with no keystore path raises at app creation."""
+        """Declaring 3 replicas with no keystore path raises at app creation."""
         cfg = _config_class(keystore_path="", replicas=3)
 
-        with pytest.raises(RuntimeError, match="DEPLOYMENT_REPLICAS=3"):
+        with pytest.raises(RuntimeError, match=r"DEPLOYMENT_REPLICAS=3 x HYPERCORN_WORKERS=1"):
             create_app(config_class=cfg)
 
     def test_error_message_names_the_fix(self) -> None:
@@ -156,9 +238,10 @@ class TestUndeclaredMultiReplicaRefusesToStart:
         message = str(exc_info.value)
         assert "JWT_KEYSTORE_PATH" in message
         assert "DEPLOYMENT_REPLICAS=1" in message
+        assert "HYPERCORN_WORKERS=1" in message
 
     def test_single_replica_is_unaffected(self) -> None:
-        """DEPLOYMENT_REPLICAS<=1 (the default) never raises -- dev/tests are safe."""
+        """1 declared replica x 1 declared worker never raises."""
         cfg = _config_class(keystore_path="", replicas=1)
 
         app = create_app(config_class=cfg)
@@ -174,20 +257,99 @@ class TestUndeclaredMultiReplicaRefusesToStart:
         assert app.extensions["oidc_provider"] is not None
 
 
+class TestWorkerCountFoldedIntoTheCheck:
+    """Round-1 I3: HYPERCORN_WORKERS folds into the same guard as DEPLOYMENT_REPLICAS.
+
+    ``hypercorn --workers N`` calls ``create_app()`` once per OS process on
+    a SINGLE pod -- ``DEPLOYMENT_REPLICAS=1`` alone said nothing about
+    that axis before this round. Run these against a checkout that only
+    checks ``DEPLOYMENT_REPLICAS`` and each ``pytest.raises`` fails with
+    "DID NOT RAISE RuntimeError".
+    """
+
+    def test_multiple_workers_alone_refuses(self) -> None:
+        """1 replica x 4 workers = 4 processes, no shared keystore -> refuse."""
+        cfg = _config_class(keystore_path="", replicas=1, workers=4)
+
+        with pytest.raises(RuntimeError, match=r"DEPLOYMENT_REPLICAS=1 x HYPERCORN_WORKERS=4"):
+            create_app(config_class=cfg)
+
+    def test_replicas_times_workers_multiplies(self) -> None:
+        """2 replicas x 3 workers = 6 effective processes, named in the error."""
+        cfg = _config_class(keystore_path="", replicas=2, workers=3)
+
+        with pytest.raises(RuntimeError, match=r"= 6 processes"):
+            create_app(config_class=cfg)
+
+    def test_single_replica_single_worker_is_unaffected(self) -> None:
+        """1 x 1 = 1 effective process -- the only case that may fall back."""
+        cfg = _config_class(keystore_path="", replicas=1, workers=1)
+
+        app = create_app(config_class=cfg)
+
+        assert app.extensions["oidc_provider"] is not None
+
+    def test_shared_keystore_with_multiple_workers_does_not_raise(self, tmp_path: Path) -> None:
+        """A configured JWT_KEYSTORE_PATH makes the worker count irrelevant."""
+        cfg = _config_class(keystore_path=str(tmp_path / "keys.json"), replicas=1, workers=8)
+
+        app = create_app(config_class=cfg)
+
+        assert app.extensions["oidc_provider"] is not None
+
+
+class TestEmptyKeystoreFailsAtBootNotAtFirstMint:
+    """Round-1 M6: a keystore file that parses but holds zero keys must refuse at boot.
+
+    ``FileKeyStore._load`` (penguin_aaa/crypto/keystore.py:196-204) reads
+    an existing file's ``"keys"`` list as-is -- an empty list loads
+    successfully. ``get_signing_key()`` then returns ``self._keys[-1]``,
+    which raises a bare ``IndexError`` -- but only the first time a token
+    is minted, not at startup. Run this against a checkout without the
+    boot-time probe and ``pytest.raises(RuntimeError)`` fails because
+    ``create_app()`` does not raise there at all (the ``IndexError`` would
+    only surface later, from a completely different call site this test
+    never reaches).
+    """
+
+    def test_zero_keys_refuses_at_create_app_not_later(self, tmp_path: Path) -> None:
+        """A hand-authored {"keys": []} file is refused at app creation."""
+        keystore_path = tmp_path / "empty-keys.json"
+        keystore_path.write_text('{"keys": []}', encoding="utf-8")
+        cfg = _config_class(keystore_path=str(keystore_path))
+
+        with pytest.raises(RuntimeError, match="zero signing keys"):
+            create_app(config_class=cfg)
+
+    def test_a_real_key_in_the_file_starts_fine(self, tmp_path: Path) -> None:
+        """The boot-time probe does not reject a genuinely populated keystore."""
+        keystore_path = str(tmp_path / "keys.json")
+        # First construction self-bootstraps (see docs/DEVELOPMENT.md's
+        # FileKeyStore write-up) -- build once directly to populate the
+        # file with a real key, exactly as a provisioning step would.
+        from penguin_aaa.crypto.keystore import FileKeyStore
+
+        FileKeyStore(Path(keystore_path))
+        cfg = _config_class(keystore_path=keystore_path)
+
+        app = create_app(config_class=cfg)
+
+        assert app.extensions["oidc_provider"] is not None
+
+
 class TestMemoryKeyStoresDoNotCrossVerify:
     """Documents the mechanism: independent MemoryKeyStores never interoperate.
 
-    Both apps here are HONESTLY configured (DEPLOYMENT_REPLICAS defaults to
-    1, its safe default) -- this is what happens if an operator runs two
-    such processes anyway without telling either about the other. It is
-    the scenario the guard in TestUndeclaredMultiReplicaRefusesToStart
-    exists to catch before it reaches production, demonstrated directly at
-    the token level.
+    Both apps here are HONESTLY configured (1 declared replica, 1 declared
+    worker, its safe default) -- this is what happens if an operator runs
+    two such processes anyway without telling either about the other. It
+    is the scenario the guards above exist to catch before it reaches
+    production, demonstrated directly at the token level.
     """
 
     def test_token_minted_by_one_process_rejected_by_another(self) -> None:
         """A token minted on app_a's key is rejected by app_b's independent key."""
-        cfg = _config_class()  # keystore_path="", replicas=1 -- both defaults
+        cfg = _config_class()  # keystore_path="", 1 declared replica, 1 declared worker
         app_a = create_app(config_class=cfg)
         app_b = create_app(config_class=cfg)
 
@@ -245,5 +407,8 @@ class TestMemoryKeyStoreChoiceIsAnnounced:
 
 
 def test_config_default_is_single_replica() -> None:
-    """DEPLOYMENT_REPLICAS defaults to 1 -- existing deployments are unaffected."""
+    """DEPLOYMENT_REPLICAS/HYPERCORN_WORKERS default to 1, declared, in TestingConfig."""
     assert TestingConfig.DEPLOYMENT_REPLICAS == 1
+    assert TestingConfig.DEPLOYMENT_REPLICAS_DECLARED is True
+    assert TestingConfig.HYPERCORN_WORKERS == 1
+    assert TestingConfig.HYPERCORN_WORKERS_DECLARED is True

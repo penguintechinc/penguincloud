@@ -16,7 +16,11 @@ from quart_schema import HttpSecurityScheme, Info, QuartSchema
 
 from . import devmode
 from .background import get_background_manager
-from .config import INSECURE_DEFAULT_SECRET_KEY, Config
+from .config import (
+    MIN_SECRET_KEY_LENGTH,
+    PUBLISHED_INSECURE_SECRET_KEY_VALUES,
+    Config,
+)
 from .killkrill import killkrill_manager
 from .license import license_manager
 from .middleware import setup_request_logging
@@ -25,14 +29,45 @@ log = logging.getLogger(__name__)
 
 
 def _require_configured_secret_key(app: Quart) -> None:
-    """Refuse to start with the public placeholder SECRET_KEY outside TESTING.
+    """Refuse to start with an unconfigured SECRET_KEY outside TESTING.
 
     Quart signs the session cookie with SECRET_KEY (itsdangerous), and
     app/oauth.py's ``oauth_state`` CSRF check lives entirely inside that
-    signed session — a cookie signed with a KNOWN key (this literal
-    string, published in this repository's own source) is exactly as
+    signed session — a cookie signed with a KNOWN key is exactly as
     forgeable as an unsigned one, defeating the CSRF check it exists to
     enforce and enabling OAuth account-linking CSRF.
+
+    Round-1 review (C1): the original check was a single ``!=`` against
+    ONE literal, and every one of the below evaded it — the app started,
+    signing ACTIVE, with no error, no log, nothing:
+
+    * ``"dev-secret-key-change-in-production "`` — one trailing space,
+      exactly what a ``.env`` line or a YAML block scalar produces
+      routinely. Fixed by ``.strip()``-normalising before comparing.
+    * ``"change-me-in-production"`` — docker-compose.yml's OWN former
+      fallback for this same variable. This fix's docker-compose.yml edit
+      (removing that fallback) would otherwise have stranded every
+      developer who already had it in their ``.env``/shell on a still-
+      published key while this guard reported green — the commit
+      creating the exact gap it exists to close. Fixed by denylisting
+      BOTH published values (``PUBLISHED_INSECURE_SECRET_KEY_VALUES``),
+      not just this file's own default.
+    * ``""`` and ``"   "`` — empty or whitespace-only. Neither equals the
+      denylisted literal, so the old check passed them straight through;
+      Quart's session machinery then either silently disables sessions
+      (empty) or signs with a key indistinguishable from no key at all.
+      Fixed by rejecting anything falsy after normalising, before even
+      reaching the denylist comparison.
+
+    ``MIN_SECRET_KEY_LENGTH`` additionally rejects trivially short values
+    that were never published anywhere ("test", "admin"). It is a floor,
+    NOT a strength or entropy guarantee: a one-character variant of a
+    long published string (e.g. ``"change-me-in-productioN"``) still
+    clears it and is not caught by anything here. Real entropy/similarity
+    detection was judged out of scope for this fix — it risks false
+    positives against genuinely-random real secrets, and the denylist
+    plus length floor close every evasion actually demonstrated, not
+    every value that is theoretically guessable.
 
     Same reasoning as app/encryption.py's ``_get_fernet`` check for
     ENCRYPTION_KEY, and the same TESTING-only carve-out: an unset
@@ -45,37 +80,78 @@ def _require_configured_secret_key(app: Quart) -> None:
     """
     if app.config.get("TESTING"):
         return
-    if app.config["SECRET_KEY"] != INSECURE_DEFAULT_SECRET_KEY:
+
+    raw = app.config["SECRET_KEY"]
+    normalized = raw.strip() if isinstance(raw, str) else ""
+
+    if (
+        normalized
+        and normalized not in PUBLISHED_INSECURE_SECRET_KEY_VALUES
+        and len(normalized) >= MIN_SECRET_KEY_LENGTH
+    ):
         return
+
     raise RuntimeError(
-        "SECRET_KEY is unset (or left at the public placeholder default "
-        "published in app/config.py). Quart signs session cookies -- "
-        "including the OAuth CSRF state app/oauth.py's callback relies "
-        "on -- with this key, so a known key makes that state forgeable. "
-        "Set SECRET_KEY to a real, unpredictable secret (see "
-        "docs/DEVELOPMENT.md) before starting outside TESTING."
+        "SECRET_KEY is not configured with a real secret (unset, empty, "
+        "whitespace-only, a known published placeholder, or shorter than "
+        f"{MIN_SECRET_KEY_LENGTH} characters after trimming whitespace). "
+        "Quart signs session cookies -- including the OAuth CSRF state "
+        "app/oauth.py's callback relies on -- with this key, so a known "
+        "or trivial key makes that state forgeable. Set SECRET_KEY to a "
+        "real, unpredictable secret (see docs/DEVELOPMENT.md) before "
+        "starting outside TESTING."
     )
 
 
 def _build_oidc_provider(app: Quart) -> OIDCProvider:
     """Build the penguin-aaa OIDC provider backing this app's tokens.
 
-    Three outcomes, chosen deliberately rather than guessed:
+    Four outcomes, chosen deliberately rather than guessed:
 
-    * ``JWT_KEYSTORE_PATH`` set -> ``FileKeyStore``. Every replica pointed
-      at the SAME path loads the SAME signing key, so a token minted by one
-      pod verifies on every other. See docs/DEVELOPMENT.md "JWT Signing
-      Keystore" for how that file/mount is expected to get there.
-    * ``JWT_KEYSTORE_PATH`` unset AND ``DEPLOYMENT_REPLICAS`` > 1 -> refuse
-      to start. Falling back to a private in-process key here would mean
-      every replica signs with a key none of the others can verify --
-      intermittent 401s that track load-balancer routing, not an outage,
-      and exactly the kind of bug that vanishes the moment anyone tests
-      against a single pod. A loud failure at boot beats a silent wrong
-      answer at request time.
-    * ``JWT_KEYSTORE_PATH`` unset AND ``DEPLOYMENT_REPLICAS`` <= 1 ->
-      ``MemoryKeyStore``, exactly as before -- but the choice is now
-      ANNOUNCED (WARN, naming the consequence) rather than merely
+    * ``JWT_KEYSTORE_PATH`` set -> ``FileKeyStore``. Every process pointed
+      at the SAME path loads the SAME signing key, so a token minted by
+      one verifies on every other. See docs/DEVELOPMENT.md "JWT Signing
+      Keystore" for how that file/mount is expected to get there. The
+      loaded keystore is probed once here (``get_signing_key()``) so a
+      keystore file that parses but holds zero keys — e.g. a hand-
+      authored Secret written as ``{"keys": []}``, which
+      ``FileKeyStore._load`` (keystore.py:196-204) accepts without
+      complaint — fails loudly at BOOT with a clear message, not with a
+      bare ``IndexError`` at the first token mint (round-1 M6).
+    * ``JWT_KEYSTORE_PATH`` unset AND either ``DEPLOYMENT_REPLICAS`` or
+      ``HYPERCORN_WORKERS`` was never explicitly declared (only
+      defaulted) -> refuse to start. Round-1 I1: nothing in this
+      repository sets ``DEPLOYMENT_REPLICAS`` today (the Helm chart is a
+      stub, neither compose file declares it), so a check that only
+      fires on ``> 1`` is INERT in every deployment that exists — it
+      fails OPEN. Requiring an explicit declaration on both axes (compose
+      and ``TestingConfig`` declare ``1``; see ``config.py``) means an
+      operator who never heard of either variable is refused rather than
+      silently assumed single-process, which is the actual asymmetry with
+      ``_require_configured_secret_key`` above: that one fails CLOSED on
+      unset, this one used to fail open.
+    * ``JWT_KEYSTORE_PATH`` unset AND declared, but
+      ``DEPLOYMENT_REPLICAS * HYPERCORN_WORKERS > 1`` -> refuse to start.
+      Round-1 I3: the failure domain that matters is PROCESSES, not
+      Kubernetes replicas — ``hypercorn --workers N`` calls
+      ``create_app()`` once per OS process, each building its own
+      ``MemoryKeyStore``, which is the identical cross-verification
+      failure on a SINGLE pod with ``DEPLOYMENT_REPLICAS=1``. Falling
+      back to a private in-process key here would mean every process
+      signs with a key none of the others can verify — intermittent 401s
+      that track load-balancer/worker routing, not an outage, and exactly
+      the kind of bug that vanishes the moment anyone tests against a
+      single process. A loud failure at boot beats a silent wrong answer
+      at request time. (``services/portal-api/Dockerfile`` pins
+      ``--workers`` via this same ``HYPERCORN_WORKERS`` variable, so the
+      process count hypercorn actually launches and the count this check
+      reads can never drift apart under that Dockerfile's CMD — a
+      DIFFERENT entrypoint that hardcodes ``--workers`` some other way is
+      not covered, which is why this is a declared count, not a detected
+      one.)
+    * ``JWT_KEYSTORE_PATH`` unset, both declared, exactly one effective
+      process -> ``MemoryKeyStore``, exactly as before -- but the choice
+      is now ANNOUNCED (WARN, naming the consequence) rather than merely
       documented in a docstring nothing enforced. Same reasoning
       general.md gives for the --dev notice: an operator who did not
       configure the deployment still needs to know what mode it is
@@ -84,25 +160,58 @@ def _build_oidc_provider(app: Quart) -> OIDCProvider:
     algorithm: str = app.config["JWT_ALGORITHM"]
     keystore_path: str = app.config["JWT_KEYSTORE_PATH"]
     replicas: int = app.config["DEPLOYMENT_REPLICAS"]
+    replicas_declared: bool = app.config["DEPLOYMENT_REPLICAS_DECLARED"]
+    workers: int = app.config["HYPERCORN_WORKERS"]
+    workers_declared: bool = app.config["HYPERCORN_WORKERS_DECLARED"]
+    effective_processes = replicas * workers
     keystore: KeyStore
 
     if keystore_path:
         keystore = FileKeyStore(Path(keystore_path), algorithm=algorithm)
+        try:
+            keystore.get_signing_key()
+        except IndexError:
+            raise RuntimeError(
+                f"JWT_KEYSTORE_PATH={keystore_path!r} loaded with zero "
+                "signing keys. penguin_aaa.crypto.keystore.FileKeyStore."
+                '_load reads an existing file\'s "keys" list as-is -- a '
+                'hand-authored Secret written as {"keys": []} loads '
+                "successfully here and only fails later, at the first "
+                "token mint, with a bare IndexError from "
+                "get_signing_key(). Refusing to start now instead: "
+                "re-provision the keystore with at least one key (see "
+                "docs/DEVELOPMENT.md: 'JWT Signing Keystore')."
+            ) from None
         log.info(
-            "jwt_keystore_selected kind=file replicas=%d path=%s",
+            "jwt_keystore_selected kind=file replicas=%d workers=%d path=%s",
             replicas,
+            workers,
             keystore_path,
         )
-    elif replicas > 1:
+    elif not (replicas_declared and workers_declared):
         raise RuntimeError(
-            f"DEPLOYMENT_REPLICAS={replicas} but JWT_KEYSTORE_PATH is unset. "
-            "Refusing to start rather than mint tokens with a private "
-            "per-process key: every OTHER replica would reject them as an "
-            "invalid signature, which surfaces as intermittent 401s that "
-            "track load-balancer routing rather than as an outage. Set "
-            "JWT_KEYSTORE_PATH to a keystore shared by every replica (see "
-            "docs/DEVELOPMENT.md: 'JWT Signing Keystore'), or set "
-            "DEPLOYMENT_REPLICAS=1 if this is genuinely a single-process "
+            "JWT_KEYSTORE_PATH is unset AND at least one of "
+            "DEPLOYMENT_REPLICAS/HYPERCORN_WORKERS was never explicitly "
+            "declared (only defaulted). Refusing to assume this is a "
+            "single process: an undeclared deployment topology is "
+            "exactly how a multi-replica or multi-worker rollout "
+            "silently inherits the per-process MemoryKeyStore bug this "
+            "guard exists to catch. Declare BOTH DEPLOYMENT_REPLICAS and "
+            "HYPERCORN_WORKERS explicitly (1 for a genuinely "
+            "single-process deployment), or set JWT_KEYSTORE_PATH."
+        )
+    elif effective_processes > 1:
+        raise RuntimeError(
+            f"DEPLOYMENT_REPLICAS={replicas} x HYPERCORN_WORKERS={workers} "
+            f"= {effective_processes} processes but JWT_KEYSTORE_PATH is "
+            "unset. Refusing to start rather than mint tokens with a "
+            "private per-process key: every OTHER process would reject "
+            "them as an invalid signature, which surfaces as intermittent "
+            "401s that track load-balancer/worker routing rather than as "
+            "an outage. Set JWT_KEYSTORE_PATH to a keystore shared by "
+            "every process (see docs/DEVELOPMENT.md: 'JWT Signing "
+            "Keystore'), or set both DEPLOYMENT_REPLICAS=1 and "
+            "HYPERCORN_WORKERS=1 if this is genuinely a single-process "
             "deployment."
         )
     else:
@@ -112,10 +221,11 @@ def _build_oidc_provider(app: Quart) -> OIDCProvider:
             "reason=JWT_KEYSTORE_PATH_not_configured "
             "consequence='signing keys live only in this process's memory: "
             "they are lost on restart, and a token minted by a DIFFERENT "
-            "process (another replica, or an earlier run) is rejected as "
-            "an invalid signature, not as expired' "
+            "process (another replica, another hypercorn worker, or an "
+            "earlier run) is rejected as an invalid signature, not as "
+            "expired' "
             "fix='set JWT_KEYSTORE_PATH (docs/DEVELOPMENT.md: JWT Signing "
-            "Keystore) before running more than one replica of this "
+            "Keystore) before running more than one process of this "
             "service'"
         )
 
