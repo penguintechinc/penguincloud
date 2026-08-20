@@ -12,27 +12,27 @@ through the HTTP layer would test httpx twice and the route logic once.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any, Iterator
+from typing import Any
 from unittest import mock
 
 import pytest
-from quart import Quart
-
 from app.adapters.base import (
     ActionResult,
     AdapterCapabilityError,
+    MetricsSummary,
     Operation,
     OperationLogLine,
     OperationState,
-    MetricsSummary,
     Page,
     RateLimitedError,
     Resource,
     ResourceConflictError,
     TimeRange,
 )
+from quart import Quart
 
 PRODUCT_SECRET = "-".join(("not", "a", "real", "operations", "credential"))
 
@@ -156,9 +156,7 @@ class StubAdapter:
         assert StubAdapter.operation is not None
         return StubAdapter.operation
 
-    async def cancel_operation(
-        self, kind: str, operation_id: str, ctx: Any
-    ) -> Operation:
+    async def cancel_operation(self, kind: str, operation_id: str, ctx: Any) -> Operation:
         """Return the staged operation or raise the staged error."""
         StubAdapter.seen_ctx = ctx
         if StubAdapter.raises is not None:
@@ -242,9 +240,7 @@ async def _setup(client: Any, app: Quart) -> tuple[int, dict[str, str]]:
 class TestPolling:
     """The refetch loop's contract with the portal."""
 
-    async def test_poll_returns_the_flag_the_ui_branches_on(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_poll_returns_the_flag_the_ui_branches_on(self, client: Any, app: Quart) -> None:
         """``is_terminal`` is published, not left for the client to derive.
 
         Every consumer deriving it re-implements the terminal-state set, and
@@ -264,9 +260,7 @@ class TestPolling:
         assert body["status"] == "in_progress"
         assert body["resource_id"] == "12"
 
-    async def test_terminal_operation_reports_terminal(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_terminal_operation_reports_terminal(self, client: Any, app: Quart) -> None:
         """A succeeded operation must stop the poll loop."""
         conn_id, headers = await _setup(client, app)
         StubAdapter.operation = _operation(
@@ -283,9 +277,7 @@ class TestPolling:
         assert body["is_terminal"] is True
         assert body["completed_at"] is not None
 
-    async def test_response_publishes_only_declared_fields(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_response_publishes_only_declared_fields(self, client: Any, app: Quart) -> None:
         """The wire shape is an explicit DTO, not the dataclass.
 
         ``Operation.metadata`` carries product internals — Gough puts biome
@@ -293,9 +285,7 @@ class TestPolling:
         would publish whatever a future field happened to hold.
         """
         conn_id, headers = await _setup(client, app)
-        StubAdapter.operation = _operation(
-            metadata={"logs_url": "/internal/secret", "biome_id": 5}
-        )
+        StubAdapter.operation = _operation(metadata={"logs_url": "/internal/secret", "biome_id": 5})
 
         response = await client.get(
             f"/api/v1/products/{conn_id}/operations/deployment/77", headers=headers
@@ -367,22 +357,16 @@ class TestPolling:
         assert "result" in body
         assert body["result"] is None
 
-    async def test_capability_error_is_501_not_500(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_capability_error_is_501_not_500(self, client: Any, app: Quart) -> None:
         """An unsupported operation kind is a declared absence."""
         conn_id, headers = await _setup(client, app)
         StubAdapter.raises = AdapterCapabilityError("gough has no operation kind 'x'")
 
-        response = await client.get(
-            f"/api/v1/products/{conn_id}/operations/x/77", headers=headers
-        )
+        response = await client.get(f"/api/v1/products/{conn_id}/operations/x/77", headers=headers)
 
         assert response.status_code == 501
 
-    async def test_list_rejects_an_unknown_state_filter(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_list_rejects_an_unknown_state_filter(self, client: Any, app: Quart) -> None:
         """A bad filter is the caller's error, not an upstream failure."""
         conn_id, headers = await _setup(client, app)
 
@@ -458,9 +442,7 @@ class TestAuthorization:
             return ["products:gough:read", "products:gough:manage"]
 
         with _patched_scopes(_gough_only):
-            listed = await client.get(
-                f"/api/v1/products/{conn_id}/operations", headers=headers
-            )
+            listed = await client.get(f"/api/v1/products/{conn_id}/operations", headers=headers)
             polled = await client.get(
                 f"/api/v1/products/{conn_id}/operations/deployment/77",
                 headers=headers,
@@ -546,16 +528,16 @@ class TestAuthorization:
         )
 
         assert response.status_code == 409
+        # adapter_failure's message is built from the adapter's own
+        # raise_for_status, which interpolates the product's response body —
+        # the webui client must never treat it as portal-native.
+        assert response.headers.get("X-Portal-Upstream-Response") == "true"
 
-    async def test_unauthenticated_caller_is_refused(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_unauthenticated_caller_is_refused(self, client: Any, app: Quart) -> None:
         """No token, no operation."""
         conn_id, _ = await _setup(client, app)
 
-        response = await client.get(
-            f"/api/v1/products/{conn_id}/operations/deployment/77"
-        )
+        response = await client.get(f"/api/v1/products/{conn_id}/operations/deployment/77")
 
         assert response.status_code == 401
 
@@ -634,9 +616,7 @@ class TestLogs:
         assert body["logs"][1]["level"] == "error"
         assert body["logs"][1]["timestamp"] is None
 
-    async def test_malformed_since_is_a_client_error(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_malformed_since_is_a_client_error(self, client: Any, app: Quart) -> None:
         """An unparseable timestamp must not reach the product."""
         conn_id, headers = await _setup(client, app)
 
@@ -660,9 +640,7 @@ class TestTypedActionPath:
     queries and hope. Through the typed route it is handed the deployment ids.
     """
 
-    async def test_action_returns_the_operations_it_started(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_action_returns_the_operations_it_started(self, client: Any, app: Quart) -> None:
         """The whole point: the caller learns what to poll.
 
         A Gough node deploy answers with one deployment per assigned biome, so
@@ -722,9 +700,7 @@ class TestTypedActionPath:
         assert poll.status_code == 200
         assert (await poll.get_json())["id"] == "dep-77"
 
-    async def test_synchronous_action_returns_no_operations(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_synchronous_action_returns_no_operations(self, client: Any, app: Quart) -> None:
         """An empty list is how a caller tells "nothing to poll" from "poll these"."""
         conn_id, headers = await _setup(client, app)
         StubAdapter.action_result = ActionResult(action="suspend", accepted=True)
@@ -738,9 +714,7 @@ class TestTypedActionPath:
         assert response.status_code == 200
         assert (await response.get_json())["operations"] == []
 
-    async def test_action_requires_manage_not_read(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_action_requires_manage_not_read(self, client: Any, app: Quart) -> None:
         """Every action reaching this route changes product state."""
         conn_id, headers = await _setup(client, app)
         StubAdapter.seen_ctx = None
@@ -758,9 +732,7 @@ class TestTypedActionPath:
         assert response.status_code == 403
         assert StubAdapter.seen_ctx is None, "adapter was reached without manage"
 
-    async def test_a_gough_only_scope_can_act_on_gough(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_a_gough_only_scope_can_act_on_gough(self, client: Any, app: Quart) -> None:
         """The per-product principal must reach the typed path too (I3)."""
         conn_id, headers = await _setup(client, app)
         StubAdapter.action_result = ActionResult(action="deploy", accepted=True)
@@ -866,9 +838,7 @@ class TestMetricsRoute:
             totals={"gough_provisioning_queue_depth": 3.0},
         )
 
-        response = await client.get(
-            f"/api/v1/products/{conn_id}/metrics", headers=headers
-        )
+        response = await client.get(f"/api/v1/products/{conn_id}/metrics", headers=headers)
 
         assert response.status_code == 200
         body = await response.get_json()
@@ -889,9 +859,7 @@ class TestMetricsRoute:
             return ["products:gough:read"]
 
         with _patched_scopes(_read_only):
-            response = await client.get(
-                f"/api/v1/products/{conn_id}/metrics", headers=headers
-            )
+            response = await client.get(f"/api/v1/products/{conn_id}/metrics", headers=headers)
 
         assert response.status_code == 200
 
@@ -905,21 +873,15 @@ class TestMetricsRoute:
             return ["products:nest:read"]
 
         with _patched_scopes(_nest_only):
-            response = await client.get(
-                f"/api/v1/products/{conn_id}/metrics", headers=headers
-            )
+            response = await client.get(f"/api/v1/products/{conn_id}/metrics", headers=headers)
 
         assert response.status_code == 403
 
-    async def test_metrics_failure_uses_the_error_taxonomy(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_metrics_failure_uses_the_error_taxonomy(self, client: Any, app: Quart) -> None:
         """A throttle must not surface as a generic 500 (M12's HTTP half)."""
         conn_id, headers = await _setup(client, app)
         StubAdapter.raises = RateLimitedError("slow down", retry_after=17)
 
-        response = await client.get(
-            f"/api/v1/products/{conn_id}/metrics", headers=headers
-        )
+        response = await client.get(f"/api/v1/products/{conn_id}/metrics", headers=headers)
 
         assert response.status_code == 429

@@ -13,9 +13,11 @@ import { useTenantStore } from "../stores/tenantStore";
 import { useProductConnections } from "../hooks/useProducts";
 import { useTenantScopeBootstrap } from "../hooks/useTenantScopeBootstrap";
 import { useFeatures } from "../hooks/useFeatures";
+import { useClearMutationErrorsOnNavigate } from "../hooks/useClearMutationErrorsOnNavigate";
 import { TenantScopeSwitcher } from "./kit/TenantScopeSwitcher";
 import { ActingAsBanner } from "./kit/ActingAsBanner";
 import DevModeBanner from "./DevModeBanner";
+import MutationErrorBanner from "./kit/MutationErrorBanner";
 import { Breadcrumbs } from "./kit/Breadcrumbs";
 import { buildMenuCategories } from "./layout/menuCategories";
 
@@ -43,6 +45,7 @@ export default function Layout() {
   // this populates, so two screens rendered at the same moment cannot
   // disagree about what is enabled.
   useFeatures();
+  useClearMutationErrorsOnNavigate();
   const connections = useProductConnections(currentTenant?.id).data ?? [];
 
   const categories = buildMenuCategories(connections, (roles) => {
@@ -52,6 +55,11 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
+      {/* Fixed-position overlay; mounted once here so a rejected mutation's
+          error outlives whatever form or dialog triggered it, on every
+          authenticated route. See components/kit/MutationErrorBanner.tsx. */}
+      <MutationErrorBanner />
+
       {/* SidebarMenu renders its own fixed desktop panel and mobile drawer;
           Layout only owns the trigger state and the content offset. Wrapping
           it in a custom translate-able <aside> left the library's desktop

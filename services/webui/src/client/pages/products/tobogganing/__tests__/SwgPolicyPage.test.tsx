@@ -20,8 +20,11 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
+import { createAppQueryClient } from "../../../../lib/queryClient";
+import MutationErrorBanner from "../../../../components/kit/MutationErrorBanner";
+import { useMutationErrorStore } from "../../../../stores/mutationErrorStore";
 
 const mockIsProductEnabled = jest.fn();
 jest.mock("../../../../lib/featureGates", () => ({
@@ -50,12 +53,19 @@ jest.mock("../../../../api/resources/tobogganing", () => ({ tobogganingApi }));
 
 import SwgPolicyPage from "../SwgPolicyPage";
 
+/**
+ * Wraps the page with the SAME `QueryClient` factory `main.tsx` uses — the
+ * one carrying the global `MutationCache.onError` — plus the banner it feeds,
+ * so a rejected-mutation test below exercises the real shared path rather
+ * than a bespoke test double of it.
+ */
 function renderPage(element: ReactElement) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  const client = createAppQueryClient();
   return render(
-    <QueryClientProvider client={client}>{element}</QueryClientProvider>,
+    <QueryClientProvider client={client}>
+      <MutationErrorBanner />
+      {element}
+    </QueryClientProvider>,
   );
 }
 
@@ -69,6 +79,7 @@ const POLICY = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  useMutationErrorStore.setState({ errors: [] });
   mockIsProductEnabled.mockReturnValue(true);
   mockConnections.mockReturnValue({
     data: [{ id: 7, product_type: "tobogganing" }],
@@ -240,5 +251,27 @@ describe("setting a policy", () => {
     await waitFor(() => expect(tobogganingApi.setSwgPolicy).toHaveBeenCalled());
     const payload = tobogganingApi.setSwgPolicy.mock.calls[0][1];
     expect(payload).not.toHaveProperty("tenant");
+  });
+
+  it("surfaces a rejected save instead of closing silently", async () => {
+    // The historical bug: submit() closed the form before awaiting the
+    // mutation, so a rejected save left nothing on screen at all — see
+    // SwgPolicyPage.tsx. Revert that ordering and this test goes red.
+    tobogganingApi.setSwgPolicy.mockRejectedValue(
+      new Error("No Tobogganing connection for the active tenant"),
+    );
+    renderPage(<SwgPolicyPage />);
+    await screen.findByRole("table");
+    await openForm("malware", "drop");
+
+    await waitFor(() => expect(tobogganingApi.setSwgPolicy).toHaveBeenCalled());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "No Tobogganing connection for the active tenant",
+    );
+    // FormModalBuilder only calls its own onClose after onSubmit resolves —
+    // still open here means submit() did not force it shut first.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });

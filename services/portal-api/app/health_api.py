@@ -22,6 +22,7 @@ from typing import Any
 from quart import Blueprint, request
 from quart_schema import validate_response
 
+from .adapters.base import UPSTREAM_RESPONSE_HEADER
 from .authz import SCOPE_PRODUCTS_READ, SCOPE_TENANTS_MANAGE, has_tenant_scope, require_tenant_scope
 from .health_cache import get_health
 from .middleware import auth_required, get_current_tenant_id, get_current_user
@@ -87,7 +88,7 @@ def _resolve_tenant_id() -> int | None:
 @auth_required
 @tenancy_aware
 @validate_response(ProductsHealthResponse)
-async def get_products_health() -> tuple[Any, int]:
+async def get_products_health() -> tuple[Any, int] | tuple[Any, int, dict[str, str]]:
     """Cached health for the caller's tenant, optionally + its subtree.
 
     Query params:
@@ -145,4 +146,22 @@ async def get_products_health() -> tuple[Any, int]:
                 )
             )
 
-    return ProductsHealthResponse(products=entries, count=len(entries)), 200
+    # Each entry's `error` is `cached.error` — health_poller.py's sweep
+    # writes CachedHealth.error from Transport.health_check's own str(exc)
+    # (adapters/transport.py), the same upstream-derived shape
+    # adapter_failure and POST /products/<id>/test mark. No webui consumer
+    # reads this endpoint today (ConnectionDetail.tsx's health tab calls
+    # GET /products/<id>/health in products.py, a different, cache-free,
+    # error-free route), so this is currently latent rather than a live
+    # leak — marked anyway so it is not a second miss for whichever screen
+    # reads this list next. `@validate_response(ProductsHealthResponse)`
+    # is declared for this 200: quart_schema's wrapper reads a 3-tuple's
+    # third element as the response headers ONLY when returned this way —
+    # returning an already-built Response object here instead (the
+    # adapter_failure/test_product_connection pattern) would hit
+    # quart_schema's own `status == status_code` branch and raise
+    # ResponseHeadersValidationError, since that branch exists
+    # specifically to reject a Response object at the code the decorator
+    # itself is meant to validate.
+    headers = {UPSTREAM_RESPONSE_HEADER: "true"}
+    return ProductsHealthResponse(products=entries, count=len(entries)), 200, headers
