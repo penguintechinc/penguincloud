@@ -12,16 +12,30 @@ from datetime import timedelta
 #: tenant-gated routes still refuse it.
 UNSCOPED_TENANT = "_unscoped"
 
+#: The SECRET_KEY value assigned when the operator has not set SECRET_KEY at
+#: all. This is a KNOWN, PUBLIC string committed to this repository's own
+#: source — Quart signs the session cookie (itsdangerous) with SECRET_KEY,
+#: and app/oauth.py's ``oauth_state`` CSRF check lives entirely inside that
+#: signed session, so a deployment left on this default is as forgeable as
+#: a session with no signature at all. Kept as a real (if insecure) string,
+#: never "", so Quart's session machinery never sees an empty secret_key,
+#: which behaves differently — and worse, silently — than a wrong one.
+#: app/__init__.py's create_app() refuses to start outside TESTING while
+#: SECRET_KEY still equals this sentinel; see its docstring.
+#: (ruff S105 pattern-matches the NAME "INSECURE_DEFAULT_SECRET_KEY" as a
+#: possible hardcoded password; the whole point of this constant is that
+#: it is a known, public, non-secret value, not an actual credential.)
+INSECURE_DEFAULT_SECRET_KEY = "dev-secret-key-change-in-production"  # noqa: S105
+
 
 class Config:
     """Base configuration."""
 
     # Flask
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+    SECRET_KEY = os.getenv("SECRET_KEY", INSECURE_DEFAULT_SECRET_KEY)
     DEBUG = os.getenv("FLASK_DEBUG", "false").lower() == "true"
 
     # JWT
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", SECRET_KEY)
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=int(os.getenv("JWT_ACCESS_TOKEN_MINUTES", "30")))
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=int(os.getenv("JWT_REFRESH_TOKEN_DAYS", "7")))
 
@@ -36,8 +50,21 @@ class Config:
     # Path for the persistent signing keystore. Unset (the default) selects an
     # in-process MemoryKeyStore, whose keys die with the worker — acceptable
     # for tests/dev, never for a multi-replica deployment where every replica
-    # would otherwise sign with a key the others cannot verify.
+    # would otherwise sign with a key the others cannot verify. See
+    # DEPLOYMENT_REPLICAS below: app/__init__.py:_build_oidc_provider refuses
+    # to start rather than silently make that fallback when the operator has
+    # declared more than one replica.
     JWT_KEYSTORE_PATH = os.getenv("JWT_KEYSTORE_PATH", "")
+    # How many replicas of THIS service the operator/chart intends to run.
+    # Declared, not detected: Kubernetes gives a pod no reliable in-process
+    # signal for "how many siblings does my ReplicaSet have" (the Downward
+    # API exposes this pod's own identity, never the replica count), so
+    # rather than guess, the deployment states it — mirroring the chart's
+    # own `replicaCount` value (see docs/DEVELOPMENT.md: "JWT Signing
+    # Keystore"). Defaults to 1: a lone process never has a cross-replica
+    # verification problem, so `make test-api`, docker-compose and a solo
+    # dev server are unaffected unless this is explicitly raised.
+    DEPLOYMENT_REPLICAS = int(os.getenv("DEPLOYMENT_REPLICAS", "1"))
 
     # Database - PyDAL compatible
     DB_TYPE = os.getenv("DB_TYPE", "postgres")

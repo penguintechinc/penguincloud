@@ -16,7 +16,7 @@ from quart_schema import HttpSecurityScheme, Info, QuartSchema
 
 from . import devmode
 from .background import get_background_manager
-from .config import Config
+from .config import INSECURE_DEFAULT_SECRET_KEY, Config
 from .killkrill import killkrill_manager
 from .license import license_manager
 from .middleware import setup_request_logging
@@ -24,20 +24,100 @@ from .middleware import setup_request_logging
 log = logging.getLogger(__name__)
 
 
+def _require_configured_secret_key(app: Quart) -> None:
+    """Refuse to start with the public placeholder SECRET_KEY outside TESTING.
+
+    Quart signs the session cookie with SECRET_KEY (itsdangerous), and
+    app/oauth.py's ``oauth_state`` CSRF check lives entirely inside that
+    signed session — a cookie signed with a KNOWN key (this literal
+    string, published in this repository's own source) is exactly as
+    forgeable as an unsigned one, defeating the CSRF check it exists to
+    enforce and enabling OAuth account-linking CSRF.
+
+    Same reasoning as app/encryption.py's ``_get_fernet`` check for
+    ENCRYPTION_KEY, and the same TESTING-only carve-out: an unset
+    security-critical secret must stop the process, not silently sign
+    every cookie with a value an attacker can read on GitHub. Checked
+    eagerly here (app startup) rather than lazily on first session access
+    the way encryption.py checks ENCRYPTION_KEY on first encrypt/decrypt
+    call — every request touches the session, so there is no narrower
+    "first real use" moment to defer to.
+    """
+    if app.config.get("TESTING"):
+        return
+    if app.config["SECRET_KEY"] != INSECURE_DEFAULT_SECRET_KEY:
+        return
+    raise RuntimeError(
+        "SECRET_KEY is unset (or left at the public placeholder default "
+        "published in app/config.py). Quart signs session cookies -- "
+        "including the OAuth CSRF state app/oauth.py's callback relies "
+        "on -- with this key, so a known key makes that state forgeable. "
+        "Set SECRET_KEY to a real, unpredictable secret (see "
+        "docs/DEVELOPMENT.md) before starting outside TESTING."
+    )
+
+
 def _build_oidc_provider(app: Quart) -> OIDCProvider:
     """Build the penguin-aaa OIDC provider backing this app's tokens.
 
-    Uses a FileKeyStore when JWT_KEYSTORE_PATH is configured so signing keys
-    survive restarts and are shared across replicas; falls back to an
-    in-process MemoryKeyStore for tests and single-process development.
+    Three outcomes, chosen deliberately rather than guessed:
+
+    * ``JWT_KEYSTORE_PATH`` set -> ``FileKeyStore``. Every replica pointed
+      at the SAME path loads the SAME signing key, so a token minted by one
+      pod verifies on every other. See docs/DEVELOPMENT.md "JWT Signing
+      Keystore" for how that file/mount is expected to get there.
+    * ``JWT_KEYSTORE_PATH`` unset AND ``DEPLOYMENT_REPLICAS`` > 1 -> refuse
+      to start. Falling back to a private in-process key here would mean
+      every replica signs with a key none of the others can verify --
+      intermittent 401s that track load-balancer routing, not an outage,
+      and exactly the kind of bug that vanishes the moment anyone tests
+      against a single pod. A loud failure at boot beats a silent wrong
+      answer at request time.
+    * ``JWT_KEYSTORE_PATH`` unset AND ``DEPLOYMENT_REPLICAS`` <= 1 ->
+      ``MemoryKeyStore``, exactly as before -- but the choice is now
+      ANNOUNCED (WARN, naming the consequence) rather than merely
+      documented in a docstring nothing enforced. Same reasoning
+      general.md gives for the --dev notice: an operator who did not
+      configure the deployment still needs to know what mode it is
+      running in.
     """
     algorithm: str = app.config["JWT_ALGORITHM"]
     keystore_path: str = app.config["JWT_KEYSTORE_PATH"]
-    keystore: KeyStore = (
-        FileKeyStore(Path(keystore_path), algorithm=algorithm)
-        if keystore_path
-        else MemoryKeyStore(algorithm=algorithm)
-    )
+    replicas: int = app.config["DEPLOYMENT_REPLICAS"]
+    keystore: KeyStore
+
+    if keystore_path:
+        keystore = FileKeyStore(Path(keystore_path), algorithm=algorithm)
+        log.info(
+            "jwt_keystore_selected kind=file replicas=%d path=%s",
+            replicas,
+            keystore_path,
+        )
+    elif replicas > 1:
+        raise RuntimeError(
+            f"DEPLOYMENT_REPLICAS={replicas} but JWT_KEYSTORE_PATH is unset. "
+            "Refusing to start rather than mint tokens with a private "
+            "per-process key: every OTHER replica would reject them as an "
+            "invalid signature, which surfaces as intermittent 401s that "
+            "track load-balancer routing rather than as an outage. Set "
+            "JWT_KEYSTORE_PATH to a keystore shared by every replica (see "
+            "docs/DEVELOPMENT.md: 'JWT Signing Keystore'), or set "
+            "DEPLOYMENT_REPLICAS=1 if this is genuinely a single-process "
+            "deployment."
+        )
+    else:
+        keystore = MemoryKeyStore(algorithm=algorithm)
+        log.warning(
+            "jwt_keystore_is_per_process_only "
+            "reason=JWT_KEYSTORE_PATH_not_configured "
+            "consequence='signing keys live only in this process's memory: "
+            "they are lost on restart, and a token minted by a DIFFERENT "
+            "process (another replica, or an earlier run) is rejected as "
+            "an invalid signature, not as expired' "
+            "fix='set JWT_KEYSTORE_PATH (docs/DEVELOPMENT.md: JWT Signing "
+            "Keystore) before running more than one replica of this "
+            "service'"
+        )
 
     token_ttl = app.config["JWT_ACCESS_TOKEN_EXPIRES"]
     provider_config = OIDCProviderConfig(
@@ -62,6 +142,12 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     """
     app = Quart(__name__)
     app.config.from_object(config_class)
+
+    # Secure by default: refuse to sign session cookies with the public
+    # placeholder SECRET_KEY outside TESTING. Checked immediately after
+    # config load, before anything (session, CORS, blueprints) could rely
+    # on it. See _require_configured_secret_key's docstring.
+    _require_configured_secret_key(app)
 
     # Set session/cookie configuration
     app.config["SESSION_COOKIE_SECURE"] = True

@@ -60,8 +60,12 @@ services:
     container_name: project-template-teams-api
     environment:
       - FLASK_ENV=${FLASK_ENV:-production}
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-jwt-secret}
+      # No insecure fallback: portal-api's create_app() now refuses to
+      # start (outside TESTING) while SECRET_KEY is unset -- Quart signs
+      # the session cookie, including the OAuth CSRF state, with this key,
+      # so a known default is as forgeable as no signature at all. Set a
+      # real value in your .env (docs/DEVELOPMENT.md).
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in your .env -- see docs/DEVELOPMENT.md}
       - DB_TYPE=${DB_TYPE:-postgres}
       - DB_HOST=postgres
       - DB_PORT=5432

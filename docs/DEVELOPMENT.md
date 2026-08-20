@@ -117,6 +117,17 @@ WEBUI_PORT=3000
 REDIS_PORT=6379
 ```
 
+**`SECRET_KEY` is required outside `TESTING`** — `create_app()` now raises
+`RuntimeError` at startup if it is left at the public placeholder default
+committed in `app/config.py`. Quart signs the session cookie with
+`SECRET_KEY`, and `app/oauth.py`'s `oauth_state` CSRF check lives entirely
+inside that signed session, so a known key is as forgeable as no signature
+at all. `docker-compose.yml` no longer supplies a fallback for it
+(`${SECRET_KEY:?...}`) — set a real value in `.env` as shown above before
+running `docker compose up`. The test suite is unaffected: `TestingConfig`
+sets `TESTING=true`, which is the one carve-out, mirroring
+`app/encryption.py`'s `ENCRYPTION_KEY` check.
+
 ### Health Cache (Valkey/Redis) — `portal-api`
 
 `app/health_poller.py`'s background health sweep (`GET /api/v1/products/health`)
@@ -158,6 +169,83 @@ separate from the API's `:8000` (see `services/portal-api/Dockerfile`'s
 `infrastructure/monitoring/prometheus/`, which `docker-compose.yml` mounts a
 config from, does not exist as a directory. The port is real and open; a
 Prometheus server pointed at it will work, but none is wired up yet.
+
+### JWT Signing Keystore — `portal-api`
+
+`app/__init__.py`'s `_build_oidc_provider` picks the penguin-aaa `KeyStore`
+backing every token this service issues and verifies. The variables it
+reads:
+
+```bash
+JWT_KEYSTORE_PATH=       # unset (default) = in-process key; see below
+DEPLOYMENT_REPLICAS=1    # how many replicas the operator/chart intends
+```
+
+**Unset `JWT_KEYSTORE_PATH` with `DEPLOYMENT_REPLICAS=1` is a supported,
+not a broken, state** — the service falls back to an in-process
+`MemoryKeyStore` rather than crashing, the same "degrade, don't crash"
+shape as the health cache above. It logs an unmistakable WARNING at
+startup when this is the case (`jwt_keystore_is_per_process_only`),
+because the consequence is a genuine security-relevant behaviour change,
+not just staleness: the signing key is lost on every restart, and a token
+minted by a *different* process — another replica, or a previous run of
+this one — is rejected as an **invalid signature**, not as expired. This
+is fine for a single dev process or the test suite; it is never fine for
+more than one replica of the same deployment.
+
+**Unset `JWT_KEYSTORE_PATH` with `DEPLOYMENT_REPLICAS` > 1 refuses to
+start.** This is the fix for the actual defect that motivated this
+section: prior to it, every replica silently built its own
+`MemoryKeyStore`, so a token minted by pod A failed verification on pod B
+with a plain `401 Invalid token - key not found` — intermittent,
+load-balancer-routing-dependent, and invisible against a single pod,
+which is exactly the failure mode `devops-kubernetes.md`'s 3+-replica
+production requirement walks straight into if this were left as a silent
+fallback. The service now raises `RuntimeError` at boot instead, naming
+the fix in the error message.
+
+**`DEPLOYMENT_REPLICAS` is declared, not detected.** Kubernetes gives a
+pod no reliable in-process signal for "how many siblings does my
+ReplicaSet have" — the Downward API exposes this pod's own identity, never
+the replica count — so guessing was rejected in favour of an explicit
+value the chart is expected to set from its own `replicaCount`, the same
+way `CACHE_HOST` above is a deliberate declaration rather than an
+auto-detected shared store.
+
+**Getting a real shared keystore in place is chart/ops work, not
+something this service can do for itself**, and is NOT yet wired up —
+`k8s/helm/portal-api/` is still a stub (`templates/_helpers.tpl` only), so
+today setting `DEPLOYMENT_REPLICAS` > 1 without also standing up a shared
+`JWT_KEYSTORE_PATH` is a deliberate, correct refusal to start, not a gap
+in this fix. Two provisioning shapes are worth naming for whoever picks
+that up:
+
+* **A pre-populated, read-only Secret volume** (Vault Agent Injector,
+  External Secrets Operator, or a one-time `kubectl create secret generic`
+  from a manually generated keypair), mounted at the same
+  `JWT_KEYSTORE_PATH` in every replica, containing `FileKeyStore`'s own
+  JSON shape (`{"keys": [{"kid": ..., "pem": ...}, ...]}`). Nothing in
+  this codebase currently calls `KeyStore.rotate_key()`, so
+  `FileKeyStore.__init__` never writes to a path that already has content
+  — it only calls `_save()` when the file does not yet exist. A
+  pre-populated Secret is therefore read-only in practice: no
+  `ReadWriteMany` PVC needed (a Secret volume is a per-node projection,
+  not a PVC, and mounts fine under `readOnlyRootFilesystem: true`), and no
+  write race between replicas. This is the preferred shape —
+  `security.md`/`general.md` route secret material through
+  Vault/Sealed-Secrets/External-Secrets-Operator, not a shared filesystem,
+  and this avoids inventing a new `KeyStore` implementation to get there.
+* **A shared `ReadWriteMany` PVC that `FileKeyStore` self-bootstraps on
+  first boot** works too, but has a real race: if two replicas start
+  concurrently against an *empty* shared path, both see the file missing,
+  both generate their own key, and both call `_save()` — the file ends up
+  holding whichever replica wrote last, while the other keeps signing
+  with a key that is no longer on disk. This is the same class of defect
+  this section exists to close, just moved from "every boot" to "the
+  first concurrent rollout." If this shape is used, the file must be
+  provisioned (e.g. by a Helm pre-install/pre-upgrade hook Job) *before*
+  any replica of the Deployment starts, never left for the app to
+  self-generate under a live multi-replica rollout.
 
 ### Database Initialization
 
