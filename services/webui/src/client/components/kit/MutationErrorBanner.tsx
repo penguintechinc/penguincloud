@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { AlertCircle, X } from "lucide-react";
 import { useMutationErrorStore } from "../../stores/mutationErrorStore";
 
@@ -14,6 +15,17 @@ import { useMutationErrorStore } from "../../stores/mutationErrorStore";
  * event. Dismissible (unlike `DevModeBanner`, which is deliberately not):
  * this reports one past event rather than describing the deployment's
  * current state, so there is nothing wrong with it going away once read.
+ *
+ * Rendered via `createPortal` straight onto `document.body`, at a z-index
+ * above every modal in the app (`ConfirmDialog` is `z-50`; the shared
+ * `FormModalBuilder` defaults to `zIndex: 9999`) — the exact scenario this
+ * exists for is a rejected save while the form that started it is still
+ * open (BiomesPage/DatabasesPage keep it open on failure; see
+ * SwgPolicyPage's ordering fix). Rendered as a normal sibling in the tree,
+ * a `fixed` banner at equal-or-lower z-index than an open modal is not just
+ * visually hidden behind it — the modal's own full-viewport wrapper (`inset-0`,
+ * no `pointer-events-none`) sits on top for hit-testing too, making the
+ * dismiss button unclickable even where the banner is visible.
  */
 export default function MutationErrorBanner() {
   const errors = useMutationErrorStore((state) => state.errors);
@@ -21,10 +33,10 @@ export default function MutationErrorBanner() {
 
   if (errors.length === 0) return null;
 
-  return (
+  return createPortal(
     <div
       data-testid="mutation-error-banner"
-      className="fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2"
+      className="fixed inset-x-4 top-4 z-[100000] flex flex-col gap-2 sm:inset-x-auto sm:right-4 sm:w-full sm:max-w-sm"
     >
       {errors.map((entry) => (
         <div
@@ -52,6 +64,7 @@ export default function MutationErrorBanner() {
           </div>
         </div>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

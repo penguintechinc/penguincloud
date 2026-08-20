@@ -19,7 +19,10 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-app_db}
       POSTGRES_USER: ${POSTGRES_USER:-app_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      # Same reasoning as SECRET_KEY below: "password" is published in this
+      # file's own history/diff, so a fallback here is indistinguishable
+      # from no password at all. Required, not defaulted.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     expose:
       - "5432"
@@ -38,13 +41,14 @@ services:
   redis:
     image: redis:7-bookworm@sha256:a5995dfdf108997f8a7c9587f54fad5e94ed5848de5236a6b28119e99efd67e0
     container_name: project-template-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-password} --appendonly yes
+    # No insecure fallback -- same reasoning as POSTGRES_PASSWORD above.
+    command: redis-server --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in your .env} --appendonly yes
     expose:
       - "6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-password}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in your .env}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -60,17 +64,32 @@ services:
     container_name: project-template-teams-api
     environment:
       - FLASK_ENV=${FLASK_ENV:-production}
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-jwt-secret}
+      # No insecure fallback: portal-api's create_app() now refuses to
+      # start (outside TESTING) while SECRET_KEY is unset -- Quart signs
+      # the session cookie, including the OAuth CSRF state, with this key,
+      # so a known default is as forgeable as no signature at all. Set a
+      # real value in your .env (docs/DEVELOPMENT.md).
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in your .env -- see docs/DEVELOPMENT.md}
+      # Declared, not left to default+undeclared: app/__init__.py's JWT
+      # keystore guard refuses to start when NEITHER JWT_KEYSTORE_PATH nor
+      # an explicit replica/worker count is declared (round-1 I1). This
+      # really is one compose container, one hypercorn worker (see
+      # HYPERCORN_WORKERS on the Dockerfile CMD line), so both are stated
+      # as 1 rather than relying on Config's default to happen to agree.
+      - DEPLOYMENT_REPLICAS=${DEPLOYMENT_REPLICAS:-1}
+      - HYPERCORN_WORKERS=${HYPERCORN_WORKERS:-1}
       - DB_TYPE=${DB_TYPE:-postgres}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=${POSTGRES_DB:-app_db}
       - DB_USER=${POSTGRES_USER:-app_user}
-      - DB_PASS=${POSTGRES_PASSWORD:-password}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-password}@redis:6379/0
+      - DB_PASS=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in your .env}@redis:6379/0
       - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@example.com}
-      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-admin123}
+      # "admin123" is a published, guessable default for the account this
+      # provisions as an actual admin -- same class of defect as SECRET_KEY,
+      # required rather than defaulted for the same reason.
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:?Set DEFAULT_ADMIN_PASSWORD in your .env}
       - GRPC_ENABLED=${GRPC_ENABLED:-true}
       - GRPC_PORT=50051
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
@@ -146,7 +165,8 @@ services:
     container_name: project-template-grafana
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      # Same class of defect as SECRET_KEY/DEFAULT_ADMIN_PASSWORD above.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?Set GRAFANA_PASSWORD in your .env}
       - GF_USERS_ALLOW_SIGN_UP=false
     ports:
       - "${GRAFANA_PORT:-3001}:3000"

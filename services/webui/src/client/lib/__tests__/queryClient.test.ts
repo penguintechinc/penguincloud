@@ -113,4 +113,31 @@ describe("createAppQueryClient", () => {
       expect.objectContaining({ message: GENERIC_MUTATION_ERROR_MESSAGE }),
     ]);
   });
+
+  it("clears every queued error when a later mutation succeeds (I3)", async () => {
+    // The concrete case this exists for: the same save succeeding on retry
+    // must not leave its own earlier failure pinned in the banner.
+    const client = createAppQueryClient();
+    const cache = client.getMutationCache();
+
+    await cache
+      .build(client, {
+        mutationFn: () => Promise.reject(new Error("first failure")),
+      })
+      .execute(undefined)
+      .catch(() => undefined);
+    await cache
+      .build(client, {
+        mutationFn: () => Promise.reject(new Error("second failure")),
+      })
+      .execute(undefined)
+      .catch(() => undefined);
+    expect(useMutationErrorStore.getState().errors).toHaveLength(2);
+
+    await cache
+      .build(client, { mutationFn: () => Promise.resolve("ok") })
+      .execute(undefined);
+
+    expect(useMutationErrorStore.getState().errors).toEqual([]);
+  });
 });

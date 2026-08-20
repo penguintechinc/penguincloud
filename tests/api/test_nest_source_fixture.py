@@ -25,14 +25,12 @@ from __future__ import annotations
 from typing import Final
 
 import pytest
-
 from app.adapters.nest.mapping import (
     COLLECTION_ENVELOPE_KEYS,
     NEST_LIST_HANDLERS,
     RESOURCE_KINDS,
     envelope_key,
 )
-
 from nest_route_source import (
     FIXTURE_NAME,
     effective_envelope_keys,
@@ -46,6 +44,8 @@ from nest_route_source import (
 )
 from product_source_fixtures import (
     MAX_FIXTURE_AGE_DAYS,
+    describe_mapping_drift,
+    describe_route_drift,
     fixture_age_days,
     fixture_path,
     load_fixture,
@@ -74,9 +74,9 @@ class TestEnvelopeKeys:
 
     def test_the_fixture_is_committed(self) -> None:
         """Without it, every check below degrades to a skip on a CI runner."""
-        assert fixture_path(FIXTURE_NAME).is_file(), (
-            f"{fixture_path(FIXTURE_NAME)} is missing — run `{_REFRESH}`"
-        )
+        assert fixture_path(
+            FIXTURE_NAME
+        ).is_file(), f"{fixture_path(FIXTURE_NAME)} is missing — run `{_REFRESH}`"
 
     def test_every_kind_declares_an_envelope_key(self) -> None:
         """A kind with no key would raise, not decode as empty — but loudly.
@@ -132,11 +132,13 @@ class TestFixtureFreshness:
         if nest_api_module() is None:
             _skip_or_fail(missing_reason())
 
-        assert vendored_route_table() == route_table(), (
-            f"the vendored nest route table no longer matches Nest's source. "
-            f"Run `{_REFRESH}` and review the diff — a route Nest added, "
-            f"renamed or retired changes what the allowlist guards are graded "
-            f"against."
+        vendored, live = vendored_route_table(), route_table()
+        assert vendored == live, (
+            f"the vendored nest route table ({fixture_path(FIXTURE_NAME)}) no "
+            f"longer matches Nest's source. Run `{_REFRESH}` and review the "
+            f"diff — a route Nest added, renamed or retired changes what the "
+            f"allowlist guards are graded against.\n"
+            f"{describe_route_drift(vendored, live)}"
         )
 
     def test_vendored_envelope_keys_match_a_live_parse(self) -> None:
@@ -144,9 +146,11 @@ class TestFixtureFreshness:
         if nest_handlers_dir() is None:
             _skip_or_fail(missing_reason())
 
-        assert vendored_envelope_keys() == envelope_keys(), (
-            f"the vendored nest envelope keys no longer match Nest's handlers. "
-            f"Run `{_REFRESH}` and review the diff."
+        vendored, live = vendored_envelope_keys(), envelope_keys()
+        assert vendored == live, (
+            f"the vendored nest envelope keys ({fixture_path(FIXTURE_NAME)}) "
+            f"no longer match Nest's handlers. Run `{_REFRESH}` and review "
+            f"the diff.\n{describe_mapping_drift('handler', vendored, live)}"
         )
 
     def test_the_fixture_records_where_it_came_from(self) -> None:

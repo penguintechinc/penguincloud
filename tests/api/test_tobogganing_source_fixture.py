@@ -29,9 +29,10 @@ from __future__ import annotations
 from typing import Final
 
 import pytest
-
 from product_source_fixtures import (
     MAX_FIXTURE_AGE_DAYS,
+    describe_mapping_drift,
+    describe_route_drift,
     fixture_age_days,
     fixture_path,
     load_fixture,
@@ -81,11 +82,16 @@ class TestFixtureFreshness:
         if failure is not None:
             _skip_or_fail(failure)
 
-        assert vendored_route_table() == route_table(), (
-            f"the vendored tobogganing route table no longer matches a live "
-            f"boot. Run `{_REFRESH}` and review the diff — a route Tobogganing "
-            f"added, renamed or retired changes what the allowlist guards are "
-            f"graded against."
+        vendored, live = vendored_route_table(), route_table()
+        assert vendored == live, (
+            f"the vendored tobogganing route table ({fixture_path(FIXTURE_NAME)}) "
+            f"no longer matches a live boot. Run `{_REFRESH}` and review the "
+            f"diff — a route Tobogganing added, renamed or retired changes "
+            f"what the allowlist guards are graded against. If every route "
+            f"under one module vanished at once, suspect an incomplete boot "
+            f"environment (a missing product dependency silently drops that "
+            f"module — see boot_failure()/ModuleRegistrationError) before "
+            f"trusting this as real drift.\n{describe_route_drift(vendored, live)}"
         )
 
     def test_vendored_auth_classes_match_a_live_boot(self) -> None:
@@ -100,10 +106,13 @@ class TestFixtureFreshness:
         if failure is not None:
             _skip_or_fail(failure)
 
-        assert vendored_auth_table() == auth_table(), (
-            f"the vendored tobogganing auth map no longer matches a live boot. "
-            f"Run `{_REFRESH}` and review the diff — a route whose decorator "
-            f"changed may now be unreachable with the portal's credential."
+        vendored, live = vendored_auth_table(), auth_table()
+        assert vendored == live, (
+            f"the vendored tobogganing auth map ({fixture_path(FIXTURE_NAME)}) "
+            f"no longer matches a live boot. Run `{_REFRESH}` and review the "
+            f"diff — a route whose decorator changed may now be unreachable "
+            f"with the portal's credential.\n"
+            f"{describe_mapping_drift('route', vendored, live)}"
         )
 
     def test_the_fixture_records_where_it_came_from(self) -> None:
