@@ -7,6 +7,7 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import MutationErrorBanner from "../MutationErrorBanner";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { useMutationErrorStore } from "../../../stores/mutationErrorStore";
 
 beforeEach(() => {
@@ -86,5 +87,69 @@ describe("MutationErrorBanner", () => {
     await user.keyboard("{Enter}");
 
     expect(screen.queryByText("close me with the keyboard")).toBeNull();
+  });
+
+  describe("while a ConfirmDialog is open (I1)", () => {
+    // The reproducible case: SwgPolicyPage's replace-confirm flow clears
+    // `replacing` only in `save.mutate(...)`'s onSuccess, so a FAILED
+    // replace leaves ConfirmDialog open *and* raises a banner at the same
+    // time — see SwgPolicyPage.tsx. ConfirmDialog's own wrapper is
+    // `fixed inset-0 z-50`, and the shared FormModalBuilder defaults to
+    // `zIndex: 9999`; either sits at or above the banner's old z-50 with no
+    // `pointer-events-none`, so the un-portaled banner's dismiss button was
+    // not reachable. This does not re-run jsdom's non-existent layout engine
+    // (jsdom cannot compute real paint/hit-test occlusion) — it proves the
+    // structural fix instead: the banner portals to `document.body`, a
+    // sibling of the dialog's own subtree rather than a descendant liable to
+    // an ancestor's stacking context, and remains interactive.
+    function renderWithOpenDialog() {
+      return render(
+        <>
+          <ConfirmDialog
+            isOpen
+            title="Replace an existing policy"
+            message="This replaces the existing rule."
+            onConfirm={() => undefined}
+            onCancel={() => undefined}
+            testId="tobogganing-swg-replace-confirm"
+          />
+          <MutationErrorBanner />
+        </>,
+      );
+    }
+
+    it("portals the banner onto document.body, not inside the dialog's subtree", () => {
+      useMutationErrorStore.setState({
+        errors: [{ id: 1, message: "Route not allowed" }],
+      });
+      const { container } = renderWithOpenDialog();
+
+      const banner = screen.getByTestId("mutation-error-banner");
+      expect(container.contains(banner)).toBe(false);
+      expect(banner.parentElement).toBe(document.body);
+      // The dialog itself is exactly where render() put it — still a
+      // descendant of the test's own container, and NOT an ancestor of the
+      // portaled banner.
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    it("remains dismissible while the dialog is open", async () => {
+      const user = userEvent.setup();
+      useMutationErrorStore.setState({
+        errors: [{ id: 1, message: "Route not allowed" }],
+      });
+      renderWithOpenDialog();
+
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+      const alert = screen.getByRole("alert");
+      expect(alert).toHaveTextContent("Route not allowed");
+
+      await user.click(screen.getByLabelText("Dismiss error"));
+
+      expect(screen.queryByRole("alert")).toBeNull();
+      // The dialog is unaffected — dismissing the banner is not a proxy for
+      // closing the modal underneath it.
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
   });
 });
