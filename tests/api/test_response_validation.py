@@ -333,26 +333,42 @@ class TestEveryLiveResponseMatchesItsDto:
         there. This asserts against KNOWN users registered in this test,
         by email -- an endpoint frozen at [] fails this deterministically,
         regardless of what other tests happened to insert first.
+
+        Scans every page rather than trusting page 1 to contain the users
+        just registered: this suite shares ONE SQLite file for the whole
+        run (see project_test_suite_shared_db.md), so a deployment-wide
+        count like "total users" only grows as the run progresses, and
+        the endpoint caps per_page at 100 regardless of what is
+        requested -- late in a full run there are easily >100 users
+        ahead of these two in insertion order.
         """
         known_emails = {await _register_only(client) for _ in range(2)}
 
-        response = await client.get("/api/v1/users?per_page=100", headers=admin_headers)
-        assert response.status_code == 200
-        body = await response.get_json()
+        first = await client.get("/api/v1/users?page=1&per_page=100", headers=admin_headers)
+        assert first.status_code == 200
+        body = await first.get_json()
         assert set(body) == _field_names(UsersListResponse)
         assert set(body["pagination"]) == _field_names(Pagination)
-
-        returned_emails = {user["email"] for user in body["users"]}
-        missing = known_emails - returned_emails
-        assert not missing, (
-            f"users just registered are absent from the listing: {missing} "
-            f"(returned {len(body['users'])} of {body['pagination']['total']} total)"
-        )
         assert body["pagination"]["total"] >= len(known_emails)
 
-        for user in body["users"]:
-            assert set(user) == _field_names(UserSummary)
-            assert "password_hash" not in user
+        found_emails: set[str] = set()
+        for page in range(1, body["pagination"]["pages"] + 1):
+            response = await client.get(
+                f"/api/v1/users?page={page}&per_page=100", headers=admin_headers
+            )
+            assert response.status_code == 200
+            page_body = await response.get_json()
+            for user in page_body["users"]:
+                assert set(user) == _field_names(UserSummary)
+                assert "password_hash" not in user
+                found_emails.add(user["email"])
+
+        missing = known_emails - found_emails
+        assert not missing, (
+            f"users just registered are absent from every page: {missing} "
+            f"(scanned {body['pagination']['pages']} pages, "
+            f"{body['pagination']['total']} users total)"
+        )
 
     async def test_audit_logs_envelope(
         self,
