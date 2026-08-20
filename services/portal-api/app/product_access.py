@@ -17,10 +17,11 @@ import logging
 from datetime import datetime
 from typing import Any, Final
 
-from quart import request
+from quart import jsonify, request
 
 from . import flags
 from .adapters.base import (
+    UPSTREAM_RESPONSE_HEADER,
     AdapterContext,
     AdapterError,
     adapter_error_status,
@@ -156,13 +157,27 @@ async def resolve_product_context(
     return ctx, str(conn_raw["product_type"]), None
 
 
-def adapter_failure(
-    exc: AdapterError, product_id: int, operation: str
-) -> tuple[dict[str, Any], int]:
+def adapter_failure(exc: AdapterError, product_id: int, operation: str) -> tuple[Any, int]:
     """Render an adapter error using the taxonomy's shared status mapping.
 
     The product's URL and headers never reach the response — only the
-    adapter's own message, which the taxonomy exists to keep product-neutral.
+    adapter's own message. That message is NOT portal-neutral, despite the
+    taxonomy's intent: every product's ``raise_for_status`` (e.g.
+    ``adapters/nest/responses.py``) builds it as ``f"{context}: {detail}"``,
+    where ``detail`` is read straight out of the product's own response body.
+    A Nest 502 becomes ``"create_resource:database: connection refused to
+    10.0.4.17"`` here — the product's own text, unredacted, embedded in a
+    portal-generated envelope.
+
+    So the response is marked with ``UPSTREAM_RESPONSE_HEADER``, same as
+    ``app.proxy`` marks a forwarded body — this is the OTHER path
+    upstream-derived text reaches an API response by, and the webui client
+    only trusts an UNMARKED body, so leaving this one unmarked was the
+    regression a content-shape denylist used to (imperfectly) cover. See
+    that constant's doc comment in ``adapters/base.py`` for the full
+    rationale, including why every ``AdapterError`` subclass is marked
+    uniformly rather than trying to except the ones that happen not to
+    carry upstream text today.
     """
     logger.info(
         "product_request_failed",
@@ -172,4 +187,6 @@ def adapter_failure(
             "error_type": type(exc).__name__,
         },
     )
-    return {"error": str(exc)}, adapter_error_status(exc)
+    response = jsonify({"error": str(exc)})
+    response.headers[UPSTREAM_RESPONSE_HEADER] = "true"
+    return response, adapter_error_status(exc)
