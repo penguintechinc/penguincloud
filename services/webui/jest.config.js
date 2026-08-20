@@ -30,6 +30,14 @@ export default {
     "src/client/components/kit/**/*.{ts,tsx}",
     "src/client/api/**/*.{ts,tsx}",
     "src/client/lib/**/*.{ts,tsx}",
+    // Only the new mutationErrorStore, not stores/** broadly: tenantStore.ts
+    // predates this gate, has no dedicated unit test of its own (only
+    // indirect coverage via other components' mocks), and gating the whole
+    // directory would fail it immediately for pre-existing, out-of-scope
+    // reasons — see M2 in the mutation-error-surfacing review, which asked
+    // for the NEW logic to be covered, not a retroactive audit of the rest
+    // of the folder.
+    "src/client/stores/mutationErrorStore.ts",
     "!src/client/**/*.d.ts",
     "!src/client/components/kit/index.ts", // Barrel exports have no behavior to test
     // Bundler-only `import.meta` access; stubbed in tests, so the real body
@@ -50,6 +58,12 @@ export default {
       statements: 90,
     },
     "src/client/lib/**": {
+      branches: 90,
+      functions: 90,
+      lines: 90,
+      statements: 90,
+    },
+    "src/client/stores/mutationErrorStore.ts": {
       branches: 90,
       functions: 90,
       lines: 90,
