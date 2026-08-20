@@ -1,0 +1,20 @@
+{{/*
+PodDisruptionBudget — prevents a voluntary disruption (node drain, cluster
+upgrade) from taking down enough replicas at once to break the JWT-keystore
+HA guarantee production.yml requires. Only meaningful once replicaCount > 1;
+alpha/beta/gamma leave this disabled.
+*/}}
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "portal-api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "portal-api.selectorLabels" . | nindent 6 }}
+{{- end }}

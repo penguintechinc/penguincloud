@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "portal-api.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- if .Values.persistence.jwtKeystore.enabled }}
+  JWT_KEYSTORE_PATH: {{ .Values.persistence.jwtKeystore.mountPath | quote }}
+  {{- end }}

@@ -1,0 +1,252 @@
+# portal-api — Helm default values (prod-safe baseline).
+#
+# This file is Helm's IMPLICIT default and represents the production-safe
+# baseline (devops-kubernetes.md): 3+ replicas, prod resource tier,
+# autoscaling on, hardened security, digest-pinned image. alpha.yml/
+# beta.yml/gamma.yml scale this DOWN for cheap non-prod environments;
+# production.yml only layers what must differ per real deployment (image
+# digest, ingress host, secrets wiring). Install target namespace is
+# "penguincloud" — the product name only, never environment-suffixed.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 3
+
+image:
+  repository: ghcr.io/penguintechinc/penguincloud/portal-api
+  # Production MUST pin by SHA256 digest (devops-containers.md). Leave tag
+  # empty when digest is set — digest takes precedence in deployment.yaml.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+  # production.yml sets this true so an empty digest fails chart rendering
+  # instead of silently falling back to a mutable tag in prod.
+  requireDigest: false
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+
+podLabels: {}
+
+# securityContext (devops-kubernetes.md — mandatory, no exceptions without
+# explicit user approval; portal-api has no networking/root need).
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+
+podSecurityContext:
+  fsGroup: 1000
+
+service:
+  type: ClusterIP
+  port: 8000
+  metricsPort: 9090
+
+# Resource tier — production (devops-kubernetes.md). ephemeral-storage
+# isn't in the house resource-tier table but is cheap DDOS-of-node
+# protection (kube-score "Container Ephemeral Storage Request and Limit")
+# for the /tmp emptyDir the container writes to.
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+    ephemeral-storage: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+    ephemeral-storage: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# app/__init__.py: /healthz probes DB connectivity, /readyz is a bare liveness
+# ack. Both unauthenticated by design (kubelet sends no bearer token).
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# License entitlement — gates the backend-node (replica) cap per
+# docs/APP_STANDARDS.md "Backend nodes per service type — NOT a portal-
+# runtime concern. Helm replica counts, set at deploy time." See
+# templates/deployment.yaml's license-node-cap fail-fast guard.
+license:
+  tier: enterprise  # community | professional | enterprise
+  maxReplicasOverride: 0  # 0 = use tier default; >0 = licence-server-configured override
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls: []
+
+# JWT signing key persistence (app/__init__.py::_build_oidc_provider). A
+# FileKeyStore is REQUIRED whenever replicaCount > 1: an unset
+# JWT_KEYSTORE_PATH falls back to an in-process MemoryKeyStore, and every
+# replica would then sign with a DIFFERENT key its siblings cannot verify —
+# tokens minted by one pod would randomly 401 on another behind the same
+# Service. templates/deployment.yaml fails chart rendering if replicaCount
+# > 1 and this is disabled, rather than shipping silently-broken auth.
+#
+# accessMode MUST be ReadWriteMany once replicaCount > 1 (every replica
+# reads/writes the same key file) — verify the target cluster's default
+# StorageClass actually supports RWX before enabling in a multi-replica
+# environment; this is NOT verified by this chart.
+# Base values.yaml is the prod-safe baseline (replicaCount: 3 above), so
+# this defaults ENABLED with ReadWriteMany for internal consistency with
+# that replica count. alpha/beta/gamma (replicaCount: 1) turn this back off;
+# production.yml only needs to supply storageClassName for its cluster.
+persistence:
+  jwtKeystore:
+    enabled: true
+    storageClassName: ""
+    accessMode: ReadWriteMany
+    size: 64Mi
+    mountPath: /var/run/penguincloud/jwt-keystore
+
+# Non-secret runtime configuration -> ConfigMap (backend.md CACHE_*
+# convention, devops-kubernetes.md per-env BASE_URL/LOG_LEVEL table).
+# CACHE_HOST intentionally has a real value here (unlike upstream
+# config.py's default of "") — an unset CACHE_HOST silently degrades the
+# health poller to a per-process-only cache with no cross-replica
+# consistency (app/health_cache.py); every environment this chart deploys
+# wires the valkey dependency chart's Service by default.
+config:
+  PRODUCT_NAME: penguincloud
+  BASE_URL: ""
+  LOG_LEVEL: warn
+  RELEASE_MODE: "true"
+  DB_TYPE: postgres
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: penguincloud
+  DB_POOL_SIZE: "20"
+  JWT_ISSUER: ""
+  JWT_AUDIENCES: penguincloud-portal
+  JWT_ALGORITHM: RS256
+  JWT_ACCESS_TOKEN_MINUTES: "30"
+  JWT_REFRESH_TOKEN_DAYS: "7"
+  CORS_ORIGINS: ""
+  OAUTH_ENABLED: "false"
+  LICENSE_SERVER_URL: https://license.penguintech.io
+  CACHE_HOST: valkey
+  CACHE_PORT: "6379"
+  CACHE_DB: "0"
+  CACHE_SSL: "false"
+  HEALTH_POLL_CACHE_TTL_SECONDS: "60"
+  HEALTH_METRICS_PORT: "9090"
+  KILLKRILL_ENABLED: "true"
+  KILLKRILL_API_URL: http://killkrill-receiver:8081
+  KILLKRILL_GRPC_URL: killkrill-receiver:50051
+
+# Secret-managed values. NEVER commit real values here — this chart only
+# ships the *shape*. Populate via `--set secrets.data.KEY=value` at install
+# time (alpha convenience only) or, preferred for beta/gamma/prod, via
+# externalSecrets below (Vault / External Secrets Operator / Sealed
+# Secrets — see security.md "Secrets & Credentials").
+secrets:
+  create: false
+  data:
+    SECRET_KEY: ""
+    JWT_SECRET_KEY: ""
+    DB_PASS: ""
+    ENCRYPTION_KEY: ""
+    LICENSE_KEY: ""
+    CACHE_PASS: ""
+    KILLKRILL_CLIENT_ID: ""
+    KILLKRILL_CLIENT_SECRET: ""
+    OAUTH_GOOGLE_CLIENT_ID: ""
+    OAUTH_GOOGLE_CLIENT_SECRET: ""
+
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Remote key name per local Secret key -- see templates/externalsecret.yaml.
+  keys: {}
+
+networkPolicy:
+  enabled: true
+  # Extra cross-namespace ingress allow rules beyond same-namespace and the
+  # metrics scrape (security.md: "cross-namespace: explicit allowlist per
+  # source/dest/port—no blanket allow"). Each entry:
+  #   namespaceLabels: {kubernetes.io/metadata.name: some-ns}
+  #   ports: [{port: 8000, protocol: TCP}]
+  extraIngress: []
+  # Scrape source for the unauthenticated :9090 metrics listener
+  # (security.md "Port-Scoped External Access" — 9090 must not be reachable
+  # from anywhere else). Empty namespaceLabels = same-namespace only.
+  metricsScrapeFrom:
+    namespaceLabels: {}
+  egress:
+    # DNS is required for every other egress rule to resolve.
+    allowDNS: true
+    # License/flag server — always reachable (see penguintech.md).
+    allowLicenseServer: true
+    # KillKrill log/metric sink.
+    allowKillKrill: true
+
+tracingPolicy:
+  enabled: true
+  allowedBinaries:
+    - /usr/local/bin/python3
+
+# Pod Security Admission labels on the shared "penguincloud" namespace.
+# portal-api is the designated namespace owner (installed first) so exactly
+# one chart creates/labels it — see templates/namespace.yaml. webui and
+# valkey assume it already exists (manageNamespace: false in their values).
+podSecurityAdmission:
+  manageNamespace: true
+  namespace: penguincloud
+  enforce: restricted
+
+metrics:
+  # Requires Prometheus Operator CRDs (ServiceMonitor) — enable only once
+  # confirmed installed in-cluster; infrastructure/monitoring/prometheus/
+  # referenced by the deprecated docker-compose.yml does not exist in this
+  # repo, so nothing scrapes :9090 today regardless of this flag.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

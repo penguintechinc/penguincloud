@@ -1,0 +1,18 @@
+portal-api deployed as {{ include "portal-api.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+{{- if eq .Values.service.type "NodePort" }}
+Alpha NodePort: http://localhost:{{ .Values.service.nodePort }}/healthz
+{{- else }}
+In-cluster: http://{{ include "portal-api.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- end }}
+
+{{- if and (gt (int .Values.replicaCount) 1) (not .Values.persistence.jwtKeystore.enabled) }}
+WARNING: replicaCount > 1 without persistence.jwtKeystore.enabled would have
+failed rendering — if you see this, the guard in templates/deployment.yaml
+was bypassed. Do not deploy.
+{{- end }}
+
+{{- if not .Values.metrics.serviceMonitor.enabled }}
+Note: :9090 metrics are exposed but NOT scraped (metrics.serviceMonitor.enabled
+is false). Enable once Prometheus Operator CRDs are confirmed installed.
+{{- end }}

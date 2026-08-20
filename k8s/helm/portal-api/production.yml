@@ -1,0 +1,130 @@
+# portal-api — production overrides. Base values.yaml is already the prod
+# resource/security baseline; this file layers only what genuinely differs
+# per real deployment: the digest-pinned image, the public hostname, the
+# actual purchased license tier, and the shared JWT keystore volume that
+# replicaCount > 1 requires.
+#
+# OPERATOR: license.tier and replicaCount must match the actual purchased
+# licence before deploy — the deployment.yaml guard fails rendering if
+# replicaCount exceeds that tier's backend-node cap (docs/APP_STANDARDS.md).
+
+replicaCount: 3
+
+image:
+  repository: ghcr.io/penguintechinc/penguincloud/portal-api
+  tag: ""  # digest below takes precedence
+  # REQUIRED — sha256:<digest> of the released image (pinning-dependency-digests
+  # skill). Rendering fails until set — see requireDigest below.
+  digest: ""
+  pullPolicy: IfNotPresent
+  requireDigest: true
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+license:
+  tier: enterprise  # OPERATOR: set to the deployment's actual purchased tier
+  maxReplicasOverride: 0  # >0 only if the licence server issues a specific HA node count
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  className: cilium
+  host: ""  # REQUIRED — the product's real domain (penguintech.md Product Domains) or PenguinCloud-hosted default
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    - hosts: []
+      secretName: portal-api-tls
+
+# REQUIRED at replicaCount > 1 — every replica reads/writes the SAME signing
+# key file (app/__init__.py::_build_oidc_provider), so accessMode MUST be
+# ReadWriteMany. OPERATOR: confirm the target cluster's StorageClass
+# actually supports RWX (e.g. an NFS/CephFS-backed class) before first
+# deploy — this chart does not and cannot verify that from here.
+persistence:
+  jwtKeystore:
+    enabled: true
+    storageClassName: ""  # REQUIRED — an RWX-capable StorageClass
+    accessMode: ReadWriteMany
+    size: 64Mi
+
+config:
+  BASE_URL: ""  # REQUIRED — matches ingress.host
+  LOG_LEVEL: warn
+  RELEASE_MODE: "true"
+  DB_HOST: postgres
+  DB_POOL_SIZE: "20"
+  JWT_ISSUER: ""  # REQUIRED — https://<BASE_URL>
+  CORS_ORIGINS: ""  # REQUIRED — https://<webui BASE_URL>
+
+secrets:
+  create: false
+
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    name: penguincloud-vault
+    kind: ClusterSecretStore
+  keys:
+    SECRET_KEY: penguincloud/production/portal-api#SECRET_KEY
+    JWT_SECRET_KEY: penguincloud/production/portal-api#JWT_SECRET_KEY
+    DB_PASS: penguincloud/production/portal-api#DB_PASS
+    ENCRYPTION_KEY: penguincloud/production/portal-api#ENCRYPTION_KEY
+    LICENSE_KEY: penguincloud/production/portal-api#LICENSE_KEY
+    # Same Vault path valkey/production.yml's ExternalSecret uses for
+    # VALKEY_PASSWORD — deliberately the SAME key, not a portal-api-scoped
+    # copy, so the two can never drift out of sync.
+    CACHE_PASS: penguincloud/production/valkey#VALKEY_PASSWORD
+    KILLKRILL_CLIENT_ID: penguincloud/production/portal-api#KILLKRILL_CLIENT_ID
+    KILLKRILL_CLIENT_SECRET: penguincloud/production/portal-api#KILLKRILL_CLIENT_SECRET
+    OAUTH_GOOGLE_CLIENT_ID: penguincloud/production/portal-api#OAUTH_GOOGLE_CLIENT_ID
+    OAUTH_GOOGLE_CLIENT_SECRET: penguincloud/production/portal-api#OAUTH_GOOGLE_CLIENT_SECRET
+
+networkPolicy:
+  enabled: true
+  extraIngress:
+    - namespaceLabels:
+        kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: "8000"
+          protocol: TCP
+
+podSecurityAdmission:
+  manageNamespace: true
+  namespace: penguincloud
+  enforce: restricted
+
+metrics:
+  serviceMonitor:
+    enabled: false  # flip once Prometheus Operator CRDs are confirmed installed
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# Spread replicas across nodes so a single node loss can't take down enough
+# pods to threaten the PDB's minAvailable.
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: portal-api
+              app.kubernetes.io/instance: portal-api

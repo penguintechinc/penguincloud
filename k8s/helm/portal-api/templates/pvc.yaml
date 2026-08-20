@@ -1,0 +1,18 @@
+{{- if .Values.persistence.jwtKeystore.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "portal-api.jwtKeystorePVCName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.jwtKeystore.accessMode }}
+  {{- if .Values.persistence.jwtKeystore.storageClassName }}
+  storageClassName: {{ .Values.persistence.jwtKeystore.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.jwtKeystore.size }}
+{{- end }}

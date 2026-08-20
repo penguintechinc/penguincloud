@@ -1,0 +1,76 @@
+# portal-api — alpha overrides (local-alpha MicroK8s, localhost:32000 registry).
+# NodePort 30100 — checked against other PenguinTech repos' alpha.yml
+# assignments on this dev machine (current: 30659/30886, skauswatch:
+# 30080/30081, elder: 30090/30091) to avoid collision; increment by 100 if a
+# future repo collides.
+
+replicaCount: 1
+
+image:
+  repository: localhost:32000/portal-api
+  tag: alpha-latest
+  digest: ""
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+    ephemeral-storage: 128Mi
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+license:
+  tier: enterprise  # irrelevant at replicaCount: 1 (every tier permits 1 node)
+
+service:
+  type: NodePort
+  nodePort: 30100
+
+ingress:
+  enabled: false
+
+persistence:
+  jwtKeystore:
+    enabled: false  # single replica — MemoryKeyStore is fine, no cross-pod verification concern
+
+config:
+  BASE_URL: penguincloud.localhost.local
+  LOG_LEVEL: debug
+  RELEASE_MODE: "false"
+  DB_HOST: postgres
+  DB_POOL_SIZE: "2"
+  JWT_ISSUER: https://penguincloud.localhost.local
+  CORS_ORIGINS: http://localhost:3000
+
+# Alpha convenience only — never real secrets committed. Populate via
+# `--set secrets.data.KEY=value` at install time. CACHE_PASS must match
+# whatever `--set secrets.data.VALKEY_PASSWORD=...` is passed to the
+# valkey chart's own alpha install — they authenticate the same connection.
+secrets:
+  create: true
+
+externalSecrets:
+  enabled: false
+
+networkPolicy:
+  enabled: true
+  metricsScrapeFrom:
+    namespaceLabels: {}  # same-namespace only in alpha too
+
+podSecurityAdmission:
+  manageNamespace: true
+  namespace: penguincloud
+  enforce: restricted
+
+metrics:
+  serviceMonitor:
+    enabled: false
