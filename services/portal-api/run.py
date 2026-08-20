@@ -35,11 +35,7 @@ async def wait_for_database(app: Quart, max_retries: int = 30, retry_delay: floa
     for attempt in range(1, max_retries + 1):
         try:
             async with app.app_context():
-                # mypy infers `.executesql` as pydal's dynamic-attribute
-                # TableProxy rather than the bound method it resolves to at
-                # runtime -- narrow suppression per mypy.ini's documented
-                # policy for third-party stub limitations (see background.py).
-                await get_db().executesql("SELECT 1")  # type: ignore[operator]
+                await get_db().executesql("SELECT 1")
             print(f"Database ready after {attempt} attempt(s)", flush=True)
             return True
         except Exception as e:

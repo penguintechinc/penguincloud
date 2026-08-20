@@ -440,6 +440,15 @@ regenerate the lock with
 then `make venv-portal-api` picks up the new hash automatically (it keys
 its no-op check off `requirements.txt`'s own sha256, not a manual flag).
 
+The pre-commit **mypy** hook resolves through the same `.venv` now too
+(`scripts/hooks/run-mypy.sh`), not the ambient/system `mypy` on `PATH`. It
+used to be `language: system`, which imports `penguin_dal` off whatever an
+editable `~/code/penguin-libs` checkout happens to be — a branch that
+drifts independently of this repo and can disagree with the pinned release
+about what needs a `# type: ignore`. If `.venv/` doesn't exist yet, run
+`make venv-portal-api` once; the hook fails with that instruction rather
+than silently falling back to the ambient environment.
+
 ### 7. Create Pull Request
 
 Once tests pass:
