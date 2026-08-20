@@ -34,9 +34,7 @@ from __future__ import annotations
 from typing import Final
 
 import pytest
-
 from app.adapters.gough.adapter import _COLLECTION_ROUTES
-
 from gough_route_source import (
     FIXTURE_NAME,
     effective_gough_routes,
@@ -47,6 +45,7 @@ from gough_route_source import (
 )
 from product_source_fixtures import (
     MAX_FIXTURE_AGE_DAYS,
+    describe_route_drift,
     fixture_age_days,
     fixture_path,
     load_fixture,
@@ -76,9 +75,9 @@ class TestVendoredFixture:
 
     def test_the_fixture_is_committed(self) -> None:
         """Without it this whole module degrades to a skip again."""
-        assert fixture_path(FIXTURE_NAME).is_file(), (
-            f"{fixture_path(FIXTURE_NAME)} is missing — run `{_REFRESH}`"
-        )
+        assert fixture_path(
+            FIXTURE_NAME
+        ).is_file(), f"{fixture_path(FIXTURE_NAME)} is missing — run `{_REFRESH}`"
 
     def test_the_vendored_table_is_plausible(self) -> None:
         """A truncated fixture would make every check below vacuous."""
@@ -101,8 +100,7 @@ class TestVendoredFixture:
         age = fixture_age_days(FIXTURE_NAME)
 
         assert age is not None, (
-            f"the vendored gough fixture records no generation date — run "
-            f"`{_REFRESH}`"
+            f"the vendored gough fixture records no generation date — run " f"`{_REFRESH}`"
         )
         assert age <= MAX_FIXTURE_AGE_DAYS, (
             f"the vendored gough route table was generated {age} days ago "
@@ -122,9 +120,13 @@ class TestVendoredFixture:
                 pytest.fail(reason)
             pytest.skip(reason)
 
-        assert vendored_gough_routes() == gough_source_routes(), (
-            f"the vendored gough route table no longer matches Gough's source. "
-            f"Run `{_REFRESH}` and review the diff."
+        vendored, live = vendored_gough_routes(), gough_source_routes()
+        assert vendored == live, (
+            f"the vendored gough route table ({fixture_path(FIXTURE_NAME)}) no "
+            f"longer matches Gough's source. Run `{_REFRESH}` and review the "
+            f"diff — a route Gough added, renamed or retired changes what the "
+            f"adapter's transcription and allowlist are graded against.\n"
+            f"{describe_route_drift(vendored, live)}"
         )
 
 
