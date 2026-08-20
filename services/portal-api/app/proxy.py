@@ -57,6 +57,23 @@ proxy_bp = Blueprint("proxy", __name__)
 #: Correlaton ID header name
 CORRELATION_ID_HEADER = "X-Correlation-ID"
 
+#: Set (to "true") on every response whose BODY was forwarded from the
+#: connected product, never on a portal-generated body (a `_deny()` refusal,
+#: an auth/validation error, an unhandled-exception 500). This is the
+#: provenance signal the webui's `lib/mutationError.ts` trusts to decide
+#: whether a response body is safe to show an operator verbatim.
+#:
+#: The client cannot infer that safely from the string's shape: `_redact()`
+#: below only strips the credential material THIS request injected, not a
+#: product's hostname, internal IP, filesystem path, or unrelated credential
+#: it happens to mention in an error body — and a denylist of "looks like a
+#: leak" patterns misses shapes nobody enumerated (a dotless in-cluster
+#: service name, IPv6, `sk_live_...`). A header set only in this one code
+#: path — after the redacted upstream body is what is about to be returned —
+#: cannot be spoofed by response content, so it does not have that class of
+#: gap.
+UPSTREAM_RESPONSE_HEADER = "X-Portal-Upstream-Response"
+
 #: Maximum allowed response body size (10 MB)
 MAX_RESPONSE_SIZE = 10 * 1024 * 1024
 
@@ -548,6 +565,11 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
                 )
 
             response.headers[CORRELATION_ID_HEADER] = corr_id
+            # Set LAST, after the upstream header copy loop above — so a
+            # product that happens to send a header with this exact name
+            # cannot overwrite the portal's own provenance signal with a
+            # value of its choosing.
+            response.headers[UPSTREAM_RESPONSE_HEADER] = "true"
 
             await _audit_proxy_call(
                 user_id=user["id"],
