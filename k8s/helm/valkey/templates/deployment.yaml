@@ -1,8 +1,11 @@
 {{/*
-Auth is mandatory (no anonymous Valkey access) and both containers below
-reference the Secret unconditionally via secretKeyRef — fail loudly at
-render time rather than shipping a Deployment that will CreateContainer-
-ConfigError because the Secret does not exist.
+Auth is mandatory (no anonymous Valkey access) and the container below
+references the Secret unconditionally via secretKeyRef/volume — fail
+loudly at render time rather than shipping a Deployment that will
+CreateContainerConfigError because the Secret does not exist. (The
+empty-password case for the secrets.create path is guarded in
+templates/secret.yaml, where the plaintext value is actually visible to
+Helm; this guard only proves a source exists at all.)
 */}}
 {{- if not (or .Values.secrets.create .Values.externalSecrets.enabled) }}
 {{- fail "valkey: neither secrets.create nor externalSecrets.enabled is true — VALKEY_PASSWORD has no source. Set one (alpha convenience: secrets.create + --set secrets.data.VALKEY_PASSWORD=...; beta/gamma/prod: externalSecrets)." }}
@@ -33,6 +36,16 @@ spec:
         {{- end }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.secrets.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if .Values.externalSecrets.enabled }}
+        # Helm cannot hash a value it never sees (ESO resolves it from
+        # Vault independently of any `helm template`/install run) — restart
+        # on rotation is delegated to stakater/Reloader, if installed. See
+        # values.yaml externalSecrets comment.
+        reloader.stakater.com/auto: "true"
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -41,36 +54,6 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      initContainers:
-        # Renders the ACL file that scopes the "default" user (the only
-        # identity penguin_dal's AsyncValkeyCache can authenticate as — see
-        # values.yaml acl comment) to acl.keyPattern/acl.commands, with the
-        # password read from the Secret via env var and written ONLY to an
-        # ephemeral, pod-local emptyDir — never baked into the ConfigMap or
-        # any committed file (security.md "Secrets & Credentials").
-        - name: render-acl
-          image: >-
-            {{ .Values.image.repository }}@{{ .Values.image.digest }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          command: ["/usr/bin/sh", "-c"]
-          args:
-            - |
-              set -e
-              umask 077
-              printf 'user default on >%s ~%s %s\n' "$VALKEY_PASSWORD" "{{ .Values.acl.keyPattern }}" "{{ .Values.acl.commands }}" > /etc/valkey-runtime/users.acl
-          env:
-            - name: VALKEY_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "valkey.secretName" . }}
-                  key: VALKEY_PASSWORD
-          resources:
-            {{- toYaml .Values.initContainerResources | nindent 12 }}
-          volumeMounts:
-            - name: acl-runtime
-              mountPath: /etc/valkey-runtime
       containers:
         - name: valkey
           image: >-
@@ -78,11 +61,18 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          # Default ENTRYPOINT (docker-entrypoint.sh) preserved -- it execs
-          # `valkey-server "$@"` once running as non-root (see
-          # values.yaml tracingPolicy comment for the verified exec chain).
+          # Bypasses the official image's ENTRYPOINT (docker-entrypoint.sh,
+          # a shell script) and execs valkey-server directly as PID 1. Safe
+          # for this exact deployment: docker-entrypoint.sh's only other
+          # logic is a root->non-root chown+setpriv dance (never taken --
+          # securityContext already runs non-root) and a default umask
+          # (irrelevant -- save "" and no unix socket mean nothing this
+          # container writes depends on it). This is also what lets the
+          # Tetragon allowlist below hold at 2 binaries instead of 3 -- see
+          # values.yaml tracingPolicy comment.
+          command:
+            - /usr/local/bin/valkey-server
           args:
-            - valkey-server
             - /etc/valkey/valkey.conf
             - --aclfile
             - /etc/valkey-runtime/users.acl
@@ -91,7 +81,9 @@ spec:
               containerPort: {{ .Values.service.port }}
               protocol: TCP
           env:
-            - name: VALKEY_PASSWORD
+            # valkey-cli (liveness probe below) honours REDISCLI_AUTH
+            # natively -- no shell substitution needed for the probe either.
+            - name: REDISCLI_AUTH
               valueFrom:
                 secretKeyRef:
                   name: {{ include "valkey.secretName" . }}
@@ -108,15 +100,26 @@ spec:
               readOnly: true
             - name: acl-runtime
               mountPath: /etc/valkey-runtime
+              readOnly: true
             - name: data
               mountPath: /data
       volumes:
         - name: config
           configMap:
             name: {{ include "valkey.configMapName" . }}
+        # Projected secret file, not an init-container-rendered one: the
+        # Secret already carries a fully-composed users.acl key (Helm-
+        # templated for the secrets.create path in templates/secret.yaml,
+        # ESO-templated server-side for the externalSecrets path in
+        # templates/externalsecret.yaml) -- no shell substitution happens
+        # inside this pod at all, which is what lets /usr/bin/sh come out
+        # of the Tetragon allowlist entirely.
         - name: acl-runtime
-          emptyDir:
-            sizeLimit: 1Mi
+          secret:
+            secretName: {{ include "valkey.secretName" . }}
+            items:
+              - key: users.acl
+                path: users.acl
         - name: data
           {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:

@@ -4,19 +4,42 @@ service type — NOT a portal-runtime concern. Helm replica counts, set at
 deploy time." Free/Professional are capped at 1 node for this service
 type; Enterprise gets multiple/HA (license-server-configurable). Fails
 chart rendering rather than silently scaling past the licensed cap.
+
+Gates on effectiveReplicas, NOT replicaCount: when autoscaling is on,
+spec.replicas is omitted below and the HPA drives real scale up to
+autoscaling.maxReplicas — a guard that only checked replicaCount reported
+success in exactly the case it exists to catch (base values.yaml ships
+autoscaling.enabled: true, minReplicas: 3, so a community/professional
+render with replicaCount left at 1 would still render an HPA scaling 3-10
+pods unchecked).
 */}}
+{{- $effectiveReplicas := int (include "portal-api.effectiveReplicas" .) }}
 {{- $maxReplicas := int (include "portal-api.maxReplicas" .) }}
-{{- if gt (int .Values.replicaCount) $maxReplicas }}
-{{- fail (printf "portal-api: replicaCount %d exceeds the %s tier's backend-node cap of %d for this service type (docs/APP_STANDARDS.md). Lower replicaCount, raise license.maxReplicasOverride from the license server payload, or upgrade the tier." (int .Values.replicaCount) (include "portal-api.licenseTier" .) $maxReplicas) }}
+{{- if gt $effectiveReplicas $maxReplicas }}
+{{- fail (printf "portal-api: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) exceeds the %s tier's backend-node cap of %d for this service type (docs/APP_STANDARDS.md). Lower replicaCount/autoscaling.maxReplicas, raise license.maxReplicasOverride from the license server payload, or upgrade the tier." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas) (include "portal-api.licenseTier" .) $maxReplicas) }}
 {{- end }}
 {{/*
 JWT signing key persistence — see values.yaml persistence.jwtKeystore
 comment. A multi-replica deployment without a shared FileKeyStore signs
 each pod's tokens with a different in-memory key its siblings cannot
-verify, so refuse to render rather than ship silently-broken auth.
+verify, so refuse to render rather than ship silently-broken auth. Same
+effectiveReplicas gate as above, for the same reason.
 */}}
-{{- if and (gt (int .Values.replicaCount) 1) (not .Values.persistence.jwtKeystore.enabled) }}
-{{- fail "portal-api: replicaCount > 1 requires persistence.jwtKeystore.enabled (ReadWriteMany) — otherwise each replica signs JWTs with its own in-process key and tokens will not verify across pods behind the same Service (see app/__init__.py::_build_oidc_provider)." }}
+{{- if and (gt $effectiveReplicas 1) (not .Values.persistence.jwtKeystore.enabled) }}
+{{- fail (printf "portal-api: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) > 1 requires persistence.jwtKeystore.enabled (ReadWriteMany) — otherwise each replica signs JWTs with its own in-process key and tokens will not verify across pods behind the same Service (see app/__init__.py::_build_oidc_provider)." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas)) }}
+{{- end }}
+{{/*
+ReadWriteOnce + effectiveReplicas > 1 is not just "the keystore isn't
+shared" (already caught above) — it's a Deployment that CANNOT roll out at
+all: the default RollingUpdate strategy schedules a new pod alongside the
+old one(s) before terminating them, and an RWO volume cannot be mounted by
+a second pod's node at the same time, so the rollout sticks in
+Pending/ContainerCreating on top of whatever auth breakage a non-RWX mode
+would already cause. Enforced, not just documented in a comment a
+production.yml author could miss.
+*/}}
+{{- if and (gt $effectiveReplicas 1) .Values.persistence.jwtKeystore.enabled (ne .Values.persistence.jwtKeystore.accessMode "ReadWriteMany") }}
+{{- fail (printf "portal-api: effective replica count %d requires persistence.jwtKeystore.accessMode: ReadWriteMany (got %q) — ReadWriteOnce cannot be mounted by more than one pod's node at a time, so a RollingUpdate with replicaCount > 1 sticks in Pending on top of the cross-pod auth break." $effectiveReplicas .Values.persistence.jwtKeystore.accessMode) }}
 {{- end }}
 {{/*
 devops-containers.md: PenguinTech images require a SHA256 digest in
@@ -25,6 +48,15 @@ digest fails rendering instead of silently deploying a mutable tag.
 */}}
 {{- if and .Values.image.requireDigest (not .Values.image.digest) }}
 {{- fail "portal-api: image.requireDigest is true but image.digest is empty — production must pin by SHA256 digest (devops-containers.md), never a mutable tag." }}
+{{- end }}
+{{/*
+beta.yml/gamma.yml set image.requireTag: true so a CI pipeline that forgot
+to inject its beta-<epoch64>/gamma-<epoch64> tag fails rendering instead of
+silently resolving to Chart.AppVersion + IfNotPresent (devops.md CI/CD Tag
+Naming).
+*/}}
+{{- if and .Values.image.requireTag (not .Values.image.tag) (not .Values.image.digest) }}
+{{- fail "portal-api: image.requireTag is true but image.tag is empty — CI must inject the beta-<epoch64>/gamma-<epoch64> tag at deploy time (devops.md CI/CD Tag Naming); refusing to fall back to Chart.AppVersion." }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -51,6 +83,13 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- if .Values.secrets.create }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if .Values.externalSecrets.enabled }}
+        # Helm cannot hash a value it never sees (ESO resolves it from
+        # Vault independently of any `helm template`/install run) — restart
+        # on rotation is delegated to stakater/Reloader, if installed. See
+        # k8s/helm/valkey's identical annotation for the same reasoning.
+        reloader.stakater.com/auto: "true"
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}

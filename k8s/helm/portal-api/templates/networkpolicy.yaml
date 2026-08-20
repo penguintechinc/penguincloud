@@ -10,8 +10,14 @@ allowlist-only model security.md requires.
 
 Port-scoped (security.md "Port-Scoped External Access"): :8000 is reachable
 from the declared sources only; :9090 (unauthenticated Prometheus metrics —
-see health_poller.py's start_metrics_server docstring) is reachable ONLY
-from metricsScrapeFrom, never from the same broad ingress source as :8000.
+see health_poller.py's start_metrics_server docstring) has NO ingress rule
+at all unless networkPolicy.metricsScrapeFrom.enabled is explicitly set —
+Cilium's deny-by-default-once-selected means omitting the rule denies
+EVERYTHING, not "same namespace" (an empty `matchLabels: {}` selector
+would have matched every same-namespace endpoint, identical in scope to
+the :8000 rule below it — that was a real bug this comment used to
+describe incorrectly; the fix is the metricsScrapeFrom.enabled gate, not
+the wording).
 */}}
 {{- if .Values.networkPolicy.enabled }}
 apiVersion: cilium.io/v2
@@ -32,6 +38,7 @@ spec:
         - ports:
             - port: "8000"
               protocol: TCP
+    {{- if .Values.networkPolicy.metricsScrapeFrom.enabled }}
     - fromEndpoints:
         - matchLabels:
             {{- toYaml .Values.networkPolicy.metricsScrapeFrom.namespaceLabels | nindent 12 }}
@@ -39,6 +46,7 @@ spec:
         - ports:
             - port: "9090"
               protocol: TCP
+    {{- end }}
     {{- range .Values.networkPolicy.extraIngress }}
     - fromEndpoints:
         - matchLabels:

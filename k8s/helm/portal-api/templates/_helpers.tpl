@@ -109,3 +109,21 @@ licence-configurable default, not a hardcoded constant.
 {{- 1 }}
 {{- end }}
 {{- end }}
+
+{{/*
+The replica count that actually governs the running pod count. When
+autoscaling is on, spec.replicas is OMITTED from the Deployment (see
+templates/deployment.yaml) and the HPA drives scale between
+autoscaling.minReplicas and autoscaling.maxReplicas — so .Values.replicaCount
+alone is not what controls behaviour and must never be the value the
+license-cap/JWT-keystore guards test. This is max(replicaCount,
+autoscaling.maxReplicas) when autoscaling is enabled (the ceiling the HPA can
+actually reach), else replicaCount itself.
+*/}}
+{{- define "portal-api.effectiveReplicas" -}}
+{{- if .Values.autoscaling.enabled -}}
+{{- max (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas) -}}
+{{- else -}}
+{{- int .Values.replicaCount -}}
+{{- end -}}
+{{- end -}}

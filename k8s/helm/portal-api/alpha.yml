@@ -28,9 +28,6 @@ autoscaling:
 podDisruptionBudget:
   enabled: false
 
-license:
-  tier: enterprise  # irrelevant at replicaCount: 1 (every tier permits 1 node)
-
 service:
   type: NodePort
   nodePort: 30100
@@ -63,8 +60,8 @@ externalSecrets:
 
 networkPolicy:
   enabled: true
-  metricsScrapeFrom:
-    namespaceLabels: {}  # same-namespace only in alpha too
+  # metricsScrapeFrom inherits values.yaml's secure default (disabled --
+  # nothing scrapes :9090 in alpha either; see values.yaml comment).
 
 podSecurityAdmission:
   manageNamespace: true

@@ -34,8 +34,12 @@ podDisruptionBudget:
   enabled: true
   minAvailable: 2
 
+# See k8s/helm/portal-api/production.yml's identical comment — this file
+# is the only place that opts up from the secure-by-default "community"
+# base; an unedited "enterprise" here does not excuse the operator from
+# confirming it matches the actual purchased tier before deploy.
 license:
-  tier: enterprise  # OPERATOR: set to the deployment's actual purchased tier
+  tier: enterprise
   maxReplicasOverride: 0
 
 service:

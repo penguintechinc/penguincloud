@@ -23,6 +23,12 @@ image:
   # production.yml sets this true so an empty digest fails chart rendering
   # instead of silently falling back to a mutable tag in prod.
   requireDigest: false
+  # beta.yml/gamma.yml set this true so a CI pipeline that forgot to inject
+  # its beta-<epoch64>/gamma-<epoch64> tag fails chart rendering instead of
+  # silently deploying whatever image Chart.AppVersion + IfNotPresent
+  # happens to resolve to (likely a stale or wrong image already on the
+  # node, not a loud failure).
+  requireTag: false
 
 imagePullSecrets: []
 
@@ -104,8 +110,15 @@ readinessProbe:
 # docs/APP_STANDARDS.md "Backend nodes per service type — NOT a portal-
 # runtime concern. Helm replica counts, set at deploy time." See
 # templates/deployment.yaml's license-node-cap fail-fast guard.
+# Secure by default: this product's founding principle is "you turn
+# security OFF, not ON" — the base values.yaml default is deliberately the
+# most RESTRICTIVE tier (community, 1 node), matching
+# _helpers.tpl::portal-api.licenseTier's own fallback. Only production.yml
+# explicitly opts up to a higher tier (with an OPERATOR-facing comment);
+# alpha/beta/gamma never override this at all, since replicaCount is
+# always 1 there regardless of tier.
 license:
-  tier: enterprise  # community | professional | enterprise
+  tier: community  # community | professional | enterprise
   maxReplicasOverride: 0  # 0 = use tier default; >0 = licence-server-configured override
 
 ingress:
@@ -183,7 +196,11 @@ secrets:
   create: false
   data:
     SECRET_KEY: ""
-    JWT_SECRET_KEY: ""
+    # JWT_SECRET_KEY is NOT here: signing is RS256 via the FileKeyStore/
+    # MemoryKeyStore (app/__init__.py::_build_oidc_provider), never the
+    # HS256 shared-secret path JWT_SECRET_KEY would imply — plumbing an
+    # unread key through Secret + Vault in every env is needless secret
+    # surface for a value nothing consumes.
     DB_PASS: ""
     ENCRYPTION_KEY: ""
     LICENSE_KEY: ""
@@ -212,8 +229,15 @@ networkPolicy:
   extraIngress: []
   # Scrape source for the unauthenticated :9090 metrics listener
   # (security.md "Port-Scoped External Access" — 9090 must not be reachable
-  # from anywhere else). Empty namespaceLabels = same-namespace only.
+  # from anywhere else). Secure by default: enabled: false means NO
+  # ingress rule renders for :9090 at all, so nothing can reach it —
+  # matches metrics.serviceMonitor.enabled's own "not confirmed installed"
+  # default. Flip to true (typically alongside metrics.serviceMonitor)
+  # once a real scrape source exists; namespaceLabels then scopes it
+  # (empty = same-namespace only, non-empty = a specific monitoring
+  # namespace).
   metricsScrapeFrom:
+    enabled: false
     namespaceLabels: {}
   egress:
     # DNS is required for every other egress rule to resolve.
@@ -223,10 +247,22 @@ networkPolicy:
     # KillKrill log/metric sink.
     allowKillKrill: true
 
+# services/portal-api/Dockerfile CMD is exec-form ["hypercorn", ...], not
+# python3 — the container's actual sys_execve target at startup is
+# /usr/local/bin/hypercorn (verified against the python:3.13-slim-bookworm
+# base: `pip install hypercorn` puts a script there with shebang
+# `#!/usr/local/bin/python3.13`). The shebang re-exec into python3 is
+# handled by the KERNEL's binfmt_script loader, not a second userspace
+# execve, so Tetragon's sys_execve kprobe never observes "python3" for the
+# main process at all — only "hypercorn". Kubernetes liveness/readiness use
+# httpGet (see livenessProbe/readinessProbe above), not exec, and nothing
+# in services/portal-api/app/*.py shells out (no subprocess/os.system/
+# Popen), so hypercorn is this container's complete legitimate exec
+# surface under a K8s-managed liveness/readiness setup.
 tracingPolicy:
   enabled: true
   allowedBinaries:
-    - /usr/local/bin/python3
+    - /usr/local/bin/hypercorn
 
 # Pod Security Admission labels on the shared "penguincloud" namespace.
 # portal-api is the designated namespace owner (installed first) so exactly

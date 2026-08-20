@@ -59,18 +59,6 @@ resources:
     memory: 256Mi
     ephemeral-storage: 128Mi
 
-# The render-acl init container does one printf and exits — negligible,
-# fixed footprint regardless of environment tier.
-initContainerResources:
-  requests:
-    cpu: 10m
-    memory: 16Mi
-    ephemeral-storage: 16Mi
-  limits:
-    cpu: 50m
-    memory: 32Mi
-    ephemeral-storage: 32Mi
-
 # Below the memory limit with headroom for valkey's own process overhead.
 # allkeys-lru is safe here: this instance holds ONLY
 # app/health_cache.py's ephemeral `health:{connection_id}` entries (60s
@@ -83,9 +71,14 @@ maxmemoryPolicy: allkeys-lru
 # actually functional, not just listening); readiness is a cheap TCP-open
 # check (traffic-routing signal only — a slow AUTH round-trip under load
 # shouldn't flip the pod out of the Service's endpoint list).
+#
+# Direct argv exec, no shell: valkey-cli reads the REDISCLI_AUTH env var
+# natively (verified: `valkey-cli --help`), so kubelet's exec probe never
+# needs a "sh -c" wrapper to expand a variable — one less reason for
+# /usr/bin/sh to be in the Tetragon allowlist below.
 livenessProbe:
   exec:
-    command: ["/usr/bin/sh", "-c", "valkey-cli -a \"$VALKEY_PASSWORD\" --no-auth-warning ping"]
+    command: ["/usr/local/bin/valkey-cli", "--no-auth-warning", "ping"]
   initialDelaySeconds: 10
   periodSeconds: 10
   timeoutSeconds: 5
@@ -136,7 +129,11 @@ externalSecrets:
     name: ""
     kind: ClusterSecretStore
   refreshInterval: 1h
-  keys: {}
+  # templates/externalsecret.yaml reads keys.VALKEY_PASSWORD specifically
+  # (not a generic range) so it can compose users.acl server-side via ESO's
+  # target.template -- see that file's header comment.
+  keys:
+    VALKEY_PASSWORD: ""
 
 networkPolicy:
   enabled: true
@@ -151,14 +148,14 @@ networkPolicy:
 
 tracingPolicy:
   enabled: true
-  # Wider than portal-api/webui's single-binary allowlists because the
-  # OFFICIAL valkey/valkey image's own ENTRYPOINT (docker-entrypoint.sh) is
-  # a shell script (verified against this exact image: shebang resolves to
-  # /usr/bin/sh) that execs valkey-server, and the exec health probe execs
-  # valkey-cli as a separate process. All three are this image's actual,
-  # complete startup + healthcheck surface — not a generic allowance.
+  # Two binaries, not three: templates/deployment.yaml's command:
+  # overrides the official image's ENTRYPOINT (docker-entrypoint.sh, a
+  # shell script) to exec valkey-server directly as PID 1, and the
+  # liveness probe execs valkey-cli directly (REDISCLI_AUTH env var, no
+  # "sh -c" wrapper — see values.yaml livenessProbe comment). No shell
+  # ever runs in this container at all, so /usr/bin/sh -- the exact binary
+  # class this policy exists to block -- is not in this allowlist.
   allowedBinaries:
-    - /usr/bin/sh
     - /usr/local/bin/valkey-server
     - /usr/local/bin/valkey-cli
 

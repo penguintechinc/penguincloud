@@ -12,6 +12,9 @@ image:
   digest: ""
   pullPolicy: IfNotPresent
   requireDigest: false
+  # See k8s/helm/portal-api/values.yaml's identical comment — beta.yml/
+  # gamma.yml set this true so a forgotten CI tag injection fails loudly.
+  requireTag: false
 
 imagePullSecrets: []
 
@@ -97,8 +100,10 @@ readinessProbe:
   timeoutSeconds: 3
   failureThreshold: 3
 
+# Secure by default — see k8s/helm/portal-api/values.yaml's identical
+# comment. Only production.yml opts up to a higher tier.
 license:
-  tier: enterprise
+  tier: community
   maxReplicasOverride: 0
 
 ingress:
@@ -139,6 +144,13 @@ networkPolicy:
   extraIngress: []
   egress:
     allowDNS: true
+    # webui's only real same-namespace dependency (config.FLASK_API_URL) —
+    # matches portal-api's own selector labels and actual serving port,
+    # not a blanket same-namespace-any-port allow.
+    allowPortalApi:
+      matchLabels:
+        app.kubernetes.io/name: portal-api
+      port: "8000"
 
 tracingPolicy:
   enabled: true

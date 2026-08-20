@@ -4,9 +4,10 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/penguintechinc/penguincloud/webui
-  tag: ""  # set at deploy time to the CI-built beta-<epoch64> tag
+  tag: ""  # set at deploy time to the CI-built beta-<epoch64> tag; rendering fails until set (requireTag below)
   digest: ""
   pullPolicy: IfNotPresent
+  requireTag: true
 
 resources:
   requests:
@@ -23,9 +24,6 @@ autoscaling:
 
 podDisruptionBudget:
   enabled: false
-
-license:
-  tier: enterprise  # irrelevant at replicaCount: 1
 
 service:
   type: ClusterIP

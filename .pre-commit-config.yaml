@@ -235,7 +235,7 @@ repos:
         stages: [pre-push]
 
       - id: k8s-security-scan
-        name: kube-score + helm lint/checkov (best-effort, no rendered manifests yet)
+        name: helm lint/template + kube-score/checkov on rendered charts (blocking)
         entry: scripts/hooks/run-k8s-checks.sh
         language: script
         pass_filenames: false

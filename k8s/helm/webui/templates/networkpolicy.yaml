@@ -33,9 +33,18 @@ spec:
             {{- toYaml .ports | nindent 12 }}
     {{- end }}
   egress:
-    # portal-api and any same-namespace dependency.
+    # webui's ONLY real dependency is portal-api's /api proxy target
+    # (config.FLASK_API_URL) -- scoped to that pod selector and its actual
+    # serving port, not a blanket same-namespace allow to every port on
+    # every pod (security.md "Egress Filtering": allowlist known
+    # destinations only).
     - toEndpoints:
-        - {}
+        - matchLabels:
+            {{- toYaml .Values.networkPolicy.egress.allowPortalApi.matchLabels | nindent 12 }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.networkPolicy.egress.allowPortalApi.port | quote }}
+              protocol: TCP
     {{- if .Values.networkPolicy.egress.allowDNS }}
     - toEndpoints:
         - matchLabels:

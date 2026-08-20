@@ -33,8 +33,16 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 
+# values.yaml defaults license.tier to "community" (secure by default) —
+# this file is the ONLY place that opts up to a higher tier, and it is
+# REQUIRED to be here: with replicaCount: 3 / autoscaling.maxReplicas: 10
+# above, an unedited "community" or "professional" tier fails the
+# deployment.yaml backend-node-cap guard by design. OPERATOR: set this to
+# the deployment's ACTUAL purchased tier before deploy, never blindly copy
+# "enterprise" — a lower tier without matching replica counts is exactly
+# the failure this guard exists to force you to resolve consciously.
 license:
-  tier: enterprise  # OPERATOR: set to the deployment's actual purchased tier
+  tier: enterprise
   maxReplicasOverride: 0  # >0 only if the licence server issues a specific HA node count
 
 service:
@@ -81,7 +89,6 @@ externalSecrets:
     kind: ClusterSecretStore
   keys:
     SECRET_KEY: penguincloud/production/portal-api#SECRET_KEY
-    JWT_SECRET_KEY: penguincloud/production/portal-api#JWT_SECRET_KEY
     DB_PASS: penguincloud/production/portal-api#DB_PASS
     ENCRYPTION_KEY: penguincloud/production/portal-api#ENCRYPTION_KEY
     LICENSE_KEY: penguincloud/production/portal-api#LICENSE_KEY

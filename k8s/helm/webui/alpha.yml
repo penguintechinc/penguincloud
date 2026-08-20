@@ -26,9 +26,6 @@ autoscaling:
 podDisruptionBudget:
   enabled: false
 
-license:
-  tier: enterprise  # irrelevant at replicaCount: 1
-
 service:
   type: NodePort
   nodePort: 30101

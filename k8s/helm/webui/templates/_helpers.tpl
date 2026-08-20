@@ -94,3 +94,17 @@ type"): 1 each on Free/Professional, multiple/HA on Enterprise.
 {{- 1 }}
 {{- end }}
 {{- end }}
+
+{{/*
+The replica count that actually governs the running pod count — see
+portal-api's identical helper/comment. .Values.replicaCount alone is not
+what controls behaviour once autoscaling is on (spec.replicas is omitted
+from the Deployment and the HPA drives scale up to autoscaling.maxReplicas).
+*/}}
+{{- define "webui.effectiveReplicas" -}}
+{{- if .Values.autoscaling.enabled -}}
+{{- max (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas) -}}
+{{- else -}}
+{{- int .Values.replicaCount -}}
+{{- end -}}
+{{- end -}}

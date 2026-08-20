@@ -6,9 +6,10 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/penguintechinc/penguincloud/portal-api
-  tag: ""  # set at deploy time to the CI-built gamma-<epoch64> tag
+  tag: ""  # set at deploy time to the CI-built gamma-<epoch64> tag; rendering fails until set (requireTag below)
   digest: ""
   pullPolicy: IfNotPresent
+  requireTag: true
 
 resources:
   requests:
@@ -25,9 +26,6 @@ autoscaling:
 
 podDisruptionBudget:
   enabled: false
-
-license:
-  tier: enterprise  # irrelevant at replicaCount: 1
 
 service:
   type: ClusterIP
@@ -66,7 +64,6 @@ externalSecrets:
     kind: ClusterSecretStore
   keys:
     SECRET_KEY: penguincloud/gamma/portal-api#SECRET_KEY
-    JWT_SECRET_KEY: penguincloud/gamma/portal-api#JWT_SECRET_KEY
     DB_PASS: penguincloud/gamma/portal-api#DB_PASS
     ENCRYPTION_KEY: penguincloud/gamma/portal-api#ENCRYPTION_KEY
     LICENSE_KEY: penguincloud/gamma/portal-api#LICENSE_KEY
