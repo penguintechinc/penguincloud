@@ -206,6 +206,48 @@ async def test_health_endpoint_reports_recorded_check(
 
 
 @pytest.mark.asyncio
+async def test_connection_test_marks_the_response_as_upstream(
+    client: Any,
+    admin_headers: dict[str, str],
+    tenant_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /products/<id>/test's live-check result is never portal-native.
+
+    HealthResult.error is str(exc) from Transport.health_check's own
+    exception handling (adapters/transport.py) — a real connection failure
+    embeds the product's actual host/IP, same class of leak C1 closed for
+    adapter_failure. The webui's describeMutationError (lib/mutationError.ts)
+    trusts an UNMARKED response verbatim, so this endpoint has to mark itself
+    the same way, since it never goes through adapter_failure at all.
+    """
+    created = await _register_product(client, admin_headers, tenant_id)
+
+    from app.adapters.base import AdapterContext, HealthResult
+    from app.adapters.nest import NestAdapter
+
+    async def mock_health(self: Any, ctx: AdapterContext) -> HealthResult:
+        # status_code=0: Transport.health_check's own sentinel for "no real
+        # HTTP response was received" (adapters/transport.py), not a made-up
+        # value for this test.
+        return HealthResult(
+            status="unhealthy",
+            status_code=0,
+            response_time_ms=0,
+            error="connection refused to 10.0.4.17",
+        )
+
+    monkeypatch.setattr(NestAdapter, "health", mock_health)
+
+    response = await client.post(f"/api/v1/products/{created['id']}/test", headers=admin_headers)
+
+    assert response.status_code == 200
+    body = await response.get_json()
+    assert body["error"] == "connection refused to 10.0.4.17"
+    assert response.headers.get("X-Portal-Upstream-Response") == "true"
+
+
+@pytest.mark.asyncio
 async def test_raw_accessor_still_returns_ciphertext(
     app: Any, client: Any, admin_headers: dict[str, str], tenant_id: int
 ) -> None:

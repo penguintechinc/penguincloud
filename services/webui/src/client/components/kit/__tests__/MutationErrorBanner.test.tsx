@@ -151,5 +151,46 @@ describe("MutationErrorBanner", () => {
       // closing the modal underneath it.
       expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     });
+
+    it("is reachable by keyboard too, not only by click", async () => {
+      // Distinct from "remains dismissible while the dialog is open" above,
+      // which proves the click path — this proves Tab actually reaches the
+      // banner's dismiss button, which portaling alone (fixes hit-testing)
+      // does not: ConfirmDialog's own Tab trap only considered its own
+      // subtree, so the dismiss button was visible and clickable but never
+      // reachable by keyboard while the dialog held focus.
+      const user = userEvent.setup();
+      useMutationErrorStore.setState({
+        errors: [{ id: 1, message: "Route not allowed" }],
+      });
+      renderWithOpenDialog();
+
+      // ConfirmDialog auto-focuses its own confirm button on open.
+      const confirmBtn = screen.getByTestId(
+        "tobogganing-swg-replace-confirm-confirm",
+      );
+      expect(confirmBtn).toHaveFocus();
+
+      await user.tab();
+
+      expect(screen.getByLabelText("Dismiss error")).toHaveFocus();
+
+      await user.keyboard("{Enter}");
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("drops aria-modal while an alert is live, so AT is not told to ignore it", () => {
+      // ARIA: content outside an aria-modal="true" dialog is ignored by
+      // assistive tech, which would apply to the portaled banner. Whether a
+      // real screen reader's announcement actually changes as a result is
+      // NOT verified here — jsdom has no AT to check that against — but the
+      // specific mechanism the spec names for the exclusion is removed.
+      useMutationErrorStore.setState({
+        errors: [{ id: 1, message: "Route not allowed" }],
+      });
+      renderWithOpenDialog();
+
+      expect(screen.getByRole("alertdialog")).not.toHaveAttribute("aria-modal");
+    });
   });
 });

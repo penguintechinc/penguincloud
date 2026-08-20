@@ -18,16 +18,25 @@
  * denylist over content shape can only ever cover shapes someone thought of;
  * the next unanticipated one always wins.
  *
- * This version decides from PROVENANCE instead of content: portal-generated
- * error bodies (auth failures, `@validate_response` validation errors,
- * `_deny()` refusals) are trusted and shown verbatim; anything forwarded
- * from a connected product through the proxy
- * (`services/portal-api/app/proxy.py`) is ALWAYS replaced with a generic
- * message, regardless of what it contains. The proxy marks which is which
- * with `UPSTREAM_RESPONSE_HEADER` — set once, after the point where an
- * upstream body could otherwise reach the caller, so it cannot be spoofed by
- * response content the way a string pattern could always eventually be
- * evaded.
+ * This version decides from PROVENANCE instead of content: a portal-native
+ * body (auth failures, `@validate_response` validation errors, `_deny()`
+ * refusals) is trusted and shown verbatim; anything the backend has marked
+ * as containing product-derived text is ALWAYS replaced with a generic
+ * message, regardless of what it contains. The marker is
+ * `UPSTREAM_RESPONSE_HEADER`, defined once in
+ * `services/portal-api/app/adapters/base.py` — read that constant's own doc
+ * comment for the CURRENT, authoritative list of writers, not this one.
+ *
+ * Naming a single writer here is exactly the mistake that let one of them
+ * ship unmarked: an earlier version of this comment named
+ * `services/portal-api/app/proxy.py` as "the" writer, because at the time it
+ * was the only one — and that framing is what let
+ * `app.product_access.adapter_failure` (the typed portal routes' error
+ * path, entirely separate from the proxy) go unmarked in the same round
+ * that introduced this mechanism. A reader who believes "the proxy handles
+ * this" has no reason to go looking for a second writer, a third, or a
+ * fourth. There are four as of this writing (`adapters/base.py` enumerates
+ * them); do not copy that count here either — go read the source of truth.
  */
 import { isAxiosError } from "axios";
 
@@ -39,8 +48,10 @@ export const GENERIC_MUTATION_ERROR_MESSAGE =
 const MAX_MESSAGE_LENGTH = 200;
 
 /**
- * Matches `UPSTREAM_RESPONSE_HEADER` in `services/portal-api/app/proxy.py`.
- * Axios normalises response header names to lowercase.
+ * Matches `UPSTREAM_RESPONSE_HEADER`, defined once in
+ * `services/portal-api/app/adapters/base.py` (not owned by any single
+ * route file — see that constant's doc comment for the current list of
+ * writers). Axios normalises response header names to lowercase.
  */
 const UPSTREAM_RESPONSE_HEADER = "x-portal-upstream-response";
 
@@ -78,12 +89,13 @@ function isDisplayable(text: string): boolean {
  * Extracts a message from a rejected mutation's error, safe to show an
  * operator.
  *
- * Axios errors are read from `response.data` — the shape the portal API and
- * its proxy both use (`{"error": "..."}`). A response the proxy marked as
- * upstream-forwarded is ALWAYS replaced with the generic message, before its
- * body is even inspected — that is the provenance check this function
- * exists to make. A portal-native response (no marker) is trusted and shown
- * verbatim, length permitting.
+ * Axios errors are read from `response.data` — the shape every portal route
+ * uses (`{"error": "..."}`). A response ANY backend writer marked as
+ * upstream-forwarded (see `UPSTREAM_RESPONSE_HEADER`'s doc comment in
+ * `adapters/base.py` for the current list) is ALWAYS replaced with the
+ * generic message, before its body is even inspected — that is the
+ * provenance check this function exists to make. A portal-native response
+ * (no marker) is trusted and shown verbatim, length permitting.
  *
  * A plain `Error` (e.g. the "No <Product> connection for the active tenant"
  * guard every product mutation hook throws) is client-generated, never
