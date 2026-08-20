@@ -1,7 +1,12 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { useMutationErrorStore } from "../../../stores/mutationErrorStore";
 
 describe("ConfirmDialog", () => {
+  beforeEach(() => {
+    useMutationErrorStore.setState({ errors: [] });
+  });
+
   it("does not render when isOpen is false", () => {
     render(
       <ConfirmDialog
@@ -126,7 +131,7 @@ describe("ConfirmDialog", () => {
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
   });
 
-  it("handles Tab key in focus trap", () => {
+  it("wraps Tab from the last element back to the first", () => {
     render(
       <ConfirmDialog
         isOpen={true}
@@ -137,22 +142,14 @@ describe("ConfirmDialog", () => {
       />,
     );
 
-    const confirmBtn = screen.getByTestId("confirm-dialog-confirm");
-    confirmBtn.focus();
-    const event = new KeyboardEvent("keydown", {
-      key: "Tab",
-      bubbles: true,
-      cancelable: true,
-    });
-    Object.defineProperty(event, "target", {
-      value: confirmBtn,
-      enumerable: true,
-    });
-    document.dispatchEvent(event);
-    expect(confirmBtn).toBeInTheDocument();
+    // No live alert, so the dialog's own confirm button is genuinely last.
+    screen.getByTestId("confirm-dialog-confirm").focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+
+    expect(screen.getByTestId("confirm-dialog-cancel")).toHaveFocus();
   });
 
-  it("handles Shift+Tab key in focus trap", () => {
+  it("wraps Shift+Tab from the first element back to the last", () => {
     render(
       <ConfirmDialog
         isOpen={true}
@@ -163,20 +160,52 @@ describe("ConfirmDialog", () => {
       />,
     );
 
-    const cancelBtn = screen.getByTestId("confirm-dialog-cancel");
-    cancelBtn.focus();
-    const event = new KeyboardEvent("keydown", {
-      key: "Tab",
-      shiftKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-    Object.defineProperty(event, "target", {
-      value: cancelBtn,
-      enumerable: true,
-    });
-    document.dispatchEvent(event);
-    expect(cancelBtn).toBeInTheDocument();
+    screen.getByTestId("confirm-dialog-cancel").focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+
+    expect(screen.getByTestId("confirm-dialog-confirm")).toHaveFocus();
+  });
+
+  it("sends Tab to the first trapped element when focus is on neither the dialog nor an alert", () => {
+    // e.g. focus is still on the backdrop, or on whatever had it before the
+    // dialog opened but was not one of dialogRef's own children.
+    render(
+      <ConfirmDialog
+        isOpen={true}
+        title="Focus Test"
+        message="Untracked focus test"
+        onConfirm={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+    const outsider = document.createElement("button");
+    document.body.appendChild(outsider);
+    outsider.focus();
+
+    fireEvent.keyDown(document, { key: "Tab" });
+
+    expect(screen.getByTestId("confirm-dialog-cancel")).toHaveFocus();
+    outsider.remove();
+  });
+
+  it("sends Shift+Tab to the last trapped element when focus is on neither the dialog nor an alert", () => {
+    render(
+      <ConfirmDialog
+        isOpen={true}
+        title="Focus Test"
+        message="Untracked focus test"
+        onConfirm={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+    const outsider = document.createElement("button");
+    document.body.appendChild(outsider);
+    outsider.focus();
+
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+
+    expect(screen.getByTestId("confirm-dialog-confirm")).toHaveFocus();
+    outsider.remove();
   });
 
   it("renders loading state", () => {
