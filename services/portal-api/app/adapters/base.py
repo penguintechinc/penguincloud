@@ -277,7 +277,15 @@ def adapter_error_status(exc: AdapterError) -> int:
 #: portal-native and shown as-is, marked is always replaced with a generic
 #: message regardless of content.
 #:
-#: Two writers, both intentional:
+#: This is the definition to update FIRST when adding a fifth writer, and
+#: the list below is deliberately exhaustive rather than "see the proxy" —
+#: the original version of this constant named only ``app.proxy`` as owning
+#: it, and that framing is what let ``app.product_access.adapter_failure``
+#: ship unmarked in the same round: a reader who trusted "the proxy is the
+#: one path" had no reason to go looking for a second one. Grep this
+#: constant's name for the current, authoritative list of writers; the four
+#: below are current as of this writing, not a promise the list stops here:
+#:
 #: - ``app.proxy`` — the raw forwarding path, sets it on the response built
 #:   directly from ``outbound_response.content``.
 #: - ``app.product_access.adapter_failure`` — every ``AdapterError`` message
@@ -286,11 +294,31 @@ def adapter_error_status(exc: AdapterError) -> int:
 #:   product's OWN response body into ``f"{context}: {detail}"``. That
 #:   response never touches ``app.proxy`` at all — it is the "trusted,
 #:   typed adapter method" path this module's own docstring describes above
-#:   — so nothing else marks it. Every subclass is treated identically,
-#:   including ``AdapterCapabilityError`` (portal-generated, never carries
-#:   upstream text today): a false positive here just shows the generic
-#:   message for a message that happened to be safe, which costs a little
-#:   detail; a false negative is the regression this exists to close.
+#:   — so nothing else marks it. Every ``AdapterError`` subclass is treated
+#:   identically, including ``AdapterCapabilityError`` (portal-generated,
+#:   never carries upstream text today): a false positive here just shows
+#:   the generic message for a message that happened to be safe, which
+#:   costs a little detail; a false negative is the regression this exists
+#:   to close.
+#: - ``app.products.test_product_connection`` (``POST
+#:   /products/<id>/test``) — a LIVE call to the product
+#:   (``adapter.health()``), returned in the 200 body rather than raised as
+#:   an ``AdapterError``, so ``adapter_failure`` never sees it. Marked
+#:   unconditionally, same reasoning as above.
+#: - ``app.health_api.get_products_health`` (``GET /products/health``) —
+#:   reads ``CachedHealth.error``, written by ``health_poller.py``'s sweep
+#:   from the same ``Transport.health_check`` exception text. No webui
+#:   screen reads this endpoint today (latent, not a live leak), marked
+#:   anyway so it is not a second miss for whichever one does. Declares
+#:   ``@validate_response`` for its 200, so it sets this header by
+#:   returning a 3-tuple ``(model, status, headers)`` rather than a
+#:   pre-built ``Response`` — see the comment at that call site for why
+#:   returning a ``Response`` there raises ``ResponseHeadersValidationError``
+#:   instead of working.
+#:
+#: ``Operation.error`` and ``OperationLogLine.message`` (below) are a
+#: deliberate NON-writer: those fields are verbatim-by-contract, not
+#: upstream-marked, by design — see their own docstrings.
 UPSTREAM_RESPONSE_HEADER: Final[str] = "X-Portal-Upstream-Response"
 
 

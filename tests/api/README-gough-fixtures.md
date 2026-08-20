@@ -33,7 +33,6 @@ services:
       - PYTHONPATH=/opt/penguin-aaa/src:/opt/penguin-utils/src:/tmp/extra-site-packages
       - SECRET_KEY=local-verification-only-secret-key-value
       - SECURITY_PASSWORD_SALT=local-verification-only-salt-value
-      - JWT_SECRET_KEY=local-verification-only-jwt-key-value
     command:
       - sh
       - -c
