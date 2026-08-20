@@ -340,15 +340,23 @@ export const handlers = [
 
   /**
    * GET /api/v1/auth/me — hydrates the auth store after login and on reload.
-   * Spread into a fresh literal at the `satisfies` site (not `MOCK_USER`
-   * directly) so excess-property checking is live the moment this endpoint
-   * leaves `UnboundMockEndpoint` — a bare variable reference loses it
-   * silently, with nothing to signal the gap re-opened.
+   *
+   * `MOCK_USER satisfies MockResponse<...>` — NOT `{ ...MOCK_USER }
+   * satisfies ...`. A spread was tried here and reverted: verified against
+   * this repo's tsc (5.7.2), `{ ...src } satisfies Narrow` does not
+   * re-trigger excess-property checking the way an explicit `{ a: 1, b: 2 }
+   * satisfies Narrow` literal does — TypeScript only checks the properties
+   * written directly in the literal, and a spread's contributed keys are
+   * not "written" for that purpose. So the spread bought nothing here: a
+   * bare `MOCK_USER` reference is exactly as (un)protected. This endpoint
+   * is in `UnboundMockEndpoint` today, so it is moot either way — call out
+   * for whoever removes it from that list later: getting real
+   * excess-property protection means rewriting this as an explicit
+   * literal against the real schema's fields, the way the `tenants` and
+   * `tenants/{tenant_id}/switch` handlers above do, not adding a spread.
    */
   http.get(`${API_BASE}/auth/me`, () => {
-    const body = {
-      ...MOCK_USER,
-    } satisfies MockResponse<"/api/v1/auth/me", "get">;
+    const body = MOCK_USER satisfies MockResponse<"/api/v1/auth/me", "get">;
     return HttpResponse.json(body);
   }),
 
@@ -389,11 +397,13 @@ export const handlers = [
       );
     }
 
-    // Spread into a fresh literal, not the tokenPair(...) call result
-    // directly — same reasoning as GET /api/v1/auth/me above.
-    const body = {
-      ...tokenPair(PROVIDER_ONE),
-    } satisfies MockResponse<"/api/v1/auth/refresh", "post">;
+    // tokenPair(...) result used directly, not spread — see the longer note
+    // on GET /api/v1/auth/me above for why a spread would not add any
+    // excess-property protection here either.
+    const body = tokenPair(PROVIDER_ONE) satisfies MockResponse<
+      "/api/v1/auth/refresh",
+      "post"
+    >;
     return HttpResponse.json(body);
   }),
 

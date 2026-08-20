@@ -39,11 +39,12 @@ const MAX_QUEUED_ERRORS = 5;
 export const useMutationErrorStore = create<MutationErrorState>((set, get) => ({
   errors: [],
   report: (message) => {
-    // Dedupe by message: bump the existing entry to the front (so it
-    // reads as "still happening", not lost among newer ones) instead of
-    // stacking an identical banner every time the same failure repeats —
-    // three Save clicks on the same broken form produced three identical
-    // banners before this.
+    // Dedupe by message: bump the existing entry to the END of the queue
+    // (the same position a brand-new entry joins at, so it reads as "still
+    // happening", not lost among newer ones) instead of stacking an
+    // identical banner every time the same failure repeats — three Save
+    // clicks on the same broken form produced three identical banners
+    // before this.
     const existing = get().errors.find((e) => e.message === message);
     if (existing) {
       console.log(

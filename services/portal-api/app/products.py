@@ -5,12 +5,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from quart import Blueprint, request
+from quart import Blueprint, jsonify, request
 from quart_schema import validate_request, validate_response
 
 from . import flags, quotas
 from .adapters import get_adapter, get_all_product_types
-from .adapters.base import AdapterCapabilityError, AdapterContext
+from .adapters.base import (
+    UPSTREAM_RESPONSE_HEADER,
+    AdapterCapabilityError,
+    AdapterContext,
+)
 from .authz import (
     SCOPE_PRODUCTS_MANAGE,
     SCOPE_PRODUCTS_READ,
@@ -323,7 +327,7 @@ async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
 @products_bp.route("/<int:product_id>/test", methods=["POST"])
 @auth_required
 @tenancy_aware
-async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]:
+async def test_product_connection(product_id: int) -> tuple[Any, int]:
     """Test a product connection."""
     user = get_current_user()
     if not user:
@@ -372,7 +376,7 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
     result = await adapter.health(ctx)
 
     # Convert HealthResult to dict for response
-    result_dict = {
+    result_dict: dict[str, Any] = {
         "status": result.status,
         "status_code": result.status_code,
         "response_time_ms": result.response_time_ms,
@@ -382,7 +386,18 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
 
     await update_product_health(product_id, result.status)
 
-    return result_dict, 200
+    # This is a LIVE call to the product (adapter.health() above), so the
+    # whole response is upstream-derived the same way adapter_failure's is
+    # — `status`/`status_code`/`response_time_ms` are not free text, but
+    # `error` is `str(exc)` from Transport.health_check's own exception
+    # handling (adapters/transport.py), which can embed the product's real
+    # hostname/IP on a connection failure. Marked unconditionally (not only
+    # when `error` is present) for the same reason adapter_failure marks
+    # every AdapterError subclass: the choke point is the route, not a
+    # per-field judgement call about what happens to be textual today.
+    response = jsonify(result_dict)
+    response.headers[UPSTREAM_RESPONSE_HEADER] = "true"
+    return response, 200
 
 
 @products_bp.route("/<int:product_id>/health", methods=["GET"])
