@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
@@ -11,6 +12,7 @@ from penguin_aaa.authn.oidc_provider import OIDCProvider
 from penguin_aaa.authn.types import Claims
 from penguintechinc_utils.logging import get_logger
 from quart import Blueprint, current_app, request
+from quart_schema import validate_response
 
 from . import devmode, quotas
 from .config import UNSCOPED_TENANT
@@ -29,6 +31,118 @@ from .models import (
 )
 
 auth_bp = Blueprint("auth", __name__)
+
+
+@dataclass(slots=True, frozen=True)
+class AuthenticatedUser:
+    """The caller's own profile, as login echoes it back.
+
+    Deliberately narrower than the full user row fetched from the
+    database: no password_hash, no MFA secret, no internal flags. Nothing
+    added to that row tomorrow reaches this response unless it is added
+    here too — see security.md Output Validation.
+
+    Attributes:
+        id: Identifier of the authenticated user.
+        email: The user's email address.
+        full_name: Display name.
+        role: Global role: admin, maintainer or viewer.
+    """
+
+    id: int
+    email: str
+    full_name: str
+    role: str
+
+
+@dataclass(slots=True, frozen=True)
+class LoginResponse:
+    """Envelope for POST /api/v1/auth/login.
+
+    No ``id_token``: id tokens are OIDC "who is this" material, not bearer
+    credentials — TestTokenTypeConfusion (tests/api/test_auth.py) requires
+    penguin-aaa's id token to be REFUSED on every protected route, so
+    returning one alongside the access token here would hand the client a
+    value it is equally likely to just replay as a bearer.
+
+    Attributes:
+        access_token: Bearer token for subsequent requests.
+        refresh_token: Opaque token to exchange for a new pair via
+            /api/v1/auth/refresh.
+        token_type: Always "Bearer".
+        expires_in: Seconds until access_token expires.
+        user: The authenticated caller's profile.
+    """
+
+    access_token: str
+    refresh_token: str
+    token_type: str
+    expires_in: int
+    user: AuthenticatedUser
+
+
+@dataclass(slots=True, frozen=True)
+class RefreshResponse:
+    """Envelope for POST /api/v1/auth/refresh.
+
+    No ``user``: a refresh proves possession of a still-valid refresh
+    token, not a fresh credential check, so re-stating the profile here
+    would imply a re-authentication this endpoint does not perform. Callers
+    that need the current profile call GET /api/v1/auth/me.
+
+    Attributes:
+        access_token: Newly issued bearer token.
+        refresh_token: Newly issued refresh token — the presented one was
+            revoked as part of rotation and is no longer valid.
+        token_type: Always "Bearer".
+        expires_in: Seconds until access_token expires.
+    """
+
+    access_token: str
+    refresh_token: str
+    token_type: str
+    expires_in: int
+
+
+@dataclass(slots=True, frozen=True)
+class LogoutResponse:
+    """Envelope for POST /api/v1/auth/logout.
+
+    Attributes:
+        message: Human-readable confirmation.
+        tokens_revoked: Number of the caller's refresh tokens revoked.
+    """
+
+    message: str
+    tokens_revoked: int
+
+
+@dataclass(slots=True, frozen=True)
+class MeResponse:
+    """Envelope for GET /api/v1/auth/me.
+
+    Wider than :class:`AuthenticatedUser` (adds ``is_active`` and
+    ``created_at``) because this route's whole purpose is the caller's own
+    profile — the same reasoning that keeps LoginResponse's embedded user
+    narrow applies in reverse here: this IS the profile view. Never
+    ``password_hash``, MFA secret, or any other row internal.
+
+    Attributes:
+        id: Identifier of the authenticated user.
+        email: The user's email address.
+        full_name: Display name.
+        role: Global role: admin, maintainer or viewer.
+        is_active: Whether the account can currently authenticate.
+        created_at: When the account was created, ISO-8601.
+    """
+
+    id: int
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    created_at: str | None
+
 
 #: Sanitized structured logger. Redacts token/secret-shaped keys and email
 #: addresses, so a reset-flow log line cannot leak the very material the
@@ -195,7 +309,8 @@ async def issue_and_store_token_set(
 
 
 @auth_bp.route("/login", methods=["POST"])
-async def login() -> tuple[dict[str, Any], int]:
+@validate_response(LoginResponse)
+async def login() -> tuple[Any, int]:
     """Login endpoint - returns access and refresh tokens."""
     data = await request.get_json()
 
@@ -247,18 +362,19 @@ async def login() -> tuple[dict[str, Any], int]:
     )
 
     return (
-        {
-            "access_token": token_set["access_token"],
-            "refresh_token": token_set["refresh_token"],
-            "token_type": "Bearer",
-            "expires_in": token_set["expires_in"],
-            "user": {
-                "id": user["id"],
-                "email": user["email"],
-                "full_name": user.get("full_name", ""),
-                "role": user["role"],
-            },
-        },
+        LoginResponse(
+            access_token=token_set["access_token"],
+            refresh_token=token_set["refresh_token"],
+            # RFC 6749 fixed token_type string, not a credential.
+            token_type="Bearer",  # noqa: S106
+            expires_in=token_set["expires_in"],
+            user=AuthenticatedUser(
+                id=user["id"],
+                email=user["email"],
+                full_name=user.get("full_name", ""),
+                role=user["role"],
+            ),
+        ),
         200,
     )
 
@@ -270,7 +386,8 @@ _REFRESH_REJECTED = "Invalid or expired refresh token"
 
 
 @auth_bp.route("/refresh", methods=["POST"])
-async def refresh() -> tuple[dict[str, Any], int]:
+@validate_response(RefreshResponse)
+async def refresh() -> tuple[Any, int]:
     """Exchange a refresh token for a new token pair, rotating the old one.
 
     Rotation is one-use: the presented token is revoked before its
@@ -318,19 +435,21 @@ async def refresh() -> tuple[dict[str, Any], int]:
     )
 
     return (
-        {
-            "access_token": token_set["access_token"],
-            "refresh_token": token_set["refresh_token"],
-            "token_type": "Bearer",
-            "expires_in": token_set["expires_in"],
-        },
+        RefreshResponse(
+            access_token=token_set["access_token"],
+            refresh_token=token_set["refresh_token"],
+            # RFC 6749 fixed token_type string, not a credential.
+            token_type="Bearer",  # noqa: S106
+            expires_in=token_set["expires_in"],
+        ),
         200,
     )
 
 
 @auth_bp.route("/logout", methods=["POST"])
 @auth_required
-async def logout() -> tuple[dict[str, Any], int]:
+@validate_response(LogoutResponse)
+async def logout() -> tuple[Any, int]:
     """Logout endpoint - revokes all refresh tokens for user."""
     user = get_current_user()
     if not user:
@@ -340,31 +459,32 @@ async def logout() -> tuple[dict[str, Any], int]:
     revoked_count = await revoke_all_user_tokens(user["id"])
 
     return (
-        {
-            "message": "Successfully logged out",
-            "tokens_revoked": revoked_count,
-        },
+        LogoutResponse(
+            message="Successfully logged out",
+            tokens_revoked=revoked_count,
+        ),
         200,
     )
 
 
 @auth_bp.route("/me", methods=["GET"])
 @auth_required
-async def get_me() -> tuple[dict[str, Any], int]:
+@validate_response(MeResponse)
+async def get_me() -> tuple[Any, int]:
     """Get current user profile."""
     user = get_current_user()
     if not user:
         return {"error": "User not authenticated"}, 401
 
     return (
-        {
-            "id": user["id"],
-            "email": user["email"],
-            "full_name": user.get("full_name", ""),
-            "role": user["role"],
-            "is_active": user["is_active"],
-            "created_at": (user["created_at"].isoformat() if user.get("created_at") else None),
-        },
+        MeResponse(
+            id=user["id"],
+            email=user["email"],
+            full_name=user.get("full_name", ""),
+            role=user["role"],
+            is_active=user["is_active"],
+            created_at=(user["created_at"].isoformat() if user.get("created_at") else None),
+        ),
         200,
     )
 

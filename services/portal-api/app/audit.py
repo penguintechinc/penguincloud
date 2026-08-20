@@ -21,13 +21,14 @@ checking a gate that does not mean what the reader thinks (see
 
 import csv
 import io
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 
 from quart import Blueprint, Response, request
+from quart_schema import validate_response
 
-from .audit_view import AUDIT_RECORD_FIELDS, to_audit_records
+from .audit_view import AUDIT_RECORD_FIELDS, AuditRecord, to_audit_records
 from .authz import SCOPE_TENANTS_MANAGE, require_tenant_scope
 from .license import require_feature
 from .middleware import auth_required, get_current_user
@@ -36,10 +37,30 @@ from .models import get_db
 audit_bp = Blueprint("audit", __name__)
 
 
+@dataclass(slots=True, frozen=True)
+class AuditLogsResponse:
+    """Envelope for GET /api/v1/audit/logs.
+
+    Attributes:
+        logs: The matching audit entries, newest first.
+        total: Total matching rows across every page.
+        page: The page returned.
+        per_page: Page size used.
+        pages: Total number of pages.
+    """
+
+    logs: list[AuditRecord]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
 @audit_bp.route("/logs", methods=["GET"])
 @auth_required
 @require_feature("audit_logs")
-async def get_audit_logs() -> tuple[dict[str, Any], int]:
+@validate_response(AuditLogsResponse)
+async def get_audit_logs() -> tuple[Any, int]:
     """Get audit logs with filtering and pagination."""
     user = get_current_user()
     if not user:
@@ -85,16 +106,19 @@ async def get_audit_logs() -> tuple[dict[str, Any], int]:
     total_rows = await db(query).select()
     total = len(total_rows)
 
-    return {
-        # Projected through the one published field set — see
-        # app/audit_view.py. This returned dict(log), i.e. every column the
-        # table carries, including request_body.
-        "logs": [asdict(record) for record in to_audit_records(logs)],
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "pages": (total + per_page - 1) // per_page,
-    }, 200
+    return (
+        AuditLogsResponse(
+            # Projected through the one published field set — see
+            # app/audit_view.py. This returned dict(log), i.e. every column
+            # the table carries, including request_body.
+            logs=to_audit_records(logs),
+            total=total,
+            page=page,
+            per_page=per_page,
+            pages=(total + per_page - 1) // per_page,
+        ),
+        200,
+    )
 
 
 @audit_bp.route("/export", methods=["GET"])

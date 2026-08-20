@@ -8,9 +8,11 @@ security.md requires the latter, and the previous ``@admin_required``
 compared a role name inside the request.
 """
 
+from dataclasses import dataclass
 from typing import Any
 
 from quart import Blueprint, request
+from quart_schema import validate_response
 
 from . import devmode, quotas
 from .auth import hash_password_async, verify_password_async
@@ -37,6 +39,88 @@ from .models import (
 users_bp = Blueprint("users", __name__)
 
 
+def _isoformat(value: Any) -> str | None:
+    """Render a datetime column as ISO-8601, tolerating NULL or a string."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    isoformat = getattr(value, "isoformat", None)
+    return isoformat() if callable(isoformat) else str(value)
+
+
+@dataclass(slots=True, frozen=True)
+class UserSummary:
+    """One user row, as the admin listing publishes it.
+
+    Never carries ``password_hash`` — the route pops it before this DTO is
+    built. Nothing else on the users table is sensitive today, but pinning
+    the field set means a column added tomorrow (an MFA secret, an SSO
+    subject id) does not reach this response without a deliberate edit
+    here.
+
+    Attributes:
+        id: Identifier of the user.
+        email: The user's email address.
+        full_name: Display name.
+        role: Global role: admin, maintainer or viewer.
+        is_active: Whether the account can currently authenticate.
+        created_at: When the account was created, ISO-8601.
+        updated_at: When the account was last modified, ISO-8601.
+    """
+
+    id: int
+    email: str
+    full_name: str | None
+    role: str
+    is_active: bool
+    created_at: str | None
+    updated_at: str | None
+
+
+def _to_user_summary(user: dict[str, Any]) -> UserSummary:
+    """Project a raw (password_hash-stripped) user row onto UserSummary."""
+    return UserSummary(
+        id=int(user["id"]),
+        email=str(user.get("email") or ""),
+        full_name=user.get("full_name"),
+        role=str(user.get("role") or ""),
+        is_active=bool(user.get("is_active")),
+        created_at=_isoformat(user.get("created_at")),
+        updated_at=_isoformat(user.get("updated_at")),
+    )
+
+
+@dataclass(slots=True, frozen=True)
+class Pagination:
+    """Page metadata shared by the portal's paginated list endpoints.
+
+    Attributes:
+        page: The page returned.
+        per_page: Page size used.
+        total: Total matching rows across every page.
+        pages: Total number of pages.
+    """
+
+    page: int
+    per_page: int
+    total: int
+    pages: int
+
+
+@dataclass(slots=True, frozen=True)
+class UsersListResponse:
+    """Envelope for GET /api/v1/users.
+
+    Attributes:
+        users: The matching users, credentials never included.
+        pagination: Page metadata for this result set.
+    """
+
+    users: list[UserSummary]
+    pagination: Pagination
+
+
 def _resolve_tenant_id() -> int | None:
     """The tenant this request acts on: verified claim, else explicit param.
 
@@ -59,7 +143,8 @@ def _resolve_tenant_id() -> int | None:
 @users_bp.route("", methods=["GET"])
 @auth_required
 @require_scope(SCOPE_USERS_READ)
-async def get_users() -> tuple[dict[str, Any], int]:
+@validate_response(UsersListResponse)
+async def get_users() -> tuple[Any, int]:
     """List all users with pagination (Admin only)."""
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
@@ -73,15 +158,18 @@ async def get_users() -> tuple[dict[str, Any], int]:
     for user in users:
         user.pop("password_hash", None)
 
-    return {
-        "users": users,
-        "pagination": {
-            "page": page,
-            "per_page": per_page,
-            "total": total,
-            "pages": (total + per_page - 1) // per_page,
-        },
-    }, 200
+    return (
+        UsersListResponse(
+            users=[_to_user_summary(user) for user in users],
+            pagination=Pagination(
+                page=page,
+                per_page=per_page,
+                total=total,
+                pages=(total + per_page - 1) // per_page,
+            ),
+        ),
+        200,
+    )
 
 
 @users_bp.route("/<int:user_id>", methods=["GET"])
