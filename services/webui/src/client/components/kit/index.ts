@@ -6,6 +6,7 @@
  */
 
 export { default as StatusBadge } from "./StatusBadge";
+export { default as MutationErrorBanner } from "./MutationErrorBanner";
 export { DataTable, type ColumnConfig, type DataTableProps } from "./DataTable";
 export {
   DataTablePagination,

@@ -9,6 +9,10 @@ describe("Kit exports", () => {
     expect(kit.StatusBadge).toBeDefined();
   });
 
+  it("exports MutationErrorBanner", () => {
+    expect(kit.MutationErrorBanner).toBeDefined();
+  });
+
   it("exports the atoms promoted out of the product page directories", () => {
     // Gough and Nest reach these through the barrel now, not through a local
     // copy. A barrel that stopped exporting one would be a build error at
