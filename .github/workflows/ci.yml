@@ -112,8 +112,13 @@ jobs:
         # verified locally -- see PR description). The gate is set to that
         # measured baseline rather than 90%: a fresh 90% gate would fail on
         # every future PR regardless of what it changes, for a gap this
-        # workflow did not introduce. Raise this number as coverage
-        # improves; do not lower it.
+        # workflow did not introduce.
+        #
+        # 78 is a TEMPORARY REGRESSION FLOOR, not the target -- it exists so
+        # this number can only go up from here, not so it can stay here.
+        # Raising it to the org-standard 90% is tracked as separate,
+        # follow-up work; do not read 78 as an acceptable steady state, and
+        # never lower it.
         run: |
           .venv/bin/python -m pytest tests/ -q -rs \
             --cov=app --cov-report=xml:coverage-backend.xml --cov-report=term-missing \
@@ -284,7 +289,38 @@ jobs:
           GOUGH_SOURCE_ROOT: ${{ github.workspace }}/product-source/gough
           NEST_SOURCE_ROOT: ${{ github.workspace }}/product-source/nest
           TOBOGGANING_SOURCE_ROOT: ${{ github.workspace }}/product-source/tobogganing
-        run: .venv/bin/python -m pytest tests/api -q
+        run: .venv/bin/python -m pytest tests/api -q -rf | tee pytest-product-source.log
+
+      - name: Attribute failures -- ours vs. upstream's
+        # A flat FAILED list can't tell a reader "our fixture is stale"
+        # from "the other repo's dependency hygiene is broken" without
+        # reading every traceback. This job exists to catch drift IN THIS
+        # REPO (tests/api/fixtures/tobogganing_source.json); it is not a CI
+        # gate for Gough/Nest/Tobogganing's own code. Categorize on sight.
+        if: always()
+        run: |
+          {
+            echo '## Product-source test summary'
+            echo
+            failed=$(grep -c '^FAILED ' penguincloud/pytest-product-source.log || true)
+            errored=$(grep -c '^ERROR ' penguincloud/pytest-product-source.log || true)
+            echo "${failed:-0} failed, ${errored:-0} errored."
+            echo
+            echo '### OURS -- stale vendored fixture (lives in this repo)'
+            echo 'Tobogganing route/auth tables in tests/api/fixtures/tobogganing_source.json'
+            echo 'no longer match a live boot -- refresh with "make refresh-product-source-fixtures"'
+            echo 'and review the diff:'
+            echo '```'
+            grep -E '^(FAILED|ERROR) tests/api/test_tobogganing_(source_fixture|allowlist|adapter)' \
+              penguincloud/pytest-product-source.log || echo '(none)'
+            echo '```'
+            echo
+            echo "### UPSTREAM'S -- another repo's dependency/behaviour, not ours to fix here"
+            echo '```'
+            grep -E '^(FAILED|ERROR)' penguincloud/pytest-product-source.log \
+              | grep -vE 'tests/api/test_tobogganing_(source_fixture|allowlist|adapter)' || echo '(none)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   docker-build-verify:
     name: Docker build verify (${{ matrix.service }})

@@ -14,4 +14,4 @@ rules:
   cache-poisoning:
     ignore:
       - ci.yml:34
-      - ci.yml:163
+      - ci.yml:168
