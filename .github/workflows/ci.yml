@@ -8,7 +8,7 @@ name: CI
 permissions:
   contents: read
 
-on:  # zizmor: ignore[cache-poisoning] setup-node steps below set no cache: input, verified false positive
+on:
   pull_request:
   push:
     branches:
@@ -48,7 +48,7 @@ jobs:
         # a separate, pre-existing decision out of this PR's scope to
         # change. Not matching that pin here rather than introducing a new
         # below-floor pin in CI config.
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # zizmor: ignore[cache-poisoning] false positive
         with:
           node-version: '24'
 
@@ -118,7 +118,7 @@ jobs:
 
       - name: Set up Node.js
         # Needed for the npm-audit-webui hook (`npm audit`).
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # zizmor: ignore[cache-poisoning] false positive
         with:
           node-version: '24'
 
@@ -267,7 +267,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # zizmor: ignore[cache-poisoning] false positive
         with:
           node-version: '24'
 
