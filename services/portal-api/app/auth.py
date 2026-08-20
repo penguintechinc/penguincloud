@@ -2,8 +2,12 @@
 
 import asyncio
 import hashlib
+import os
+import smtplib
+import ssl
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from email.message import EmailMessage
 from typing import Any, Final
 
 import bcrypt
@@ -11,6 +15,7 @@ import pyotp
 from penguin_aaa.authn.oidc_provider import OIDCProvider
 from penguin_aaa.authn.types import Claims
 from penguintechinc_utils.logging import get_logger
+from prometheus_client import Counter
 from quart import Blueprint, current_app, request
 from quart_schema import validate_response
 
@@ -598,28 +603,169 @@ async def register() -> tuple[dict[str, Any], int]:
     )
 
 
-async def _deliver_password_reset_token(user_id: int, token: str, expires_at: datetime) -> None:
-    """Deliver a reset token to the user out of band.
+#: SMTP transport configuration. Read fresh per call (never cached at
+#: import time) so a deployment — or a test — can change it without a
+#: process restart; app/flags.py's POSTHOG_KEY lookup follows the same
+#: read-on-use convention for the same reason.
+#:
+#: No penguin-sal SecretClient in this service yet: every other secret
+#: here (SECRET_KEY, DB_PASS, JWT_SECRET_KEY) already reads via plain
+#: os.getenv, so SMTP credentials follow the established local convention
+#: rather than introducing a second one. security.md's "never os.environ
+#: direct for creds" is the target; this is a documented, consistent gap
+#: with the rest of the service, not a new one.
+def _smtp_host() -> str:
+    return os.getenv("SMTP_HOST", "")
 
-    No SMTP transport is configured in this service, so delivery cannot
-    happen yet; the token is still created and persisted, so a reset link
-    issued by any future transport (or by an operator reading the table
-    directly) keeps working. The undeliverable request is recorded at WARN
-    so the gap is visible in logs rather than silently swallowed.
+
+def _smtp_port() -> int:
+    return int(os.getenv("SMTP_PORT", "587"))
+
+
+def _smtp_username() -> str:
+    return os.getenv("SMTP_USERNAME", "")
+
+
+def _smtp_password() -> str:
+    return os.getenv("SMTP_PASSWORD", "")
+
+
+def _smtp_from_addr() -> str:
+    return os.getenv("SMTP_FROM_ADDR", "no-reply@penguintech.io")
+
+
+def _smtp_use_tls() -> bool:
+    """STARTTLS is the default; disable only for a non-TLS local/dev relay.
+
+    security.md requires TLS 1.2+ for all external communication — this
+    is the one env var that can turn that off, so it exists only for a
+    dev-mode SMTP catcher (e.g. MailHog on alpha) that cannot speak TLS,
+    never for beta/prod.
+    """
+    return os.getenv("SMTP_USE_TLS", "true").strip().lower() != "false"
+
+
+#: "Fail loudly to the operator" without telling the caller anything: the
+#: HTTP response is PASSWORD_RESET_ACK either way (see forgot_password), so
+#: an unreachable SMTP host or a missing SMTP_HOST must surface somewhere
+#: an operator actually looks. A Prometheus counter is that surface in this
+#: service — app/health_poller.py's POLL_ERRORS_COUNTER is the same pattern
+#: for the same reason, and both are exported on the existing :9090
+#: metrics listener with no change needed here.
+PASSWORD_RESET_DELIVERY_ERRORS_COUNTER = Counter(
+    "portal_password_reset_delivery_errors_total",
+    "Password reset tokens that could not be delivered by email",
+    ["reason"],
+)
+
+
+def _build_reset_link(token: str) -> str:
+    """Build the reset-password URL the token is delivered inside.
+
+    Reuses licensing.configured_host() — the same operator-set BASE_URL /
+    SERVER_NAME this service already trusts as its own address (never a
+    request Host header; see that function's docstring) — rather than
+    inventing a second "what is my own hostname" source of truth.
+    """
+    from .licensing import configured_host
+
+    host = configured_host() or "localhost"
+    return f"https://{host}/reset-password?token={token}"
+
+
+def _send_password_reset_email_sync(*, to_addr: str, link: str, expires_at: datetime) -> None:
+    """Send one reset email over SMTP. Blocking — call via asyncio.to_thread.
+
+    Raises on any failure (auth, connection, timeout, refused recipient);
+    the caller decides how to log and count it. Never call this directly
+    from a coroutine — smtplib is synchronous socket I/O and would block
+    the event loop for every concurrent request.
+    """
+    message = EmailMessage()
+    message["Subject"] = "Reset your password"
+    message["From"] = _smtp_from_addr()
+    message["To"] = to_addr
+    message.set_content(
+        "A password reset was requested for your account.\n\n"
+        f"Reset your password: {link}\n\n"
+        f"This link expires at {expires_at.isoformat()}.\n"
+        "If you did not request this, no action is needed."
+    )
+
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+
+    with smtplib.SMTP(_smtp_host(), _smtp_port(), timeout=10) as client:
+        if _smtp_use_tls():
+            client.starttls(context=context)
+        username = _smtp_username()
+        if username:
+            client.login(username, _smtp_password())
+        client.send_message(message)
+
+
+async def _deliver_password_reset_token(
+    user_id: int, email: str, token: str, expires_at: datetime
+) -> None:
+    """Deliver a reset token to the user out of band, over SMTP.
+
+    Two requirements pull against each other here, and both are held at
+    once rather than one winning:
+
+    * an unconfigured or failing SMTP transport must fail LOUDLY to the
+      operator — silently accepting a request nothing can ever deliver is
+      how a password-reset flow quietly stops working for months; and
+    * forgot_password's HTTP response must never depend on any of this —
+      it always returns PASSWORD_RESET_ACK (see that function), whether
+      the address exists, delivery succeeds, or delivery fails. Anything
+      here that changed the caller-visible outcome would turn "SMTP just
+      broke" into a second, narrower account-enumeration oracle for
+      whichever addresses happen to trip it.
+
+    So failure is reported exclusively through the operator-facing
+    channels this service already has — a structured ERROR log and the
+    PASSWORD_RESET_DELIVERY_ERRORS_COUNTER metric — and NEVER raised back
+    to the caller.
 
     The token value and the user's email address are deliberately absent
-    from the log record — only the internal user id identifies the subject.
-    Logging either would reintroduce, in the log sink, exactly the leak this
-    endpoint was fixed to close.
+    from the log record — only the internal user id identifies the
+    subject. Logging either would reintroduce, in the log sink, exactly
+    the leak this endpoint was fixed to close. The email address is used
+    only as the SMTP envelope recipient, never logged; on failure only the
+    raised exception's TYPE name is recorded (never str(exc)), because
+    smtplib's own exceptions (e.g. SMTPRecipientsRefused) embed the
+    recipient address in their arguments.
     """
-    log.warning(
-        "password_reset_token_undeliverable",
-        extra={
-            "user_id": user_id,
-            "expires_at": expires_at.isoformat(),
-            "reason": "no SMTP transport configured for this service",
-        },
-    )
+    if not _smtp_host():
+        PASSWORD_RESET_DELIVERY_ERRORS_COUNTER.labels(reason="unconfigured").inc()
+        log.error(
+            "password_reset_token_undeliverable",
+            extra={
+                "user_id": user_id,
+                "expires_at": expires_at.isoformat(),
+                "reason": "SMTP_HOST is not configured for this deployment",
+            },
+        )
+        return
+
+    link = _build_reset_link(token)
+    try:
+        await asyncio.to_thread(
+            _send_password_reset_email_sync,
+            to_addr=email,
+            link=link,
+            expires_at=expires_at,
+        )
+    except Exception as exc:
+        PASSWORD_RESET_DELIVERY_ERRORS_COUNTER.labels(reason="smtp_error").inc()
+        log.error(
+            "password_reset_token_delivery_failed",
+            extra={
+                "user_id": user_id,
+                "expires_at": expires_at.isoformat(),
+                "error_type": type(exc).__name__,
+            },
+        )
 
 
 @auth_bp.route("/forgot-password", methods=["POST"])
@@ -647,7 +793,7 @@ async def forgot_password() -> tuple[dict[str, Any], int]:
         from .auth_features import create_password_reset_token
 
         token, expires_at = await create_password_reset_token(user["id"])
-        await _deliver_password_reset_token(user["id"], token, expires_at)
+        await _deliver_password_reset_token(user["id"], user["email"], token, expires_at)
 
     return dict(PASSWORD_RESET_ACK), 200
 
