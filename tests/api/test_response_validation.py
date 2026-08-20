@@ -67,6 +67,16 @@ def _field_names(dto: type) -> set[str]:
     return {f.name for f in fields(dto)}
 
 
+async def _register_only(client: Any, **overrides: Any) -> str:
+    """Register a unique user; return its email. No login performed."""
+    email: str = overrides.pop("email", f"resptest-{uuid.uuid4().hex[:8]}@example.com")
+    payload = {"email": email, "password": PASSWORD, "full_name": "Response Test"}
+    payload.update(overrides)
+    register = await client.post("/api/v1/auth/register", json=payload)
+    assert register.status_code == 201, await register.get_json()
+    return email
+
+
 async def _register_and_login(client: Any, **overrides: Any) -> tuple[dict[str, Any], Any]:
     """Register a unique user, log in, return (login body, response)."""
     email = overrides.pop("email", f"resptest-{uuid.uuid4().hex[:8]}@example.com")
@@ -310,13 +320,36 @@ class TestEveryLiveResponseMatchesItsDto:
             assert set(entry) == _field_names(HealthMatrixEntry)
 
     async def test_users_list(self, client: Any, admin_headers: dict[str, str]) -> None:
-        """No password_hash on any user row — the vacuous-empty-list trap fixed."""
-        response = await client.get("/api/v1/users", headers=admin_headers)
+        """No password_hash on any user row — the vacuous-empty-list trap fixed.
+
+        list_users previously called db.users.select() -- not a valid
+        penguin-dal query (AttributeError: Table 'users' has no column
+        'select') -- which the function's own broad except silently turned
+        into "no users", always, on every call. A body["users"] non-empty
+        check alone would NOT have caught that: it is exactly as vacuous
+        against an endpoint that always returns [] as it is against one
+        that works, since the truthiness check tests the endpoint's own
+        (broken) output rather than a known fact about what should be
+        there. This asserts against KNOWN users registered in this test,
+        by email -- an endpoint frozen at [] fails this deterministically,
+        regardless of what other tests happened to insert first.
+        """
+        known_emails = {await _register_only(client) for _ in range(2)}
+
+        response = await client.get("/api/v1/users?per_page=100", headers=admin_headers)
         assert response.status_code == 200
         body = await response.get_json()
         assert set(body) == _field_names(UsersListResponse)
         assert set(body["pagination"]) == _field_names(Pagination)
-        assert body["users"], "no users returned — assertion below is vacuous"
+
+        returned_emails = {user["email"] for user in body["users"]}
+        missing = known_emails - returned_emails
+        assert not missing, (
+            f"users just registered are absent from the listing: {missing} "
+            f"(returned {len(body['users'])} of {body['pagination']['total']} total)"
+        )
+        assert body["pagination"]["total"] >= len(known_emails)
+
         for user in body["users"]:
             assert set(user) == _field_names(UserSummary)
             assert "password_hash" not in user
