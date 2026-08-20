@@ -449,6 +449,14 @@ about what needs a `# type: ignore`. If `.venv/` doesn't exist yet, run
 `make venv-portal-api` once; the hook fails with that instruction rather
 than silently falling back to the ambient environment.
 
+This repo has exactly one Python requirements set —
+`services/portal-api/requirements.txt`. A pre-portal-api root
+`requirements.{in,txt}` (py4web/pydal, pinning the forbidden `gunicorn`)
+existed until this was cleaned up; nothing imported it, and it also made
+`pip-audit` unresolvable (`greenlet` arrives unpinned via `sqlalchemy`,
+which `--require-hashes` can't handle). Do not recreate a root-level
+requirements set — add new dependencies to `services/portal-api/`.
+
 ### 7. Create Pull Request
 
 Once tests pass:
