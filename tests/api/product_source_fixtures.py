@@ -57,7 +57,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import date, datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Final
 
@@ -65,6 +66,8 @@ __all__ = [
     "FIXTURE_DIR",
     "MAX_FIXTURE_AGE_DAYS",
     "REQUIRE_SOURCE_ENV_VAR",
+    "describe_mapping_drift",
+    "describe_route_drift",
     "fixture_age_days",
     "fixture_path",
     "load_fixture",
@@ -133,9 +136,7 @@ def write_fixture(name: str, payload: dict[str, Any]) -> Path:
     """
     path = fixture_path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
 
 
@@ -165,8 +166,13 @@ def provenance(root: Path) -> dict[str, str]:
         ("source_branch", ["rev-parse", "--abbrev-ref", "HEAD"]),
     ):
         try:
-            result = subprocess.run(
-                ["git", "-C", str(root), *args],
+            # S603/S607: argv is entirely literal (`git`, a fixed `-C`, and
+            # one of two hardcoded rev-parse forms) plus a filesystem path
+            # this function's own caller already resolved — no untrusted
+            # input reaches it, and `check=False` means a missing `git`
+            # binary is handled below rather than raising.
+            result = subprocess.run(  # noqa: S603
+                ["git", "-C", str(root), *args],  # noqa: S607
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -193,7 +199,7 @@ def fixture_age_days(name: str) -> int | None:
         generated = datetime.fromisoformat(raw).date()
     except ValueError:
         return None
-    return (datetime.now(timezone.utc).date() - generated).days
+    return (datetime.now(UTC).date() - generated).days
 
 
 def method_map(raw: Any) -> dict[str, frozenset[str]]:
@@ -206,11 +212,87 @@ def method_map(raw: Any) -> dict[str, frozenset[str]]:
     if not isinstance(raw, dict):
         raise ValueError("route table fixture is not an object")
     return {
-        str(path): frozenset(str(method) for method in methods)
-        for path, methods in raw.items()
+        str(path): frozenset(str(method) for method in methods) for path, methods in raw.items()
     }
 
 
 def unmethod_map(table: dict[str, frozenset[str]]) -> dict[str, list[str]]:
     """Serialise a ``{path: frozenset}`` table for JSON."""
     return {path: sorted(methods) for path, methods in table.items()}
+
+
+def describe_route_drift(
+    vendored: Mapping[str, frozenset[str]], live: Mapping[str, frozenset[str]]
+) -> str:
+    """Render exactly what changed between a vendored route table and a live one.
+
+    A bare ``assert vendored == live`` still fails loudly — pytest's own
+    assertion rewriting diffs two dicts — but for a 100+-route table that diff
+    is a wall of every shared key, not a short list of what moved. This
+    computes the three ways a route table can drift (added, removed, method
+    set changed) directly from the two tables being compared, so a failure
+    message names the drifted paths instead of making the reader find them in
+    a large dict repr. Nothing here is hand-maintained: the categories are
+    derived from set/dict operations on whatever the two callers pass in, so
+    it says the same thing for any future route regardless of what it is.
+
+    Returns a description assuming the two tables already differ; callers
+    should only reach for this after the equality check has failed.
+    """
+    vendored_paths, live_paths = set(vendored), set(live)
+    added = sorted(live_paths - vendored_paths)
+    removed = sorted(vendored_paths - live_paths)
+    changed = sorted(path for path in vendored_paths & live_paths if vendored[path] != live[path])
+
+    lines: list[str] = []
+    if added:
+        lines.append(f"  added ({len(added)}): {', '.join(added)}")
+    if removed:
+        lines.append(f"  removed ({len(removed)}): {', '.join(removed)}")
+    for path in changed:
+        lines.append(
+            f"  methods changed on {path}: "
+            f"vendored={sorted(vendored[path])} live={sorted(live[path])}"
+        )
+    if not lines:
+        # The two tables compared unequal but no path-level difference was
+        # found — this would only happen from a type mismatch on the values
+        # (e.g. a caller passing lists instead of frozensets), which is a bug
+        # in the caller, not in the product. Say so rather than emitting an
+        # empty, contradictory "no differences" report.
+        return (
+            "  the tables compare unequal but no added/removed/changed path "
+            "was found — check for a type mismatch between the two mappings "
+            "passed to describe_route_drift (e.g. list vs frozenset methods)"
+        )
+    return "\n".join(lines)
+
+
+def describe_mapping_drift(label: str, vendored: Mapping[str, str], live: Mapping[str, str]) -> str:
+    """Same purpose as :func:`describe_route_drift`, for ``{key: str}`` tables.
+
+    Nest's envelope keys (``{handler: key}``) and Tobogganing's auth/envelope
+    tables (``{"METHOD /path": class}``) are string-valued rather than
+    method-set-valued, so they need their own formatter rather than forcing a
+    frozenset shape on data that was never one. ``label`` names what kind of
+    key is being compared (``"handler"``, ``"route"``) so the report reads
+    correctly for either table without the caller reformatting it.
+    """
+    vendored_keys, live_keys = set(vendored), set(live)
+    added = sorted(live_keys - vendored_keys)
+    removed = sorted(vendored_keys - live_keys)
+    changed = sorted(key for key in vendored_keys & live_keys if vendored[key] != live[key])
+
+    lines: list[str] = []
+    if added:
+        lines.append(f"  added {label}s ({len(added)}): {', '.join(added)}")
+    if removed:
+        lines.append(f"  removed {label}s ({len(removed)}): {', '.join(removed)}")
+    for key in changed:
+        lines.append(f"  {key} changed: vendored={vendored[key]!r} live={live[key]!r}")
+    if not lines:
+        return (
+            f"  the {label} tables compare unequal but no added/removed/"
+            f"changed {label} was found — check for a type mismatch"
+        )
+    return "\n".join(lines)
