@@ -1,0 +1,31 @@
+{{/*
+Cluster Security Baseline — Tetragon TracingPolicy, enforcing (Sigkill).
+See values.yaml tracingPolicy comment for why this allowlist has three
+entries (sh + valkey-server + valkey-cli) instead of one, and why that is
+still the complete, honest surface for this image rather than a loosened
+policy.
+*/}}
+{{- if .Values.tracingPolicy.enabled }}
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: {{ include "valkey.fullname" . }}-exec-allowlist
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "valkey.selectorLabels" . | nindent 6 }}
+  kprobes:
+    - call: "sys_execve"
+      syscall: true
+      args:
+        - index: 0
+          type: "string"
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: "NotEquals"
+              values:
+                {{- toYaml .Values.tracingPolicy.allowedBinaries | nindent 16 }}
+          matchActions:
+            - action: Sigkill
+{{- end }}

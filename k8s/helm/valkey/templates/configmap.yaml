@@ -1,0 +1,25 @@
+{{/*
+Static config only — no secrets (the ACL password is rendered at container
+startup by the init container below, straight from the Secret into an
+emptyDir, never through a ConfigMap). --aclfile is supplied via the main
+container's args, not this file, since it names a path this ConfigMap does
+not own.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "valkey.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+data:
+  valkey.conf: |
+    bind 0.0.0.0
+    port {{ .Values.service.port }}
+    protected-mode yes
+    dir /data
+    # Pure cache duty — see values.yaml persistence comment.
+    save ""
+    appendonly no
+    maxmemory {{ .Values.maxmemory }}
+    maxmemory-policy {{ .Values.maxmemoryPolicy }}

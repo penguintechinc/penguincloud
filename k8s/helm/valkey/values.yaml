@@ -1,0 +1,174 @@
+# valkey — cache tier backing portal-api's health-poller cache
+# (services/portal-api/app/health_cache.py). Hand-authored per
+# devops-kubernetes.md Sub-Chart Dependencies: never bitnami/redis or
+# bitnami/valkey (commercial-use licensing restriction).
+#
+# Single instance in every environment, including production — this is a
+# supporting cache dependency, not one of the product's own licensed
+# "backend node per service type" (docs/APP_STANDARDS.md); portal-api
+# already degrades to a per-process fallback cache if this is unreachable
+# (see health_cache.py module docstring), so it does not need its own HA
+# story to match portal-api's replica count.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: valkey/valkey
+  tag: "8-bookworm"
+  # External image -> SHA256 digest mandatory in ALL environments
+  # (devops-containers.md), unlike PenguinTech's own images which may use a
+  # tag in alpha/beta/gamma.
+  digest: "sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+
+podSecurityContext:
+  fsGroup: 1000
+
+service:
+  port: 6379
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+    ephemeral-storage: 128Mi
+
+# The render-acl init container does one printf and exits — negligible,
+# fixed footprint regardless of environment tier.
+initContainerResources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+    ephemeral-storage: 16Mi
+  limits:
+    cpu: 50m
+    memory: 32Mi
+    ephemeral-storage: 32Mi
+
+# Below the memory limit with headroom for valkey's own process overhead.
+# allkeys-lru is safe here: this instance holds ONLY
+# app/health_cache.py's ephemeral `health:{connection_id}` entries (60s
+# TTL) — evicting under memory pressure loses nothing durable.
+maxmemory: 192mb
+maxmemoryPolicy: allkeys-lru
+
+# Deliberately different checks, not just different timings: liveness does
+# the full authenticated PING (restart-worthy — proves the process is
+# actually functional, not just listening); readiness is a cheap TCP-open
+# check (traffic-routing signal only — a slow AUTH round-trip under load
+# shouldn't flip the pod out of the Service's endpoint list).
+livenessProbe:
+  exec:
+    command: ["/usr/bin/sh", "-c", "valkey-cli -a \"$VALKEY_PASSWORD\" --no-auth-warning ping"]
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  tcpSocket:
+    port: valkey
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Pure cache duty (app/health_cache.py already degrades to a per-process
+# fallback on any outage — see its module docstring) — `save ""` /
+# appendonly disabled in templates/configmap.yaml's valkey.conf, so /data
+# is a plain emptyDir by default, not a source of truth worth persisting.
+# Flip on only if a future consumer needs warm-cache survival across pod
+# restarts badly enough to justify provisioning real storage for a cache.
+persistence:
+  enabled: false
+  storageClassName: ""
+  size: 256Mi
+
+# ACL scoping. penguin_dal.cache.valkey.AsyncValkeyCache authenticates with
+# `AUTH <password>` only (no username field — see ValkeyConfig), which
+# authenticates as the ACL "default" user; restricting THAT user's key
+# pattern and command set is therefore the real per-service scoping
+# mechanism here, not a separately named user. Scoped to the only key
+# namespace any current consumer writes (health_cache.py's
+# `health:{connection_id}`, CACHE_KEY_PREFIX = "health:") — widen
+# keyPattern if/when app/flags.py's shared cache tier (currently
+# in-process only; see its own module docstring) starts using this
+# instance too.
+acl:
+  keyPattern: "health:*"
+  commands: "+get +setex +ping"
+
+# NEVER commit real values — see portal-api/values.yaml's identical comment.
+secrets:
+  create: false
+  data:
+    VALKEY_PASSWORD: ""
+
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+networkPolicy:
+  enabled: true
+  # Only portal-api may reach :6379 — unlike portal-api/webui's own
+  # same-namespace-broad ingress rule, a cache dependency should not be
+  # reachable by every pod in the namespace.
+  allowFrom:
+    matchLabels:
+      app.kubernetes.io/name: portal-api
+  egress:
+    allowDNS: true
+
+tracingPolicy:
+  enabled: true
+  # Wider than portal-api/webui's single-binary allowlists because the
+  # OFFICIAL valkey/valkey image's own ENTRYPOINT (docker-entrypoint.sh) is
+  # a shell script (verified against this exact image: shebang resolves to
+  # /usr/bin/sh) that execs valkey-server, and the exec health probe execs
+  # valkey-cli as a separate process. All three are this image's actual,
+  # complete startup + healthcheck surface — not a generic allowance.
+  allowedBinaries:
+    - /usr/bin/sh
+    - /usr/local/bin/valkey-server
+    - /usr/local/bin/valkey-cli
+
+# valkey installs alongside portal-api (which owns namespace creation) —
+# assumes the "penguincloud" namespace already exists.
+podSecurityAdmission:
+  manageNamespace: false
+  namespace: penguincloud
+  enforce: restricted
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

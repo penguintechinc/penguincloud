@@ -1,0 +1,40 @@
+{{/*
+Cluster Security Baseline — CiliumNetworkPolicy. Unlike portal-api/webui's
+same-namespace-broad ingress rule, this dependency's only legitimate client
+is portal-api — networkPolicy.allowFrom scopes ingress to exactly that
+pod selector, not every pod in the namespace.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "valkey.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "valkey.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            {{- toYaml .Values.networkPolicy.allowFrom.matchLabels | nindent 12 }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.service.port | quote }}
+              protocol: TCP
+  egress:
+    {{- if .Values.networkPolicy.egress.allowDNS }}
+    - toEndpoints:
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    {{- end }}
+{{- end }}
