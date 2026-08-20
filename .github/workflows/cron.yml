@@ -20,6 +20,15 @@ concurrency:
   group: publish-cron
   cancel-in-progress: false
 
+# See ci.yml's identical block for why: unspecified shell is `bash -e {0}`
+# (no pipefail), which can silently swallow a failed left-hand command in
+# any `cmd | other` pipeline. No such pipe exists in this file today, but
+# setting this workflow-wide means one added later doesn't quietly
+# reintroduce that failure mode.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # See push.yml prepare job for why the epoch is resolved once and shared
   # -- the previous version computed a fresh `date +%s` independently in
@@ -101,6 +110,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [prepare, build-platform]
     strategy:
+      fail-fast: false
       matrix:
         service: [portal-api, webui]
     permissions:
@@ -117,7 +127,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Merge manifests (gamma + nightly tags)
+      - name: Merge manifests (gamma tag)
+        # No `:nightly` alias: a mutable floating tag absent from
+        # devops.md's CI/CD Tag Naming table, same reasoning as dropping
+        # release.yml's `:latest` -- this workflow only ever produces
+        # devops.md-sanctioned tags now.
         env:
           SERVICE: ${{ matrix.service }}
           EPOCH: ${{ needs.prepare.outputs.epoch }}
@@ -125,6 +139,5 @@ jobs:
           IMAGE="ghcr.io/${{ github.repository }}/${SERVICE}"
           docker buildx imagetools create \
             -t "${IMAGE}:gamma-${EPOCH}" \
-            -t "${IMAGE}:nightly" \
             "${IMAGE}:gamma-${EPOCH}-amd64" \
             "${IMAGE}:gamma-${EPOCH}-arm64"

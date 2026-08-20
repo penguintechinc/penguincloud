@@ -7,9 +7,46 @@ on:
   release:
     types: [published]
 
+concurrency:
+  group: publish-release-${{ github.ref }}
+  cancel-in-progress: false
+
+# See ci.yml's identical block for why: unspecified shell is `bash -e {0}`
+# (no pipefail), which can silently swallow a failed left-hand command in
+# any `cmd | other` pipeline. No such pipe exists in this file today, but
+# setting this workflow-wide means one added later doesn't quietly
+# reintroduce that failure mode.
+defaults:
+  run:
+    shell: bash
+
 jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject anything that isn't a real vMAJOR.MINOR.PATCH tag
+        # devops.md's tag format for tagged releases is
+        # v{Major}.{Minor}.{Patch}, nothing else. Without this check, a
+        # release published under a stray/mistaken tag -- "latest",
+        # "v1.2", a typo -- would publish straight through to
+        # portal-api:<that literal string>, including a genuinely
+        # dangerous case: a release tagged "latest" would publish
+        # portal-api:latest, a floating tag devops-containers.md's table
+        # does not define for this product and this workflow has no
+        # business ever producing.
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag '$RELEASE_TAG' is not v{Major}.{Minor}.{Patch}"
+            echo "::error::(devops.md CI/CD Tag Naming) -- refusing to publish."
+            exit 1
+          fi
+
   build-platform:
     name: Build ${{ matrix.service }} (${{ matrix.platform }})
+    needs: validate
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -77,6 +114,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-platform
     strategy:
+      fail-fast: false
       matrix:
         service: [portal-api, webui]
     permissions:

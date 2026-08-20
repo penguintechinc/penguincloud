@@ -1,14 +1,14 @@
-# CI: lint, test, and build-verify gate. Runs on every PR and on pushes to
-# main/release branches so a post-merge commit is validated too. This is
-# the workflow that actually runs the test suites -- push.yml/release.yml/
-# cron.yml only publish images and never executed a test.
+# CI: lint, security, test, and build-verify gate. Runs on every PR and on
+# pushes to main/release branches so a post-merge commit is validated too.
+# This is the workflow that actually runs the test suites -- push.yml/
+# release.yml/cron.yml only publish images and never executed a test.
 
 name: CI
 
 permissions:
   contents: read
 
-on:
+on:  # zizmor: ignore[cache-poisoning] setup-node steps below set no cache: input, verified false positive
   pull_request:
   push:
     branches:
@@ -19,6 +19,18 @@ on:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Unspecified shell on Linux runners is `bash -e {0}` -- NOT pipefail.
+# `false | tee out.log` exits 0 under that default (tee's own exit code
+# wins), which made `--cov-fail-under=78` below decorative: coverage could
+# fall to 0% and the piped step would still report green. Explicit
+# `shell: bash` resolves to `bash --noprofile --norc -eo pipefail {0}`,
+# which does propagate the left side of a pipe. Set once, workflow-wide,
+# rather than per-step, so a pipe added later doesn't quietly reintroduce
+# this.
+defaults:
+  run:
+    shell: bash
 
 jobs:
   lint:
@@ -31,9 +43,14 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
+        # frontend-react.md's floor is 24.x (26.x preferred); services/
+        # webui/Dockerfile itself is still pinned to node:22-bookworm-slim,
+        # a separate, pre-existing decision out of this PR's scope to
+        # change. Not matching that pin here rather than introducing a new
+        # below-floor pin in CI config.
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Install webui dependencies
         # eslint-webui/prettier-webui hooks below shell out via
@@ -57,21 +74,98 @@ jobs:
         # Revisit if CI wall-clock time becomes a real cost.
         run: make venv-portal-api
 
-      - name: Install pre-commit + zizmor into the venv
-        # Pinned versions: pre-commit 4.6.1 is the exact version
-        # .pre-commit-config.yaml's own header comment was validated
-        # against (stage-default behaviour differs across versions).
-        # zizmor is a `language: system` hook too (GitHub Actions workflow
-        # scanner, devops.md "Git Hooks").
-        run: .venv/bin/pip install pre-commit==4.6.1 zizmor==1.25.2
+      - name: Install pre-commit into the venv
+        # Pinned version: 4.6.1 is the exact version .pre-commit-config.yaml's
+        # own header comment was validated against (stage-default behaviour
+        # differs across versions).
+        run: .venv/bin/pip install pre-commit==4.6.1
 
       - name: pre-commit (pre-commit stage -- fast checks)
+        # zizmor (GitHub Actions workflow scanner) is one of these hooks --
+        # `language: system`, so it needs to be on PATH. Installed here
+        # rather than as a separate step since nothing else in this job
+        # needs it standalone.
         run: |
+          .venv/bin/pip install zizmor==1.25.2
           export PATH="$PWD/.venv/bin:$PATH"
           pre-commit run --all-files --hook-stage pre-commit --show-diff-on-failure
 
       - name: Lint OpenAPI spec (spectral)
         run: make openapi-lint
+
+  security:
+    name: Security scans (pre-push tier)
+    runs-on: ubuntu-latest
+    # .pre-commit-config.yaml's entire pre-push tier -- bandit, semgrep,
+    # trivy-fs, trivy-config, osv-scanner, checkov, k8s-security-scan,
+    # pip-audit, npm-audit-webui, trufflehog, dockerfile-rootless -- has
+    # `stages: [pre-push]` and NEVER ran in CI (the lint job above only
+    # invokes `--hook-stage pre-commit`). That left dependency-vulnerability
+    # and SAST enforcement resting entirely on a developer's local hooks
+    # being installed and not stubbed -- both have already happened in this
+    # session. This job runs the same tier on every PR instead of trusting
+    # that.
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.13'
+
+      - name: Set up Node.js
+        # Needed for the npm-audit-webui hook (`npm audit`).
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6
+        with:
+          node-version: '24'
+
+      - name: Install webui dependencies
+        run: npm ci
+        working-directory: services/webui
+
+      - name: Install pre-commit and the system-language pre-push tools
+        # bandit and semgrep are repo-hosted hooks -- pre-commit manages
+        # their isolated envs itself from .pre-commit-config.yaml's pinned
+        # revs, no extra install here. The rest are `language: system`
+        # hooks that need a binary already on PATH:
+        #   - trivy: pinned to v0.69.3, security.md's stated cap for this
+        #     tool (never the newest release without raising the cap).
+        #   - osv-scanner, trufflehog: no org-stated cap, pinned to latest
+        #     stable as of this writing.
+        #   - checkov, pip-audit: pip-installable, exact versions.
+        run: |
+          pip install --no-cache-dir pre-commit==4.6.1 checkov==3.3.13 pip-audit==2.10.1
+
+          curl -fsSL -o /tmp/trivy.tar.gz \
+            https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz
+          tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+          rm -f /tmp/trivy.tar.gz
+
+          curl -fsSL -o /usr/local/bin/osv-scanner \
+            https://github.com/google/osv-scanner/releases/download/v2.5.1/osv-scanner_linux_amd64
+          chmod +x /usr/local/bin/osv-scanner
+
+          curl -fsSL -o /tmp/trufflehog.tar.gz \
+            https://github.com/trufflesecurity/trufflehog/releases/download/v3.97.0/trufflehog_3.97.0_linux_amd64.tar.gz
+          tar -xzf /tmp/trufflehog.tar.gz -C /usr/local/bin trufflehog
+          rm -f /tmp/trufflehog.tar.gz
+
+          trivy --version
+          osv-scanner --version
+          trufflehog --version
+          checkov --version
+          pip-audit --version
+        env:
+          # apt/sudo not needed for any of the above -- all install to
+          # /usr/local/bin, which is already writable and on PATH for the
+          # runner user on GitHub-hosted ubuntu-latest images.
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: pre-commit (pre-push stage -- security tier)
+        run: pre-commit run --all-files --hook-stage pre-push --show-diff-on-failure
 
   test-backend:
     name: Backend tests (isolated venv)
@@ -105,6 +199,14 @@ jobs:
         # behind a green summary line -- see the job summary step below
         # for why that matters here specifically.
         #
+        # The `| tee` here now genuinely gates thanks to the workflow-level
+        # `defaults.run.shell: bash` above (pipefail) -- verified by
+        # deliberately breaking the threshold locally and watching this
+        # exact command fail. Without it, a failing coverage run (or a
+        # failing test unique to this instrumented invocation) would report
+        # green because tee's own exit code, not pytest's, decided the
+        # step's outcome.
+        #
         # This repo currently has NO coverage floor configured anywhere
         # (no pytest.ini fail-under, no codecov.yml). testing-python.md's
         # org-wide standard is 90%; actual measured coverage as of this
@@ -126,12 +228,12 @@ jobs:
 
       - name: Surface skipped tests in the job summary
         # Known gap: TestAgainstLiveNest (tests/api/test_nest_adapter.py)
-        # needs Nest's own dependency set (opentelemetry-api, a real Nest
-        # checkout) that this job deliberately does not install -- see
-        # test-product-source below, which does. Without this step those
-        # skips are invisible inside a green pytest summary line; this
-        # repo's whole reason for existing this run is not letting that
-        # happen silently.
+        # needs Nest's own dependency set (opentelemetry, kubernetes, a
+        # real Nest checkout) that this job deliberately does not install
+        # -- see test-product-source below, which does. Without this step
+        # those skips are invisible inside a green pytest summary line;
+        # this repo's whole reason for existing this run is not letting
+        # that happen silently.
         if: always()
         run: |
           {
@@ -167,7 +269,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Install dependencies
         run: npm ci
@@ -186,11 +288,11 @@ jobs:
     runs-on: ubuntu-latest
     # Not required-to-pass (yet): this job currently and correctly fails --
     # see the comments on the "Run tests/api..." step below. It surfaces a
-    # real, pre-existing gap (a stale Tobogganing fixture, and Nest's live
-    # app needing further dependency curation) that no CI ever ran before,
-    # rather than a defect this workflow introduced. continue-on-error
-    # keeps it visibly red on every PR without blocking the merge gate for
-    # unrelated changes until that gap is actually closed.
+    # real, pre-existing gap (a stale Tobogganing fixture) that no CI ever
+    # ran before, rather than a defect this workflow introduced.
+    # continue-on-error keeps it visibly red on every PR without blocking
+    # the merge gate for unrelated changes until that gap is actually
+    # closed.
     continue-on-error: true
     steps:
       - name: Check out the repo
@@ -283,22 +385,55 @@ jobs:
         # a red check that says exactly what is stale is the point of this
         # job. This is not (yet) wired into a required/blocking status; the
         # backend gate that blocks merges is test-backend, above.
+        #
+        # `-rfE`, not `-rf`: pytest's short-summary reporting is opt-in per
+        # category once you pass -r at all, and `f` alone reports FAILED
+        # lines but silently DROPS `ERROR ` lines -- verified locally (a
+        # fixture that raises during setup shows in the summary with no -r
+        # flag or with `-rfE`, but vanishes with `-rf` alone). Collection/
+        # fixture-setup errors are exactly the missing-upstream-dependency
+        # shape this job exists to catch (e.g. TestAgainstLiveNest before
+        # the step above installed kubernetes/opentelemetry): with `-rf`,
+        # `grep -c '^ERROR '` below would have been structurally always 0,
+        # silently emptying that half of the attribution step.
         working-directory: penguincloud
         env:
           REQUIRE_PRODUCT_SOURCE: '1'
           GOUGH_SOURCE_ROOT: ${{ github.workspace }}/product-source/gough
           NEST_SOURCE_ROOT: ${{ github.workspace }}/product-source/nest
           TOBOGGANING_SOURCE_ROOT: ${{ github.workspace }}/product-source/tobogganing
-        run: .venv/bin/python -m pytest tests/api -q -rf | tee pytest-product-source.log
+        run: .venv/bin/python -m pytest tests/api -q -rfE | tee pytest-product-source.log
 
-      - name: Attribute failures -- ours vs. upstream's
-        # A flat FAILED list can't tell a reader "our fixture is stale"
-        # from "the other repo's dependency hygiene is broken" without
-        # reading every traceback. This job exists to catch drift IN THIS
-        # REPO (tests/api/fixtures/tobogganing_source.json); it is not a CI
-        # gate for Gough/Nest/Tobogganing's own code. Categorize on sight.
+      - name: Attribute failures -- known product surface vs. unclassified
+        # Regex-matching a file name cannot reliably tell "our vendored
+        # fixture is stale" apart from "the other repo's own dependency
+        # hygiene is broken" -- both manifest through the SAME test files
+        # (TestAgainstLiveNest's errors were a missing `kubernetes` import
+        # inside Nest's own code, not a bug in anything this repo vendors).
+        #
+        # The previous version of this step treated anything that didn't
+        # match a narrow Tobogganing-only pattern as "upstream, not ours"
+        # by default -- which silently mislabelled real, in-repo problems
+        # (a stale gough/nest fixture, an allowlist drift) as someone
+        # else's job, and combined with continue-on-error that is WORSE
+        # than no attribution at all: a genuine regression both fails to
+        # block the merge gate and is explicitly pointed away from the
+        # person who should act on it.
+        #
+        # There is no "upstream" bucket anymore. Every gough/nest/
+        # tobogganing fixture, allowlist, or adapter test failure is
+        # KNOWN PRODUCT SURFACE and gets reviewed here first, regardless of
+        # whether the eventual root cause turns out to be this repo's
+        # fixture or the other repo's dependency hygiene. Anything that
+        # doesn't match one of those known files is UNCLASSIFIED and
+        # flagged for triage, never silently attributed to someone else.
         if: always()
         run: |
+          # Allowlist across all three products' fixture/allowlist/adapter
+          # test files. gough has no "source_fixture" file (its equivalent
+          # is route_drift, see tests/api/gough_route_source.py); nest and
+          # tobogganing use source_fixture instead.
+          KNOWN='tests/api/test_(gough_(adapter|allowlist|route_drift)|nest_(adapter|allowlist|source_fixture)|tobogganing_(adapter|allowlist|source_fixture))\.py'
           {
             echo '## Product-source test summary'
             echo
@@ -306,28 +441,35 @@ jobs:
             errored=$(grep -c '^ERROR ' penguincloud/pytest-product-source.log || true)
             echo "${failed:-0} failed, ${errored:-0} errored."
             echo
-            echo '### OURS -- stale vendored fixture (lives in this repo)'
-            echo 'Tobogganing route/auth tables in tests/api/fixtures/tobogganing_source.json'
-            echo 'no longer match a live boot -- refresh with "make refresh-product-source-fixtures"'
-            echo 'and review the diff:'
+            echo '### KNOWN PRODUCT SURFACE -- review here first'
+            echo "Gough/Nest/Tobogganing fixture, allowlist, and adapter tests."
+            echo "The cause could be a stale vendored fixture in this repo"
+            echo '(tests/api/fixtures/*.json -- refresh with'
+            echo '"make refresh-product-source-fixtures") or a dependency/'
+            echo "behaviour issue in the upstream product itself -- this list"
+            echo "does not distinguish the two, it only narrows where to"
+            echo "start reading:"
             echo '```'
-            grep -E '^(FAILED|ERROR) tests/api/test_tobogganing_(source_fixture|allowlist|adapter)' \
-              penguincloud/pytest-product-source.log || echo '(none)'
+            grep -E "^(FAILED|ERROR) ${KNOWN}" penguincloud/pytest-product-source.log \
+              || echo '(none)'
             echo '```'
             echo
-            echo "### UPSTREAM'S -- another repo's dependency/behaviour, not ours to fix here"
+            echo '### UNCLASSIFIED -- triage required'
+            echo "Failed or errored outside the known product-test files above."
+            echo "Never assume this is someone else's problem -- read it."
             echo '```'
             grep -E '^(FAILED|ERROR)' penguincloud/pytest-product-source.log \
-              | grep -vE 'tests/api/test_tobogganing_(source_fixture|allowlist|adapter)' || echo '(none)'
+              | grep -vE "${KNOWN}" || echo '(none)'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
   docker-build-verify:
-    name: Docker build verify (${{ matrix.service }})
+    name: Docker build verify (${{ matrix.service }}, ${{ matrix.platform }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        platform: [linux/amd64, linux/arm64]
         service: [portal-api, webui]
         include:
           - service: portal-api
@@ -342,15 +484,29 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up QEMU
+        # Needed for the linux/arm64 leg on an amd64 runner. Without this,
+        # an arm64-only Dockerfile break would merge green here and only
+        # fail push.yml's real build-platform job after merge -- and since
+        # merge-manifests needs that job, no image would publish at all for
+        # that push, which is the worst version of "found out too late".
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4
 
-      - name: Build (no push) -- linux/amd64 only, multi-arch is verified in push.yml
+      - name: Build (no push) -- catches a broken Dockerfile before merge
+        # No cache-from/cache-to here. This workflow runs on pull_request,
+        # and a GHA cache scoped to a same-repo PR branch can be written by
+        # that PR and restored by a later trusted run on the base branch --
+        # exactly the cache-poisoning shape the lint/test-backend/
+        # test-product-source jobs above already removed actions/cache for.
+        # Uncached costs more wall-clock time per PR; that is an accepted
+        # trade against a real poisoning vector, the same call already made
+        # for those jobs.
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: false
-          platforms: linux/amd64
-          cache-from: type=gha,scope=verify-${{ matrix.service }}
-          cache-to: type=gha,scope=verify-${{ matrix.service }},mode=max
+          platforms: ${{ matrix.platform }}

@@ -1,0 +1,41 @@
+# Narrowing the Docker build context to services/portal-api/ (see
+# .github/workflows/push.yml, release.yml, cron.yml, ci.yml -- the context
+# MUST be this directory so `COPY requirements.txt .` in the Dockerfile
+# resolves to this file, not the stale root requirements.txt) means a bare
+# `COPY . .` in the Dockerfile now reaches everything in this directory,
+# including local-dev-only files that were never meant to leave a
+# developer's machine. In particular .envrc ships a default DB_PASS value
+# and dev-mode Flask env vars -- baking it into the runtime image is
+# exactly the kind of thing this file exists to prevent.
+
+# direnv local dev config (contains a default DB_PASS)
+.envrc
+.env
+.env.*
+
+# Schema/migration authority -- backend-database.md: migrations run
+# manually or via a separate K8s Job, never from app startup, so the
+# runtime image (this Dockerfile's CMD execs hypercorn directly against
+# app:create_app()) has no code path that touches these at all.
+alembic/
+alembic.ini
+
+# Local/dev-only entry point -- run.py's own docstring: "the local/dev
+# equivalent" of the container's CMD, which invokes hypercorn directly and
+# never imports this file.
+run.py
+scripts/
+
+# Compiled-from source; only requirements.txt (hash-pinned, --require-hashes)
+# is installed.
+requirements.in
+
+# VCS/tooling noise
+.git/
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
