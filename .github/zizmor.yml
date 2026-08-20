@@ -1,0 +1,17 @@
+# zizmor config -- see .pre-commit-config.yaml's local "zizmor" hook
+# (devops.md "Git Hooks: GitHub Actions workflow scan (zizmor)").
+#
+# cache-poisoning: actions/setup-node is flagged in ci.yml purely for being
+# present in a pull_request-triggered workflow ("enables caching by
+# default", audit confidence -> Low) -- neither invocation sets a `cache:`
+# input, so no caching is actually configured. Verified by removing every
+# actions/cache step from ci.yml (the real fix, for the findings that WERE
+# real) and re-running zizmor: only these two setup-node lines remained.
+# Ignoring by exact line rather than disabling the rule file-wide, so a
+# real future cache-poisoning finding in ci.yml (e.g. if a `cache:` input
+# or a new actions/cache step is added later) still surfaces.
+rules:
+  cache-poisoning:
+    ignore:
+      - ci.yml:34
+      - ci.yml:163

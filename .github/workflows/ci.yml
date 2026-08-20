@@ -1,0 +1,320 @@
+# CI: lint, test, and build-verify gate. Runs on every PR and on pushes to
+# main/release branches so a post-merge commit is validated too. This is
+# the workflow that actually runs the test suites -- push.yml/release.yml/
+# cron.yml only publish images and never executed a test.
+
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'release/v*.x'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (pre-commit + OpenAPI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6
+        with:
+          node-version: '22'
+
+      - name: Install webui dependencies
+        # eslint-webui/prettier-webui hooks below shell out via
+        # `npx --no-install`, so node_modules must already exist.
+        run: npm ci
+        working-directory: services/webui
+
+      - name: Create the isolated portal-api venv
+        # Also provides the exact pinned mypy (2.3.0) the local mypy hook
+        # below runs against -- see .pre-commit-config.yaml's mypy hook
+        # comment: it is a `language: system` hook that uses whatever
+        # `mypy` is first on PATH, not an isolated pre-commit env.
+        #
+        # Deliberately uncached: actions/cache and setup-node's built-in
+        # cache both trip zizmor's cache-poisoning audit on a workflow that
+        # also runs on pull_request (a cache written by an untrusted fork
+        # PR run can be restored by a later trusted run on the base
+        # branch). This workflow is new -- there is no prior cached state
+        # to protect, so the simplest fix is not caching at all rather than
+        # trying to hand-roll a fork-safe restore-only/save-only split.
+        # Revisit if CI wall-clock time becomes a real cost.
+        run: make venv-portal-api
+
+      - name: Install pre-commit + zizmor into the venv
+        # Pinned versions: pre-commit 4.6.1 is the exact version
+        # .pre-commit-config.yaml's own header comment was validated
+        # against (stage-default behaviour differs across versions).
+        # zizmor is a `language: system` hook too (GitHub Actions workflow
+        # scanner, devops.md "Git Hooks").
+        run: .venv/bin/pip install pre-commit==4.6.1 zizmor==1.25.2
+
+      - name: pre-commit (pre-commit stage -- fast checks)
+        run: |
+          export PATH="$PWD/.venv/bin:$PATH"
+          pre-commit run --all-files --hook-stage pre-commit --show-diff-on-failure
+
+      - name: Lint OpenAPI spec (spectral)
+        run: make openapi-lint
+
+  test-backend:
+    name: Backend tests (isolated venv)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - name: Create the isolated portal-api venv
+        # Deliberately uncached -- see the lint job's equivalent step for
+        # why (zizmor cache-poisoning on a pull_request-triggered workflow).
+        run: make venv-portal-api
+
+      - name: Fail if the committed OpenAPI spec is stale
+        run: make openapi-check
+
+      - name: Run portal-api test suite (isolated venv, declared/pinned deps only)
+        # `make venv-portal-api && make test-api` is the ONLY way a fresh
+        # checkout reproduces local results instead of depending on
+        # whatever is globally installed on the runner -- see
+        # docs/DEVELOPMENT.md "Isolated test venv".
+        run: make test-api
+
+      - name: Backend coverage gate
+        # A second, coverage-instrumented invocation of the same suite
+        # (pytest-cov measures via execution, there is no way to derive
+        # coverage from the run above without re-running). `-rs` prints
+        # skip reasons so a skip is visible in the log rather than buried
+        # behind a green summary line -- see the job summary step below
+        # for why that matters here specifically.
+        #
+        # This repo currently has NO coverage floor configured anywhere
+        # (no pytest.ini fail-under, no codecov.yml). testing-python.md's
+        # org-wide standard is 90%; actual measured coverage as of this
+        # workflow landing is 78% (`--cov=app --cov-report=term-missing`,
+        # verified locally -- see PR description). The gate is set to that
+        # measured baseline rather than 90%: a fresh 90% gate would fail on
+        # every future PR regardless of what it changes, for a gap this
+        # workflow did not introduce. Raise this number as coverage
+        # improves; do not lower it.
+        run: |
+          .venv/bin/python -m pytest tests/ -q -rs \
+            --cov=app --cov-report=xml:coverage-backend.xml --cov-report=term-missing \
+            --cov-fail-under=78 | tee pytest-backend.log
+
+      - name: Surface skipped tests in the job summary
+        # Known gap: TestAgainstLiveNest (tests/api/test_nest_adapter.py)
+        # needs Nest's own dependency set (opentelemetry-api, a real Nest
+        # checkout) that this job deliberately does not install -- see
+        # test-product-source below, which does. Without this step those
+        # skips are invisible inside a green pytest summary line; this
+        # repo's whole reason for existing this run is not letting that
+        # happen silently.
+        if: always()
+        run: |
+          {
+            echo '## Backend test summary'
+            echo
+            echo '```'
+            grep -E '^(SKIPPED|[0-9]+ (passed|failed|skipped|xfailed|error))' pytest-backend.log || true
+            echo '```'
+            skip_count=$(grep -c '^SKIPPED' pytest-backend.log || true)
+            echo
+            echo "${skip_count:-0} test(s) skipped in this job -- product-source-dependent"
+            echo "skips are expected here and covered separately by the"
+            echo "test-product-source job (REQUIRE_PRODUCT_SOURCE=1)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
+        if: always()
+        with:
+          name: coverage-backend
+          path: coverage-backend.xml
+          retention-days: 14
+
+  test-webui:
+    name: WebUI tests (jest, 90% threshold per jest.config.js)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: services/webui
+
+      - name: Type-check
+        run: npm run typecheck
+        working-directory: services/webui
+
+      - name: Jest (coverage gate enforced via jest.config.js coverageThreshold)
+        run: npm run test:coverage
+        working-directory: services/webui
+
+  test-product-source:
+    name: Backend tests against real Gough/Nest/Tobogganing checkouts
+    runs-on: ubuntu-latest
+    # Not required-to-pass (yet): this job currently and correctly fails --
+    # see the comments on the "Run tests/api..." step below. It surfaces a
+    # real, pre-existing gap (a stale Tobogganing fixture, and Nest's live
+    # app needing further dependency curation) that no CI ever ran before,
+    # rather than a defect this workflow introduced. continue-on-error
+    # keeps it visibly red on every PR without blocking the merge gate for
+    # unrelated changes until that gap is actually closed.
+    continue-on-error: true
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+          path: penguincloud
+
+      # gough, nest and tobogganing are all public penguintechinc repos, so
+      # no cross-repo token is needed. All three, not just gough+nest: the
+      # product-source guards below all key off the SAME
+      # REQUIRE_PRODUCT_SOURCE=1 flag (tests/api/product_source_fixtures.py
+      # source_required()), and test_tobogganing_source_fixture.py uses the
+      # identical fail-loud-instead-of-skip pattern -- checking out only
+      # two of the three would make this job fail on a fixture-freshness
+      # check that has nothing to do with what it was added for.
+      - name: Check out Gough
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          repository: penguintechinc/gough
+          persist-credentials: false
+          path: product-source/gough
+
+      - name: Check out Nest
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          repository: penguintechinc/nest
+          persist-credentials: false
+          path: product-source/nest
+
+      - name: Check out Tobogganing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          repository: penguintechinc/tobogganing
+          persist-credentials: false
+          path: product-source/tobogganing
+
+      - name: Create the isolated portal-api venv
+        # Deliberately uncached -- see the lint job's equivalent step for
+        # why (zizmor cache-poisoning on a pull_request-triggered workflow).
+        working-directory: penguincloud
+        run: make venv-portal-api
+
+      - name: Install the extra packages the live product boots need
+        # Verified by actually running this job's command locally against
+        # real checkouts before landing it, iterating until each
+        # ModuleNotFoundError was resolved with the product's OWN pin:
+        #
+        # - TestAgainstLiveNest executes Nest's real Quart app, which
+        #   transitively imports `kubernetes` (apps/api/handlers/
+        #   import_handler.py) and the full opentelemetry SDK, not just the
+        #   API package (apps/api/telemetry.py: `opentelemetry.sdk.*`).
+        #   None of these are dependencies of this portal. Nest pins its
+        #   full dependency set exactly (apps/api/requirements.txt), but
+        #   several of those pins collide with the portal's own -- e.g.
+        #   quart==0.20.0 vs this repo's quart==0.21.0,
+        #   prometheus-client==0.21.1 vs 0.26.0 -- so installing Nest's
+        #   whole requirements.txt into this venv would silently downgrade
+        #   packages this suite is pinned against. These four are not
+        #   already pinned anywhere in this repo, so they are additions
+        #   that cannot conflict; everything else TestAgainstLiveNest
+        #   imports (aiohttp, cryptography, prometheus-client, quart,
+        #   pyjwt) is already present, just at a different exact version
+        #   than Nest's own lock.
+        #
+        # - Tobogganing's fixture-freshness tests actually BOOT hub_api
+        #   (tests/api/tobogganing_route_source.py boot_failure()) rather
+        #   than AST-parsing it. hub_api/cache/client.py imports `redis`,
+        #   but hub_api/requirements.txt does not declare it at all -- an
+        #   upstream gap in a repo this workflow cannot edit (READ-ONLY).
+        #   Pinned here to the version tobogganing's OWN netsvcs-dns engine
+        #   uses elsewhere in the same monorepo (closest available signal
+        #   to an authoritative pin, not a real one -- there isn't one).
+        #
+        # Once hub_api actually boots, TestFixtureFreshness and the SASE
+        # allowlist tests correctly FAIL: Tobogganing's live route table now
+        # has a `/api/v1/sase/blockpages/*` + `/api/v1/sase/swg/*` surface
+        # that tests/api/fixtures/tobogganing_source.json does not. That is
+        # this job finding a real, pre-existing gap (the vendored fixture
+        # predates those routes) exactly as designed -- not a defect in this
+        # workflow. See PR description; fixing it is `make
+        # refresh-product-source-fixtures` plus review, which is a fixture
+        # content decision outside .github/workflows/'s scope.
+        working-directory: penguincloud
+        run: .venv/bin/pip install opentelemetry-api==1.44.0 opentelemetry-sdk==1.44.0 kubernetes==31.0.0 redis==5.0.1
+
+      - name: Run tests/api with product-source guards required (no silent skips)
+        # Expected to currently fail -- see the step above and the PR
+        # description. Left as a real, non-green check rather than muted:
+        # a red check that says exactly what is stale is the point of this
+        # job. This is not (yet) wired into a required/blocking status; the
+        # backend gate that blocks merges is test-backend, above.
+        working-directory: penguincloud
+        env:
+          REQUIRE_PRODUCT_SOURCE: '1'
+          GOUGH_SOURCE_ROOT: ${{ github.workspace }}/product-source/gough
+          NEST_SOURCE_ROOT: ${{ github.workspace }}/product-source/nest
+          TOBOGGANING_SOURCE_ROOT: ${{ github.workspace }}/product-source/tobogganing
+        run: .venv/bin/python -m pytest tests/api -q
+
+  docker-build-verify:
+    name: Docker build verify (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [portal-api, webui]
+        include:
+          - service: portal-api
+            context: services/portal-api
+            dockerfile: services/portal-api/Dockerfile
+          - service: webui
+            context: .
+            dockerfile: services/webui/Dockerfile
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4
+
+      - name: Build (no push) -- linux/amd64 only, multi-arch is verified in push.yml
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          platforms: linux/amd64
+          cache-from: type=gha,scope=verify-${{ matrix.service }}
+          cache-to: type=gha,scope=verify-${{ matrix.service }},mode=max
