@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
@@ -161,18 +162,27 @@ def provenance(root: Path) -> dict[str, str]:
         "generated_on": date.today().isoformat(),
         "source_root": str(root),
     }
+    # S607's actual complaint is PATH-hijack risk from a bare command name;
+    # resolving to an absolute path with shutil.which is the real fix, not a
+    # suppression — `git_binary is None` (not on PATH at all) degrades to the
+    # date-only provenance below via the FileNotFoundError branch, same as
+    # any other reason git couldn't be run.
+    git_binary = shutil.which("git")
     for field, args in (
         ("source_commit", ["rev-parse", "HEAD"]),
         ("source_branch", ["rev-parse", "--abbrev-ref", "HEAD"]),
     ):
+        if git_binary is None:
+            break
         try:
-            # S603/S607: argv is entirely literal (`git`, a fixed `-C`, and
-            # one of two hardcoded rev-parse forms) plus a filesystem path
-            # this function's own caller already resolved — no untrusted
-            # input reaches it, and `check=False` means a missing `git`
-            # binary is handled below rather than raising.
+            # S603: argv is `git_binary` (resolved above, not attacker
+            # input) plus a fixed `-C` and one of two hardcoded rev-parse
+            # forms — nothing here is untrusted. `check=False` means a git
+            # failure is handled below (returncode != 0) rather than
+            # raising, so this is genuinely the review-and-accept case S603
+            # exists to flag, not a bug to fix.
             result = subprocess.run(  # noqa: S603
-                ["git", "-C", str(root), *args],  # noqa: S607
+                [git_binary, "-C", str(root), *args],
                 capture_output=True,
                 text=True,
                 timeout=30,

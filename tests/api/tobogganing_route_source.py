@@ -182,10 +182,14 @@ _NODE_AUTH_MARKERS: Final[tuple[str, ...]] = (
 # make it part of the string, not a comment at all.
 #
 # UP031: this is embedded Python SOURCE TEXT, not a message being composed —
-# it is full of literal `{`/`}` (dict/set literals, f-string-free string
-# formatting inside the child script itself), so an f-string or `.format()`
-# would need every one of them escaped as `{{`/`}}`. `%`-style substitution
-# is the correct tool here, not a style lapse.
+# it is full of literal `{`/`}` (25 brace characters below: dict/set
+# literals, f-string-free string formatting inside the child script itself).
+# An f-string or `.format()` would need every one of those 25 individually
+# escaped as `{{`/`}}` — one missed brace is a silent runtime KeyError in the
+# CHILD interpreter, surfacing only as an opaque "Tobogganing failed to
+# boot", not a clear error at the call site. `%`-style substitution needs no
+# escaping for `{`/`}` at all, which is exactly why it is the correct tool
+# here rather than a style lapse ruff should override.
 _BOOT_PROGRAM_TEMPLATE: Final[str] = r'''
 import asyncio, ast, inspect, json, sys, textwrap
 
