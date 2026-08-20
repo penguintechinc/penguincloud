@@ -470,6 +470,24 @@ than silently skip under `make test-api-live`
 (`REQUIRE_PRODUCT_SOURCE=1`) if the checkout is present but its
 dependencies aren't — see `_require_or_skip` in that file.
 
+`make lint`/`make lint-python`/`make test-security` used to guard every
+tool with `if command -v TOOL; then check || true; fi` — if the tool
+wasn't on `$PATH` (true of `.venv/bin/` unless activated), the whole check
+silently skipped and the target still reported success. `lint-python` now
+runs `ruff check`/`ruff format --check`/`mypy` through `.venv/bin/`
+unconditionally (`ruff==0.8.4`, pinned to match `.pre-commit-config.yaml`'s
+`ruff-pre-commit` rev exactly — bump both together); `flake8`/`black`/
+`isort` are gone from `requirements.in`, replaced repo-wide by ruff since
+PR #18. `lint` and `test-security`'s other tools (hadolint, shellcheck,
+bandit, pip-audit, gitleaks, gosec/govulncheck) now fail loud if the
+binary is missing AND there's something for it to check, instead of
+quietly reporting nothing. `gitleaks` is the one exception left advisory:
+`--no-git` scans the whole working tree unscoped and currently flags 8
+hits, all illustrative API-key examples in `docs/standards/*.md` and
+`docs/API.md` (files this repo doesn't edit) — the actual blocking gate is
+the pre-commit `gitleaks protect --staged` hook, scoped to staged diffs,
+which doesn't hit this false-positive class.
+
 ### 7. Create Pull Request
 
 Once tests pass:
