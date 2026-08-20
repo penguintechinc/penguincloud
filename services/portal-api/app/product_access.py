@@ -178,6 +178,21 @@ def adapter_failure(exc: AdapterError, product_id: int, operation: str) -> tuple
     rationale, including why every ``AdapterError`` subclass is marked
     uniformly rather than trying to except the ones that happen not to
     carry upstream text today.
+
+    LATENT TRAP for whoever adds the first ``@validate_response`` for a
+    non-2xx status on a route that calls this function: returning a
+    pre-built ``Response`` (this function's return value) into a route
+    whose status happens to match a status THAT route declares via
+    ``@validate_response(Model, status_code=...)`` hits quart_schema's own
+    ``isinstance(value, Response) and status == status_code`` branch, which
+    raises ``ResponseHeadersValidationError`` — visible to a caller as a
+    500, not the intended 404/409/422/429/502. Harmless today: every
+    current caller (``resources_api.py``, ``operations_api.py``) only
+    declares ``@validate_response`` for the SUCCESS status, never for one
+    of :data:`_ERROR_STATUS`'s codes. If that changes, this function needs
+    the same 3-tuple ``(model, status, headers)`` return
+    ``health_api.get_products_health`` uses instead of a ``Response``
+    object — see that function's comment for why.
     """
     logger.info(
         "product_request_failed",
