@@ -19,8 +19,11 @@ function portalError(data: unknown): unknown {
 }
 
 /**
- * A response the proxy marked as forwarded from a connected product — see
- * `UPSTREAM_RESPONSE_HEADER` in services/portal-api/app/proxy.py.
+ * A response any backend writer marked as containing product-derived text —
+ * see `UPSTREAM_RESPONSE_HEADER` in
+ * services/portal-api/app/adapters/base.py for the current list of writers
+ * (app.proxy, product_access.adapter_failure, products.test_product_connection,
+ * health_api.get_products_health).
  */
 function upstreamError(data: unknown): unknown {
   return {
