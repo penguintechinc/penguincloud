@@ -6,8 +6,9 @@ FROM node:22-bookworm-slim@sha256:4f77a690f2f8946ab16fe1e791a3ac0667ae1c3575c3e4
 
 WORKDIR /app
 
-# Copy shared library first
-COPY ./shared/react_libs /shared/react_libs
+# @penguintechinc/react-libs is a normal npm dependency (package.json,
+# public npm registry per backend.md) installed by `npm ci` below -- there
+# is no local shared/react_libs tree in this repo to vendor in.
 
 # Copy package files
 COPY ./services/webui/package*.json ./
@@ -26,8 +27,11 @@ FROM node:22-bookworm-slim@sha256:4f77a690f2f8946ab16fe1e791a3ac0667ae1c3575c3e4
 
 WORKDIR /app
 
-# Create non-root user
-RUN groupadd -r webui && useradd -r -g webui webui
+# node:22-bookworm-slim already ships a non-root `node` user at UID/GID
+# 1000 -- reused rather than creating a second one (groupadd/useradd at GID
+# 1000 collides with it: "GID '1000' already exists"). Numeric UID matches
+# services/portal-api/Dockerfile and devops-kubernetes.md's securityContext
+# (runAsUser: 1000).
 
 # Copy package files for production dependencies
 COPY ./services/webui/package*.json ./
@@ -39,10 +43,10 @@ RUN npm install --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 
 # Set ownership
-RUN chown -R webui:webui /app
+RUN chown -R node:node /app
 
-# Switch to non-root user
-USER webui
+# Switch to non-root user. Numeric form matches portal-api's Dockerfile.
+USER 1000
 
 # Environment defaults
 ENV NODE_ENV=production \
@@ -52,9 +56,10 @@ ENV NODE_ENV=production \
 # Expose port
 EXPOSE 3000
 
-# Health check
+# Health check (JSON/exec form -- no shell, matches portal-api's Dockerfile;
+# also what hadolint DL3025 wants for CMD/HEALTHCHECK arguments)
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/healthz', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+    CMD ["node", "-e", "require('http').get('http://localhost:3000/healthz', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
 
 # Run the server
 CMD ["node", "dist/server/index.js"]

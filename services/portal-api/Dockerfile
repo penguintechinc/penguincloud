@@ -8,15 +8,18 @@ WORKDIR /app
 # Install build dependencies for asyncpg and other C extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential=12.9 \
-    libpq-dev=15.18-0+deb12u1 \
+    libpq-dev=15.19-0+deb12u1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for layer caching
 COPY requirements.txt .
 
-# Install dependencies with uv and hash verification
-RUN pip install --no-cache-dir --upgrade \
-    'uv>=1.0.0' && \
+# Install dependencies with uv and hash verification. uv's release series
+# never reached 1.x (latest is 0.12.x as of this writing), so 'uv>=1.0.0'
+# matched no published version and failed the build outright -- pinned to
+# an exact, currently-published version instead of a floating constraint.
+RUN pip install --no-cache-dir \
+    'uv==0.12.5' && \
     uv pip install --system --require-hashes -r requirements.txt
 
 # Production stage
@@ -29,7 +32,7 @@ WORKDIR /app
 # (runAsUser: 1000) and resolves on host systems that can't look a named
 # user up (hadolint DL3066).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5=15.18-0+deb12u1 \
+    libpq5=15.19-0+deb12u1 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -r -g 1000 appuser && useradd -r -u 1000 -g appuser appuser
 
