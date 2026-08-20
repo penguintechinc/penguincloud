@@ -77,11 +77,21 @@ export default function SwgPolicyPage() {
   const submit = async (values: Record<string, unknown>): Promise<void> => {
     const input = toPolicy(values);
     const existing = collision(input);
-    setFormOpen(false);
     if (existing && existing.action !== input.action) {
+      // Not a save attempt yet — closing here just swaps the form for the
+      // confirmation. Nothing has been sent, so there is no outcome to hide.
+      setFormOpen(false);
       setReplacing({ input, existing });
       return;
     }
+    // Deliberately NOT closing first: `FormModalBuilder` only calls its own
+    // `onClose` after `onSubmit` resolves, and leaves the modal open (with
+    // the operator's entered values intact) if it throws. Closing here
+    // unconditionally, as this used to, discarded that behaviour — a
+    // rejected save closed the form before the rejection was known, so
+    // nothing was left on screen to show it had failed. The global
+    // `MutationCache.onError` (lib/queryClient.ts) still surfaces the
+    // failure via MutationErrorBanner regardless of which path this takes.
     await save.mutateAsync(input);
   };
 

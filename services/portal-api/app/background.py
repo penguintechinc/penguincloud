@@ -100,30 +100,7 @@ class BackgroundTaskManager:
             # executesql's return type is a broad union (Rows, list of
             # tuples, list of dicts, int...) depending on the driver and
             # query, so narrow explicitly rather than blind-indexing.
-            #
-            # mypy infers `db.executesql` as pydal's dynamic-attribute
-            # TableProxy rather than the bound method it resolves to at
-            # runtime (DAL's __getattr__ confuses the type checker) --
-            # narrow, single-line suppression per mypy.ini's documented
-            # policy for third-party stub limitations.
-            #
-            # KEEP THIS SUPPRESSION even though the isolated portal-api
-            # venv's pinned penguin-dal==0.4.1 (services/portal-api/
-            # requirements.txt) resolves executesql as a properly-typed
-            # method and reports the ignore as unused under that
-            # environment: pre-commit's mypy hook is `language: system`, so
-            # it resolves `penguin_dal` via whatever this machine's ambient
-            # `~/code/penguin-libs` editable install/branch currently is --
-            # confirmed on 2026-08-11 to be `fix/pypi-publish-action-bump`,
-            # which predates the executesql method entirely (0 matches for
-            # "executesql" in its db.py). Removing this line makes `mypy
-            # --ignore-missing-imports services/portal-api/app/background.py`
-            # fail with `"TableProxy" not callable [operator]` via the
-            # system mypy, even though `.venv/bin/python3 -m mypy --strict`
-            # against the pinned venv is clean either way.
-            rows = await db.executesql(  # type: ignore[operator]
-                "SELECT COUNT(*) FROM users WHERE email_confirmed = true"
-            )
+            rows = await db.executesql("SELECT COUNT(*) FROM users WHERE email_confirmed = true")
             active_user_count = 0
             if isinstance(rows, list) and rows:
                 first = rows[0]

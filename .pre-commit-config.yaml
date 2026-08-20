@@ -85,17 +85,19 @@ repos:
       - id: ruff-format
         stages: [pre-commit]
 
-  # mypy: local hook against the repo's own installed mypy + mypy.ini, not
-  # the mirrors-mypy isolated env — this repo's mypy.ini deliberately tunes
-  # follow_imports=silent and mypy_path for incremental, staged-file-only
-  # adoption (see mypy.ini header comment); --ignore-missing-imports matches
-  # the exact invocation the old hand-written hook used.
+  # mypy: local hook against THIS REPO'S OWN .venv (make venv-portal-api),
+  # never the ambient/system mypy — see scripts/hooks/run-mypy.sh for why
+  # (penguin_dal resolves differently depending on which env answers the
+  # import, and the hook, a developer's shell, and CI must all agree).
+  # Not the mirrors-mypy isolated env either: this repo's mypy.ini
+  # deliberately tunes follow_imports=silent and mypy_path for incremental,
+  # staged-file-only adoption (see mypy.ini header comment).
   - repo: local
     hooks:
       - id: mypy
-        name: mypy (staged files, repo mypy.ini)
-        entry: mypy --ignore-missing-imports
-        language: system
+        name: mypy (staged files, repo .venv + mypy.ini)
+        entry: scripts/hooks/run-mypy.sh
+        language: script
         types: [python]
         stages: [pre-commit]
 

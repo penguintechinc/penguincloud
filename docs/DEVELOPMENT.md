@@ -440,6 +440,36 @@ regenerate the lock with
 then `make venv-portal-api` picks up the new hash automatically (it keys
 its no-op check off `requirements.txt`'s own sha256, not a manual flag).
 
+The pre-commit **mypy** hook resolves through the same `.venv` now too
+(`scripts/hooks/run-mypy.sh`), not the ambient/system `mypy` on `PATH`. It
+used to be `language: system`, which imports `penguin_dal` off whatever an
+editable `~/code/penguin-libs` checkout happens to be — a branch that
+drifts independently of this repo and can disagree with the pinned release
+about what needs a `# type: ignore`. If `.venv/` doesn't exist yet, run
+`make venv-portal-api` once; the hook fails with that instruction rather
+than silently falling back to the ambient environment.
+
+This repo has exactly one Python requirements set —
+`services/portal-api/requirements.txt`. A pre-portal-api root
+`requirements.{in,txt}` (py4web/pydal, pinning the forbidden `gunicorn`)
+existed until this was cleaned up; nothing imported it, and it also made
+`pip-audit` unresolvable (`greenlet` arrives unpinned via `sqlalchemy`,
+which `--require-hashes` can't handle). Do not recreate a root-level
+requirements set — add new dependencies to `services/portal-api/`.
+
+`tests/api/test_nest_adapter.py::TestAgainstLiveNest` executes Nest's own
+Quart app from a sibling `~/code/nest` checkout and needs Nest's own
+`opentelemetry` SDK/exporter stack (`apps/api/telemetry.py`) to do it — the
+portal deliberately does NOT declare `opentelemetry` for itself just to run
+this cross-repo suite; it isn't a portal-api dependency and installing just
+the top-level package (enough to pass an `importorskip`) would still blow
+up deeper inside Nest's `configure_telemetry()`, trading a clean skip for a
+confusing failure. These 8 tests skip under plain `make test-api` (no
+checkout, or the checkout's own deps missing) and now genuinely FAIL rather
+than silently skip under `make test-api-live`
+(`REQUIRE_PRODUCT_SOURCE=1`) if the checkout is present but its
+dependencies aren't — see `_require_or_skip` in that file.
+
 ### 7. Create Pull Request
 
 Once tests pass:
