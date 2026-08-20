@@ -20,12 +20,24 @@
 # here: sqlalchemy's optional `greenlet != 0.4.17` extra constraint isn't
 # itself hash-pinned, which trips pip's --require-hashes dependency
 # resolution on requirements.txt regardless of --no-deps.
+#
+# The path is anchored to the repo root (not relative to cwd) so this
+# behaves identically regardless of where it's invoked from. It used to be
+# a bare relative path that only worked because pre-commit happens to set
+# cwd to the repo root — anywhere else, `[ -f "$req" ]` silently resolved
+# false and the hook exited 0 having audited nothing. Fail loud instead,
+# matching run-mypy.sh: an unresolvable path is a hook bug, not a "nothing
+# to audit" case.
 set -uo pipefail
 
-req="services/portal-api/requirements.txt"
-if [ -f "$req" ]; then
-  echo "pip-audit: $req"
-  pip-audit -r "$req" || echo "  (pip-audit reported an issue for $req — see output above)"
+repo_root="$(git rev-parse --show-toplevel)"
+req="$repo_root/services/portal-api/requirements.txt"
+if [ ! -f "$req" ]; then
+  echo "pip-audit hook: $req not found." >&2
+  exit 1
 fi
+
+echo "pip-audit: $req"
+pip-audit -r "$req" || echo "  (pip-audit reported an issue for $req — see output above)"
 
 exit 0
