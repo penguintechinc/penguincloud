@@ -51,13 +51,19 @@ build_and_push_images() {
     local SERVICES=("portal-api" "webui")
     for svc in "${SERVICES[@]}"; do
         if [ -n "$SERVICE" ] && [ "$SERVICE" != "$svc" ]; then continue; fi
-        local dockerfile="$PROJECT_ROOT/services/$svc/Dockerfile"
+        local service_path="$PROJECT_ROOT/services/$svc"
+        local dockerfile="$service_path/Dockerfile"
         if [ ! -f "$dockerfile" ]; then
             log_warn "Dockerfile not found for $svc at $dockerfile, skipping..."
             continue
         fi
         log_info "Building $svc..."
-        docker build -t "$IMAGE_REGISTRY/penguincloud-$svc:$IMAGE_TAG" -t "$IMAGE_REGISTRY/penguincloud-$svc:beta" -f "$dockerfile" "$PROJECT_ROOT"
+        # Build context is the service's own directory, not the repo root —
+        # services/portal-api/Dockerfile does `COPY requirements.txt .`,
+        # which resolves against the context root. Matches deploy-alpha.sh,
+        # check-docker.sh, docker-compose.yml and docker-compose.dev.yml,
+        # which all already scope the context to the service directory.
+        docker build -t "$IMAGE_REGISTRY/penguincloud-$svc:$IMAGE_TAG" -t "$IMAGE_REGISTRY/penguincloud-$svc:beta" -f "$dockerfile" "$service_path"
         docker push "$IMAGE_REGISTRY/penguincloud-$svc:$IMAGE_TAG"
         docker push "$IMAGE_REGISTRY/penguincloud-$svc:beta"
         log_info "✓ $svc pushed successfully"
