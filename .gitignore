@@ -54,7 +54,7 @@ __pycache__/
 */*.tgz
 */*.whl
 */*.zip
-*/password.txt 
+*/password.txt
 *secret*
 .idea/
 id_rsa*
@@ -71,3 +71,11 @@ id_rsa*
 
 # Go coverage profile (build artifact)
 coverage-go.out
+
+# Helm chart Secret/ExternalSecret templates contain no actual secret
+# material -- only template syntax; real values come from Vault/External
+# Secrets Operator or --set at install time (never committed). The blanket
+# *secret* rule above exists to keep real credential files out of the repo,
+# not to block legitimate chart templates named secret.yaml/
+# externalsecret.yaml -- this is a scoped exception, not a weakening of it.
+!k8s/helm/**/templates/*secret*.yaml
