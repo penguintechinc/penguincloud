@@ -208,6 +208,99 @@ describe("ConfirmDialog", () => {
     outsider.remove();
   });
 
+  it("never lets Tab escape into surrounding page chrome", () => {
+    // The regression this guards: FOCUSABLE_SELECTOR is itself a
+    // comma-separated selector list, so
+    // `` `[role="alert"] ${FOCUSABLE_SELECTOR}` `` as ONE querySelectorAll
+    // call only scoped the FIRST branch (button) to the alert — the other
+    // five (`[href]`, `input`, `select`, `textarea`, `[tabindex]`) matched
+    // DOCUMENT-WIDE, alert or no alert. Every prior test in this file
+    // renders the dialog with nothing else on the page, which is exactly
+    // why that shipped uncaught: there was nothing document-wide for the
+    // unscoped branches to accidentally match. This test renders real page
+    // chrome — a sidebar link and an unrelated input — outside the dialog.
+    render(
+      <>
+        <nav>
+          <a href="/somewhere" data-testid="sidebar-link">
+            Sidebar link
+          </a>
+        </nav>
+        <input data-testid="page-input" placeholder="unrelated page input" />
+        <ConfirmDialog
+          isOpen={true}
+          title="Confirm Action"
+          message="Are you sure?"
+          onConfirm={jest.fn()}
+          onCancel={jest.fn()}
+        />
+      </>,
+    );
+
+    const cancelBtn = screen.getByTestId("confirm-dialog-cancel");
+    const confirmBtn = screen.getByTestId("confirm-dialog-confirm");
+    const sidebarLink = screen.getByTestId("sidebar-link");
+    const pageInput = screen.getByTestId("page-input");
+
+    expect(confirmBtn).toHaveFocus();
+
+    // Several Tabs in a row — the bug let focus reach the sidebar link on
+    // the second one.
+    for (let i = 0; i < 6; i += 1) {
+      fireEvent.keyDown(document, { key: "Tab" });
+      const active = document.activeElement;
+      expect(active === sidebarLink || active === pageInput).toBe(false);
+      expect(active === cancelBtn || active === confirmBtn).toBe(true);
+    }
+  });
+
+  it("never lets Tab escape into page chrome even with a live alert present", () => {
+    // Same reproduction, but with a role="alert" region live too — proves
+    // the fix (querying each alert container, then searching WITHIN it)
+    // scopes correctly in both directions: page chrome stays excluded, and
+    // the alert's own controls are still included in the loop.
+    useMutationErrorStore.setState({
+      errors: [{ id: 1, message: "Route not allowed" }],
+    });
+    render(
+      <>
+        <nav>
+          <a href="/somewhere" data-testid="sidebar-link">
+            Sidebar link
+          </a>
+        </nav>
+        <div role="alert">
+          <button data-testid="alert-dismiss">Dismiss</button>
+        </div>
+        <ConfirmDialog
+          isOpen={true}
+          title="Confirm Action"
+          message="Are you sure?"
+          onConfirm={jest.fn()}
+          onCancel={jest.fn()}
+        />
+      </>,
+    );
+
+    const cancelBtn = screen.getByTestId("confirm-dialog-cancel");
+    const confirmBtn = screen.getByTestId("confirm-dialog-confirm");
+    const alertDismiss = screen.getByTestId("alert-dismiss");
+    const sidebarLink = screen.getByTestId("sidebar-link");
+    const allowed = new Set([cancelBtn, confirmBtn, alertDismiss]);
+    const visited = new Set<Element | null>();
+
+    for (let i = 0; i < 6; i += 1) {
+      fireEvent.keyDown(document, { key: "Tab" });
+      const active = document.activeElement;
+      expect(active).not.toBe(sidebarLink);
+      expect(allowed.has(active as HTMLElement)).toBe(true);
+      visited.add(active);
+    }
+    // The alert's own control was genuinely reachable over the course of
+    // the loop, not merely "never the sidebar link".
+    expect(visited.has(alertDismiss)).toBe(true);
+  });
+
   it("renders loading state", () => {
     render(
       <ConfirmDialog

@@ -22,10 +22,14 @@ const FOCUSABLE_SELECTOR =
  * component, and any future globally-portaled alert gets the same treatment
  * for free.
  *
- * The loop is driven explicitly end to end — never falls through to the
- * browser's native tab order — because native order is DOM-position
- * dependent, and a portaled alert's position relative to this dialog is not
- * something this component controls or can rely on.
+ * The loop is driven explicitly, not left to the browser's native tab
+ * order, whenever there is at least one focusable element to hand focus to
+ * — native order is DOM-position dependent, and a portaled alert's position
+ * relative to this dialog is not something this component controls or can
+ * rely on. (The one inert case is genuinely nothing focusable at all —
+ * `focusableElements.length === 0` returns before `preventDefault()`, so
+ * Tab falls through as normal there. That is a dialog with no buttons,
+ * which does not happen in practice, not a gap in the trap.)
  */
 export interface ConfirmDialogProps {
   isOpen: boolean;
@@ -77,10 +81,21 @@ export function ConfirmDialog({
         dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ??
           [],
       );
+      // NOT `` `[role="alert"] ${FOCUSABLE_SELECTOR}` `` as a single
+      // querySelectorAll call: FOCUSABLE_SELECTOR is itself a
+      // comma-separated selector LIST, and a descendant combinator only
+      // binds to the branch immediately after it. That string parses as
+      // `[role="alert"] button, [href], input, select, textarea,
+      // [tabindex]:not(...)` — only `button` was ever scoped to the alert;
+      // the other five matched document-wide, on every page, alert or not
+      // (verified in jsdom: an unrelated sidebar link two Tabs away was
+      // enough to walk focus out of an open dialog entirely). Each alert
+      // container is queried on its own, THEN searched within, so nothing
+      // outside `[role="alert"]` can enter this list.
       const alertElements = Array.from(
-        document.querySelectorAll<HTMLElement>(
-          `[role="alert"] ${FOCUSABLE_SELECTOR}`,
-        ),
+        document.querySelectorAll<HTMLElement>('[role="alert"]'),
+      ).flatMap((container) =>
+        Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)),
       );
       const focusableElements = [...dialogElements, ...alertElements];
       if (focusableElements.length === 0) return;
