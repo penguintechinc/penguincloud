@@ -98,6 +98,127 @@ components:
         - created_at
       title: AuditRecord
       type: object
+    AuthenticatedUser:
+      description: "The caller's own profile, as login echoes it back.\n\nDeliberately narrower\
+        \ than the full user row fetched from the\ndatabase: no password_hash, no MFA secret,\
+        \ no internal flags. Nothing\nadded to that row tomorrow reaches this response unless\
+        \ it is added\nhere too — see security.md Output Validation.\n\nAttributes:\n    id:\
+        \ Identifier of the authenticated user.\n    email: The user's email address.\n    full_name:\
+        \ Display name.\n    role: Global role: admin, maintainer or viewer."
+      properties:
+        email:
+          title: Email
+          type: string
+        full_name:
+          title: Full Name
+          type: string
+        id:
+          title: Id
+          type: integer
+        role:
+          title: Role
+          type: string
+      required:
+        - id
+        - email
+        - full_name
+        - role
+      title: AuthenticatedUser
+      type: object
+    DashboardStats:
+      description: "Aggregate counters for the overview's stats block.\n\nAttributes:\n    total_products:\
+        \ Number of product connections in this tenant.\n    total_members: Number of members\
+        \ in this tenant.\n    health: Connections grouped by cached health state.\n    categories:\
+        \ Connection count by product category, e.g. networking."
+      properties:
+        categories:
+          additionalProperties:
+            type: integer
+          title: Categories
+          type: object
+        health:
+          $ref: '#/components/schemas/HealthCounts'
+        total_members:
+          title: Total Members
+          type: integer
+        total_products:
+          title: Total Products
+          type: integer
+      required:
+        - total_products
+        - total_members
+        - health
+        - categories
+      title: DashboardStats
+      type: object
+    HealthCounts:
+      description: "Count of connections in each cached health state.\n\nAttributes:\n    healthy:\
+        \ Connections last observed healthy.\n    degraded: Connections last observed degraded.\n\
+        \    unhealthy: Connections last observed unhealthy.\n    unknown: Connections never\
+        \ yet probed, or with no cached result."
+      properties:
+        degraded:
+          title: Degraded
+          type: integer
+        healthy:
+          title: Healthy
+          type: integer
+        unhealthy:
+          title: Unhealthy
+          type: integer
+        unknown:
+          title: Unknown
+          type: integer
+      required:
+        - healthy
+        - degraded
+        - unhealthy
+        - unknown
+      title: HealthCounts
+      type: object
+    HealthMatrixEntry:
+      description: "One connection's row in the dashboard health matrix.\n\nAttributes:\n  \
+        \  id: Identifier of the connection.\n    product_type: Which product this connects\
+        \ to.\n    display_name: Operator-assigned label for this connection.\n    health_status:\
+        \ Cached health result: healthy, degraded, unhealthy\n        or unknown.\n    last_health_check:\
+        \ When the health status was last refreshed,\n        ISO-8601.\n    base_url: The connected\
+        \ product's base URL."
+      properties:
+        base_url:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Base Url
+        display_name:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Display Name
+        health_status:
+          title: Health Status
+          type: string
+        id:
+          title: Id
+          type: integer
+        last_health_check:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Last Health Check
+        product_type:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Product Type
+      required:
+        - id
+        - product_type
+        - display_name
+        - health_status
+        - last_health_check
+        - base_url
+      title: HealthMatrixEntry
+      type: object
     MetricPointView:
       description: One sample in a series.
       properties:
@@ -248,6 +369,121 @@ components:
         - updated_at
         - completed_at
       title: OperationView
+      type: object
+    Pagination:
+      description: "Page metadata shared by the portal's paginated list endpoints.\n\nAttributes:\n\
+        \    page: The page returned.\n    per_page: Page size used.\n    total: Total matching\
+        \ rows across every page.\n    pages: Total number of pages."
+      properties:
+        page:
+          title: Page
+          type: integer
+        pages:
+          title: Pages
+          type: integer
+        per_page:
+          title: Per Page
+          type: integer
+        total:
+          title: Total
+          type: integer
+      required:
+        - page
+        - per_page
+        - total
+        - pages
+      title: Pagination
+      type: object
+    ProductConnection:
+      description: "One tenant's connection to a product.\n\n``api_key``/``api_secret`` are\
+        \ always ``***`` when a credential is\nconfigured, or empty when none is — never the\
+        \ stored ciphertext.\n\nAttributes:\n    id: Identifier of this connection.\n    tenant_id:\
+        \ The tenant this connection belongs to.\n    product_type: Which product this connects\
+        \ to, e.g. ``gough``.\n    display_name: Operator-assigned label for this connection.\n\
+        \    base_url: The connected product's base URL.\n    api_key: Masked — ``***`` if configured,\
+        \ else empty.\n    api_secret: Masked — ``***`` if configured, else empty.\n    auth_type:\
+        \ How the portal authenticates to the product.\n    health_endpoint: Path the health\
+        \ poller probes on this connection.\n    api_version: API major version the portal addresses\
+        \ on this product.\n    is_active: Whether the health poller and proxy still serve this\n\
+        \        connection.\n    health_status: Last cached health result: healthy, degraded,\n\
+        \        unhealthy or unknown.\n    discovered: True when this connection was created\
+        \ by network\n        discovery rather than entered by an operator.\n    last_health_check:\
+        \ When the health status was last refreshed,\n        ISO-8601.\n    created_at: When\
+        \ this connection was registered, ISO-8601.\n    updated_at: When this connection was\
+        \ last modified, ISO-8601."
+      properties:
+        api_key:
+          title: Api Key
+          type: string
+        api_secret:
+          title: Api Secret
+          type: string
+        api_version:
+          title: Api Version
+          type: string
+        auth_type:
+          title: Auth Type
+          type: string
+        base_url:
+          title: Base Url
+          type: string
+        created_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Created At
+        discovered:
+          title: Discovered
+          type: boolean
+        display_name:
+          title: Display Name
+          type: string
+        health_endpoint:
+          title: Health Endpoint
+          type: string
+        health_status:
+          title: Health Status
+          type: string
+        id:
+          title: Id
+          type: integer
+        is_active:
+          title: Is Active
+          type: boolean
+        last_health_check:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Last Health Check
+        product_type:
+          title: Product Type
+          type: string
+        tenant_id:
+          title: Tenant Id
+          type: integer
+        updated_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Updated At
+      required:
+        - id
+        - tenant_id
+        - product_type
+        - display_name
+        - base_url
+        - api_key
+        - api_secret
+        - auth_type
+        - health_endpoint
+        - api_version
+        - is_active
+        - health_status
+        - discovered
+        - last_health_check
+        - created_at
+        - updated_at
+      title: ProductConnection
       type: object
     ProductHealthEntry:
       description: One product connection's cached health, as the endpoint reports it.
@@ -459,6 +695,74 @@ components:
         - user_full_name
       title: TenantMemberResponse
       type: object
+    TenantSummary:
+      description: "The active tenant, as the dashboard overview names it.\n\nAttributes:\n\
+        \    id: Identifier of the tenant.\n    name: Display name.\n    plan: Licensed plan\
+        \ tier for this tenant."
+      properties:
+        id:
+          title: Id
+          type: integer
+        name:
+          title: Name
+          type: string
+        plan:
+          title: Plan
+          type: string
+      required:
+        - id
+        - name
+        - plan
+      title: TenantSummary
+      type: object
+    UserSummary:
+      description: "One user row, as the admin listing publishes it.\n\nNever carries ``password_hash``\
+        \ — the route pops it before this DTO is\nbuilt. Nothing else on the users table is\
+        \ sensitive today, but pinning\nthe field set means a column added tomorrow (an MFA\
+        \ secret, an SSO\nsubject id) does not reach this response without a deliberate edit\n\
+        here.\n\nAttributes:\n    id: Identifier of the user.\n    email: The user's email address.\n\
+        \    full_name: Display name.\n    role: Global role: admin, maintainer or viewer.\n\
+        \    is_active: Whether the account can currently authenticate.\n    created_at: When\
+        \ the account was created, ISO-8601.\n    updated_at: When the account was last modified,\
+        \ ISO-8601."
+      properties:
+        created_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Created At
+        email:
+          title: Email
+          type: string
+        full_name:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Full Name
+        id:
+          title: Id
+          type: integer
+        is_active:
+          title: Is Active
+          type: boolean
+        role:
+          title: Role
+          type: string
+        updated_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Updated At
+      required:
+        - id
+        - email
+        - full_name
+        - role
+        - is_active
+        - created_at
+        - updated_at
+      title: UserSummary
+      type: object
   securitySchemes:
     bearerAuth:
       bearerFormat: JWT
@@ -486,10 +790,45 @@ paths:
       operationId: get_get_audit_logs
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/audit/logs.\n\nAttributes:\n    logs:\
+                  \ The matching audit entries, newest first.\n    total: Total matching rows\
+                  \ across every page.\n    page: The page returned.\n    per_page: Page size\
+                  \ used.\n    pages: Total number of pages."
+                properties:
+                  logs:
+                    items:
+                      $ref: '#/components/schemas/AuditRecord'
+                    maxItems: 10000
+                    title: Logs
+                    type: array
+                  page:
+                    title: Page
+                    type: integer
+                  pages:
+                    title: Pages
+                    type: integer
+                  per_page:
+                    title: Per Page
+                    type: integer
+                  total:
+                    title: Total
+                    type: integer
+                required:
+                  - logs
+                  - total
+                  - page
+                  - per_page
+                  - pages
+                title: AuditLogsResponse
+                type: object
+          description: "Envelope for GET /api/v1/audit/logs.\n\nAttributes:\n    logs: The matching\
+            \ audit entries, newest first.\n    total: Total matching rows across every page.\n\
+            \    page: The page returned.\n    per_page: Page size used.\n    pages: Total number\
+            \ of pages."
       summary: Get audit logs with filtering and pagination.
   /api/v1/auth/confirm-email/{token}:
     post:
@@ -549,10 +888,51 @@ paths:
       operationId: post_login
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST /api/v1/auth/login.\n\nNo ``id_token``: id tokens\
+                  \ are OIDC \"who is this\" material, not bearer\ncredentials — TestTokenTypeConfusion\
+                  \ (tests/api/test_auth.py) requires\npenguin-aaa's id token to be REFUSED\
+                  \ on every protected route, so\nreturning one alongside the access token here\
+                  \ would hand the client a\nvalue it is equally likely to just replay as a\
+                  \ bearer.\n\nAttributes:\n    access_token: Bearer token for subsequent requests.\n\
+                  \    refresh_token: Opaque token to exchange for a new pair via\n        /api/v1/auth/refresh.\n\
+                  \    token_type: Always \"Bearer\".\n    expires_in: Seconds until access_token\
+                  \ expires.\n    user: The authenticated caller's profile."
+                properties:
+                  access_token:
+                    title: Access Token
+                    type: string
+                  expires_in:
+                    title: Expires In
+                    type: integer
+                  refresh_token:
+                    title: Refresh Token
+                    type: string
+                  token_type:
+                    title: Token Type
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/AuthenticatedUser'
+                required:
+                  - access_token
+                  - refresh_token
+                  - token_type
+                  - expires_in
+                  - user
+                title: LoginResponse
+                type: object
+          description: "Envelope for POST /api/v1/auth/login.\n\nNo ``id_token``: id tokens\
+            \ are OIDC \"who is this\" material, not bearer\ncredentials — TestTokenTypeConfusion\
+            \ (tests/api/test_auth.py) requires\npenguin-aaa's id token to be REFUSED on every\
+            \ protected route, so\nreturning one alongside the access token here would hand\
+            \ the client a\nvalue it is equally likely to just replay as a bearer.\n\nAttributes:\n\
+            \    access_token: Bearer token for subsequent requests.\n    refresh_token: Opaque\
+            \ token to exchange for a new pair via\n        /api/v1/auth/refresh.\n    token_type:\
+            \ Always \"Bearer\".\n    expires_in: Seconds until access_token expires.\n    user:\
+            \ The authenticated caller's profile."
       summary: Login endpoint - returns access and refresh tokens.
   /api/v1/auth/logout:
     post:
@@ -560,10 +940,28 @@ paths:
       operationId: post_logout
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST /api/v1/auth/logout.\n\nAttributes:\n    message:\
+                  \ Human-readable confirmation.\n    tokens_revoked: Number of the caller's\
+                  \ refresh tokens revoked."
+                properties:
+                  message:
+                    title: Message
+                    type: string
+                  tokens_revoked:
+                    title: Tokens Revoked
+                    type: integer
+                required:
+                  - message
+                  - tokens_revoked
+                title: LogoutResponse
+                type: object
+          description: "Envelope for POST /api/v1/auth/logout.\n\nAttributes:\n    message:\
+            \ Human-readable confirmation.\n    tokens_revoked: Number of the caller's refresh\
+            \ tokens revoked."
       summary: Logout endpoint - revokes all refresh tokens for user.
   /api/v1/auth/me:
     get:
@@ -571,10 +969,58 @@ paths:
       operationId: get_get_me
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/auth/me.\n\nWider than :class:`AuthenticatedUser`\
+                  \ (adds ``is_active`` and\n``created_at``) because this route's whole purpose\
+                  \ is the caller's own\nprofile — the same reasoning that keeps LoginResponse's\
+                  \ embedded user\nnarrow applies in reverse here: this IS the profile view.\
+                  \ Never\n``password_hash``, MFA secret, or any other row internal.\n\nAttributes:\n\
+                  \    id: Identifier of the authenticated user.\n    email: The user's email\
+                  \ address.\n    full_name: Display name.\n    role: Global role: admin, maintainer\
+                  \ or viewer.\n    is_active: Whether the account can currently authenticate.\n\
+                  \    created_at: When the account was created, ISO-8601."
+                properties:
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  email:
+                    title: Email
+                    type: string
+                  full_name:
+                    title: Full Name
+                    type: string
+                  id:
+                    title: Id
+                    type: integer
+                  is_active:
+                    title: Is Active
+                    type: boolean
+                  role:
+                    title: Role
+                    type: string
+                required:
+                  - id
+                  - email
+                  - full_name
+                  - role
+                  - is_active
+                  - created_at
+                title: MeResponse
+                type: object
+          description: "Envelope for GET /api/v1/auth/me.\n\nWider than :class:`AuthenticatedUser`\
+            \ (adds ``is_active`` and\n``created_at``) because this route's whole purpose is\
+            \ the caller's own\nprofile — the same reasoning that keeps LoginResponse's embedded\
+            \ user\nnarrow applies in reverse here: this IS the profile view. Never\n``password_hash``,\
+            \ MFA secret, or any other row internal.\n\nAttributes:\n    id: Identifier of the\
+            \ authenticated user.\n    email: The user's email address.\n    full_name: Display\
+            \ name.\n    role: Global role: admin, maintainer or viewer.\n    is_active: Whether\
+            \ the account can currently authenticate.\n    created_at: When the account was\
+            \ created, ISO-8601."
       summary: Get current user profile.
   /api/v1/auth/oauth/connections:
     get:
@@ -647,10 +1093,46 @@ paths:
       operationId: post_refresh
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST /api/v1/auth/refresh.\n\nNo ``user``: a refresh\
+                  \ proves possession of a still-valid refresh\ntoken, not a fresh credential\
+                  \ check, so re-stating the profile here\nwould imply a re-authentication this\
+                  \ endpoint does not perform. Callers\nthat need the current profile call GET\
+                  \ /api/v1/auth/me.\n\nAttributes:\n    access_token: Newly issued bearer token.\n\
+                  \    refresh_token: Newly issued refresh token — the presented one was\n \
+                  \       revoked as part of rotation and is no longer valid.\n    token_type:\
+                  \ Always \"Bearer\".\n    expires_in: Seconds until access_token expires."
+                properties:
+                  access_token:
+                    title: Access Token
+                    type: string
+                  expires_in:
+                    title: Expires In
+                    type: integer
+                  refresh_token:
+                    title: Refresh Token
+                    type: string
+                  token_type:
+                    title: Token Type
+                    type: string
+                required:
+                  - access_token
+                  - refresh_token
+                  - token_type
+                  - expires_in
+                title: RefreshResponse
+                type: object
+          description: "Envelope for POST /api/v1/auth/refresh.\n\nNo ``user``: a refresh proves\
+            \ possession of a still-valid refresh\ntoken, not a fresh credential check, so re-stating\
+            \ the profile here\nwould imply a re-authentication this endpoint does not perform.\
+            \ Callers\nthat need the current profile call GET /api/v1/auth/me.\n\nAttributes:\n\
+            \    access_token: Newly issued bearer token.\n    refresh_token: Newly issued refresh\
+            \ token — the presented one was\n        revoked as part of rotation and is no longer\
+            \ valid.\n    token_type: Always \"Bearer\".\n    expires_in: Seconds until access_token\
+            \ expires."
       summary: Exchange a refresh token for a new token pair, rotating the old one.
   /api/v1/auth/register:
     post:
@@ -748,10 +1230,31 @@ paths:
       operationId: get_dashboard_health
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/dashboard/health.\n\nAttributes:\n  \
+                  \  health: One entry per product connection in the tenant.\n    count: Number\
+                  \ of entries returned."
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  health:
+                    items:
+                      $ref: '#/components/schemas/HealthMatrixEntry'
+                    maxItems: 10000
+                    title: Health
+                    type: array
+                required:
+                  - health
+                  - count
+                title: HealthMatrixResponse
+                type: object
+          description: "Envelope for GET /api/v1/dashboard/health.\n\nAttributes:\n    health:\
+            \ One entry per product connection in the tenant.\n    count: Number of entries\
+            \ returned."
       summary: Health matrix for all products.
   /api/v1/dashboard/overview:
     get:
@@ -759,10 +1262,36 @@ paths:
       operationId: get_dashboard_overview
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/dashboard/overview.\n\nAttributes:\n\
+                  \    tenant: The active tenant this overview describes.\n    stats: Aggregate\
+                  \ counters across the tenant's connections.\n    products: The tenant's product\
+                  \ connections, credentials masked —\n        the same projection GET /api/v1/products\
+                  \ publishes."
+                properties:
+                  products:
+                    items:
+                      $ref: '#/components/schemas/ProductConnection'
+                    maxItems: 10000
+                    title: Products
+                    type: array
+                  stats:
+                    $ref: '#/components/schemas/DashboardStats'
+                  tenant:
+                    $ref: '#/components/schemas/TenantSummary'
+                required:
+                  - tenant
+                  - stats
+                  - products
+                title: DashboardOverviewResponse
+                type: object
+          description: "Envelope for GET /api/v1/dashboard/overview.\n\nAttributes:\n    tenant:\
+            \ The active tenant this overview describes.\n    stats: Aggregate counters across\
+            \ the tenant's connections.\n    products: The tenant's product connections, credentials\
+            \ masked —\n        the same projection GET /api/v1/products publishes."
       summary: Aggregated stats for all products in the current tenant.
   /api/v1/discovery/accept/{discovery_id}:
     post:
@@ -1008,10 +1537,31 @@ paths:
       operationId: get_list_products
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/products.\n\nAttributes:\n    products:\
+                  \ The tenant's product connections, credentials masked.\n    count: Number\
+                  \ of connections returned."
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  products:
+                    items:
+                      $ref: '#/components/schemas/ProductConnection'
+                    maxItems: 10000
+                    title: Products
+                    type: array
+                required:
+                  - products
+                  - count
+                title: ProductsListResponse
+                type: object
+          description: "Envelope for GET /api/v1/products.\n\nAttributes:\n    products: The\
+            \ tenant's product connections, credentials masked.\n    count: Number of connections\
+            \ returned."
       summary: List connected products for current tenant.
     post:
       description: ''
@@ -2253,10 +2803,39 @@ paths:
       operationId: get_status
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for the public, unauthenticated GET /api/v1/status.\n\
+                  \nAttributes:\n    status: Liveness state — always \"running\" once the process\
+                  \ is\n        serving requests.\n    service: Which service answered.\n  \
+                  \  version: Deployed service version.\n    timestamp: When this response was\
+                  \ generated, ISO-8601."
+                properties:
+                  service:
+                    title: Service
+                    type: string
+                  status:
+                    title: Status
+                    type: string
+                  timestamp:
+                    title: Timestamp
+                    type: string
+                  version:
+                    title: Version
+                    type: string
+                required:
+                  - status
+                  - service
+                  - version
+                  - timestamp
+                title: StatusResponse
+                type: object
+          description: "Envelope for the public, unauthenticated GET /api/v1/status.\n\nAttributes:\n\
+            \    status: Liveness state — always \"running\" once the process is\n        serving\
+            \ requests.\n    service: Which service answered.\n    version: Deployed service\
+            \ version.\n    timestamp: When this response was generated, ISO-8601."
       summary: Public status endpoint - no authentication required.
   /api/v1/teams:
     get:
@@ -3014,10 +3593,30 @@ paths:
       operationId: get_get_users
       parameters: []
       responses:
-        default:
-          description: Response shape is not yet declared for this operation. The view has no
-            @validate_response annotation, so no schema is published for it; do not rely on
-            a specific body until one is.
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/users.\n\nAttributes:\n    users: The\
+                  \ matching users, credentials never included.\n    pagination: Page metadata\
+                  \ for this result set."
+                properties:
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+                  users:
+                    items:
+                      $ref: '#/components/schemas/UserSummary'
+                    maxItems: 10000
+                    title: Users
+                    type: array
+                required:
+                  - users
+                  - pagination
+                title: UsersListResponse
+                type: object
+          description: "Envelope for GET /api/v1/users.\n\nAttributes:\n    users: The matching\
+            \ users, credentials never included.\n    pagination: Page metadata for this result\
+            \ set."
       summary: List all users with pagination (Admin only).
     post:
       description: ''

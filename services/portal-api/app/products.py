@@ -40,6 +40,7 @@ from .models import (
     tenant_quota,
     update_product_health,
 )
+from .product_view import ProductConnection, to_product_connections
 from .tenancy import (
     may_bind_tenant,
     tenancy_aware,
@@ -75,6 +76,19 @@ class ProductTenantMapResponse:
     external_id: str
     created_at: str
     updated_at: str
+
+
+@dataclass(slots=True, frozen=True)
+class ProductsListResponse:
+    """Envelope for GET /api/v1/products.
+
+    Attributes:
+        products: The tenant's product connections, credentials masked.
+        count: Number of connections returned.
+    """
+
+    products: list[ProductConnection]
+    count: int
 
 
 async def _get_tenant_id_from_request() -> int | None:
@@ -199,7 +213,8 @@ async def register_product() -> tuple[dict[str, Any], int]:
 @products_bp.route("", methods=["GET"])
 @auth_required
 @tenancy_aware
-async def list_products() -> tuple[dict[str, Any], int]:
+@validate_response(ProductsListResponse)
+async def list_products() -> tuple[Any, int]:
     """List connected products for current tenant."""
     user = get_current_user()
     if not user:
@@ -214,7 +229,8 @@ async def list_products() -> tuple[dict[str, Any], int]:
         return denied
 
     connections = await get_tenant_product_connections(tenant_id)
-    return {"products": connections, "count": len(connections)}, 200
+    projected = to_product_connections(connections)
+    return ProductsListResponse(products=projected, count=len(projected)), 200
 
 
 @products_bp.route("/<int:product_id>", methods=["GET"])
