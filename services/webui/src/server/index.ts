@@ -1,6 +1,6 @@
 import path from "path";
 import { fileURLToPath } from "url";
-import { createApp, defaultClientDir } from "./app.js";
+import { createApp } from "./app.js";
 
 // Named `moduleFilename`/`moduleDirname` rather than the conventional
 // `__filename`/`__dirname` purely for consistency with `app.ts`'s naming;
@@ -16,7 +16,8 @@ const config = {
   flaskApiUrl: process.env.FLASK_API_URL || "http://localhost:5000",
   goApiUrl: process.env.GO_API_URL || "http://localhost:8080",
   nodeEnv: process.env.NODE_ENV || "development",
-  clientDir: defaultClientDir(moduleDirname),
+  // Built client bundle sits one level up from dist/server at runtime.
+  clientDir: path.join(moduleDirname, "../client"),
 };
 
 const app = createApp(config);

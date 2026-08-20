@@ -1,5 +1,4 @@
 import express, { Request, Response, NextFunction } from "express";
-import path from "path";
 import helmet from "helmet";
 import {
   createProxyMiddleware,
@@ -218,10 +217,4 @@ export function createApp(config: AppConfig): express.Express {
   });
 
   return app;
-}
-
-/** Default `clientDir` for a given server module's own directory — the
- * built client bundle sits one level up from `dist/server` at runtime. */
-export function defaultClientDir(serverDirname: string): string {
-  return path.join(serverDirname, "../client");
 }
