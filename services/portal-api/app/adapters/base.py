@@ -145,6 +145,7 @@ __all__ = [
     "UpstreamError",
     "PathTraversalError",
     "adapter_error_status",
+    "UPSTREAM_RESPONSE_HEADER",
     "normalize_proxy_path",
     "quote_path_segment",
     "TENANT_PLACEHOLDER",
@@ -220,9 +221,7 @@ class UpstreamValidationError(AdapterError):
     showing a single opaque banner.
     """
 
-    def __init__(
-        self, message: str, violations: list[dict[str, Any]] | None = None
-    ) -> None:
+    def __init__(self, message: str, violations: list[dict[str, Any]] | None = None) -> None:
         """Record the message and the product's per-field violations."""
         super().__init__(message)
         self.violations = violations or []
@@ -269,6 +268,58 @@ def adapter_error_status(exc: AdapterError) -> int:
         if isinstance(exc, error_type):
             return status
     return 502
+
+
+#: Set (to "true") on every response whose body was forwarded from, or built
+#: from, a connected product's own reply — never on a portal-generated body.
+#: The webui client (`lib/mutationError.ts`) trusts this header to decide
+#: whether a body is safe to show an operator verbatim: unmarked is assumed
+#: portal-native and shown as-is, marked is always replaced with a generic
+#: message regardless of content.
+#:
+#: This is the definition to update FIRST when adding a fifth writer, and
+#: the list below is deliberately exhaustive rather than "see the proxy" —
+#: the original version of this constant named only ``app.proxy`` as owning
+#: it, and that framing is what let ``app.product_access.adapter_failure``
+#: ship unmarked in the same round: a reader who trusted "the proxy is the
+#: one path" had no reason to go looking for a second one. Grep this
+#: constant's name for the current, authoritative list of writers; the four
+#: below are current as of this writing, not a promise the list stops here:
+#:
+#: - ``app.proxy`` — the raw forwarding path, sets it on the response built
+#:   directly from ``outbound_response.content``.
+#: - ``app.product_access.adapter_failure`` — every ``AdapterError`` message
+#:   reaching it was built by a product adapter's own ``raise_for_status``
+#:   (see e.g. ``adapters/nest/responses.py``), which interpolates the
+#:   product's OWN response body into ``f"{context}: {detail}"``. That
+#:   response never touches ``app.proxy`` at all — it is the "trusted,
+#:   typed adapter method" path this module's own docstring describes above
+#:   — so nothing else marks it. Every ``AdapterError`` subclass is treated
+#:   identically, including ``AdapterCapabilityError`` (portal-generated,
+#:   never carries upstream text today): a false positive here just shows
+#:   the generic message for a message that happened to be safe, which
+#:   costs a little detail; a false negative is the regression this exists
+#:   to close.
+#: - ``app.products.test_product_connection`` (``POST
+#:   /products/<id>/test``) — a LIVE call to the product
+#:   (``adapter.health()``), returned in the 200 body rather than raised as
+#:   an ``AdapterError``, so ``adapter_failure`` never sees it. Marked
+#:   unconditionally, same reasoning as above.
+#: - ``app.health_api.get_products_health`` (``GET /products/health``) —
+#:   reads ``CachedHealth.error``, written by ``health_poller.py``'s sweep
+#:   from the same ``Transport.health_check`` exception text. No webui
+#:   screen reads this endpoint today (latent, not a live leak), marked
+#:   anyway so it is not a second miss for whichever one does. Declares
+#:   ``@validate_response`` for its 200, so it sets this header by
+#:   returning a 3-tuple ``(model, status, headers)`` rather than a
+#:   pre-built ``Response`` — see the comment at that call site for why
+#:   returning a ``Response`` there raises ``ResponseHeadersValidationError``
+#:   instead of working.
+#:
+#: ``Operation.error`` and ``OperationLogLine.message`` (below) are a
+#: deliberate NON-writer: those fields are verbatim-by-contract, not
+#: upstream-marked, by design — see their own docstrings.
+UPSTREAM_RESPONSE_HEADER: Final[str] = "X-Portal-Upstream-Response"
 
 
 # ---------------------------------------------------------------------------
@@ -763,7 +814,7 @@ def quote_path_segment(value: str) -> str:
 
 
 def normalize_proxy_path(raw: str) -> str:
-    """Validate a caller-supplied proxy path, or refuse it.
+    r"""Validate a caller-supplied proxy path, or refuse it.
 
     Rejects rather than rewrites. Resolving ``/users/../admin`` to ``/admin``
     would mean the allowlist judged one string and the product received
@@ -859,7 +910,7 @@ DEFAULT_PATH_SUBSTITUTIONS: Final[tuple[PathSubstitution, ...]] = (
 
 @dataclass(slots=True, frozen=True)
 class RouteRule:
-    """One declarative entry in an adapter's deny-by-default proxy allowlist.
+    r"""One declarative entry in an adapter's deny-by-default proxy allowlist.
 
     The pattern must be fully anchored — ``^`` at the start and ``\\Z`` at the
     end — and construction raises :class:`ValueError` when it is not. A
@@ -1035,9 +1086,7 @@ class Adapter(Protocol):
         """
         ...
 
-    async def get_resource(
-        self, kind: str, resource_id: str, ctx: AdapterContext
-    ) -> Resource:
+    async def get_resource(self, kind: str, resource_id: str, ctx: AdapterContext) -> Resource:
         """Get a single resource by kind and ID.
 
         Raise ResourceNotFoundError when the product has no such resource,
@@ -1065,9 +1114,7 @@ class Adapter(Protocol):
         """
         ...
 
-    async def delete_resource(
-        self, kind: str, resource_id: str, ctx: AdapterContext
-    ) -> None:
+    async def delete_resource(self, kind: str, resource_id: str, ctx: AdapterContext) -> None:
         """Delete a resource of a given kind.
 
         Raise ResourceNotFoundError / ResourceConflictError /
@@ -1112,9 +1159,7 @@ class Adapter(Protocol):
         """
         ...
 
-    async def get_operation(
-        self, kind: str, operation_id: str, ctx: AdapterContext
-    ) -> Operation:
+    async def get_operation(self, kind: str, operation_id: str, ctx: AdapterContext) -> Operation:
         """Poll one operation. The portal's refetch loop calls exactly this.
 
         Raise ResourceNotFoundError when the product has no such operation.
@@ -1170,9 +1215,7 @@ class Adapter(Protocol):
         """
         ...
 
-    async def invite_user(
-        self, payload: dict[str, Any], ctx: AdapterContext
-    ) -> dict[str, Any]:
+    async def invite_user(self, payload: dict[str, Any], ctx: AdapterContext) -> dict[str, Any]:
         """Invite a user to the external tenant.
 
         Raise AdapterCapabilityError if the adapter does not support invitations.
@@ -1232,9 +1275,7 @@ class HealthOnlyAdapter:
 
     def _unsupported(self, operation: str) -> AdapterCapabilityError:
         """Build the error for an operation this adapter does not implement."""
-        return AdapterCapabilityError(
-            f"{operation} is not implemented for {self.PRODUCT_TYPE}"
-        )
+        return AdapterCapabilityError(f"{operation} is not implemented for {self.PRODUCT_TYPE}")
 
     async def list_resources(
         self,
@@ -1248,9 +1289,7 @@ class HealthOnlyAdapter:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported(f"list_resources({kind})")
 
-    async def get_resource(
-        self, kind: str, resource_id: str, ctx: AdapterContext
-    ) -> Resource:
+    async def get_resource(self, kind: str, resource_id: str, ctx: AdapterContext) -> Resource:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported(f"get_resource({kind})")
 
@@ -1266,9 +1305,7 @@ class HealthOnlyAdapter:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported(f"update_resource({kind})")
 
-    async def delete_resource(
-        self, kind: str, resource_id: str, ctx: AdapterContext
-    ) -> None:
+    async def delete_resource(self, kind: str, resource_id: str, ctx: AdapterContext) -> None:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported(f"delete_resource({kind})")
 
@@ -1296,9 +1333,7 @@ class HealthOnlyAdapter:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported("list_operations()")
 
-    async def get_operation(
-        self, kind: str, operation_id: str, ctx: AdapterContext
-    ) -> Operation:
+    async def get_operation(self, kind: str, operation_id: str, ctx: AdapterContext) -> Operation:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported(f"get_operation({kind})")
 
@@ -1329,9 +1364,7 @@ class HealthOnlyAdapter:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported("list_users()")
 
-    async def invite_user(
-        self, payload: dict[str, Any], ctx: AdapterContext
-    ) -> dict[str, Any]:
+    async def invite_user(self, payload: dict[str, Any], ctx: AdapterContext) -> dict[str, Any]:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported("invite_user()")
 
@@ -1387,9 +1420,7 @@ class RBACEnforcer:
         coarse-implies-per-product relation in :meth:`_satisfies`.
         """
         granted_set = set(granted_scopes)
-        return all(
-            self._satisfies(scope, granted_set) for scope in self.required_scopes
-        )
+        return all(self._satisfies(scope, granted_set) for scope in self.required_scopes)
 
     def enforce_or_raise(self, granted_scopes: list[str]) -> None:
         """Raise ValueError if granted scopes do not satisfy the requirement."""

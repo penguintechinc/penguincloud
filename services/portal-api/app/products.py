@@ -5,12 +5,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from quart import Blueprint, request
+from quart import Blueprint, jsonify, request
 from quart_schema import validate_request, validate_response
 
 from . import flags, quotas
 from .adapters import get_adapter, get_all_product_types
-from .adapters.base import AdapterCapabilityError, AdapterContext
+from .adapters.base import (
+    UPSTREAM_RESPONSE_HEADER,
+    AdapterCapabilityError,
+    AdapterContext,
+)
 from .authz import (
     SCOPE_PRODUCTS_MANAGE,
     SCOPE_PRODUCTS_READ,
@@ -36,6 +40,7 @@ from .models import (
     tenant_quota,
     update_product_health,
 )
+from .product_view import ProductConnection, to_product_connections
 from .tenancy import (
     may_bind_tenant,
     tenancy_aware,
@@ -71,6 +76,19 @@ class ProductTenantMapResponse:
     external_id: str
     created_at: str
     updated_at: str
+
+
+@dataclass(slots=True, frozen=True)
+class ProductsListResponse:
+    """Envelope for GET /api/v1/products.
+
+    Attributes:
+        products: The tenant's product connections, credentials masked.
+        count: Number of connections returned.
+    """
+
+    products: list[ProductConnection]
+    count: int
 
 
 async def _get_tenant_id_from_request() -> int | None:
@@ -195,7 +213,8 @@ async def register_product() -> tuple[dict[str, Any], int]:
 @products_bp.route("", methods=["GET"])
 @auth_required
 @tenancy_aware
-async def list_products() -> tuple[dict[str, Any], int]:
+@validate_response(ProductsListResponse)
+async def list_products() -> tuple[Any, int]:
     """List connected products for current tenant."""
     user = get_current_user()
     if not user:
@@ -210,7 +229,8 @@ async def list_products() -> tuple[dict[str, Any], int]:
         return denied
 
     connections = await get_tenant_product_connections(tenant_id)
-    return {"products": connections, "count": len(connections)}, 200
+    projected = to_product_connections(connections)
+    return ProductsListResponse(products=projected, count=len(projected)), 200
 
 
 @products_bp.route("/<int:product_id>", methods=["GET"])
@@ -323,7 +343,7 @@ async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
 @products_bp.route("/<int:product_id>/test", methods=["POST"])
 @auth_required
 @tenancy_aware
-async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]:
+async def test_product_connection(product_id: int) -> tuple[Any, int]:
     """Test a product connection."""
     user = get_current_user()
     if not user:
@@ -372,7 +392,7 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
     result = await adapter.health(ctx)
 
     # Convert HealthResult to dict for response
-    result_dict = {
+    result_dict: dict[str, Any] = {
         "status": result.status,
         "status_code": result.status_code,
         "response_time_ms": result.response_time_ms,
@@ -382,7 +402,18 @@ async def test_product_connection(product_id: int) -> tuple[dict[str, Any], int]
 
     await update_product_health(product_id, result.status)
 
-    return result_dict, 200
+    # This is a LIVE call to the product (adapter.health() above), so the
+    # whole response is upstream-derived the same way adapter_failure's is
+    # — `status`/`status_code`/`response_time_ms` are not free text, but
+    # `error` is `str(exc)` from Transport.health_check's own exception
+    # handling (adapters/transport.py), which can embed the product's real
+    # hostname/IP on a connection failure. Marked unconditionally (not only
+    # when `error` is present) for the same reason adapter_failure marks
+    # every AdapterError subclass: the choke point is the route, not a
+    # per-field judgement call about what happens to be textual today.
+    response = jsonify(result_dict)
+    response.headers[UPSTREAM_RESPONSE_HEADER] = "true"
+    return response, 200
 
 
 @products_bp.route("/<int:product_id>/health", methods=["GET"])

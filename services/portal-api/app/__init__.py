@@ -15,6 +15,7 @@ from quart_cors import cors
 from quart_schema import HttpSecurityScheme, Info, QuartSchema
 
 from . import devmode
+from .adapters.base import UPSTREAM_RESPONSE_HEADER
 from .background import get_background_manager
 from .config import (
     MIN_SECRET_KEY_LENGTH,
@@ -297,6 +298,19 @@ def create_app(config_class: type[Config] = Config) -> Quart:
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "X-Tenant-Scope"],
         allow_credentials=True,
+        # Without this, a browser's fetch/XHR strips any response header not
+        # explicitly exposed — including UPSTREAM_RESPONSE_HEADER, the
+        # provenance marker services/webui/src/client/lib/mutationError.ts
+        # trusts to decide whether a body is safe to show verbatim. Today
+        # the webui always reaches this API same-origin through the Express
+        # BFF, where that stripping does not apply — but the CORS allowlist
+        # above exists AT ALL because cross-origin access was once intended,
+        # and if the client is ever pointed at this origin directly, an
+        # unexposed header would make every upstream-forwarded body read as
+        # "trusted" with no code change on either side to notice. The safe
+        # behaviour should not depend on a deployment topology nobody
+        # re-checks.
+        expose_headers=[UPSTREAM_RESPONSE_HEADER],
     )
 
     # Initialize the OIDC token provider (penguin-aaa). Every token this app

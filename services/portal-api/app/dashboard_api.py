@@ -16,8 +16,120 @@ from .models import (
     get_tenant_product_connections,
     get_tenant_product_count,
 )
+from .product_view import ProductConnection, to_product_connections
 
 dashboard_bp = Blueprint("dashboard", __name__)
+
+
+def _isoformat(value: Any) -> str | None:
+    """Render a datetime column as ISO-8601, tolerating NULL or a string."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    isoformat = getattr(value, "isoformat", None)
+    return isoformat() if callable(isoformat) else str(value)
+
+
+@dataclass(slots=True, frozen=True)
+class TenantSummary:
+    """The active tenant, as the dashboard overview names it.
+
+    Attributes:
+        id: Identifier of the tenant.
+        name: Display name.
+        plan: Licensed plan tier for this tenant.
+    """
+
+    id: int
+    name: str
+    plan: str
+
+
+@dataclass(slots=True, frozen=True)
+class HealthCounts:
+    """Count of connections in each cached health state.
+
+    Attributes:
+        healthy: Connections last observed healthy.
+        degraded: Connections last observed degraded.
+        unhealthy: Connections last observed unhealthy.
+        unknown: Connections never yet probed, or with no cached result.
+    """
+
+    healthy: int
+    degraded: int
+    unhealthy: int
+    unknown: int
+
+
+@dataclass(slots=True, frozen=True)
+class DashboardStats:
+    """Aggregate counters for the overview's stats block.
+
+    Attributes:
+        total_products: Number of product connections in this tenant.
+        total_members: Number of members in this tenant.
+        health: Connections grouped by cached health state.
+        categories: Connection count by product category, e.g. networking.
+    """
+
+    total_products: int
+    total_members: int
+    health: HealthCounts
+    categories: dict[str, int]
+
+
+@dataclass(slots=True, frozen=True)
+class DashboardOverviewResponse:
+    """Envelope for GET /api/v1/dashboard/overview.
+
+    Attributes:
+        tenant: The active tenant this overview describes.
+        stats: Aggregate counters across the tenant's connections.
+        products: The tenant's product connections, credentials masked —
+            the same projection GET /api/v1/products publishes.
+    """
+
+    tenant: TenantSummary
+    stats: DashboardStats
+    products: list[ProductConnection]
+
+
+@dataclass(slots=True, frozen=True)
+class HealthMatrixEntry:
+    """One connection's row in the dashboard health matrix.
+
+    Attributes:
+        id: Identifier of the connection.
+        product_type: Which product this connects to.
+        display_name: Operator-assigned label for this connection.
+        health_status: Cached health result: healthy, degraded, unhealthy
+            or unknown.
+        last_health_check: When the health status was last refreshed,
+            ISO-8601.
+        base_url: The connected product's base URL.
+    """
+
+    id: int
+    product_type: str | None
+    display_name: str | None
+    health_status: str
+    last_health_check: str | None
+    base_url: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class HealthMatrixResponse:
+    """Envelope for GET /api/v1/dashboard/health.
+
+    Attributes:
+        health: One entry per product connection in the tenant.
+        count: Number of entries returned.
+    """
+
+    health: list[HealthMatrixEntry]
+    count: int
 
 
 def _get_tenant_id() -> int | None:
@@ -42,7 +154,8 @@ def _get_tenant_id() -> int | None:
 
 @dashboard_bp.route("/overview", methods=["GET"])
 @auth_required
-async def dashboard_overview() -> tuple[dict[str, Any], int]:
+@validate_response(DashboardOverviewResponse)
+async def dashboard_overview() -> tuple[Any, int]:
     """Aggregated stats for all products in the current tenant."""
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
@@ -86,25 +199,34 @@ async def dashboard_overview() -> tuple[dict[str, Any], int]:
                 category_counts[cat] = category_counts.get(cat, 0) + 1
                 break
 
-    return {
-        "tenant": {
-            "id": tenant_id,
-            "name": tenant.get("name") if tenant else "",
-            "plan": tenant.get("plan_tier") if tenant else "free",
-        },
-        "stats": {
-            "total_products": product_count,
-            "total_members": member_count,
-            "health": health_counts,
-            "categories": category_counts,
-        },
-        "products": connections,
-    }, 200
+    return (
+        DashboardOverviewResponse(
+            tenant=TenantSummary(
+                id=tenant_id,
+                name=str(tenant.get("name")) if tenant else "",
+                plan=str(tenant.get("plan_tier")) if tenant else "free",
+            ),
+            stats=DashboardStats(
+                total_products=product_count,
+                total_members=member_count,
+                health=HealthCounts(
+                    healthy=health_counts.get("healthy", 0),
+                    degraded=health_counts.get("degraded", 0),
+                    unhealthy=health_counts.get("unhealthy", 0),
+                    unknown=health_counts.get("unknown", 0),
+                ),
+                categories=category_counts,
+            ),
+            products=to_product_connections(connections),
+        ),
+        200,
+    )
 
 
 @dashboard_bp.route("/health", methods=["GET"])
 @auth_required
-async def dashboard_health() -> tuple[dict[str, Any], int]:
+@validate_response(HealthMatrixResponse)
+async def dashboard_health() -> tuple[Any, int]:
     """Health matrix for all products."""
     user = get_current_user()
     if not user:  # pragma: no cover - auth_required guarantees a user
@@ -123,20 +245,20 @@ async def dashboard_health() -> tuple[dict[str, Any], int]:
 
     connections = await get_tenant_product_connections(tenant_id)
 
-    health_matrix: list[dict[str, Any]] = []
+    health_matrix: list[HealthMatrixEntry] = []
     for conn in connections:
         health_matrix.append(
-            {
-                "id": conn["id"],
-                "product_type": conn.get("product_type"),
-                "display_name": conn.get("display_name"),
-                "health_status": conn.get("health_status", "unknown"),
-                "last_health_check": conn.get("last_health_check"),
-                "base_url": conn.get("base_url"),
-            }
+            HealthMatrixEntry(
+                id=int(conn["id"]),
+                product_type=conn.get("product_type"),
+                display_name=conn.get("display_name"),
+                health_status=str(conn.get("health_status", "unknown")),
+                last_health_check=_isoformat(conn.get("last_health_check")),
+                base_url=conn.get("base_url"),
+            )
         )
 
-    return {"health": health_matrix, "count": len(health_matrix)}, 200
+    return HealthMatrixResponse(health=health_matrix, count=len(health_matrix)), 200
 
 
 # Docstring below is exported as the ActivityResponse schema description;
