@@ -15,15 +15,42 @@ permissions:
 on:
   schedule:
     - cron: 1 1 * * 1
-env:
-  REPO: insert-repo-name-here
+
+concurrency:
+  group: publish-cron
+  cancel-in-progress: false
+
 jobs:
+  # See push.yml prepare job for why the epoch is resolved once and shared
+  # -- the previous version computed a fresh `date +%s` independently in
+  # build-platform AND merge-manifests, so the merge step referenced tags
+  # that build-platform never actually pushed.
+  prepare:
+    name: Resolve build tag
+    runs-on: ubuntu-latest
+    outputs:
+      epoch: ${{ steps.vars.outputs.epoch }}
+    steps:
+      - name: Resolve epoch
+        id: vars
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
   build-platform:
-    name: Build Docker image for ${{ matrix.platform }}
+    name: Build ${{ matrix.service }} (${{ matrix.platform }})
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         platform: [linux/amd64, linux/arm64]
+        service: [portal-api, webui]
+        include:
+          - service: portal-api
+            context: services/portal-api
+            dockerfile: services/portal-api/Dockerfile
+          - service: webui
+            context: .
+            dockerfile: services/webui/Dockerfile
     permissions:
       packages: write
       contents: read
@@ -33,22 +60,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Ansible Lint
-        run: |
-          pip install ansible-lint
-          ansible-lint
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to the Container registry
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4
@@ -61,42 +77,38 @@ jobs:
         id: tag
         env:
           PLATFORM: ${{ matrix.platform }}
+          SERVICE: ${{ matrix.service }}
+          EPOCH: ${{ needs.prepare.outputs.epoch }}
         run: |
           ARCH=$(printf '%s\n' "$PLATFORM" | sed 's|/|-|g')
-          BUILD_TAG="ghcr.io/${{ github.repository }}:gamma-$(date +%s)-${ARCH}"
+          IMAGE="ghcr.io/${{ github.repository }}/${SERVICE}"
+          BUILD_TAG="${IMAGE}:gamma-${EPOCH}-${ARCH}"
           printf '%s\n' "build_tag=${BUILD_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7
         with:
-          context: .
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           push: true
           platforms: ${{ matrix.platform }}
           tags: ${{ steps.tag.outputs.build_tag }}
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,scope=${{ matrix.platform }},mode=max
+          cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.platform }}
+          cache-to: type=gha,scope=${{ matrix.service }}-${{ matrix.platform }},mode=max
 
   merge-manifests:
-    name: Merge manifests
+    name: Merge manifests (${{ matrix.service }})
     runs-on: ubuntu-latest
-    needs: build-platform
+    needs: [prepare, build-platform]
+    strategy:
+      matrix:
+        service: [portal-api, webui]
     permissions:
       packages: write
       contents: read
     steps:
-      - name: Check out the repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-        with:
-          persist-credentials: false
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to the Container registry
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4
@@ -105,37 +117,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine tags
-        id: tags
+      - name: Merge manifests (gamma + nightly tags)
         env:
-          REPO_ENV: ${{ env.REPO }}
+          SERVICE: ${{ matrix.service }}
+          EPOCH: ${{ needs.prepare.outputs.epoch }}
         run: |
-          EPOCH=$(date +%s)
-          GAMMA_TAG="ghcr.io/${{ github.repository }}:gamma-${EPOCH}"
-          NIGHTLY_TAG="ghcr.io/${{ github.repository }}:nightly"
-          DOCKER_GAMMA_TAG="penguincloud/${REPO_ENV}:gamma-${EPOCH}"
-          DOCKER_NIGHTLY_TAG="penguincloud/${REPO_ENV}:nightly"
-          printf '%s\n' "gamma_tag=${GAMMA_TAG}" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "nightly_tag=${NIGHTLY_TAG}" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "docker_gamma_tag=${DOCKER_GAMMA_TAG}" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "docker_nightly_tag=${DOCKER_NIGHTLY_TAG}" >> "$GITHUB_OUTPUT"
-
-      - name: Merge manifests (nightly tags)
-        env:
-          GAMMA_TAG: ${{ steps.tags.outputs.gamma_tag }}
-          NIGHTLY_TAG: ${{ steps.tags.outputs.nightly_tag }}
-          DOCKER_GAMMA_TAG: ${{ steps.tags.outputs.docker_gamma_tag }}
-          DOCKER_NIGHTLY_TAG: ${{ steps.tags.outputs.docker_nightly_tag }}
-          REPO_PATH: ${{ github.repository }}
-        run: |
-          EPOCH=$(date +%s)
+          IMAGE="ghcr.io/${{ github.repository }}/${SERVICE}"
           docker buildx imagetools create \
-            -t "$GAMMA_TAG" \
-            -t "$NIGHTLY_TAG" \
-            -t "$DOCKER_GAMMA_TAG" \
-            -t "$DOCKER_NIGHTLY_TAG" \
-            "ghcr.io/${REPO_PATH}:gamma-${EPOCH}-amd64" \
-            "ghcr.io/${REPO_PATH}:gamma-${EPOCH}-arm64"
-
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6
+            -t "${IMAGE}:gamma-${EPOCH}" \
+            -t "${IMAGE}:nightly" \
+            "${IMAGE}:gamma-${EPOCH}-amd64" \
+            "${IMAGE}:gamma-${EPOCH}-arm64"
