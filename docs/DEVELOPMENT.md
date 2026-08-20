@@ -224,28 +224,68 @@ that up:
   External Secrets Operator, or a one-time `kubectl create secret generic`
   from a manually generated keypair), mounted at the same
   `JWT_KEYSTORE_PATH` in every replica, containing `FileKeyStore`'s own
-  JSON shape (`{"keys": [{"kid": ..., "pem": ...}, ...]}`). Nothing in
-  this codebase currently calls `KeyStore.rotate_key()`, so
-  `FileKeyStore.__init__` never writes to a path that already has content
-  — it only calls `_save()` when the file does not yet exist. A
-  pre-populated Secret is therefore read-only in practice: no
-  `ReadWriteMany` PVC needed (a Secret volume is a per-node projection,
-  not a PVC, and mounts fine under `readOnlyRootFilesystem: true`), and no
-  write race between replicas. This is the preferred shape —
-  `security.md`/`general.md` route secret material through
-  Vault/Sealed-Secrets/External-Secrets-Operator, not a shared filesystem,
-  and this avoids inventing a new `KeyStore` implementation to get there.
+  JSON shape (`{"keys": [{"kid": ..., "pem": ...}, ...]}`). A pre-populated
+  Secret is read-only in practice, needing no `ReadWriteMany` PVC (a
+  Secret volume is a per-node projection, not a PVC, and mounts fine under
+  `readOnlyRootFilesystem: true`) and no write race between replicas. This
+  is the preferred shape — `security.md`/`general.md` route secret
+  material through Vault/Sealed-Secrets/External-Secrets-Operator, not a
+  shared filesystem, and it avoids inventing a new `KeyStore`
+  implementation to get there.
+
+  **What was READ versus INFERRED, precisely** (this is load-bearing for
+  the chart decision, so stated exactly rather than paraphrased): the
+  claim rests on `penguin_aaa.crypto.keystore.FileKeyStore`'s source,
+  read directly — both the `~/code/penguin-libs` checkout and the exact
+  pinned `penguin-aaa==0.2.1` installed into `services/portal-api`'s own
+  `.venv` (confirmed **byte-identical** via `diff`, so there is no
+  editable-checkout-drift risk of the kind documented elsewhere in this
+  file for `penguin_dal`).
+    * `__init__` (`keystore.py:155-159`) calls `_load_or_init()`.
+    * `_load_or_init` (`keystore.py:190-194`) is a two-way branch on
+      `self._path.exists()`: **True** → `_load()`; **False** →
+      `rotate_key()`. Read directly — this is the entire self-bootstrap
+      decision, and it contains no third path.
+    * `_load` (`keystore.py:196-204`) — read directly — calls
+      `Path.read_text` and `json.loads` only. It contains zero write
+      calls (no `_save`, no `write_text`, nothing under
+      `self._path`). This is what makes "never writes to a path that
+      already has content" a read fact, not an inference: the function
+      that runs when the file exists is provably read-only by its own
+      body.
+    * `_save` (`keystore.py:206-212`) — read directly — builds `entries`
+      from `self._keys` (the in-memory list) and calls
+      `self._path.write_text(json.dumps(data, indent=2), ...)`
+      unconditionally: no prior read of existing content, no merge, no
+      file lock, no atomic rename-then-replace. A second, concurrent
+      caller's `_save()` fully overwrites the first's — this is the
+      **overwrite-not-merge** behaviour, read directly from the
+      implementation, not inferred from its name or docstring.
+    * `rotate_key` (`keystore.py:177-184`) — read directly — is the only
+      method that calls `_save()`.
+    * Grepped `services/portal-api/app/*.py` for `rotate_key`: **zero
+      matches**. Nothing in this codebase calls it, so in this
+      deployment `FileKeyStore` only ever reaches `_save()` via the
+      `_load_or_init` self-bootstrap path above — never via an
+      application-triggered rotation.
+  Composing those five directly-read facts (not inferring across them) is
+  what supports "no RWX PVC is actually needed": a pre-populated file
+  only ever takes the `_load` branch, which is provably read-only.
+
 * **A shared `ReadWriteMany` PVC that `FileKeyStore` self-bootstraps on
-  first boot** works too, but has a real race: if two replicas start
-  concurrently against an *empty* shared path, both see the file missing,
-  both generate their own key, and both call `_save()` — the file ends up
-  holding whichever replica wrote last, while the other keeps signing
-  with a key that is no longer on disk. This is the same class of defect
-  this section exists to close, just moved from "every boot" to "the
-  first concurrent rollout." If this shape is used, the file must be
-  provisioned (e.g. by a Helm pre-install/pre-upgrade hook Job) *before*
-  any replica of the Deployment starts, never left for the app to
-  self-generate under a live multi-replica rollout.
+  first boot** works too, but has a real race, following directly from
+  the same read of `_load_or_init`/`_save` above: if two replicas start
+  concurrently against an *empty* shared path, both see
+  `self._path.exists()` return `False`, both take the `rotate_key()`
+  branch and generate their own key, and both call the unconditionally-
+  overwriting `_save()` — the file ends up holding whichever replica
+  wrote last, while the other keeps signing with a key that is no longer
+  on disk. This is the same class of defect this section exists to
+  close, just moved from "every boot" to "the first concurrent rollout."
+  If this shape is used, the file must be provisioned (e.g. by a Helm
+  pre-install/pre-upgrade hook Job) *before* any replica of the
+  Deployment starts, never left for the app to self-generate under a
+  live multi-replica rollout.
 
 ### Database Initialization
 
