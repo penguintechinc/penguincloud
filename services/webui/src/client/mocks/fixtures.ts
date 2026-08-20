@@ -7,6 +7,7 @@
  */
 
 import type { HealthStatus, TenantKind } from "../types";
+import type { components } from "../api/schema";
 
 export interface MockTenant {
   id: number;
@@ -19,6 +20,44 @@ export interface MockTenant {
   plan?: string;
   created_at: string;
   user_role?: string;
+  // GET /tenants types each row as `{ [key: string]: unknown }` (mixed
+  // detail/summary — see `get_list_user_tenants` in schema.d.ts), and
+  // TypeScript does not treat a named interface as assignable to an
+  // index-signature type unless it declares one too. This one is genuinely
+  // that loose per the schema, not a hole punched in an otherwise-typed row.
+  [key: string]: unknown;
+}
+
+/**
+ * Widens a `MockTenant` fixture row to the generated `TenantDetail` schema.
+ *
+ * `MockTenant` predates the generated schema and is deliberately loose (most
+ * fields optional, no `max_products`/`max_users`/`owner_id`/`status`) because
+ * it also feeds `GET /tenants`, whose envelope types each row as
+ * `{ [key: string]: unknown }` — see `schema.d.ts`'s `get_list_user_tenants`.
+ * `POST /tenants/{id}/switch` is not that loose: it documents `tenant` as a
+ * full `TenantDetail`, so a handler returning a bare `MockTenant` for it
+ * would silently under-describe what the real endpoint sends. Defaults below
+ * are mock-only filler for the fields `MockTenant` has no opinion on.
+ */
+export function toTenantDetail(
+  tenant: MockTenant,
+): components["schemas"]["TenantDetail"] {
+  return {
+    id: tenant.id,
+    name: tenant.name,
+    display_name: tenant.display_name ?? tenant.name,
+    slug: tenant.slug,
+    kind: tenant.kind,
+    parent_tenant_id: tenant.parent_tenant_id,
+    depth: tenant.depth,
+    plan: tenant.plan ?? "free",
+    status: "active",
+    max_products: 100,
+    max_users: 50,
+    owner_id: tenant.parent_tenant_id ?? tenant.id,
+    user_role: tenant.user_role ?? null,
+  };
 }
 
 export interface MockProduct {
