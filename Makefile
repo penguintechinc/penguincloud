@@ -83,12 +83,8 @@ setup-go: ## Setup - Install Go dependencies and tools
 	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	@go install github.com/air-verse/air@latest
 
-setup-python: ## Setup - Install Python dependencies and tools
-	@echo "$(BLUE)Setting up Python dependencies...$(RESET)"
-	@python3 --version || (echo "$(RED)Python $(PYTHON_VERSION) not installed$(RESET)" && exit 1)
-	@pip install --upgrade pip
-	@pip install -r requirements.txt
-	@pip install black isort flake8 mypy pytest pytest-cov
+setup-python: venv-portal-api ## Setup - Create the isolated portal-api venv (services/portal-api/requirements.txt, --require-hashes)
+	@echo "$(GREEN)Python dependencies installed into $(PORTAL_API_VENV) (isolated from system/ambient Python — see docs/DEVELOPMENT.md)$(RESET)"
 
 setup-node: ## Setup - Install Node.js dependencies and tools
 	@echo "$(BLUE)Setting up Node.js dependencies...$(RESET)"

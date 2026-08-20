@@ -19,13 +19,13 @@ sends cannot falsify the adapter.
 
 from __future__ import annotations
 
+import importlib
 import json
 from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import pytest
-
 from app.adapters.base import (
     AdapterCapabilityError,
     AdapterContext,
@@ -40,7 +40,6 @@ from app.adapters.base import (
 from app.adapters.nest import NestAdapter
 from app.adapters.nest.mapping import to_create_payload, to_operation, to_resource
 from app.adapters.transport import Transport
-
 from nest_route_source import missing_reason, nest_api_module
 from product_source_fixtures import source_required
 
@@ -49,6 +48,33 @@ _TENANT = "acme-prod"
 #: Nest's app module is executed once per session under this name — it
 #: registers Prometheus collectors at import time and cannot be re-executed.
 _LIVE_MODULE_NAME = "nest_api_app_under_test"
+
+
+def _require_or_skip(name: str) -> Any:
+    """Import ``name``, honouring the same "no silent skip" contract as a missing checkout.
+
+    ``source_required()`` (``REQUIRE_PRODUCT_SOURCE=1`` / ``make
+    test-api-live``) already turns "no Nest checkout" into a hard failure
+    instead of a skip -- see ``product_source_fixtures``. Plain
+    ``pytest.importorskip`` does not honour that: a checkout can be present
+    (this is Nest's OWN dependency, not the portal's -- see
+    ``requirements.in``) while a package Nest's app needs is absent, and
+    that quietly skipped every time regardless of
+    ``REQUIRE_PRODUCT_SOURCE``, contradicting ``test-api-live``'s own
+    "no silent skips" promise. Nest's app pulls in its full
+    ``opentelemetry-sdk``/exporter stack unconditionally
+    (``apps/api/telemetry.py``), which is not something the portal declares
+    for itself just to opportunistically run this cross-repo suite -- so the
+    fix is making the skip loud under ``test-api-live``, not adding the
+    dependency here.
+    """
+    try:
+        return importlib.import_module(name)
+    except ImportError as exc:
+        reason = f"could not import {name!r}: {exc}"
+        if source_required():
+            pytest.fail(reason)
+        pytest.skip(reason)
 
 
 def _ctx() -> AdapterContext:
@@ -107,9 +133,7 @@ class _Recorder:
         )
 
 
-def _adapter_with(
-    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
-) -> NestAdapter:
+def _adapter_with(recorder: _Recorder, monkeypatch: pytest.MonkeyPatch) -> NestAdapter:
     """Build an adapter whose transport is backed by ``recorder``."""
     transport = Transport()
     transport._client = httpx.AsyncClient(
@@ -123,13 +147,9 @@ def _adapter_with(
     # String form, never attribute assignment — mypy rejects assigning to a
     # module attribute that is not explicitly exported.
     monkeypatch.setattr("app.adapters.transport.get_transport", _get_transport)
-    monkeypatch.setattr(
-        "app.adapters.nest.adapter.get_transport", _get_transport, raising=False
-    )
+    monkeypatch.setattr("app.adapters.nest.adapter.get_transport", _get_transport, raising=False)
     adapter = NestAdapter()
-    monkeypatch.setattr(
-        type(adapter), "_transport", staticmethod(_get_transport)
-    )
+    monkeypatch.setattr(type(adapter), "_transport", staticmethod(_get_transport))
     return adapter
 
 
@@ -161,9 +181,7 @@ class TestCreatePayloadAliasing:
 
     def test_wire_names_are_passed_through_untouched(self) -> None:
         """A caller already speaking Nest's format must be unaffected."""
-        body = to_create_payload(
-            "database", {"name": "db1", "type": "postgres", "class": "gp3"}
-        )
+        body = to_create_payload("database", {"name": "db1", "type": "postgres", "class": "gp3"})
         assert body == {"name": "db1", "type": "postgres", "class": "gp3"}
 
     def test_an_explicit_wire_value_wins_over_its_alias(self) -> None:
@@ -209,9 +227,7 @@ class TestMapping:
 
     def test_failed_operation_keeps_nests_reason(self) -> None:
         """``error`` is the FAILED counterpart of ``result``."""
-        operation = to_operation(
-            {"id": "op-2", "phase": "Failed", "error": "volume unavailable"}
-        )
+        operation = to_operation({"id": "op-2", "phase": "Failed", "error": "volume unavailable"})
         assert operation.state is OperationState.FAILED
         assert operation.error == "volume unavailable"
 
@@ -225,9 +241,7 @@ class TestMapping:
 
     def test_identity_is_the_name_not_the_uuid(self) -> None:
         """Every Nest route addresses a resource by name, not by id."""
-        resource = to_resource(
-            "database", {"id": "uuid-here", "name": "db1", "phase": "ready"}
-        )
+        resource = to_resource("database", {"id": "uuid-here", "name": "db1", "phase": "ready"})
         assert resource.id == "db1"
         assert resource.metadata["nest_id"] == "uuid-here"
         assert resource.status == "ready"
@@ -273,14 +287,10 @@ class TestAgainstMockTransport:
         with pytest.raises(expected):
             await adapter.list_resources("database", _ctx())
 
-    async def test_rate_limit_carries_retry_after(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_rate_limit_carries_retry_after(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A throttle must be distinguishable from an outage, with its delay."""
         path = f"/api/v1/tenants/{_TENANT}/data-resources"
-        recorder = _Recorder(
-            {("GET", path): httpx.Response(429, headers={"Retry-After": "30"})}
-        )
+        recorder = _Recorder({("GET", path): httpx.Response(429, headers={"Retry-After": "30"})})
         adapter = _adapter_with(recorder, monkeypatch)
 
         with pytest.raises(RateLimitedError) as excinfo:
@@ -314,9 +324,7 @@ class TestAgainstMockTransport:
     ) -> None:
         """A malformed body must not read as an empty account."""
         path = f"/api/v1/tenants/{_TENANT}/data-resources"
-        recorder = _Recorder(
-            {("GET", path): httpx.Response(200, json={"items": "not-a-list"})}
-        )
+        recorder = _Recorder({("GET", path): httpx.Response(200, json={"items": "not-a-list"})})
         adapter = _adapter_with(recorder, monkeypatch)
 
         with pytest.raises(UpstreamError):
@@ -344,9 +352,7 @@ class TestAgainstMockTransport:
         assert recorder.requests[0].url.params["limit"] == "4"
         assert recorder.requests[0].url.params["offset"] == "0"
 
-    async def test_paths_carry_no_trailing_slash(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_paths_carry_no_trailing_slash(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Nest 404s a trailing slash with no redirect back."""
         path = f"/api/v1/tenants/{_TENANT}/data-resources"
         recorder = _Recorder({("GET", path): httpx.Response(200, json={"items": []})})
@@ -362,9 +368,7 @@ class TestAgainstMockTransport:
     ) -> None:
         """The caller never supplies a tenant; the mapping does."""
         path = f"/api/v1/tenants/{_TENANT}/snapshots"
-        recorder = _Recorder(
-            {("GET", path): httpx.Response(200, json={"snapshots": []})}
-        )
+        recorder = _Recorder({("GET", path): httpx.Response(200, json={"snapshots": []})})
         adapter = _adapter_with(recorder, monkeypatch)
 
         await adapter.list_resources("snapshot", _ctx())
@@ -424,9 +428,7 @@ class TestAgainstMockTransport:
         unrecognised shape must surface, not render as "none".
         """
         path = f"/api/v1/tenants/{_TENANT}/{collection}"
-        recorder = _Recorder(
-            {("GET", path): httpx.Response(200, json={"items": [{"name": "x"}]})}
-        )
+        recorder = _Recorder({("GET", path): httpx.Response(200, json={"items": [{"name": "x"}]})})
         adapter = _adapter_with(recorder, monkeypatch)
 
         with pytest.raises(UpstreamError) as excinfo:
@@ -444,9 +446,7 @@ class TestAgainstMockTransport:
         statement to the operator, not a graceful degradation.
         """
         path = f"/api/v1/tenants/{_TENANT}/snapshots"
-        recorder = _Recorder(
-            {("GET", path): httpx.Response(200, json={"meta": {"count": 0}})}
-        )
+        recorder = _Recorder({("GET", path): httpx.Response(200, json={"meta": {"count": 0}})})
         adapter = _adapter_with(recorder, monkeypatch)
 
         with pytest.raises(UpstreamError):
@@ -462,11 +462,7 @@ class TestAgainstMockTransport:
         """
         path = f"/api/v1/tenants/{_TENANT}/snapshots"
         recorder = _Recorder(
-            {
-                ("GET", path): httpx.Response(
-                    200, json={"snapshots": [], "meta": {"count": 0}}
-                )
-            }
+            {("GET", path): httpx.Response(200, json={"snapshots": [], "meta": {"count": 0}})}
         )
         adapter = _adapter_with(recorder, monkeypatch)
 
@@ -499,9 +495,7 @@ class TestAgainstMockTransport:
 
         await adapter.delete_resource("database", raw, _ctx())
 
-        assert recorder.requests[0].url.raw_path.decode().endswith(
-            f"/data-resources/{encoded}"
-        )
+        assert recorder.requests[0].url.raw_path.decode().endswith(f"/data-resources/{encoded}")
         assert not recorder.requests[0].url.query
 
     async def test_a_separator_in_an_id_is_refused_outright(
@@ -572,15 +566,11 @@ class TestAgainstLiveNest:
         if api_root not in sys.path:
             sys.path.insert(0, api_root)
 
-        store_module = pytest.importorskip(
-            "store", reason="nest's own dependencies are not installed here"
-        )
+        store_module = _require_or_skip("store")
 
         module = sys.modules.get(_LIVE_MODULE_NAME)
         if module is None:
-            spec = importlib.util.spec_from_file_location(
-                _LIVE_MODULE_NAME, str(module_path)
-            )
+            spec = importlib.util.spec_from_file_location(_LIVE_MODULE_NAME, str(module_path))
             assert spec and spec.loader
             module = importlib.util.module_from_spec(spec)
             sys.modules[_LIVE_MODULE_NAME] = module
@@ -597,21 +587,22 @@ class TestAgainstLiveNest:
 
         This class is the one thing that genuinely cannot be vendored: it
         EXECUTES Nest's Quart app, so it needs Nest's dependencies installed
-        and not merely its source. It therefore still skips without a
-        checkout — but ``REQUIRE_PRODUCT_SOURCE=1`` (``make test-api-live``)
-        turns that skip into a failure, so a job that is supposed to have the
-        checkout reports its absence instead of quietly covering less.
+        (its full ``opentelemetry`` SDK/exporter stack included — see
+        ``app.py``'s unconditional ``configure_telemetry`` call) and not
+        merely its source. It therefore still skips without the checkout OR
+        without one of those dependencies — but ``REQUIRE_PRODUCT_SOURCE=1``
+        (``make test-api-live``) turns either kind of skip into a failure via
+        ``_require_or_skip``, so a job that is supposed to have the checkout
+        reports what it's missing instead of quietly covering less.
         """
         if nest_api_module() is None:
             if source_required():
                 pytest.fail(missing_reason())
             pytest.skip(missing_reason())
-        pytest.importorskip("quart")
-        pytest.importorskip("opentelemetry")
-        jwt_module = pytest.importorskip("jwt")
-        rsa = pytest.importorskip(
-            "cryptography.hazmat.primitives.asymmetric.rsa"
-        )
+        _require_or_skip("quart")
+        _require_or_skip("opentelemetry")
+        jwt_module = _require_or_skip("jwt")
+        rsa = _require_or_skip("cryptography.hazmat.primitives.asymmetric.rsa")
 
         import base64
         import sys
@@ -655,9 +646,7 @@ class TestAgainstLiveNest:
         server = HTTPServer(("127.0.0.1", 0), _JWKS)
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
-        monkeypatch.setenv(
-            "OIDC_JWKS_URL", f"http://127.0.0.1:{server.server_port}/jwks"
-        )
+        monkeypatch.setenv("OIDC_JWKS_URL", f"http://127.0.0.1:{server.server_port}/jwks")
         monkeypatch.setenv("OIDC_ISSUER", "https://issuer.invalid/")
         monkeypatch.setenv("OIDC_AUDIENCE", "nest-api")
 
@@ -712,13 +701,9 @@ class TestAgainstLiveNest:
         async def _get_transport() -> Transport:
             return transport
 
-        monkeypatch.setattr(
-            "app.adapters.transport.get_transport", _get_transport
-        )
+        monkeypatch.setattr("app.adapters.transport.get_transport", _get_transport)
         adapter = NestAdapter()
-        monkeypatch.setattr(
-            type(adapter), "_transport", staticmethod(_get_transport)
-        )
+        monkeypatch.setattr(type(adapter), "_transport", staticmethod(_get_transport))
         yield adapter
         server.shutdown()
 
@@ -735,9 +720,7 @@ class TestAgainstLiveNest:
             correlation_id="live",
         )
 
-    async def test_health_endpoint_is_the_one_nest_registers(
-        self, live: NestAdapter
-    ) -> None:
+    async def test_health_endpoint_is_the_one_nest_registers(self, live: NestAdapter) -> None:
         """Regression: the inherited ``/healthz`` default 404s against Nest.
 
         Nest registers ``/health`` and ``/ready`` and no ``/healthz``
@@ -748,9 +731,7 @@ class TestAgainstLiveNest:
         assert result.status == "healthy"
         assert result.status_code == 200
 
-    async def test_create_list_act_poll_delete_round_trip(
-        self, live: NestAdapter
-    ) -> None:
+    async def test_create_list_act_poll_delete_round_trip(self, live: NestAdapter) -> None:
         """The whole flow a Databases screen performs, against real handlers.
 
         This is the test the create-payload alias was found by: sending the
@@ -779,9 +760,7 @@ class TestAgainstLiveNest:
         assert action.accepted
         assert len(action.operations) == 1
 
-        operation = await live.get_operation(
-            "operation", action.operations[0].id, ctx
-        )
+        operation = await live.get_operation("operation", action.operations[0].id, ctx)
         assert operation.id == action.operations[0].id
         assert operation.status
         assert operation.progress is None
@@ -789,9 +768,7 @@ class TestAgainstLiveNest:
         await live.delete_resource("database", "orders", ctx)
         assert await live.list_resources("database", ctx) is not None
 
-    @pytest.mark.parametrize(
-        "kind", ["database", "snapshot", "protection_policy", "search_pool"]
-    )
+    @pytest.mark.parametrize("kind", ["database", "snapshot", "protection_policy", "search_pool"])
     async def test_every_kind_decodes_against_the_real_handlers(
         self, kind: str, live: NestAdapter
     ) -> None:
@@ -805,9 +782,7 @@ class TestAgainstLiveNest:
 
         assert page.items == [] or all(row.kind == kind for row in page.items)
 
-    async def test_missing_resource_is_a_not_found_not_an_outage(
-        self, live: NestAdapter
-    ) -> None:
+    async def test_missing_resource_is_a_not_found_not_an_outage(self, live: NestAdapter) -> None:
         """Nest's real 404 envelope must reach the portal as 404."""
         with pytest.raises(ResourceNotFoundError):
             await live.get_resource("database", "nope", self._live_ctx())
