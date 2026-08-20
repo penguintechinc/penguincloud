@@ -173,13 +173,14 @@ export interface DashboardOverview {
 
 /**
  * One row of the provider rollup: a customer tenant and the status of every
- * product connected to it. Shape per Task 2B `GET /api/v1/dashboard/rollup`.
+ * product connected to it. Shape per the generated schema's `RollupEntry` /
+ * `RollupProduct` (`GET /api/v1/tenants/{tenant_id}/dashboard/rollup`).
  */
 export interface DashboardRollupRow {
   tenant_id: number;
   tenant_name: string;
   products: Array<{
-    connection_id: string;
+    connection_id: number;
     product: string;
     status: HealthStatus;
   }>;

@@ -149,39 +149,42 @@ export const handlers = [
   }),
 
   /**
-   * GET /api/v1/dashboard/rollup?tenant_id=
+   * GET /api/v1/tenants/:tenantId/dashboard/rollup
+   * Per-customer × per-product status for the requesting provider org.
    *
-   * STALE ROUTE, left as found: the real endpoint is TENANT-SCOPED —
-   * `GET /api/v1/tenants/{tenant_id}/dashboard/rollup` (see
-   * `api/resources/dashboard.ts` `rollup()` and `api/portalPaths.ts`) — and
-   * nothing in the app calls this unscoped path any more. Not rewired or
-   * `satisfies`-bound as part of this pass: `MockDashboardRollup`'s
-   * `products[].connection_id` is `string` (e.g. "conn-gough-1") while the
-   * generated `RollupProduct.connection_id` is `number`, and that mismatch
-   * reaches `DashboardRollupRow` and `RollupMatrix.test.tsx`'s fixture cast
-   * too — a real fix, but a wider one than this endpoint's dead URL justifies
-   * on its own. Flagged rather than silently left.
+   * Previously registered at the unscoped `GET /api/v1/dashboard/rollup?
+   * tenant_id=` — a route the portal has never served (see
+   * `api/resources/dashboard.ts` `rollup()`'s own note and
+   * `api/portalPaths.ts`'s `tenantDashboardRollup`) — so nothing in the app
+   * had called this handler since that fix landed. Rewiring it to the real
+   * path is what let it be `satisfies`-bound at all: `ApiResponse` only
+   * accepts a path the generated schema documents, and the old string
+   * wasn't one. Binding it surfaced the same class of drift the activity
+   * endpoint had: `MockDashboardRollup.products[].connection_id` was
+   * `string` (e.g. "conn-gough-1") against the schema's `number` — fixed at
+   * the fixture (see `MockDashboardRollup` in fixtures.ts).
    */
-  http.get(`${API_BASE}/dashboard/rollup`, ({ request }) => {
-    const tenantId = Number(
-      new URL(request.url).searchParams.get("tenant_id") ?? NaN,
-    );
-
-    if (Number.isNaN(tenantId)) {
-      return HttpResponse.json({ rollup: MOCK_DASHBOARD_ROLLUP });
-    }
+  http.get(`${API_BASE}/tenants/:tenantId/dashboard/rollup`, ({ params }) => {
+    const tenantId = Number(params.tenantId);
 
     // Scoped to the caller's own customers — a provider must not see another
     // provider's subtree, which is what the delegated-admin check enforces.
     const customerIds = MOCK_TENANTS.filter(
       (t) => t.parent_tenant_id === tenantId,
     ).map((t) => t.id);
+    const rollup = MOCK_DASHBOARD_ROLLUP.filter((row) =>
+      customerIds.includes(row.tenant_id),
+    );
 
-    return HttpResponse.json({
-      rollup: MOCK_DASHBOARD_ROLLUP.filter((row) =>
-        customerIds.includes(row.tenant_id),
-      ),
-    });
+    const body = {
+      rollup,
+      count: rollup.length,
+    } satisfies ApiResponse<
+      "/api/v1/tenants/{tenant_id}/dashboard/rollup",
+      "get"
+    >;
+
+    return HttpResponse.json(body);
   }),
 
   /** GET /api/v1/dashboard/overview */

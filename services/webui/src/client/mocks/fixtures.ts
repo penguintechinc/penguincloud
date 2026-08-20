@@ -71,7 +71,7 @@ export interface MockDashboardRollup {
   tenant_id: number;
   tenant_name: string;
   products: Array<{
-    connection_id: string;
+    connection_id: number;
     product: string;
     status: HealthStatus;
   }>;
@@ -154,10 +154,10 @@ export const MOCK_DASHBOARD_ROLLUP: MockDashboardRollup[] = [
     tenant_id: 11,
     tenant_name: "Acme Production",
     products: [
-      { connection_id: "conn-gough-1", product: "gough", status: "healthy" },
-      { connection_id: "conn-nest-1", product: "nest", status: "healthy" },
+      { connection_id: 201, product: "gough", status: "healthy" },
+      { connection_id: 202, product: "nest", status: "healthy" },
       {
-        connection_id: "conn-waddleai-1",
+        connection_id: 203,
         product: "waddleai",
         status: "degraded",
       },
@@ -167,8 +167,8 @@ export const MOCK_DASHBOARD_ROLLUP: MockDashboardRollup[] = [
     tenant_id: 12,
     tenant_name: "Acme Staging",
     products: [
-      { connection_id: "conn-gough-2", product: "gough", status: "healthy" },
-      { connection_id: "conn-nest-2", product: "nest", status: "healthy" },
+      { connection_id: 204, product: "gough", status: "healthy" },
+      { connection_id: 205, product: "nest", status: "healthy" },
     ],
   },
   {
@@ -176,12 +176,12 @@ export const MOCK_DASHBOARD_ROLLUP: MockDashboardRollup[] = [
     tenant_name: "TechVision Platform",
     products: [
       {
-        connection_id: "conn-tobogganing-1",
+        connection_id: 206,
         product: "tobogganing",
         status: "healthy",
       },
       {
-        connection_id: "conn-waddlebot-1",
+        connection_id: 207,
         product: "waddlebot",
         status: "healthy",
       },
@@ -190,9 +190,7 @@ export const MOCK_DASHBOARD_ROLLUP: MockDashboardRollup[] = [
   {
     tenant_id: 14,
     tenant_name: "TechVision Research",
-    products: [
-      { connection_id: "conn-elder-1", product: "elder", status: "unhealthy" },
-    ],
+    products: [{ connection_id: 208, product: "elder", status: "unhealthy" }],
   },
 ];
 
