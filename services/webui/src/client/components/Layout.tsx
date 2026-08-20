@@ -13,6 +13,7 @@ import { useTenantStore } from "../stores/tenantStore";
 import { useProductConnections } from "../hooks/useProducts";
 import { useTenantScopeBootstrap } from "../hooks/useTenantScopeBootstrap";
 import { useFeatures } from "../hooks/useFeatures";
+import { useClearMutationErrorsOnNavigate } from "../hooks/useClearMutationErrorsOnNavigate";
 import { TenantScopeSwitcher } from "./kit/TenantScopeSwitcher";
 import { ActingAsBanner } from "./kit/ActingAsBanner";
 import DevModeBanner from "./DevModeBanner";
@@ -44,6 +45,7 @@ export default function Layout() {
   // this populates, so two screens rendered at the same moment cannot
   // disagree about what is enabled.
   useFeatures();
+  useClearMutationErrorsOnNavigate();
   const connections = useProductConnections(currentTenant?.id).data ?? [];
 
   const categories = buildMenuCategories(connections, (roles) => {

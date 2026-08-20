@@ -6,7 +6,7 @@
  * `/api/ui/login` BFF adapter the shared-library login page posts to.
  *
  * Every response body that documents a real 200/201 schema in `schema.d.ts`
- * is bound to it with `satisfies ApiResponse<path, method>` — the same
+ * is bound to it with `satisfies MockResponse<path, method>` — the same
  * generic `api/portal.ts` uses for real requests. This is the drift guard
  * `dashboard/activity`'s history motivates: that endpoint's mock once carried
  * `action` while the server sent `action_type`, and nothing here caught it —
@@ -21,13 +21,15 @@
  *
  * Endpoints still resolving to a `default`/unknown response in `schema.d.ts`
  * (most of them — see `api/portal.ts`'s own note on `@validate_response`
- * coverage) are bound too, for the same documentation value and so typing
- * tightens for free once the backend annotates one. `satisfies unknown` does
- * not constrain those literals today.
+ * coverage) are bound with `MockResponse` rather than `ApiResponse` directly
+ * — see that type's own doc comment below for why: `x satisfies unknown`
+ * can never fail, so an endpoint bound directly against `ApiResponse` gives
+ * no protection at all until the backend annotates it, and nothing marks
+ * which ones are in that state.
  */
 
 import { http, HttpResponse } from "msw";
-import type { ApiResponse } from "../api/portal";
+import type { ApiPath, ApiResponse, HttpMethod } from "../api/portal";
 import {
   MOCK_TENANTS,
   MOCK_DASHBOARD_ROLLUP,
@@ -38,6 +40,51 @@ import {
 } from "./fixtures";
 
 const API_BASE = "/api/v1";
+
+/**
+ * Endpoints bound below with NO real 200/201 schema yet — `ApiResponse<P,M>`
+ * (`api/portal.ts`) resolves to `unknown` for these because the backend view
+ * has no `@validate_response` annotation (see that file's own doc comment on
+ * why the fallback is `unknown`, not `never`, for the real runtime client —
+ * that reasoning is about `portal.get`/`.post` ergonomics and does not apply
+ * here). `MockResponse` below treats this list as the ONLY endpoints allowed
+ * to stay unconstrained; anything else must resolve to a real schema type or
+ * fail to compile.
+ *
+ * Backend `@validate_response` coverage for these is tracked separately —
+ * remove an entry once its endpoint gains a real schema, not before.
+ */
+type UnboundMockEndpoint =
+  | "/api/v1/dashboard/overview:get"
+  | "/api/v1/dashboard/health:get"
+  | "/api/v1/auth/login:post"
+  | "/api/v1/auth/me:get"
+  | "/api/v1/auth/refresh:post"
+  | "/api/v1/auth/logout:post"
+  | "/api/v1/products:get"
+  | "/api/v1/status:get"
+  | "/api/v1/audit/logs:get"
+  | "/api/v1/users:get";
+
+/** True iff `T` is exactly `unknown` — not merely assignable to/from it. */
+type IsExactlyUnknown<T> = [unknown] extends [T] ? true : false;
+
+/**
+ * Like `ApiResponse<P,M>`, except an endpoint NOT listed in
+ * `UnboundMockEndpoint` must resolve to a real schema type, or this is
+ * `never` — and `x satisfies never` fails to compile for any `x`, which
+ * turns a newly-mocked, still-undocumented endpoint into a build error
+ * instead of the silent pass `satisfies ApiResponse<...>` gave every one of
+ * them before this type existed.
+ */
+type MockResponse<
+  P extends ApiPath,
+  M extends HttpMethod,
+> = `${P}:${M}` extends UnboundMockEndpoint
+  ? unknown
+  : IsExactlyUnknown<ApiResponse<P, M>> extends true
+    ? never
+    : ApiResponse<P, M>;
 
 const MOCK_USER = {
   id: 1,
@@ -85,7 +132,7 @@ export const MOCK_ACTIVITY_RESPONSE = {
     },
   ],
   count: 1,
-} satisfies ApiResponse<"/api/v1/dashboard/activity", "get">;
+} satisfies MockResponse<"/api/v1/dashboard/activity", "get">;
 
 export const handlers = [
   /**
@@ -100,22 +147,24 @@ export const handlers = [
     const includeChildren =
       new URL(request.url).searchParams.get("include_children") === "true";
 
+    // `satisfies` applied per-branch, directly on each fresh literal — not
+    // to `body` afterward. Excess-property checking only fires on a fresh
+    // literal at the point it is checked; a variable reference (what this
+    // was before) loses it, so an extra top-level field would compile.
     const body = includeChildren
-      ? {
+      ? ({
           tenants: MOCK_TENANTS.map((t) => ({
             ...t,
             children: MOCK_TENANTS.filter((c) => c.parent_tenant_id === t.id),
           })),
           count: MOCK_TENANTS.length,
-        }
-      : {
+        } satisfies MockResponse<"/api/v1/tenants", "get">)
+      : ({
           tenants: MOCK_TENANTS,
           count: MOCK_TENANTS.length,
-        };
+        } satisfies MockResponse<"/api/v1/tenants", "get">);
 
-    return HttpResponse.json(
-      body satisfies ApiResponse<"/api/v1/tenants", "get">,
-    );
+    return HttpResponse.json(body);
   }),
 
   /**
@@ -143,7 +192,7 @@ export const handlers = [
       scope: ["tenants:read", "tenants:manage", "products:read"],
       tenant: toTenantDetail(tenant),
       tenant_role: "admin",
-    } satisfies ApiResponse<"/api/v1/tenants/{tenant_id}/switch", "post">;
+    } satisfies MockResponse<"/api/v1/tenants/{tenant_id}/switch", "post">;
 
     return HttpResponse.json(body);
   }),
@@ -179,7 +228,7 @@ export const handlers = [
     const body = {
       rollup,
       count: rollup.length,
-    } satisfies ApiResponse<
+    } satisfies MockResponse<
       "/api/v1/tenants/{tenant_id}/dashboard/rollup",
       "get"
     >;
@@ -209,7 +258,7 @@ export const handlers = [
         categories: { infrastructure: products.length },
       },
       products,
-    } satisfies ApiResponse<"/api/v1/dashboard/overview", "get">;
+    } satisfies MockResponse<"/api/v1/dashboard/overview", "get">;
 
     return HttpResponse.json(body);
   }),
@@ -230,7 +279,7 @@ export const handlers = [
 
   /** GET /api/v1/dashboard/health */
   http.get(`${API_BASE}/dashboard/health`, () => {
-    const body = { status: "healthy" } satisfies ApiResponse<
+    const body = { status: "healthy" } satisfies MockResponse<
       "/api/v1/dashboard/health",
       "get"
     >;
@@ -289,9 +338,25 @@ export const handlers = [
     });
   }),
 
-  /** GET /api/v1/auth/me — hydrates the auth store after login and on reload. */
+  /**
+   * GET /api/v1/auth/me — hydrates the auth store after login and on reload.
+   *
+   * `MOCK_USER satisfies MockResponse<...>` — NOT `{ ...MOCK_USER }
+   * satisfies ...`. A spread was tried here and reverted: verified against
+   * this repo's tsc (5.7.2), `{ ...src } satisfies Narrow` does not
+   * re-trigger excess-property checking the way an explicit `{ a: 1, b: 2 }
+   * satisfies Narrow` literal does — TypeScript only checks the properties
+   * written directly in the literal, and a spread's contributed keys are
+   * not "written" for that purpose. So the spread bought nothing here: a
+   * bare `MOCK_USER` reference is exactly as (un)protected. This endpoint
+   * is in `UnboundMockEndpoint` today, so it is moot either way — call out
+   * for whoever removes it from that list later: getting real
+   * excess-property protection means rewriting this as an explicit
+   * literal against the real schema's fields, the way the `tenants` and
+   * `tenants/{tenant_id}/switch` handlers above do, not adding a spread.
+   */
   http.get(`${API_BASE}/auth/me`, () => {
-    const body = MOCK_USER satisfies ApiResponse<"/api/v1/auth/me", "get">;
+    const body = MOCK_USER satisfies MockResponse<"/api/v1/auth/me", "get">;
     return HttpResponse.json(body);
   }),
 
@@ -314,7 +379,7 @@ export const handlers = [
       token_type: "Bearer",
       expires_in: 3600,
       user: MOCK_USER,
-    } satisfies ApiResponse<"/api/v1/auth/login", "post">;
+    } satisfies MockResponse<"/api/v1/auth/login", "post">;
 
     return HttpResponse.json(body);
   }),
@@ -332,7 +397,10 @@ export const handlers = [
       );
     }
 
-    const body = tokenPair(PROVIDER_ONE) satisfies ApiResponse<
+    // tokenPair(...) result used directly, not spread — see the longer note
+    // on GET /api/v1/auth/me above for why a spread would not add any
+    // excess-property protection here either.
+    const body = tokenPair(PROVIDER_ONE) satisfies MockResponse<
       "/api/v1/auth/refresh",
       "post"
     >;
@@ -341,7 +409,7 @@ export const handlers = [
 
   /** POST /api/v1/auth/logout */
   http.post(`${API_BASE}/auth/logout`, () => {
-    const body = { success: true } satisfies ApiResponse<
+    const body = { success: true } satisfies MockResponse<
       "/api/v1/auth/logout",
       "post"
     >;
@@ -357,7 +425,7 @@ export const handlers = [
     const body = {
       products,
       count: products.length,
-    } satisfies ApiResponse<"/api/v1/products", "get">;
+    } satisfies MockResponse<"/api/v1/products", "get">;
     return HttpResponse.json(body);
   }),
 
@@ -370,13 +438,13 @@ export const handlers = [
     const body = {
       version: "1.0.0",
       build_epoch: 1754500000,
-    } satisfies ApiResponse<"/api/v1/status", "get">;
+    } satisfies MockResponse<"/api/v1/status", "get">;
     return HttpResponse.json(body);
   }),
 
   /** GET /api/v1/audit/logs */
   http.get(`${API_BASE}/audit/logs`, () => {
-    const body = { logs: [], total: 0 } satisfies ApiResponse<
+    const body = { logs: [], total: 0 } satisfies MockResponse<
       "/api/v1/audit/logs",
       "get"
     >;
@@ -391,7 +459,7 @@ export const handlers = [
       page: 1,
       per_page: 20,
       pages: 1,
-    } satisfies ApiResponse<"/api/v1/users", "get">;
+    } satisfies MockResponse<"/api/v1/users", "get">;
     return HttpResponse.json(body);
   }),
 ];

@@ -1,10 +1,31 @@
 import { useEffect, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
+import { useMutationErrorStore } from "../../stores/mutationErrorStore";
+
+const FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /**
  * ConfirmDialog component displays a modal confirmation dialog.
  * Traps focus within the dialog, supports danger variant for destructive actions.
  * Uses theme tokens: red for danger, slate surfaces, amber/sky interactive.
+ *
+ * The Tab trap also includes any live `role="alert"` region (not just this
+ * dialog's own subtree). `MutationErrorBanner` portals its entries directly
+ * onto `document.body`, specifically so a mutation failure raised while a
+ * dialog is open — e.g. SwgPolicyPage's replace-confirm flow, which leaves
+ * this dialog open on a failed replace — stays visible. A trap scoped only
+ * to the dialog made that banner visible but keyboard-unreachable: Tab could
+ * never land on its dismiss button while this dialog held focus. Matched by
+ * role, not by importing MutationErrorBanner: the principle ("do not swallow
+ * focus from something more urgent than this dialog") is not specific to one
+ * component, and any future globally-portaled alert gets the same treatment
+ * for free.
+ *
+ * The loop is driven explicitly end to end — never falls through to the
+ * browser's native tab order — because native order is DOM-position
+ * dependent, and a portaled alert's position relative to this dialog is not
+ * something this component controls or can rely on.
  */
 export interface ConfirmDialogProps {
   isOpen: boolean;
@@ -34,6 +55,12 @@ export function ConfirmDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
   const cancelBtnRef = useRef<HTMLButtonElement>(null);
+  // Read, not subscribed: only used to decide `aria-modal` below, and a
+  // Zustand hook already re-renders this component on every store change —
+  // see the `aria-modal` note near the JSX for why that reactivity matters.
+  const hasLiveAlert = useMutationErrorStore(
+    (state) => state.errors.length > 0,
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -41,33 +68,40 @@ export function ConfirmDialog({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onCancel();
+        return;
       }
 
-      /* istanbul ignore next -- reachable in a browser, not assertable here:
-         jsdom does not move activeElement on Tab, so the focus trap cannot be
-         driven from a unit test. Covered by the Playwright e2e run. */
-      if (e.key === "Tab") {
-        const focusableElements =
-          dialogRef.current?.querySelectorAll<HTMLElement>(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-          );
-        if (!focusableElements || focusableElements.length === 0) return;
+      if (e.key !== "Tab") return;
 
-        const firstElement = focusableElements[0];
-        const lastElement = focusableElements[focusableElements.length - 1];
+      const dialogElements = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ??
+          [],
+      );
+      const alertElements = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          `[role="alert"] ${FOCUSABLE_SELECTOR}`,
+        ),
+      );
+      const focusableElements = [...dialogElements, ...alertElements];
+      if (focusableElements.length === 0) return;
 
-        if (e.shiftKey) {
-          if (document.activeElement === firstElement) {
-            e.preventDefault();
-            lastElement.focus();
-          }
-        } else {
-          if (document.activeElement === lastElement) {
-            e.preventDefault();
-            firstElement.focus();
-          }
-        }
+      e.preventDefault();
+      const currentIndex = focusableElements.indexOf(
+        document.activeElement as HTMLElement,
+      );
+      let nextIndex: number;
+      if (currentIndex === -1) {
+        // Focus is on neither the dialog nor a live alert (e.g. the
+        // backdrop) — land on the natural end for the direction pressed,
+        // same as a fresh trap would.
+        nextIndex = e.shiftKey ? focusableElements.length - 1 : 0;
+      } else {
+        const step = e.shiftKey ? -1 : 1;
+        nextIndex =
+          (currentIndex + step + focusableElements.length) %
+          focusableElements.length;
       }
+      focusableElements[nextIndex]?.focus();
     };
 
     if (isOpen) {
@@ -104,7 +138,17 @@ export function ConfirmDialog({
       <div
         ref={dialogRef}
         role="alertdialog"
-        aria-modal="true"
+        // ARIA says content OUTSIDE an aria-modal="true" dialog is ignored
+        // by assistive tech — which would suppress MutationErrorBanner's
+        // role="alert" while this dialog is open, even now that it is both
+        // clickable and keyboard-reachable. Dropping the exclusivity signal
+        // when an alert is live is the scoped fix: it does not require
+        // restructuring where the (globally-portaled, per-page-agnostic)
+        // banner renders relative to this (per-feature) dialog. NOTE:
+        // unverified whether this actually changes what a real screen
+        // reader announces — jsdom has no AT to test against, and none was
+        // available to check this against directly.
+        aria-modal={hasLiveAlert ? undefined : "true"}
         aria-labelledby={`${testId}-title`}
         aria-describedby={`${testId}-message`}
         className="fixed inset-0 flex items-center justify-center z-50"

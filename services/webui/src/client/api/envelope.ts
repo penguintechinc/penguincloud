@@ -50,9 +50,16 @@ export function envelopeString(payload: unknown, key: string): string {
   }
   const record = payload as Record<string, unknown>;
   if (!(key in record)) {
+    // The received key SET is a developer diagnostic, not user-facing text:
+    // `describeMutationError` (lib/mutationError.ts) trusts a
+    // client-generated Error's message unconditionally, and this function
+    // decodes response bodies it did not itself construct. Object.keys(record)
+    // is the same class of gap C1 closed for the mutation-error path — key
+    // names rather than values, but no reason to leave it in a string this
+    // app treats as always safe to show verbatim.
+    console.error(`[envelope] Missing "${key}" key`, Object.keys(record));
     throw new Error(
-      `no "${key}" key (got ${JSON.stringify(Object.keys(record))}) — ` +
-        `refusing to render it as blank`,
+      `no "${key}" key in the response — refusing to render it as blank`,
     );
   }
   const value = record[key];
@@ -74,9 +81,10 @@ export function envelopeList<T>(payload: unknown, key: string): T[] {
   }
   const record = payload as Record<string, unknown>;
   if (!(key in record)) {
+    // See the matching comment in envelopeString above.
+    console.error(`[envelope] Missing "${key}" key`, Object.keys(record));
     throw new Error(
-      `no "${key}" key (got ${JSON.stringify(Object.keys(record))}) — ` +
-        `refusing to report it as empty`,
+      `no "${key}" key in the response — refusing to report it as empty`,
     );
   }
   const rows = record[key];
