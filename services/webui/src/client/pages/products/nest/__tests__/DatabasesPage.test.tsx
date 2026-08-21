@@ -187,6 +187,41 @@ describe("listing and detail", () => {
     expect(facts.getByText("Ready")).toBeInTheDocument();
     expect(facts.getByText("postgres")).toBeInTheDocument();
   });
+
+  it("surfaces a failed database list instead of reporting no resources", async () => {
+    // `DatabasesPage` wires `error`/`isLoading` from `useNestDatabases`
+    // straight into `DataTable`; nothing previously proved that a failed
+    // GET renders visibly rather than the estate reading as empty.
+    nestApi.listDatabases.mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { error: "Quota exceeded for this tenant" } },
+    });
+
+    renderPage(<DatabasesPage />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Quota exceeded for this tenant");
+    expect(screen.queryByText(/No data available/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("nest-database-open-orders-primary"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render the raw body of an upstream-marked database list failure", async () => {
+    nestApi.listDatabases.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: { error: "internal: nest-cost-calculator:8443 refused" },
+        headers: { "x-portal-upstream-response": "1" },
+      },
+    });
+
+    renderPage(<DatabasesPage />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).not.toHaveTextContent("nest-cost-calculator:8443");
+    expect(alert).toHaveTextContent(/could not be loaded/i);
+  });
 });
 
 describe("destructive verbs", () => {
