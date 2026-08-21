@@ -1,12 +1,18 @@
 /**
- * Turns a rejected TanStack mutation's error into a message safe to show an
- * operator.
+ * Turns a rejected TanStack mutation OR query error into a message safe to
+ * show an operator.
  *
  * This exists because nothing else in the app extracted one: every product
  * mutation hook threw a raw error and nothing downstream read it, so a
  * rejected save produced no visible feedback at all (see
  * `stores/mutationErrorStore.ts` and `lib/queryClient.ts` for the rest of the
- * wiring).
+ * wiring). The query half shares this same function — `DataTableError`
+ * (`components/kit/DataTableStates.tsx`) calls the `describeQueryError`
+ * export below, which is this function under a name honest about that call
+ * site. Nothing about the logic is mutation-specific: an axios error's
+ * provenance (upstream-forwarded vs portal-native) does not depend on which
+ * kind of request produced it, so one implementation covers both rather than
+ * two copies of the same denylist-vs-provenance reasoning drifting apart.
  *
  * Once a message DOES get shown, an earlier version of this function decided
  * whether it was safe by pattern-matching the STRING — a denylist of things
@@ -43,6 +49,16 @@ import { isAxiosError } from "axios";
 /** Shown for every upstream-forwarded body, and any body this can't read. */
 export const GENERIC_MUTATION_ERROR_MESSAGE =
   "The request could not be saved. Try again, or contact support if this continues.";
+
+/**
+ * The query counterpart of {@link GENERIC_MUTATION_ERROR_MESSAGE}. Not the
+ * same string: "could not be saved" is a false claim about a failed GET —
+ * nothing was being saved — so the two call sites need their own generic
+ * text even though they share every byte of the provenance logic that
+ * decides WHEN to fall back to it.
+ */
+export const GENERIC_QUERY_ERROR_MESSAGE =
+  "The data could not be loaded. Try again, or contact support if this continues.";
 
 /** Longer than this reads as a dumped body, not a message meant for a user. */
 const MAX_MESSAGE_LENGTH = 200;
@@ -86,8 +102,11 @@ function isDisplayable(text: string): boolean {
 }
 
 /**
- * Extracts a message from a rejected mutation's error, safe to show an
- * operator.
+ * Extracts a message from a rejected mutation or query's error, safe to
+ * show an operator. `describeMutationError` and `describeQueryError` below
+ * are both thin wrappers around this — the only thing that differs between
+ * a failed save and a failed load is which generic sentence to fall back
+ * to, never the provenance decision itself.
  *
  * Axios errors are read from `response.data` — the shape every portal route
  * uses (`{"error": "..."}`). A response ANY backend writer marked as
@@ -98,28 +117,39 @@ function isDisplayable(text: string): boolean {
  * (no marker) is trusted and shown verbatim, length permitting.
  *
  * A plain `Error` (e.g. the "No <Product> connection for the active tenant"
- * guard every product mutation hook throws) is client-generated, never
- * proxied, so it is in the TRUSTED category — eligible to be shown
- * verbatim, the same as a portal-native response. "Trusted" still means
- * "checked with `isDisplayable`", not "shown unconditionally": an empty or
- * pathologically long `Error.message` still falls back to the generic
- * message below, same as an untrustworthy candidate would. Anything else —
- * network failures with no response, or an unrecognised body shape — also
- * falls back rather than guessing.
+ * guard every product mutation hook throws, or a decode failure like
+ * `envelopeList` throws for a query) is client-generated, never proxied, so
+ * it is in the TRUSTED category — eligible to be shown verbatim, the same
+ * as a portal-native response. "Trusted" still means "checked with
+ * `isDisplayable`", not "shown unconditionally": an empty or pathologically
+ * long `Error.message` still falls back to the generic message, same as an
+ * untrustworthy candidate would. Anything else — network failures with no
+ * response, or an unrecognised body shape — also falls back rather than
+ * guessing.
  */
-export function describeMutationError(error: unknown): string {
+function describeRequestError(error: unknown, genericMessage: string): string {
   if (isAxiosError(error)) {
     if (isUpstreamResponse(error.response?.headers)) {
-      return GENERIC_MUTATION_ERROR_MESSAGE;
+      return genericMessage;
     }
     const candidate = candidateFromResponseBody(error.response?.data);
     if (candidate && isDisplayable(candidate)) return candidate;
-    return GENERIC_MUTATION_ERROR_MESSAGE;
+    return genericMessage;
   }
 
   if (error instanceof Error && isDisplayable(error.message)) {
     return error.message;
   }
 
-  return GENERIC_MUTATION_ERROR_MESSAGE;
+  return genericMessage;
+}
+
+/** Call site: a rejected `useMutation`. Fed to `MutationCache.onError`. */
+export function describeMutationError(error: unknown): string {
+  return describeRequestError(error, GENERIC_MUTATION_ERROR_MESSAGE);
+}
+
+/** Call site: a failed `useQuery` (or query-shaped) list/detail fetch. */
+export function describeQueryError(error: unknown): string {
+  return describeRequestError(error, GENERIC_QUERY_ERROR_MESSAGE);
 }

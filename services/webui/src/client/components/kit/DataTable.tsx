@@ -5,6 +5,7 @@ import {
   DataTableEmpty,
   DataTableError,
   DataTableLoading,
+  DataTableStaleNotice,
 } from "./DataTableStates";
 import type {
   ColumnConfig,
@@ -80,11 +81,27 @@ export function DataTable<T extends { id?: string }>({
   );
 
   if (isLoading) return <DataTableLoading />;
-  if (error) return <DataTableError error={error} onRetry={onRetry} />;
+
+  // An error with nothing else to show — the initial load itself failed, or
+  // a refetch failed with no prior successful data to fall back to — takes
+  // over the whole surface: there is no good data underneath it to protect.
+  // An error while GOOD data is still present (a background refetch, e.g.
+  // window refocus, failing while the last successful rows are still on
+  // screen) does NOT reach this branch: replacing usable rows with a
+  // full-page failure on every transient blip is the same "flapping" harm a
+  // naive query-error banner would cause, just implemented as a table swap
+  // instead of a toast. See DataTableStaleNotice below for that case, and
+  // `components/kit/__tests__/DataTable.test.tsx` for the injection proof
+  // that this precedence — error-with-no-data before empty — is real.
+  if (error && data.length === 0) {
+    return <DataTableError error={error} onRetry={onRetry} />;
+  }
+
   if (paginatedData.length === 0) return <DataTableEmpty />;
 
   return (
     <div data-testid="datatable" className="w-full">
+      {error && <DataTableStaleNotice error={error} onRetry={onRetry} />}
       <div className="overflow-x-auto rounded-lg border border-slate-700">
         <table className="w-full border-collapse" aria-label={caption}>
           <DataTableSortHeader

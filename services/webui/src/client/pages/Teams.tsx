@@ -5,6 +5,7 @@
 import { useMemo } from "react";
 import { useTenantStore } from "../stores/tenantStore";
 import { DataTable } from "../components/kit/DataTable";
+import { EmptyState } from "../components/kit/EmptyState";
 import { useTeams } from "../hooks/useTeams";
 import type { ColumnConfig } from "../components/kit/DataTable";
 import type { Team } from "../hooks/useTeams";
@@ -14,6 +15,7 @@ export default function Teams() {
   const teamsQuery = useTeams(currentTenant?.id);
 
   const teams = useMemo(() => teamsQuery.data ?? [], [teamsQuery.data]);
+  const error = teamsQuery.error as Error | null;
 
   const columns: ColumnConfig<Team>[] = [
     {
@@ -34,10 +36,6 @@ export default function Teams() {
     },
   ];
 
-  if (teamsQuery.isLoading) {
-    return <div className="text-amber-400">Loading teams...</div>;
-  }
-
   if (!currentTenant) {
     return <div className="text-amber-400">No tenant selected</div>;
   }
@@ -54,12 +52,34 @@ export default function Teams() {
         </p>
       </div>
 
-      {teams.length === 0 ? (
-        <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 text-center text-slate-400">
-          No teams yet. Create one to organize your work.
-        </div>
-      ) : (
-        <DataTable columns={columns} data={teams} />
+      {/*
+        `error`/`isLoading` are wired straight into DataTable so its own
+        loading > error > empty precedence decides what renders — the same
+        pattern every Gough/Nest/Tobogganing list screen uses (see e.g.
+        `pages/products/tobogganing/PeersPage.tsx`). Previously this page
+        derived its own "teams.length === 0" empty state and never looked at
+        `teamsQuery.error` at all, so a failed `/teams` request rendered "No
+        teams yet" — a fact about a request that never returned data,
+        printed as if it were a fact about the tenant. The custom
+        `EmptyState` below is gated on `!error` for the same reason
+        PeersPage's is: it must not render over a failure DataTable is
+        already showing.
+      */}
+      <DataTable
+        columns={columns}
+        data={teams}
+        isLoading={teamsQuery.isLoading}
+        error={error}
+        onRetry={() => void teamsQuery.refetch()}
+        caption="Teams"
+      />
+
+      {!teamsQuery.isLoading && !error && teams.length === 0 && (
+        <EmptyState
+          title="No teams yet"
+          description="Create one to organize your work."
+          dataTestId="teams-empty"
+        />
       )}
     </div>
   );

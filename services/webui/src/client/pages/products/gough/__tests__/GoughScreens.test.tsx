@@ -217,6 +217,48 @@ describe("NodesPage", () => {
 
     expect(goughOperationsApi.performAction).not.toHaveBeenCalled();
   });
+
+  it("surfaces a failed node list instead of reporting no nodes", async () => {
+    // `NodesPage` wires `error`/`isLoading` from `useGoughNodes` straight
+    // into `DataTable`, but nothing previously proved that wiring actually
+    // renders something an operator can see rather than the fleet quietly
+    // reading as empty. `retry: false` is the app's global query default
+    // (`lib/queryClient.ts`), so this rejection is the exhausted state
+    // already, not a first-of-several attempt.
+    goughApi.listNodes.mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { error: "gough-api-primary unreachable" } },
+    });
+
+    renderPage(<NodesPage />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("gough-api-primary unreachable");
+    // The empty-fleet copy must not also be on screen — that is precisely
+    // the bug (a failed load and a genuinely empty fleet rendering alike).
+    expect(screen.queryByText(/No data available/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("gough-node-open-12")).not.toBeInTheDocument();
+  });
+
+  it("does not render the raw body of an upstream-marked node list failure", async () => {
+    // Same provenance rule the mutation banner enforces
+    // (`lib/mutationError.ts`): a response the proxy marked
+    // `X-Portal-Upstream-Response` is untrusted product text, replaced with
+    // the generic message regardless of content.
+    goughApi.listNodes.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: { error: "internal: rack-a-01.gough.svc.cluster.local:9100" },
+        headers: { "x-portal-upstream-response": "1" },
+      },
+    });
+
+    renderPage(<NodesPage />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).not.toHaveTextContent("rack-a-01.gough.svc.cluster.local");
+    expect(alert).toHaveTextContent(/could not be loaded/i);
+  });
 });
 
 describe("BiomesPage", () => {
