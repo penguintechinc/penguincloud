@@ -43,14 +43,12 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        # frontend-react.md's floor is 24.x (26.x preferred); services/
-        # webui/Dockerfile itself is still pinned to node:22-bookworm-slim,
-        # a separate, pre-existing decision out of this PR's scope to
-        # change. Not matching that pin here rather than introducing a new
-        # below-floor pin in CI config.
+        # frontend-react.md's floor is 24.x, 26.x preferred; services/
+        # webui/Dockerfile now runs on node:26-bookworm-slim, so this
+        # matches the image instead of trailing it.
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # zizmor: ignore[cache-poisoning] false positive
         with:
-          node-version: '24'
+          node-version: '26'
 
       - name: Install webui dependencies
         # eslint-webui/prettier-webui hooks below shell out via
@@ -120,7 +118,7 @@ jobs:
         # Needed for the npm-audit-webui hook (`npm audit`).
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # zizmor: ignore[cache-poisoning] false positive
         with:
-          node-version: '24'
+          node-version: '26'
 
       - name: Install webui dependencies
         run: npm ci
@@ -269,7 +267,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # zizmor: ignore[cache-poisoning] false positive
         with:
-          node-version: '24'
+          node-version: '26'
 
       - name: Install dependencies
         run: npm ci
