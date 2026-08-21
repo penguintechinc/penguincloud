@@ -1,0 +1,38 @@
+{{/*
+Disabled by default — webui is the single public entry point (Express
+proxies /api to this service in-cluster). Only enable this if a caller
+class genuinely needs to reach portal-api directly (e.g. a future mobile
+client bypassing the webui BFF).
+*/}}
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "portal-api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "portal-api.fullname" . }}
+                port:
+                  name: http
+{{- end }}

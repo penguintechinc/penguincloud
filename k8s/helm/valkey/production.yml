@@ -1,0 +1,39 @@
+# valkey — production overrides. Still a single instance (see Chart-level
+# comment in values.yaml) — production HA applies to portal-api/webui's own
+# replica counts, not to this cache dependency.
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 384Mi
+    ephemeral-storage: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+    ephemeral-storage: 256Mi
+
+maxmemory: 384mb
+
+# Optional: flip to true + set storageClassName if warm-cache survival
+# across pod restarts becomes worth provisioning real storage for a cache
+# (see values.yaml persistence comment — not needed today).
+persistence:
+  enabled: false
+  storageClassName: ""
+  size: 512Mi
+
+secrets:
+  create: false
+
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    name: penguincloud-vault
+    kind: ClusterSecretStore
+  keys:
+    VALKEY_PASSWORD: penguincloud/production/valkey#VALKEY_PASSWORD
+
+podSecurityAdmission:
+  manageNamespace: false
+  namespace: penguincloud
+  enforce: restricted

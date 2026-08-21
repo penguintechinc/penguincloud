@@ -1,0 +1,115 @@
+{{/*
+Cluster Security Baseline — CiliumNetworkPolicy, not plain NetworkPolicy
+(every PenguinTech cluster targets Cilium as CNI). The moment any policy
+selects a pod, Cilium's default flips to deny-all-except-specified, so this
+single policy IS the default-deny for portal-api pods; `fromEndpoints`/
+`toEndpoints` without an explicit namespace label are implicitly scoped to
+the SAME namespace as this (namespaced) resource — cross-namespace traffic
+requires an explicit namespace-label selector, which is exactly the
+allowlist-only model security.md requires.
+
+Port-scoped (security.md "Port-Scoped External Access"): :8000 is reachable
+from the declared sources only; :9090 (unauthenticated Prometheus metrics —
+see health_poller.py's start_metrics_server docstring) has NO ingress rule
+at all unless networkPolicy.metricsScrapeFrom.enabled is explicitly set —
+Cilium's deny-by-default-once-selected means omitting the rule denies
+EVERYTHING, not "same namespace" (an empty `matchLabels: {}` selector
+would have matched every same-namespace endpoint, identical in scope to
+the :8000 rule below it — that was a real bug this comment used to
+describe incorrectly; the fix is the metricsScrapeFrom.enabled gate, not
+the wording).
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "portal-api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "portal-api.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    {{- if .Values.networkPolicy.metricsScrapeFrom.enabled }}
+    - fromEndpoints:
+        - matchLabels:
+            {{- toYaml .Values.networkPolicy.metricsScrapeFrom.namespaceLabels | nindent 12 }}
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+    {{- end }}
+    {{- range .Values.networkPolicy.extraIngress }}
+    - fromEndpoints:
+        - matchLabels:
+            {{- toYaml .namespaceLabels | nindent 12 }}
+      toPorts:
+        - ports:
+            {{- toYaml .ports | nindent 12 }}
+    {{- end }}
+  egress:
+    # Same-namespace egress: covers postgres/valkey/killkrill-receiver when
+    # co-located in "penguincloud" — this chart does not know their exact
+    # topology, so it allows same-namespace broadly rather than guessing
+    # per-port rules for dependencies it does not own.
+    - toEndpoints:
+        - {}
+    {{- if .Values.networkPolicy.egress.allowDNS }}
+    - toEndpoints:
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          {{- if .Values.networkPolicy.egress.allowLicenseServer }}
+          {{- /*
+          Required for toFQDNs below to match anything at all: Cilium's
+          FQDN garbage collector only learns an FQDN's IP(s) by observing
+          DNS responses it is explicitly told to intercept via this
+          rules.dns block on a DNS-allow rule. Without it, toFQDNs:
+          license.penguintech.io never gets populated and every packet to
+          it is denied by the pod-selecting policy's own default-deny —
+          the DNS query itself still succeeds (this toEndpoints rule
+          allows port 53), which is what makes the failure quiet: `dig`/
+          `nslookup` from inside the pod resolves fine, only the
+          subsequent HTTPS connection is denied.
+          */}}
+          rules:
+            dns:
+              - matchPattern: license.penguintech.io
+          {{- end }}
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowLicenseServer }}
+    - toFQDNs:
+        - matchName: license.penguintech.io
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowKillKrill }}
+    # Only needed if KILLKRILL_API_URL/KILLKRILL_GRPC_URL point outside the
+    # namespace — the default values are in-cluster short names already
+    # covered by the same-namespace rule above.
+    - toEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "8081"
+              protocol: TCP
+            - port: "50051"
+              protocol: TCP
+    {{- end }}
+{{- end }}

@@ -1,0 +1,52 @@
+# Checkov baseline for the k8s/helm/ Helm charts (see .pre-commit-config.yaml
+# checkov hook, pre-push: `checkov -d . --quiet --compact`, no --soft-fail).
+#
+# Every skip below is a reviewed, deliberate deviation from a generic
+# checkov default in favor of an explicit PenguinTech house rule or a known
+# scanner limitation -- not a blanket suppression. Re-review if a chart's
+# shape changes.
+skip-check:
+  # devops-kubernetes.md mandates runAsUser: 1000 explicitly (matches
+  # services/portal-api/Dockerfile's baked-in UID); checkov's generic
+  # >10000 preference is a looser best-practice, not a house requirement.
+  # (k8s/helm/webui deliberately uses the real UID its Dockerfile bakes --
+  # 999, not 1000 -- see k8s/helm/webui/values.yaml for why; same rationale
+  # applies: an explicit, documented, non-root UID beats this check's
+  # generic preference either way.)
+  - CKV_K8S_40
+
+  # services/portal-api/app/config.py (Config class) and the webui Express
+  # server both read all runtime config via env vars only -- neither has a
+  # file-based secret loading path, so mounting secrets as files instead of
+  # env vars is an app-code change out of any Helm chart's scope.
+  - CKV_K8S_35
+
+  # Every PenguinTech cluster targets Cilium as CNI -- devops-kubernetes.md
+  # mandates CiliumNetworkPolicy (cilium.io/v2), not the plain
+  # networking.k8s.io/v1 NetworkPolicy this admission-control check looks
+  # for. Every portal-api/webui/valkey chart DOES ship a
+  # CiliumNetworkPolicy (k8s/helm/*/templates/networkpolicy.yaml); checkov
+  # just does not recognise the CRD kind as satisfying the check.
+  - CKV2_K8S_6
+
+  # PenguinTech images (portal-api, webui) intentionally use a mutable tag
+  # in alpha/beta/gamma (devops-containers.md: tag OK outside production).
+  # SHA256 digest pinning is enforced in production only, via each chart's
+  # own image.requireDigest fail-fast guard (templates/deployment.yaml),
+  # not by this scanner -- see k8s/helm/{portal-api,webui}/production.yml.
+  - CKV_K8S_43
+
+  # IfNotPresent is intentional and safe here: every environment uses
+  # either a unique, never-reused CI-built tag (beta-<epoch>/gamma-<epoch>)
+  # or a SHA256 digest (production), so "Always" would only add
+  # unnecessary registry round-trips with no correctness benefit.
+  - CKV_K8S_15
+
+  # False positive from checkov's own embedded Helm renderer running
+  # without --namespace context, so it sees the Kubernetes client-side
+  # default rather than the explicit `namespace: {{ .Release.Namespace }}`
+  # every resource in these charts actually sets (see
+  # k8s/helm/*/templates/*.yaml) -- verify with
+  # `helm template <chart> -n penguincloud` (as the make targets and
+  # k8s-ops do) rather than this scanner's un-namespaced default render.
+  - CKV_K8S_21

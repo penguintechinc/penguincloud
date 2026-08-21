@@ -1,0 +1,35 @@
+{{- if .Values.autoscaling.enabled }}
+{{/*
+maxReplicas unset/nil silently collapses `int .Values.autoscaling.
+maxReplicas` to 0 wherever it feeds portal-api.effectiveReplicas (deployment.
+yaml's cap/keystore guards) — max(replicaCount, 0) = replicaCount, so those
+guards pass while the HPA below would render a spec with NO maxReplicas
+field at all (a missing required field, invalid at apply, caught by
+neither helm lint nor helm template). `required` fails rendering instead.
+*/}}
+{{- $maxReplicas := required "autoscaling.maxReplicas must be set when autoscaling.enabled is true (a missing value renders an HPA with no maxReplicas field, invalid at apply, and silently defeats the backend-node-cap/JWT-keystore guards in templates/deployment.yaml, which read it as 0)." .Values.autoscaling.maxReplicas }}
+{{- if gt (int .Values.autoscaling.minReplicas) (int $maxReplicas) }}
+{{- fail (printf "portal-api: autoscaling.minReplicas (%d) > autoscaling.maxReplicas (%d) — the Kubernetes API server rejects this HPA spec outright; helm template/lint do not catch it." (int .Values.autoscaling.minReplicas) (int $maxReplicas)) }}
+{{- end }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "portal-api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "portal-api.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ $maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

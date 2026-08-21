@@ -1,0 +1,174 @@
+{{/*
+Backend-node (replica) cap — docs/APP_STANDARDS.md "Backend nodes per
+service type — NOT a portal-runtime concern. Helm replica counts, set at
+deploy time." Free/Professional are capped at 1 node for this service
+type; Enterprise gets multiple/HA (license-server-configurable). Fails
+chart rendering rather than silently scaling past the licensed cap.
+
+Gates on effectiveReplicas, NOT replicaCount: when autoscaling is on,
+spec.replicas is omitted below and the HPA drives real scale up to
+autoscaling.maxReplicas — a guard that only checked replicaCount reported
+success in exactly the case it exists to catch (base values.yaml ships
+autoscaling.enabled: true, minReplicas: 3, so a community/professional
+render with replicaCount left at 1 would still render an HPA scaling 3-10
+pods unchecked).
+*/}}
+{{- $effectiveReplicas := int (include "portal-api.effectiveReplicas" .) }}
+{{- $maxReplicas := int (include "portal-api.maxReplicas" .) }}
+{{- if gt $effectiveReplicas $maxReplicas }}
+{{- fail (printf "portal-api: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) exceeds the %s tier's backend-node cap of %d for this service type (docs/APP_STANDARDS.md). Lower replicaCount/autoscaling.maxReplicas or upgrade the tier." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas) (include "portal-api.licenseTier" .) $maxReplicas) }}
+{{- end }}
+{{/*
+JWT signing key persistence — see values.yaml persistence.jwtKeystore
+comment. A multi-replica deployment without a shared FileKeyStore signs
+each pod's tokens with a different in-memory key its siblings cannot
+verify, so refuse to render rather than ship silently-broken auth. Same
+effectiveReplicas gate as above, for the same reason. No accessMode/RWX
+guard here any more — jwtKeystore.enabled now means "mount a
+pre-populated, read-only Secret" (values.yaml explains why a shared
+writable volume was actively wrong), and a Secret volume has no
+ReadWriteOnce/ReadWriteMany distinction to get wrong.
+*/}}
+{{- if and (gt $effectiveReplicas 1) (not .Values.persistence.jwtKeystore.enabled) }}
+{{- fail (printf "portal-api: effective replica count %d (replicaCount=%d, autoscaling.maxReplicas=%d when autoscaling.enabled) > 1 requires persistence.jwtKeystore.enabled — otherwise each replica signs JWTs with its own in-process key and tokens will not verify across pods behind the same Service (see app/__init__.py::_build_oidc_provider)." $effectiveReplicas (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas)) }}
+{{- end }}
+{{/*
+devops-containers.md: PenguinTech images require a SHA256 digest in
+production — production.yml sets image.requireDigest: true so a blank
+digest fails rendering instead of silently deploying a mutable tag.
+*/}}
+{{- if and .Values.image.requireDigest (not .Values.image.digest) }}
+{{- fail "portal-api: image.requireDigest is true but image.digest is empty — production must pin by SHA256 digest (devops-containers.md), never a mutable tag." }}
+{{- end }}
+{{/*
+beta.yml/gamma.yml set image.requireTag: true so a CI pipeline that forgot
+to inject its beta-<epoch64>/gamma-<epoch64> tag fails rendering instead of
+silently resolving to Chart.AppVersion + IfNotPresent (devops.md CI/CD Tag
+Naming).
+*/}}
+{{- if and .Values.image.requireTag (not .Values.image.tag) (not .Values.image.digest) }}
+{{- fail "portal-api: image.requireTag is true but image.tag is empty — CI must inject the beta-<epoch64>/gamma-<epoch64> tag at deploy time (devops.md CI/CD Tag Naming); refusing to fall back to Chart.AppVersion." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "portal-api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+  {{- if .Values.externalSecrets.enabled }}
+  annotations:
+    # stakater/Reloader watches THIS annotation on the Deployment's own
+    # metadata, not the pod template's (spec.template.metadata) -- it was
+    # rendered one level too deep before and was a silent no-op. Helm
+    # cannot hash a value it never sees (ESO resolves it from Vault
+    # independently of any `helm template`/install run), so restart on
+    # rotation is delegated to Reloader, if installed. See k8s/helm/valkey's
+    # identical annotation for the same reasoning.
+    reloader.stakater.com/auto: "true"
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "portal-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "portal-api.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.secrets.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "portal-api.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: portal-api
+          image: >-
+            {{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "portal-api.configMapName" . }}
+            {{- if or .Values.secrets.create .Values.externalSecrets.enabled }}
+            - secretRef:
+                name: {{ include "portal-api.secretName" . }}
+            {{- end }}
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "8000"
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.persistence.jwtKeystore.enabled }}
+            - name: jwt-keystore
+              mountPath: {{ .Values.persistence.jwtKeystore.mountPath }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ index .Values.resources.limits "ephemeral-storage" | default "128Mi" }}
+        {{- if .Values.persistence.jwtKeystore.enabled }}
+        # Pre-populated, read-only Secret projection — not a PVC. See
+        # values.yaml persistence.jwtKeystore comment for why: FileKeyStore
+        # only ever writes via an overwriting, non-atomic _save(), reached
+        # solely through its self-bootstrap path when the file does not yet
+        # exist — a shared WRITABLE volume races N concurrently-starting
+        # replicas into overwriting each other's freshly-generated key. A
+        # file that already exists takes FileKeyStore's provably read-only
+        # _load() path instead, which a Secret volume mounts fine under
+        # readOnlyRootFilesystem: true with no PVC/StorageClass/access-mode
+        # question at all.
+        - name: jwt-keystore
+          secret:
+            secretName: {{ include "portal-api.jwtKeystoreSecretName" . }}
+            items:
+              - key: {{ .Values.persistence.jwtKeystore.fileName }}
+                path: {{ .Values.persistence.jwtKeystore.fileName }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
