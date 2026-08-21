@@ -105,12 +105,14 @@ def main() -> int:
         print("PyYAML is required: pip install pyyaml", file=sys.stderr)
         return 1
 
-    # yaml.SafeDumper resolves to Any where types-PyYAML is not installed
-    # (a PEP 668 interpreter refuses it), and mypy rejects subclassing an
-    # Any base. Narrow, coded, single-line suppression per mypy.ini's
-    # documented policy for third-party stub gaps — it silences exactly
-    # this base-class resolution, nothing about the body below.
-    class _IndentedDumper(yaml.SafeDumper):  # type: ignore[misc]
+    # This used to carry `# type: ignore[misc]`: on a PEP 668 interpreter
+    # types-PyYAML could not be installed, `yaml.SafeDumper` resolved to Any,
+    # and mypy rejects subclassing an Any base. The mypy hook now runs from
+    # the project venv, where types-PyYAML is pinned, so the stubs resolve
+    # and the ignore became `unused-ignore` — removed rather than kept as
+    # debris. If mypy is ever pointed back at an ambient interpreter this
+    # will fail again, which is the correct signal: fix the interpreter.
+    class _IndentedDumper(yaml.SafeDumper):
         """SafeDumper that indents block sequences under their parent key.
 
         PyYAML writes a sequence flush with the mapping key that owns it.

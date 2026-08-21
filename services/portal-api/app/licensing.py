@@ -342,7 +342,11 @@ def resolve_tier_blocking() -> str:
     development and test path never touches the network.
     """
     try:
-        return get_client().validate().tier
+        # LicenseClient is untyped, so `.tier` arrives as Any. Coerce rather
+        # than pass it through: this function's return value is compared
+        # against the tier table, and a non-str (or a truthy object) would
+        # silently take a comparison branch instead of failing here.
+        return str(get_client().validate().tier)
     except Exception:
         # LicenseClient already swallows transport failures and falls back
         # to its cache; anything reaching here is unexpected. Degrade to the
@@ -381,7 +385,11 @@ def is_feature_entitled_blocking(feature_name: str) -> bool:
         # A license may entitle a single feature below its nominal tier
         # (a trial, a contractual add-on). Tier is the gate; this is an
         # additional grant path, never a narrower one.
-        return client.check_feature(feature_name)
+        # Untyped client: coerce to bool rather than returning Any. A truthy
+        # non-bool (a dict, a response object) would otherwise be handed back
+        # from a function declaring `-> bool` and read as an entitlement grant
+        # by every caller — the permissive direction, on the paywall's path.
+        return bool(client.check_feature(feature_name))
     except Exception:
         log.warning("feature_entitlement_check_failed", feature=feature_name, exc_info=True)
         return False
