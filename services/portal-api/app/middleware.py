@@ -3,8 +3,9 @@
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Any, Awaitable, Callable, Optional, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 import jwt as pyjwt
 from jwt import PyJWK
@@ -31,7 +32,7 @@ TOKEN_USE_ACCESS = "access"
 # type widens to Any rather than staying the view's own R.
 
 
-def get_token_from_header() -> Optional[str]:
+def get_token_from_header() -> str | None:
     """Extract JWT token from Authorization header."""
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
@@ -39,23 +40,23 @@ def get_token_from_header() -> Optional[str]:
     return None
 
 
-def get_current_user() -> Optional[dict[str, Any]]:
+def get_current_user() -> dict[str, Any] | None:
     """Get current authenticated user from request context."""
-    user: Optional[dict[str, Any]] = g.get("current_user", None)
+    user: dict[str, Any] | None = g.get("current_user", None)
     return user
 
 
-def get_current_tenant_id() -> Optional[str]:
+def get_current_tenant_id() -> str | None:
     """Return the active tenant ID, or None when the token is unscoped.
 
     The UNSCOPED_TENANT sentinel satisfies penguin-aaa's mandatory,
     non-empty tenant claim but does not name a real tenant, so it is
     normalised back to None here — tenant-gated routes must still reject it.
     """
-    tenant_id: Optional[str] = g.get("current_tenant_id", None)
+    tenant_id: str | None = g.get("current_tenant_id", None)
     if tenant_id and tenant_id != UNSCOPED_TENANT:
         return tenant_id
-    claims: Optional[dict[str, Any]] = g.get("current_claims", None)
+    claims: dict[str, Any] | None = g.get("current_claims", None)
     if claims:
         claim_tenant = claims.get("tenant")
         if claim_tenant and claim_tenant != UNSCOPED_TENANT:
@@ -111,9 +112,7 @@ def require_feature(
             return (
                 {
                     "error": "feature_not_entitled",
-                    "message": (
-                        f"Feature '{feature_name}' is not enabled for this tenant"
-                    ),
+                    "message": (f"Feature '{feature_name}' is not enabled for this tenant"),
                 },
                 403,
             )
@@ -270,6 +269,7 @@ def team_member_required(
             return {"error": "Team ID required"}, 400
 
         from .models import get_user_team_role as model_get_role
+
         role = await model_get_role(user["id"], team_id)
         if not role:
             return {"error": "Not a member of this team"}, 403
@@ -295,6 +295,7 @@ def team_admin_required(
             return {"error": "Team ID required"}, 400
 
         from .models import get_user_team_role as model_get_role
+
         role = await model_get_role(user["id"], team_id)
         if role not in ["owner", "admin"]:
             return {"error": "Team admin access required"}, 403
@@ -320,6 +321,7 @@ def team_owner_required(
             return {"error": "Team ID required"}, 400
 
         from .models import get_user_team_role as model_get_role
+
         role = await model_get_role(user["id"], team_id)
         if role != "owner":
             return {"error": "Team owner access required"}, 403

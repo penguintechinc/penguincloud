@@ -71,7 +71,10 @@ def build_full_spec(app: Quart) -> dict[str, Any]:
     implementation it describes.
     """
     extension = app.extensions["QUART_SCHEMA"]
-    assert isinstance(extension, QuartSchema)
+    if not isinstance(extension, QuartSchema):
+        raise TypeError(
+            f"app.extensions['QUART_SCHEMA'] is {type(extension).__name__}, not QuartSchema"
+        )
     schema: dict[str, Any] = _build_openapi_schema(app, extension)
     _fix_security_scheme_casing(schema)
     _ensure_documented_responses(schema)
@@ -146,9 +149,7 @@ def _ensure_documented_responses(schema: dict[str, Any]) -> None:
             responses = operation.get("responses")
             if isinstance(responses, dict) and responses:
                 continue
-            operation["responses"] = {
-                "default": {"description": _UNDECLARED_RESPONSE_DESCRIPTION}
-            }
+            operation["responses"] = {"default": {"description": _UNDECLARED_RESPONSE_DESCRIPTION}}
 
 
 def _drop_null_defaults(node: Any) -> Any:
@@ -239,9 +240,7 @@ def build_public_spec(full: dict[str, Any]) -> dict[str, Any]:
     referenced = _referenced_schema_names(public["paths"], full)
     all_schemas = full.get("components", {}).get("schemas", {})
     kept = {
-        name: copy.deepcopy(schema)
-        for name, schema in all_schemas.items()
-        if name in referenced
+        name: copy.deepcopy(schema) for name, schema in all_schemas.items() if name in referenced
     }
     components = {
         key: copy.deepcopy(value)

@@ -13,9 +13,9 @@ other DTO.
 
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
-import uuid
 
 import pytest
 from quart import Quart
@@ -154,9 +154,7 @@ class TestFullSpecRequiresAuth:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_authenticated_caller_gets_the_whole_document(
-        self, client: Any
-    ) -> None:
+    async def test_authenticated_caller_gets_the_whole_document(self, client: Any) -> None:
         """Any valid token suffices — no extra scope gate.
 
         Deliberate: the objective is keeping the API map off the open
@@ -173,9 +171,7 @@ class TestFullSpecRequiresAuth:
         assert "/api/v1/tenants" in spec["paths"]
 
     @pytest.mark.asyncio
-    async def test_quart_schema_default_routes_are_not_mounted(
-        self, app: Quart
-    ) -> None:
+    async def test_quart_schema_default_routes_are_not_mounted(self, app: Quart) -> None:
         """The library's own unauthenticated routes are gone.
 
         /redocs and /scalar are the easy ones to forget; either would keep
@@ -187,9 +183,7 @@ class TestFullSpecRequiresAuth:
         assert "/scalar" not in rules
 
     @pytest.mark.asyncio
-    async def test_public_and_full_specs_describe_login_identically(
-        self, client: Any
-    ) -> None:
+    async def test_public_and_full_specs_describe_login_identically(self, client: Any) -> None:
         """The public document is derived, not hand-written.
 
         If it were maintained separately it could drift, and the drift
@@ -198,9 +192,7 @@ class TestFullSpecRequiresAuth:
         """
         headers = await _auth_headers(client)
         public = await (await client.get("/openapi.json")).get_json()
-        full = await (
-            await client.get("/api/v1/openapi.json", headers=headers)
-        ).get_json()
+        full = await (await client.get("/api/v1/openapi.json", headers=headers)).get_json()
 
         assert public["paths"][LOGIN_PATH] == full["paths"][LOGIN_PATH]
 
@@ -220,9 +212,7 @@ class TestSpecDocumentValidity:
         cannot regress independently.
         """
         headers = await _auth_headers(client)
-        spec = await (
-            await client.get("/api/v1/openapi.json", headers=headers)
-        ).get_json()
+        spec = await (await client.get("/api/v1/openapi.json", headers=headers)).get_json()
 
         scheme = spec["components"]["securitySchemes"]["bearerAuth"]
         assert scheme["bearerFormat"] == "JWT"
@@ -232,9 +222,7 @@ class TestSpecDocumentValidity:
     async def test_every_operation_documents_a_response(self, client: Any) -> None:
         """OpenAPI forbids an empty `responses` object."""
         headers = await _auth_headers(client)
-        spec = await (
-            await client.get("/api/v1/openapi.json", headers=headers)
-        ).get_json()
+        spec = await (await client.get("/api/v1/openapi.json", headers=headers)).get_json()
 
         for path, item in spec["paths"].items():
             for method, operation in item.items():
@@ -245,9 +233,7 @@ class TestSpecDocumentValidity:
     async def test_no_null_defaults_survive(self, client: Any) -> None:
         """`default: null` is dropped — it means nothing and breaks tooling."""
         headers = await _auth_headers(client)
-        spec = await (
-            await client.get("/api/v1/openapi.json", headers=headers)
-        ).get_json()
+        spec = await (await client.get("/api/v1/openapi.json", headers=headers)).get_json()
 
         def walk(node: Any, trail: str = "") -> None:
             if isinstance(node, dict):

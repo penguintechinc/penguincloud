@@ -21,7 +21,7 @@ can manage a product it cannot.
 
 from __future__ import annotations
 
-from typing import Any, Final, Type
+from typing import Any, Final
 
 from .base import Adapter, AdapterContext
 from .generic_adapter import GenericAdapter
@@ -45,7 +45,7 @@ STATUS_UNKNOWN: Final[str] = "unknown"
 
 #: product_type -> v2 adapter class. Membership here is what makes a product
 #: connectable; everything else is catalogue metadata.
-ADAPTER_REGISTRY: dict[str, Type[Adapter]] = {
+ADAPTER_REGISTRY: dict[str, type[Adapter]] = {
     "gough": GoughAdapter,
     "nest": NestAdapter,
     "tobogganing": TobogganingAdapter,
@@ -95,8 +95,7 @@ def get_adapter(product_type: str, ctx: AdapterContext) -> Adapter:
     adapter_class = ADAPTER_REGISTRY.get(product_type)
     if adapter_class is None:
         raise ValueError(
-            f"Product '{product_type}' has no adapter "
-            f"(active: {sorted(ADAPTER_REGISTRY)})"
+            f"Product '{product_type}' has no adapter " f"(active: {sorted(ADAPTER_REGISTRY)})"
         )
     return adapter_class()
 

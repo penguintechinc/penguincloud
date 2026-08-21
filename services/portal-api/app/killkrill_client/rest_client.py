@@ -1,8 +1,6 @@
-"""
-REST client implementation for Killkrill receiver communication.
-"""
+"""REST client implementation for Killkrill receiver communication."""
 
-from typing import Any, List
+from typing import Any
 
 import httpx
 import structlog
@@ -16,8 +14,7 @@ class RESTSubmitter:
     """Handles REST/HTTP submissions to Killkrill receivers."""
 
     def __init__(self, api_url: str, jwt_token: str, timeout: int = 30) -> None:
-        """
-        Initialize REST submitter.
+        """Initialize REST submitter.
 
         Args:
             api_url: Base API URL (e.g., https://receiver.example.com)
@@ -30,8 +27,7 @@ class RESTSubmitter:
         self.client: httpx.AsyncClient | None = None
 
     async def connect(self) -> bool:
-        """
-        Initialize HTTP client.
+        """Initialize HTTP client.
 
         Returns:
             True if connection successful
@@ -61,8 +57,7 @@ class RESTSubmitter:
             logger.info("rest_connection_closed", url=self.api_url)
 
     async def health_check(self) -> bool:
-        """
-        Check REST endpoint health.
+        """Check REST endpoint health.
 
         Returns:
             True if healthy, False otherwise
@@ -85,9 +80,8 @@ class RESTSubmitter:
             logger.warning("rest_health_check_failed", url=self.api_url, error=str(e))
             return False
 
-    async def submit_logs(self, logs: List[dict[str, Any]]) -> bool:
-        """
-        Submit logs via REST API.
+    async def submit_logs(self, logs: list[dict[str, Any]]) -> bool:
+        """Submit logs via REST API.
 
         Args:
             logs: List of log entries
@@ -112,17 +106,15 @@ class RESTSubmitter:
                 raise SubmissionError("Authentication failed - token may be expired")
             else:
                 raise SubmissionError(
-                    f"Log submission failed with status {response.status_code}: "
-                    f"{response.text}"
+                    f"Log submission failed with status {response.status_code}: " f"{response.text}"
                 )
 
         except httpx.RequestError as e:
             logger.error("rest_log_submission_failed", error=str(e))
-            raise SubmissionError(f"REST log submission failed: {str(e)}")
+            raise SubmissionError(f"REST log submission failed: {str(e)}") from e
 
-    async def submit_metrics(self, metrics: List[dict[str, Any]]) -> bool:
-        """
-        Submit metrics via REST API.
+    async def submit_metrics(self, metrics: list[dict[str, Any]]) -> bool:
+        """Submit metrics via REST API.
 
         Args:
             metrics: List of metric entries
@@ -138,9 +130,7 @@ class RESTSubmitter:
             raise ConnectionError("REST client not initialized")
 
         try:
-            response = await self.client.post(
-                "/api/v1/metrics", json={"metrics": metrics}
-            )
+            response = await self.client.post("/api/v1/metrics", json={"metrics": metrics})
 
             if response.status_code == 200:
                 logger.info("rest_metrics_submitted", count=len(metrics))
@@ -155,7 +145,7 @@ class RESTSubmitter:
 
         except httpx.RequestError as e:
             logger.error("rest_metric_submission_failed", error=str(e))
-            raise SubmissionError(f"REST metric submission failed: {str(e)}")
+            raise SubmissionError(f"REST metric submission failed: {str(e)}") from e
 
     async def __aenter__(self) -> "RESTSubmitter":
         """Async context manager entry."""

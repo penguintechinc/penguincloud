@@ -1,12 +1,12 @@
+"""Alembic environment configuration — resolves the schema and DB URL for migrations."""
+
 import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # Import app/models_sqlalchemy.py directly as a top-level module (by adding
 # its containing directory to sys.path) rather than `import app.models_sqlalchemy`
@@ -46,17 +46,13 @@ def get_database_url() -> str:
     db_pass = os.getenv("DB_PASS", "postgres")
 
     if db_type == "postgresql":
-        return (
-            f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-        )
+        return f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
     elif db_type == "mysql":
         return f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
     elif db_type == "sqlite":
         return f"sqlite:///{db_name}.db"
     else:
-        return (
-            f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-        )
+        return f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
 
 
 def run_migrations_offline() -> None:

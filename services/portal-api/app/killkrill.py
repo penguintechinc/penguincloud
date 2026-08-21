@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard for typing only
     from .killkrill_client import ReceiverClient
@@ -15,6 +15,7 @@ class KillKrillManager:
     _instance: "KillKrillManager | None" = None
 
     def __new__(cls) -> "KillKrillManager":
+        """Return the process-wide singleton, creating it on first call."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -22,7 +23,7 @@ class KillKrillManager:
     def __init__(self) -> None:
         """Initialize KillKrill manager."""
         self.enabled = False
-        self.client: "ReceiverClient | None" = None
+        self.client: ReceiverClient | None = None
         self.logger = logging.getLogger(__name__)
         self._log_queue: list[dict[str, Any]] = []
         self._metric_queue: list[dict[str, Any]] = []
@@ -78,7 +79,7 @@ class KillKrillManager:
         name: str,
         value: float,
         metric_type: str = "counter",
-        labels: Optional[Dict[str, str]] = None,
+        labels: dict[str, str] | None = None,
     ) -> None:
         """Queue metric entry."""
         if not self.enabled or not self.client:
@@ -133,9 +134,7 @@ killkrill_manager = KillKrillManager()
 
 
 # Helper functions for common metrics
-def track_api_request(
-    endpoint: str, method: str, status: int, duration_ms: float
-) -> None:
+def track_api_request(endpoint: str, method: str, status: int, duration_ms: float) -> None:
     """Track API request metric."""
     killkrill_manager.metric(
         f"api.request.{method.lower()}",
@@ -148,9 +147,7 @@ def track_api_request(
     )
 
 
-def track_user_action(
-    action: str, user_id: str, team_id: Optional[str] = None
-) -> None:
+def track_user_action(action: str, user_id: str, team_id: str | None = None) -> None:
     """Track user action metric."""
     labels = {"user_id": user_id}
     if team_id:
@@ -160,6 +157,4 @@ def track_user_action(
 
 def track_feature_usage(feature_name: str, team_id: str) -> None:
     """Track feature usage metric."""
-    killkrill_manager.metric(
-        f"feature.usage.{feature_name}", 1, "counter", {"team_id": team_id}
-    )
+    killkrill_manager.metric(f"feature.usage.{feature_name}", 1, "counter", {"team_id": team_id})

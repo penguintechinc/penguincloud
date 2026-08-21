@@ -1,5 +1,4 @@
-"""
-Extended Authentication Tests
+"""Extended Authentication Tests.
 
 Tests for password reset, email confirmation, profile management, and
 session management. Includes regression tests for security fix.
@@ -8,18 +7,16 @@ session management. Includes regression tests for security fix.
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
-
 from typing import Any
 
 import pytest
-from quart import Quart
-
 from app.models import (
     create_user,
     is_refresh_token_valid,
     revoke_refresh_token,
     store_refresh_token,
 )
+from quart import Quart
 
 
 @pytest.mark.usefixtures("app_context")
@@ -140,9 +137,7 @@ class TestForgotPasswordTokenLeak:
     ACK_FIELDS = {"message"}
 
     @pytest.mark.asyncio
-    async def test_known_and_unknown_email_get_identical_response(
-        self, client: Any
-    ) -> None:
+    async def test_known_and_unknown_email_get_identical_response(self, client: Any) -> None:
         """A registered address is indistinguishable from an unregistered one.
 
         Covers both halves of the vulnerability at once: byte-identical
@@ -160,9 +155,7 @@ class TestForgotPasswordTokenLeak:
         )
         assert register.status_code in (200, 201), await register.get_json()
 
-        known = await client.post(
-            "/api/v1/auth/forgot-password", json={"email": known_email}
-        )
+        known = await client.post("/api/v1/auth/forgot-password", json={"email": known_email})
         unknown = await client.post(
             "/api/v1/auth/forgot-password",
             json={"email": f"leak-unknown-{uuid.uuid4().hex[:8]}@example.com"},
@@ -178,9 +171,7 @@ class TestForgotPasswordTokenLeak:
         assert "expires_at" not in body
 
     @pytest.mark.asyncio
-    async def test_reset_token_still_persisted_and_usable(
-        self, client: Any, app: Quart
-    ) -> None:
+    async def test_reset_token_still_persisted_and_usable(self, client: Any, app: Quart) -> None:
         """The token still reaches the DB, so a legitimately-obtained one works.
 
         Paired with the rejection test above: suppressing the token from the
@@ -200,9 +191,7 @@ class TestForgotPasswordTokenLeak:
         assert register.status_code in (200, 201), await register.get_json()
         user_id = (await register.get_json())["user"]["id"]
 
-        response = await client.post(
-            "/api/v1/auth/forgot-password", json={"email": email}
-        )
+        response = await client.post("/api/v1/auth/forgot-password", json={"email": email})
         assert response.status_code == 200
 
         async with app.app_context():
@@ -229,11 +218,11 @@ class TestForgotPasswordTokenLeak:
 
 
 class TestPasswordReset:
-    """Test password reset flow"""
+    """Test password reset flow."""
 
     @pytest.mark.asyncio
     async def test_forgot_password_success(self, client: Any) -> None:
-        """Test forgot password request"""
+        """Test forgot password request."""
         response = await client.post(
             "/api/v1/auth/forgot-password", json={"email": "user@example.com"}
         )
@@ -244,7 +233,7 @@ class TestPasswordReset:
 
     @pytest.mark.asyncio
     async def test_forgot_password_nonexistent_user(self, client: Any) -> None:
-        """Test forgot password for non-existent user"""
+        """Test forgot password for non-existent user."""
         response = await client.post(
             "/api/v1/auth/forgot-password", json={"email": "nonexistent@example.com"}
         )
@@ -258,7 +247,7 @@ class TestPasswordReset:
     )
     @pytest.mark.asyncio
     async def test_reset_password_success(self, client: Any) -> None:
-        """Test password reset with valid token"""
+        """Test password reset with valid token."""
         # This would need actual token from forgot-password
         response = await client.post(
             "/api/v1/auth/reset-password",
@@ -273,7 +262,7 @@ class TestPasswordReset:
     )
     @pytest.mark.asyncio
     async def test_reset_password_invalid_token(self, client: Any) -> None:
-        """Test password reset with invalid token"""
+        """Test password reset with invalid token."""
         response = await client.post(
             "/api/v1/auth/reset-password",
             json={"token": "invalid-token", "password": "newpassword123"},
@@ -287,7 +276,7 @@ class TestPasswordReset:
     )
     @pytest.mark.asyncio
     async def test_reset_password_weak(self, client: Any) -> None:
-        """Test password reset with weak password"""
+        """Test password reset with weak password."""
         response = await client.post(
             "/api/v1/auth/reset-password",
             json={"token": "valid-token", "password": "weak"},
@@ -298,7 +287,7 @@ class TestPasswordReset:
 
 
 class TestEmailConfirmation:
-    """Test email confirmation flow"""
+    """Test email confirmation flow."""
 
     @pytest.mark.xfail(
         reason="Email confirmation feature not fully implemented — Phase 1B",
@@ -306,7 +295,7 @@ class TestEmailConfirmation:
     )
     @pytest.mark.asyncio
     async def test_confirm_email_success(self, client: Any) -> None:
-        """Test email confirmation with valid token"""
+        """Test email confirmation with valid token."""
         response = await client.post("/api/v1/auth/confirm-email/invalid-token")
 
         assert response.status_code in [400, 404]
@@ -317,7 +306,7 @@ class TestEmailConfirmation:
     )
     @pytest.mark.asyncio
     async def test_confirm_email_expired_token(self, client: Any) -> None:
-        """Test email confirmation with expired token"""
+        """Test email confirmation with expired token."""
         response = await client.post("/api/v1/auth/confirm-email/expired-token")
 
         assert response.status_code in [400, 404]
@@ -326,7 +315,7 @@ class TestEmailConfirmation:
     async def test_email_confirmation_required(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
-        """Test features requiring email confirmation"""
+        """Test features requiring email confirmation."""
         # Try to use feature before confirming email
         response = await client.get("/api/v1/users/me", headers=auth_headers)
 
@@ -335,13 +324,11 @@ class TestEmailConfirmation:
 
 
 class TestProfileManagement:
-    """Test user profile management"""
+    """Test user profile management."""
 
     @pytest.mark.asyncio
-    async def test_get_own_profile(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test getting own profile"""
+    async def test_get_own_profile(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test getting own profile."""
         response = await client.get("/api/v1/users/me", headers=auth_headers)
 
         assert response.status_code == 200
@@ -352,10 +339,8 @@ class TestProfileManagement:
         assert "full_name" in data
 
     @pytest.mark.asyncio
-    async def test_update_profile(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test updating own profile"""
+    async def test_update_profile(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test updating own profile."""
         response = await client.put(
             "/api/v1/users/me",
             headers=auth_headers,
@@ -367,10 +352,8 @@ class TestProfileManagement:
         assert data["full_name"] == "Updated Name"
 
     @pytest.mark.asyncio
-    async def test_change_password_success(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test changing password successfully"""
+    async def test_change_password_success(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test changing password successfully."""
         response = await client.put(
             "/api/v1/users/me/password",
             headers=auth_headers,
@@ -383,7 +366,7 @@ class TestProfileManagement:
     async def test_change_password_wrong_current(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
-        """Test changing password with wrong current password"""
+        """Test changing password with wrong current password."""
         response = await client.put(
             "/api/v1/users/me/password",
             headers=auth_headers,
@@ -399,7 +382,7 @@ class TestProfileManagement:
     async def test_change_password_weak_new(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
-        """Test changing password with weak new password"""
+        """Test changing password with weak new password."""
         response = await client.put(
             "/api/v1/users/me/password",
             headers=auth_headers,
@@ -410,13 +393,11 @@ class TestProfileManagement:
 
 
 class TestSessionManagement:
-    """Test session management endpoints"""
+    """Test session management endpoints."""
 
     @pytest.mark.asyncio
-    async def test_list_sessions(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test listing active sessions"""
+    async def test_list_sessions(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test listing active sessions."""
         response = await client.get("/api/v1/auth/sessions", headers=auth_headers)
 
         assert response.status_code == 200
@@ -425,13 +406,9 @@ class TestSessionManagement:
         assert isinstance(data["sessions"], list)
 
     @pytest.mark.asyncio
-    async def test_revoke_session(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test revoking a session"""
-        response = await client.delete(
-            "/api/v1/auth/sessions/session-id", headers=auth_headers
-        )
+    async def test_revoke_session(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test revoking a session."""
+        response = await client.delete("/api/v1/auth/sessions/session-id", headers=auth_headers)
 
         assert response.status_code in [204, 404]
 
@@ -440,10 +417,8 @@ class TestSessionManagement:
         strict=False,
     )
     @pytest.mark.asyncio
-    async def test_revoke_all_sessions(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test revoking all sessions"""
+    async def test_revoke_all_sessions(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test revoking all sessions."""
         response = await client.post(
             "/api/v1/auth/sessions/revoke-all",
             headers=auth_headers,
@@ -455,7 +430,7 @@ class TestSessionManagement:
     async def test_session_info_captures_device(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
-        """Test that session info captures device information"""
+        """Test that session info captures device information."""
         response = await client.get("/api/v1/auth/sessions", headers=auth_headers)
 
         assert response.status_code == 200

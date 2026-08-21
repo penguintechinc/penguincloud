@@ -12,7 +12,7 @@ import ipaddress
 import logging
 import socket
 import time
-from typing import Any, Final, TypeAlias
+from typing import Any, Final
 
 import aiohttp
 from quart import Blueprint, request
@@ -37,8 +37,8 @@ discovery_bp = Blueprint("discovery", __name__)
 # In-memory store for latest scan results per tenant
 _scan_results: dict[int, list[dict[str, Any]]] = {}
 
-IPAddress: TypeAlias = ipaddress.IPv4Address | ipaddress.IPv6Address
-IPNetwork: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
+type IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+type IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 #: Ceiling on how many individual addresses one scan may expand to.
 #:
@@ -115,9 +115,7 @@ def parse_allowlist(raw: str) -> list[IPNetwork]:
         try:
             networks.append(ipaddress.ip_network(candidate, strict=False))
         except ValueError:
-            logger.warning(
-                "Ignoring unparseable DISCOVERY_RANGES entry: %r", candidate
-            )
+            logger.warning("Ignoring unparseable DISCOVERY_RANGES entry: %r", candidate)
     return networks
 
 
@@ -129,20 +127,14 @@ def _is_subnet(network: IPNetwork, allowed: IPNetwork) -> bool:
     too, so this states the existing requirement in a checkable way rather
     than adding one.
     """
-    if isinstance(network, ipaddress.IPv4Network) and isinstance(
-        allowed, ipaddress.IPv4Network
-    ):
+    if isinstance(network, ipaddress.IPv4Network) and isinstance(allowed, ipaddress.IPv4Network):
         return network.subnet_of(allowed)
-    if isinstance(network, ipaddress.IPv6Network) and isinstance(
-        allowed, ipaddress.IPv6Network
-    ):
+    if isinstance(network, ipaddress.IPv6Network) and isinstance(allowed, ipaddress.IPv6Network):
         return network.subnet_of(allowed)
     return False
 
 
-def _assert_allowlisted(
-    network: IPNetwork, entry: str, allowlist: list[IPNetwork]
-) -> None:
+def _assert_allowlisted(network: IPNetwork, entry: str, allowlist: list[IPNetwork]) -> None:
     """Raise unless a requested network sits entirely inside an allowlisted CIDR.
 
     Containment is checked against the whole network, not against one
@@ -151,9 +143,7 @@ def _assert_allowlisted(
     """
     if any(_is_subnet(network, allowed) for allowed in allowlist):
         return
-    raise DiscoveryTargetError(
-        f"'{entry}' is outside the DISCOVERY_RANGES allowlist"
-    )
+    raise DiscoveryTargetError(f"'{entry}' is outside the DISCOVERY_RANGES allowlist")
 
 
 def _expand(network: IPNetwork, entry: str) -> list[IPAddress]:
@@ -188,9 +178,7 @@ async def _resolve_hostname(name: str) -> list[IPAddress]:
     the connection cannot disagree about where the traffic went.
     """
     try:
-        infos = await asyncio.to_thread(
-            socket.getaddrinfo, name, None, 0, socket.SOCK_STREAM
-        )
+        infos = await asyncio.to_thread(socket.getaddrinfo, name, None, 0, socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise DiscoveryTargetError(f"'{name}' could not be resolved") from exc
 
@@ -204,9 +192,7 @@ async def _resolve_hostname(name: str) -> list[IPAddress]:
     return resolved
 
 
-async def resolve_scan_targets(
-    entries: list[str], allowlist: list[IPNetwork]
-) -> list[str]:
+async def resolve_scan_targets(entries: list[str], allowlist: list[IPNetwork]) -> list[str]:
     """Validate scan entries and return the concrete addresses to probe.
 
     The single gate between caller input and outbound traffic. An entry may
@@ -235,9 +221,7 @@ async def resolve_scan_targets(
             addresses = await _resolve_hostname(entry)
             for address in addresses:
                 _assert_scannable(address, entry)
-                _assert_allowlisted(
-                    ipaddress.ip_network(address), entry, allowlist
-                )
+                _assert_allowlisted(ipaddress.ip_network(address), entry, allowlist)
                 targets.append(str(address))
         else:
             # Special-use rejection is evaluated before the allowlist, so it
@@ -252,9 +236,7 @@ async def resolve_scan_targets(
             targets.extend(str(address) for address in addresses)
 
         if len(targets) > MAX_SCAN_TARGETS:
-            raise DiscoveryTargetError(
-                f"scan expands to more than {MAX_SCAN_TARGETS} addresses"
-            )
+            raise DiscoveryTargetError(f"scan expands to more than {MAX_SCAN_TARGETS} addresses")
 
     # Preserve order while dropping duplicates -- overlapping entries should
     # not multiply the probe count.
@@ -319,7 +301,7 @@ async def _probe_endpoint(
                         "response_time_ms": elapsed_ms,
                         "unconfirmed": True,
                     }
-    except (asyncio.TimeoutError, aiohttp.ClientError, socket.error):
+    except (TimeoutError, OSError, aiohttp.ClientError):
         pass
 
     return None
@@ -367,9 +349,7 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    denied = await require_tenant_scope(
-        user["id"], tenant_id, SCOPE_PRODUCTS_MANAGE
-    )
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 
@@ -390,8 +370,7 @@ async def trigger_scan() -> tuple[dict[str, Any], int]:
     entries = requested or [str(network) for network in allowlist]
     if not entries:
         return {
-            "error": "No network ranges specified. "
-            "Provide 'ranges' or set DISCOVERY_RANGES."
+            "error": "No network ranges specified. " "Provide 'ranges' or set DISCOVERY_RANGES."
         }, 400
 
     try:
@@ -464,9 +443,7 @@ async def accept_discovered_product(discovery_id: int) -> tuple[dict[str, Any], 
     if not tenant_id:
         return {"error": "tenant_id required"}, 400
 
-    denied = await require_tenant_scope(
-        user["id"], tenant_id, SCOPE_PRODUCTS_MANAGE
-    )
+    denied = await require_tenant_scope(user["id"], tenant_id, SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 
