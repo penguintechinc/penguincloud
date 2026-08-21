@@ -24,6 +24,20 @@ export function createAppQueryClient(): QueryClient {
       onError: (error) => {
         useMutationErrorStore.getState().report(describeMutationError(error));
       },
+      // Coarse by design: a successful mutation clears the WHOLE queue, not
+      // just an entry that shares its identity. Product mutation hooks
+      // (useGoughMutation, useTobogganingMutation, useDatabaseMutations)
+      // don't thread a `mutationKey`, so there is nothing reliable to
+      // correlate "this success" back to "that specific earlier failure"
+      // with. This is still strictly better than the prior behaviour
+      // (nothing ever cleared, so a failure stayed pinned for the rest of
+      // the session even after the same save succeeded on retry) — the
+      // cross-screen edge case this doesn't handle precisely is bounded
+      // separately by clearing on every route change, see
+      // hooks/useClearMutationErrorsOnNavigate.ts.
+      onSuccess: () => {
+        useMutationErrorStore.getState().clearAll();
+      },
     }),
     defaultOptions: {
       queries: {

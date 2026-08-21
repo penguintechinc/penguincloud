@@ -83,6 +83,8 @@ __all__ = [
     "AUTH_USER_JWT",
     "AUTH_NODE_CREDENTIAL",
     "MACHINE_JWT_AUDIENCE",
+    "BootError",
+    "ModuleRegistrationError",
     "tobogganing_app_module",
     "missing_reason",
     "boot_failure",
@@ -173,8 +175,22 @@ _NODE_AUTH_MARKERS: Final[tuple[str, ...]] = (
 
 # The program run in the child interpreter. Kept as source text rather than a
 # file on disk so there is nothing to leave behind, and nothing another
-# concurrently-running agent could collide with.
-_BOOT_PROGRAM: Final[str] = r'''
+# concurrently-running agent could collide with. Split into a raw template
+# plus a separate `%` substitution (rather than `r'''...''' % {...}` inline)
+# so the UP031 suppression below has a real comment line to live on, rather
+# than one that would otherwise have to sit right after `r'''` — which would
+# make it part of the string, not a comment at all.
+#
+# UP031: this is embedded Python SOURCE TEXT, not a message being composed —
+# it is full of literal `{`/`}` (25 brace characters below: dict/set
+# literals, f-string-free string formatting inside the child script itself).
+# An f-string or `.format()` would need every one of those 25 individually
+# escaped as `{{`/`}}` — one missed brace is a silent runtime KeyError in the
+# CHILD interpreter, surfacing only as an opaque "Tobogganing failed to
+# boot", not a clear error at the call site. `%`-style substitution needs no
+# escaping for `{`/`}` at all, which is exactly why it is the correct tool
+# here rather than a style lapse ruff should override.
+_BOOT_PROGRAM_TEMPLATE: Final[str] = r'''
 import asyncio, ast, inspect, json, sys, textwrap
 
 USER_DECORATORS = %(user_decorators)r
@@ -266,6 +282,50 @@ def classify(view):
     return "none", decorators
 
 
+def module_failures(app):
+    """Re-derive WHY each expected module is missing from the live registry.
+
+    ``hub_api.app.create_app()`` imports every name in ``hub_api.modules.__all__``
+    inside a ``try/except (ImportError, AttributeError)`` that only *logs* a
+    failure and carries on — so a module can silently lose every one of its
+    routes while the boot as a whole still exits 0. That is indistinguishable
+    from a route table diff UNLESS something checks the registry against the
+    module manifest, which is what this does: the expected set comes from
+    ``hub_api.modules.__all__`` itself (the product's own manifest), not a
+    list transcribed here, so it stays correct as Tobogganing adds modules.
+
+    Each missing module is re-imported (and its ``module()`` factory
+    re-invoked) OUTSIDE app.py's swallowing try/except, purely to recover the
+    exception app.py discarded — this never affects the app already built.
+    """
+    import hub_api.modules as modules_pkg
+
+    expected = set(modules_pkg.__all__)
+    registered = set(app.registry._modules.keys())
+    missing = sorted(expected - registered)
+
+    found = {}
+    for name in missing:
+        try:
+            mod = __import__(f"hub_api.modules.{name}", fromlist=["module"])
+        except Exception as exc:
+            found[name] = f"import failed: {type(exc).__name__}: {exc}"
+            continue
+        if not hasattr(mod, "module"):
+            found[name] = "module has no module() factory"
+            continue
+        try:
+            mod.module()
+        except Exception as exc:
+            found[name] = f"module() factory raised: {type(exc).__name__}: {exc}"
+        else:
+            found[name] = (
+                "re-import succeeded on retry but app.py did not register it "
+                "(a stateful/transient failure, not a missing dependency)"
+            )
+    return found
+
+
 async def main():
     from hub_api.app import create_app
 
@@ -287,12 +347,15 @@ async def main():
                 "strict_slashes": bool(rule.strict_slashes),
                 "envelope": envelope_key(view) if view else None,
             })
-    json.dump(out, sys.stdout)
+        failures = module_failures(app)
+    json.dump({"rules": out, "module_failures": failures}, sys.stdout)
     return 0
 
 
 sys.exit(asyncio.run(main()))
-''' % {
+'''
+
+_BOOT_PROGRAM: Final[str] = _BOOT_PROGRAM_TEMPLATE % {  # noqa: UP031
     "user_decorators": sorted(_USER_DECORATORS),
     "node_markers": list(_NODE_AUTH_MARKERS),
     "envelope_sidecars": sorted(_ENVELOPE_SIDECAR_KEYS),
@@ -332,13 +395,43 @@ class BootError(RuntimeError):
     """Tobogganing is on disk but would not boot."""
 
 
+class ModuleRegistrationError(BootError):
+    """Tobogganing booted, but one of its own modules failed to register.
+
+    Distinct from the base :class:`BootError` because the two mean different
+    things. A plain ``BootError`` means the child interpreter could not run
+    Tobogganing at all. This means Tobogganing DID boot (exit 0, a parseable
+    rule dump) — but ``hub_api.app.create_app()`` wraps its per-module import
+    in a ``try/except (ImportError, AttributeError)`` that only logs and
+    continues, so one module (and every route it owns) can vanish from the
+    dump while everything else mounts normally. That produces a route table
+    that is *exactly* the shape of real product drift: N routes missing, all
+    under one prefix, nothing else different. It usually is not drift — it is
+    a Tobogganing dependency (``markdown``, ``bleach``, ...) that this boot's
+    interpreter does not have installed, even though Tobogganing's own
+    ``hub_api/requirements.txt`` declares it. See
+    ``tests/api/README-tobogganing-fixtures.md``.
+
+    Still a ``BootError`` subclass on purpose: every existing
+    ``except BootError`` fallback (``effective_route_table`` and friends)
+    catches this too and degrades to the vendored fixture, which is the
+    correct behaviour either way — an untrustworthy live boot should never
+    outrank a fixture that was vendored from a real, complete one.
+    """
+
+
 def _boot(root: Path | None = None) -> list[dict[str, Any]]:
     """Boot Tobogganing in a child interpreter and return its rule dump.
 
     Raises:
         FileNotFoundError: no checkout present.
-        BootError: checkout present but the boot failed — distinct from
-            "absent" so a broken product install is reported rather than
+        ModuleRegistrationError: the boot succeeded but Tobogganing's own
+            module registry silently dropped one or more modules — an
+            incomplete boot environment, not proof of product drift. A
+            ``BootError`` subclass, so existing ``except BootError`` callers
+            need no change.
+        BootError: checkout present but the boot failed outright — distinct
+            from "absent" so a broken product install is reported rather than
             silently falling back to a fixture that may disagree with it.
     """
     module = tobogganing_app_module(root)
@@ -350,7 +443,10 @@ def _boot(root: Path | None = None) -> list[dict[str, Any]]:
     # Keep the child's imports pointed at the product, not the portal.
     env["PYTHONPATH"] = str(checkout)
     try:
-        result = subprocess.run(
+        # S603: argv is `sys.executable` (this interpreter's own absolute
+        # path) plus a fixed `-c` and the literal `_BOOT_PROGRAM` source text
+        # defined above — no caller-controlled or untrusted input reaches it.
+        result = subprocess.run(  # noqa: S603
             [sys.executable, "-c", _BOOT_PROGRAM],
             cwd=str(checkout),
             env=env,
@@ -374,9 +470,28 @@ def _boot(root: Path | None = None) -> list[dict[str, Any]]:
             f"Tobogganing boot produced no parseable rule dump: {exc}. "
             f"stdout head: {result.stdout[:500]!r}"
         ) from exc
-    if not isinstance(payload, list):
-        raise BootError("Tobogganing boot did not return a list of rules")
-    return payload
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        raise BootError(
+            "Tobogganing boot did not return the expected "
+            "{'rules': [...], 'module_failures': {...}} payload"
+        )
+    failures = payload.get("module_failures") or {}
+    if not isinstance(failures, dict):
+        raise BootError("Tobogganing boot's module_failures was not an object")
+    if failures:
+        detail = "; ".join(f"{name}: {reason}" for name, reason in sorted(failures.items()))
+        raise ModuleRegistrationError(
+            f"Tobogganing booted, but {len(failures)} of its own module(s) "
+            f"failed to register and hub_api.app swallowed the error rather "
+            f"than raising: {detail}. This means the boot environment is "
+            f"INCOMPLETE, not that Tobogganing moved its routes — every "
+            f"route under a dropped module reads as 'removed' even though "
+            f"the product's source is unchanged. Install Tobogganing's own "
+            f"declared dependencies (hub_api/requirements.txt) into the "
+            f"interpreter this boot runs under, then retry."
+        )
+    return rules
 
 
 def boot_failure(root: Path | None = None) -> str | None:
@@ -417,9 +532,7 @@ def route_table(root: Path | None = None) -> dict[str, frozenset[str]]:
     """
     table: dict[str, set[str]] = {}
     for entry in _rules(root):
-        table.setdefault(str(entry["rule"]), set()).update(
-            str(m) for m in entry["methods"]
-        )
+        table.setdefault(str(entry["rule"]), set()).update(str(m) for m in entry["methods"])
     return {path: frozenset(methods) for path, methods in table.items()}
 
 
@@ -463,9 +576,7 @@ def build_fixture(root: Path | None = None) -> dict[str, Any]:
     auth: dict[str, str] = {}
     envelopes: dict[str, str] = {}
     for entry in rules:
-        table.setdefault(str(entry["rule"]), set()).update(
-            str(m) for m in entry["methods"]
-        )
+        table.setdefault(str(entry["rule"]), set()).update(str(m) for m in entry["methods"])
         for method in entry["methods"]:
             auth[f"{method} {entry['rule']}"] = str(entry["auth"])
             if entry.get("envelope"):

@@ -1,0 +1,167 @@
+# webui — Helm default values (prod-safe baseline). See portal-api/values.yaml
+# for the full baseline-vs-override convention this mirrors.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 3
+
+image:
+  repository: ghcr.io/penguintechinc/penguincloud/webui
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+  requireDigest: false
+  # See k8s/helm/portal-api/values.yaml's identical comment — beta.yml/
+  # gamma.yml set this true so a forgotten CI tag injection fails loudly.
+  requireTag: false
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+# securityContext — devops-kubernetes.md mandates runAsUser: 1000.
+# services/webui/Dockerfile's `USER 1000` reuses node:22-bookworm-slim's
+# shipped `node` user rather than creating a second one (verified against
+# the base image: `docker run node:22-bookworm-slim id node` ->
+# uid=1000(node) gid=1000(node)), and `chown -R node:node /app` at build
+# time gives that same identity ownership of the app directory — so 1000
+# here matches both the org standard and the image's actual file
+# ownership. (An earlier revision of this chart ran as 999 to match a
+# prior Dockerfile revision that created its own user via a bare
+# `useradd -r`, landing at whatever UID that assigned rather than 1000;
+# that Dockerfile revision is gone.)
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+
+podSecurityContext:
+  fsGroup: 1000
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+    ephemeral-storage: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+    ephemeral-storage: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# server/index.ts: GET /healthz and GET /readyz, both unauthenticated,
+# neither checks portal-api reachability (bare 200 acks) — see
+# services/webui/src/server/index.ts.
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Secure by default — see k8s/helm/portal-api/values.yaml's identical
+# comment. Only production.yml opts up to a higher tier. No numeric
+# override field — see portal-api's identical comment (self-assertable
+# Helm values are not a hard block).
+license:
+  tier: community
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls: []
+
+# server/index.ts env vars. FLASK_API_URL points at the portal-api Service
+# DNS name (in-cluster, no ingress hop) so the /api proxy never leaves the
+# namespace. GO_API_URL is deliberately NOT set: go-backend was retired in
+# Phase 0 (docs/APP_STANDARDS.md) and nothing in this chart deploys it —
+# /api/go/* proxies to the unset default (http://localhost:8080 inside the
+# webui pod itself, where nothing listens) and 502s harmlessly if ever hit.
+config:
+  NODE_ENV: production
+  PORT: "3000"
+  FLASK_API_URL: http://portal-api:8000
+
+secrets:
+  create: false
+  data: {}
+
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  keys: {}
+
+networkPolicy:
+  enabled: true
+  # webui is the product's public entry point — cross-namespace ingress
+  # source (the Cilium Gateway / ingress-controller namespace) is set per
+  # environment below, never a blanket allow.
+  extraIngress: []
+  egress:
+    allowDNS: true
+    # webui's only real same-namespace dependency (config.FLASK_API_URL) —
+    # matches portal-api's own selector labels and actual serving port,
+    # not a blanket same-namespace-any-port allow.
+    allowPortalApi:
+      matchLabels:
+        app.kubernetes.io/name: portal-api
+      port: "8000"
+
+tracingPolicy:
+  enabled: true
+  allowedBinaries:
+    - /usr/local/bin/node
+
+# webui installs AFTER portal-api (which owns namespace creation) — assumes
+# the "penguincloud" namespace + PSA labels already exist.
+podSecurityAdmission:
+  manageNamespace: false
+  namespace: penguincloud
+  enforce: restricted
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

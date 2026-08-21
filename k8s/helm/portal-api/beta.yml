@@ -1,0 +1,93 @@
+# portal-api — beta overrides (dal2-beta cluster).
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/penguintechinc/penguincloud/portal-api
+  tag: ""  # set at deploy time to the CI-built beta-<epoch64> tag; rendering fails until set (requireTag below)
+  digest: ""
+  pullPolicy: IfNotPresent
+  requireTag: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+    ephemeral-storage: 128Mi
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  className: cilium
+  host: penguincloud.penguintech.cloud
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    - hosts:
+        - penguincloud.penguintech.cloud
+      secretName: portal-api-tls
+
+persistence:
+  jwtKeystore:
+    enabled: false  # single replica
+
+config:
+  BASE_URL: penguincloud.penguintech.cloud
+  LOG_LEVEL: info
+  RELEASE_MODE: "false"
+  DB_HOST: postgres
+  DB_POOL_SIZE: "5"
+  JWT_ISSUER: https://penguincloud.penguintech.cloud
+  CORS_ORIGINS: https://penguincloud.penguintech.cloud
+
+secrets:
+  create: false
+
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    name: penguincloud-vault
+    kind: ClusterSecretStore
+  keys:
+    SECRET_KEY: penguincloud/beta/portal-api#SECRET_KEY
+    DB_PASS: penguincloud/beta/portal-api#DB_PASS
+    ENCRYPTION_KEY: penguincloud/beta/portal-api#ENCRYPTION_KEY
+    LICENSE_KEY: penguincloud/beta/portal-api#LICENSE_KEY
+    # Same Vault path valkey/beta.yml's ExternalSecret uses for
+    # VALKEY_PASSWORD — deliberately the SAME key, not a portal-api-scoped
+    # copy, so the two can never drift out of sync.
+    CACHE_PASS: penguincloud/beta/valkey#VALKEY_PASSWORD
+    KILLKRILL_CLIENT_ID: penguincloud/beta/portal-api#KILLKRILL_CLIENT_ID
+    KILLKRILL_CLIENT_SECRET: penguincloud/beta/portal-api#KILLKRILL_CLIENT_SECRET
+    OAUTH_GOOGLE_CLIENT_ID: penguincloud/beta/portal-api#OAUTH_GOOGLE_CLIENT_ID
+    OAUTH_GOOGLE_CLIENT_SECRET: penguincloud/beta/portal-api#OAUTH_GOOGLE_CLIENT_SECRET
+
+networkPolicy:
+  enabled: true
+  extraIngress:
+    - namespaceLabels:
+        "k8s:io.kubernetes.pod.namespace": kube-system  # Cilium Gateway/ingress-controller
+      ports:
+        - port: "8000"
+          protocol: TCP
+
+podSecurityAdmission:
+  manageNamespace: true
+  namespace: penguincloud
+  enforce: restricted
+
+metrics:
+  serviceMonitor:
+    enabled: false

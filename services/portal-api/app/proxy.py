@@ -34,6 +34,7 @@ from quart import Blueprint, make_response, request
 from . import flags
 from .adapters import get_adapter
 from .adapters.base import (
+    UPSTREAM_RESPONSE_HEADER,
     AdapterContext,
     PathTraversalError,
     RBACEnforcer,
@@ -548,6 +549,11 @@ async def proxy_request(connection_id: int, proxy_path: str) -> Any:
                 )
 
             response.headers[CORRELATION_ID_HEADER] = corr_id
+            # Set LAST, after the upstream header copy loop above — so a
+            # product that happens to send a header with this exact name
+            # cannot overwrite the portal's own provenance signal with a
+            # value of its choosing.
+            response.headers[UPSTREAM_RESPONSE_HEADER] = "true"
 
             await _audit_proxy_call(
                 user_id=user["id"],

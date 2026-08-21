@@ -41,6 +41,12 @@ repos:
         stages: [pre-commit]
       - id: check-yaml
         args: [--allow-multiple-documents]
+        # Helm templates under k8s/helm/*/templates/ are Go templates, not
+        # literal YAML ({{ ... }} directives) -- they only become valid YAML
+        # after `helm template` renders them, which helm lint/helm template
+        # (make targets, k8s-security-scan hook) already validate. values.yaml
+        # and the per-env *.yml overrides are unaffected and still checked.
+        exclude: ^k8s/helm/.*/templates/.*\.ya?ml$
         stages: [pre-commit]
       - id: check-json
         # tsconfig*.json is JSONC (comments allowed) by TypeScript
@@ -72,7 +78,9 @@ repos:
     rev: v1.35.1
     hooks:
       - id: yamllint
-        # Picks up .yamllint.yml at repo root automatically.
+        # Picks up .yamllint.yml at repo root automatically. Same Helm
+        # template exclusion as check-yaml above -- {{ ... }} is not YAML.
+        exclude: ^k8s/helm/.*/templates/.*\.ya?ml$
         stages: [pre-commit]
 
   # Python — ruff ONLY, never alongside flake8/black/isort in new hooks
@@ -85,17 +93,19 @@ repos:
       - id: ruff-format
         stages: [pre-commit]
 
-  # mypy: local hook against the repo's own installed mypy + mypy.ini, not
-  # the mirrors-mypy isolated env — this repo's mypy.ini deliberately tunes
-  # follow_imports=silent and mypy_path for incremental, staged-file-only
-  # adoption (see mypy.ini header comment); --ignore-missing-imports matches
-  # the exact invocation the old hand-written hook used.
+  # mypy: local hook against THIS REPO'S OWN .venv (make venv-portal-api),
+  # never the ambient/system mypy — see scripts/hooks/run-mypy.sh for why
+  # (penguin_dal resolves differently depending on which env answers the
+  # import, and the hook, a developer's shell, and CI must all agree).
+  # Not the mirrors-mypy isolated env either: this repo's mypy.ini
+  # deliberately tunes follow_imports=silent and mypy_path for incremental,
+  # staged-file-only adoption (see mypy.ini header comment).
   - repo: local
     hooks:
       - id: mypy
-        name: mypy (staged files, repo mypy.ini)
-        entry: mypy --ignore-missing-imports
-        language: system
+        name: mypy (staged files, repo .venv + mypy.ini)
+        entry: scripts/hooks/run-mypy.sh
+        language: script
         types: [python]
         stages: [pre-commit]
 
@@ -227,7 +237,7 @@ repos:
         stages: [pre-push]
 
       - id: k8s-security-scan
-        name: kube-score + helm lint/checkov (best-effort, no rendered manifests yet)
+        name: helm lint/template + kube-score/checkov on rendered charts (blocking)
         entry: scripts/hooks/run-k8s-checks.sh
         language: script
         pass_filenames: false

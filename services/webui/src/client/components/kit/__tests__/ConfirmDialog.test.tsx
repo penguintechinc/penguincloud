@@ -1,7 +1,12 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { useMutationErrorStore } from "../../../stores/mutationErrorStore";
 
 describe("ConfirmDialog", () => {
+  beforeEach(() => {
+    useMutationErrorStore.setState({ errors: [] });
+  });
+
   it("does not render when isOpen is false", () => {
     render(
       <ConfirmDialog
@@ -126,7 +131,7 @@ describe("ConfirmDialog", () => {
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
   });
 
-  it("handles Tab key in focus trap", () => {
+  it("wraps Tab from the last element back to the first", () => {
     render(
       <ConfirmDialog
         isOpen={true}
@@ -137,22 +142,14 @@ describe("ConfirmDialog", () => {
       />,
     );
 
-    const confirmBtn = screen.getByTestId("confirm-dialog-confirm");
-    confirmBtn.focus();
-    const event = new KeyboardEvent("keydown", {
-      key: "Tab",
-      bubbles: true,
-      cancelable: true,
-    });
-    Object.defineProperty(event, "target", {
-      value: confirmBtn,
-      enumerable: true,
-    });
-    document.dispatchEvent(event);
-    expect(confirmBtn).toBeInTheDocument();
+    // No live alert, so the dialog's own confirm button is genuinely last.
+    screen.getByTestId("confirm-dialog-confirm").focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+
+    expect(screen.getByTestId("confirm-dialog-cancel")).toHaveFocus();
   });
 
-  it("handles Shift+Tab key in focus trap", () => {
+  it("wraps Shift+Tab from the first element back to the last", () => {
     render(
       <ConfirmDialog
         isOpen={true}
@@ -163,20 +160,145 @@ describe("ConfirmDialog", () => {
       />,
     );
 
+    screen.getByTestId("confirm-dialog-cancel").focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+
+    expect(screen.getByTestId("confirm-dialog-confirm")).toHaveFocus();
+  });
+
+  it("sends Tab to the first trapped element when focus is on neither the dialog nor an alert", () => {
+    // e.g. focus is still on the backdrop, or on whatever had it before the
+    // dialog opened but was not one of dialogRef's own children.
+    render(
+      <ConfirmDialog
+        isOpen={true}
+        title="Focus Test"
+        message="Untracked focus test"
+        onConfirm={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+    const outsider = document.createElement("button");
+    document.body.appendChild(outsider);
+    outsider.focus();
+
+    fireEvent.keyDown(document, { key: "Tab" });
+
+    expect(screen.getByTestId("confirm-dialog-cancel")).toHaveFocus();
+    outsider.remove();
+  });
+
+  it("sends Shift+Tab to the last trapped element when focus is on neither the dialog nor an alert", () => {
+    render(
+      <ConfirmDialog
+        isOpen={true}
+        title="Focus Test"
+        message="Untracked focus test"
+        onConfirm={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+    const outsider = document.createElement("button");
+    document.body.appendChild(outsider);
+    outsider.focus();
+
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+
+    expect(screen.getByTestId("confirm-dialog-confirm")).toHaveFocus();
+    outsider.remove();
+  });
+
+  it("never lets Tab escape into surrounding page chrome", () => {
+    // The regression this guards: FOCUSABLE_SELECTOR is itself a
+    // comma-separated selector list, so
+    // `` `[role="alert"] ${FOCUSABLE_SELECTOR}` `` as ONE querySelectorAll
+    // call only scoped the FIRST branch (button) to the alert — the other
+    // five (`[href]`, `input`, `select`, `textarea`, `[tabindex]`) matched
+    // DOCUMENT-WIDE, alert or no alert. Every prior test in this file
+    // renders the dialog with nothing else on the page, which is exactly
+    // why that shipped uncaught: there was nothing document-wide for the
+    // unscoped branches to accidentally match. This test renders real page
+    // chrome — a sidebar link and an unrelated input — outside the dialog.
+    render(
+      <>
+        <nav>
+          <a href="/somewhere" data-testid="sidebar-link">
+            Sidebar link
+          </a>
+        </nav>
+        <input data-testid="page-input" placeholder="unrelated page input" />
+        <ConfirmDialog
+          isOpen={true}
+          title="Confirm Action"
+          message="Are you sure?"
+          onConfirm={jest.fn()}
+          onCancel={jest.fn()}
+        />
+      </>,
+    );
+
     const cancelBtn = screen.getByTestId("confirm-dialog-cancel");
-    cancelBtn.focus();
-    const event = new KeyboardEvent("keydown", {
-      key: "Tab",
-      shiftKey: true,
-      bubbles: true,
-      cancelable: true,
+    const confirmBtn = screen.getByTestId("confirm-dialog-confirm");
+    const sidebarLink = screen.getByTestId("sidebar-link");
+    const pageInput = screen.getByTestId("page-input");
+
+    expect(confirmBtn).toHaveFocus();
+
+    // Several Tabs in a row — the bug let focus reach the sidebar link on
+    // the second one.
+    for (let i = 0; i < 6; i += 1) {
+      fireEvent.keyDown(document, { key: "Tab" });
+      const active = document.activeElement;
+      expect(active === sidebarLink || active === pageInput).toBe(false);
+      expect(active === cancelBtn || active === confirmBtn).toBe(true);
+    }
+  });
+
+  it("never lets Tab escape into page chrome even with a live alert present", () => {
+    // Same reproduction, but with a role="alert" region live too — proves
+    // the fix (querying each alert container, then searching WITHIN it)
+    // scopes correctly in both directions: page chrome stays excluded, and
+    // the alert's own controls are still included in the loop.
+    useMutationErrorStore.setState({
+      errors: [{ id: 1, message: "Route not allowed" }],
     });
-    Object.defineProperty(event, "target", {
-      value: cancelBtn,
-      enumerable: true,
-    });
-    document.dispatchEvent(event);
-    expect(cancelBtn).toBeInTheDocument();
+    render(
+      <>
+        <nav>
+          <a href="/somewhere" data-testid="sidebar-link">
+            Sidebar link
+          </a>
+        </nav>
+        <div role="alert">
+          <button data-testid="alert-dismiss">Dismiss</button>
+        </div>
+        <ConfirmDialog
+          isOpen={true}
+          title="Confirm Action"
+          message="Are you sure?"
+          onConfirm={jest.fn()}
+          onCancel={jest.fn()}
+        />
+      </>,
+    );
+
+    const cancelBtn = screen.getByTestId("confirm-dialog-cancel");
+    const confirmBtn = screen.getByTestId("confirm-dialog-confirm");
+    const alertDismiss = screen.getByTestId("alert-dismiss");
+    const sidebarLink = screen.getByTestId("sidebar-link");
+    const allowed = new Set([cancelBtn, confirmBtn, alertDismiss]);
+    const visited = new Set<Element | null>();
+
+    for (let i = 0; i < 6; i += 1) {
+      fireEvent.keyDown(document, { key: "Tab" });
+      const active = document.activeElement;
+      expect(active).not.toBe(sidebarLink);
+      expect(allowed.has(active as HTMLElement)).toBe(true);
+      visited.add(active);
+    }
+    // The alert's own control was genuinely reachable over the course of
+    // the loop, not merely "never the sidebar link".
+    expect(visited.has(alertDismiss)).toBe(true);
   });
 
   it("renders loading state", () => {

@@ -1,0 +1,20 @@
+# valkey — gamma overrides (dal2-gamma cluster).
+
+persistence:
+  enabled: false
+
+secrets:
+  create: false
+
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    name: penguincloud-vault
+    kind: ClusterSecretStore
+  keys:
+    VALKEY_PASSWORD: penguincloud/gamma/valkey#VALKEY_PASSWORD
+
+podSecurityAdmission:
+  manageNamespace: false
+  namespace: penguincloud
+  enforce: restricted

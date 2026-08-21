@@ -1554,6 +1554,100 @@ export interface components {
       user_id: number | null;
     };
     /**
+     * AuthenticatedUser
+     * @description The caller's own profile, as login echoes it back.
+     *
+     *     Deliberately narrower than the full user row fetched from the
+     *     database: no password_hash, no MFA secret, no internal flags. Nothing
+     *     added to that row tomorrow reaches this response unless it is added
+     *     here too — see security.md Output Validation.
+     *
+     *     Attributes:
+     *         id: Identifier of the authenticated user.
+     *         email: The user's email address.
+     *         full_name: Display name.
+     *         role: Global role: admin, maintainer or viewer.
+     */
+    AuthenticatedUser: {
+      /** Email */
+      email: string;
+      /** Full Name */
+      full_name: string;
+      /** Id */
+      id: number;
+      /** Role */
+      role: string;
+    };
+    /**
+     * DashboardStats
+     * @description Aggregate counters for the overview's stats block.
+     *
+     *     Attributes:
+     *         total_products: Number of product connections in this tenant.
+     *         total_members: Number of members in this tenant.
+     *         health: Connections grouped by cached health state.
+     *         categories: Connection count by product category, e.g. networking.
+     */
+    DashboardStats: {
+      /** Categories */
+      categories: {
+        [key: string]: number;
+      };
+      health: components["schemas"]["HealthCounts"];
+      /** Total Members */
+      total_members: number;
+      /** Total Products */
+      total_products: number;
+    };
+    /**
+     * HealthCounts
+     * @description Count of connections in each cached health state.
+     *
+     *     Attributes:
+     *         healthy: Connections last observed healthy.
+     *         degraded: Connections last observed degraded.
+     *         unhealthy: Connections last observed unhealthy.
+     *         unknown: Connections never yet probed, or with no cached result.
+     */
+    HealthCounts: {
+      /** Degraded */
+      degraded: number;
+      /** Healthy */
+      healthy: number;
+      /** Unhealthy */
+      unhealthy: number;
+      /** Unknown */
+      unknown: number;
+    };
+    /**
+     * HealthMatrixEntry
+     * @description One connection's row in the dashboard health matrix.
+     *
+     *     Attributes:
+     *         id: Identifier of the connection.
+     *         product_type: Which product this connects to.
+     *         display_name: Operator-assigned label for this connection.
+     *         health_status: Cached health result: healthy, degraded, unhealthy
+     *             or unknown.
+     *         last_health_check: When the health status was last refreshed,
+     *             ISO-8601.
+     *         base_url: The connected product's base URL.
+     */
+    HealthMatrixEntry: {
+      /** Base Url */
+      base_url: string | null;
+      /** Display Name */
+      display_name: string | null;
+      /** Health Status */
+      health_status: string;
+      /** Id */
+      id: number;
+      /** Last Health Check */
+      last_health_check: string | null;
+      /** Product Type */
+      product_type: string | null;
+    };
+    /**
      * MetricPointView
      * @description One sample in a series.
      */
@@ -1628,6 +1722,89 @@ export interface components {
       state: string;
       /** Status */
       status: string;
+      /** Updated At */
+      updated_at: string | null;
+    };
+    /**
+     * Pagination
+     * @description Page metadata shared by the portal's paginated list endpoints.
+     *
+     *     Attributes:
+     *         page: The page returned.
+     *         per_page: Page size used.
+     *         total: Total matching rows across every page.
+     *         pages: Total number of pages.
+     */
+    Pagination: {
+      /** Page */
+      page: number;
+      /** Pages */
+      pages: number;
+      /** Per Page */
+      per_page: number;
+      /** Total */
+      total: number;
+    };
+    /**
+     * ProductConnection
+     * @description One tenant's connection to a product.
+     *
+     *     ``api_key``/``api_secret`` are always ``***`` when a credential is
+     *     configured, or empty when none is — never the stored ciphertext.
+     *
+     *     Attributes:
+     *         id: Identifier of this connection.
+     *         tenant_id: The tenant this connection belongs to.
+     *         product_type: Which product this connects to, e.g. ``gough``.
+     *         display_name: Operator-assigned label for this connection.
+     *         base_url: The connected product's base URL.
+     *         api_key: Masked — ``***`` if configured, else empty.
+     *         api_secret: Masked — ``***`` if configured, else empty.
+     *         auth_type: How the portal authenticates to the product.
+     *         health_endpoint: Path the health poller probes on this connection.
+     *         api_version: API major version the portal addresses on this product.
+     *         is_active: Whether the health poller and proxy still serve this
+     *             connection.
+     *         health_status: Last cached health result: healthy, degraded,
+     *             unhealthy or unknown.
+     *         discovered: True when this connection was created by network
+     *             discovery rather than entered by an operator.
+     *         last_health_check: When the health status was last refreshed,
+     *             ISO-8601.
+     *         created_at: When this connection was registered, ISO-8601.
+     *         updated_at: When this connection was last modified, ISO-8601.
+     */
+    ProductConnection: {
+      /** Api Key */
+      api_key: string;
+      /** Api Secret */
+      api_secret: string;
+      /** Api Version */
+      api_version: string;
+      /** Auth Type */
+      auth_type: string;
+      /** Base Url */
+      base_url: string;
+      /** Created At */
+      created_at: string | null;
+      /** Discovered */
+      discovered: boolean;
+      /** Display Name */
+      display_name: string;
+      /** Health Endpoint */
+      health_endpoint: string;
+      /** Health Status */
+      health_status: string;
+      /** Id */
+      id: number;
+      /** Is Active */
+      is_active: boolean;
+      /** Last Health Check */
+      last_health_check: string | null;
+      /** Product Type */
+      product_type: string;
+      /** Tenant Id */
+      tenant_id: number;
       /** Updated At */
       updated_at: string | null;
     };
@@ -1742,6 +1919,58 @@ export interface components {
       /** User Id */
       user_id: number;
     };
+    /**
+     * TenantSummary
+     * @description The active tenant, as the dashboard overview names it.
+     *
+     *     Attributes:
+     *         id: Identifier of the tenant.
+     *         name: Display name.
+     *         plan: Licensed plan tier for this tenant.
+     */
+    TenantSummary: {
+      /** Id */
+      id: number;
+      /** Name */
+      name: string;
+      /** Plan */
+      plan: string;
+    };
+    /**
+     * UserSummary
+     * @description One user row, as the admin listing publishes it.
+     *
+     *     Never carries ``password_hash`` — the route pops it before this DTO is
+     *     built. Nothing else on the users table is sensitive today, but pinning
+     *     the field set means a column added tomorrow (an MFA secret, an SSO
+     *     subject id) does not reach this response without a deliberate edit
+     *     here.
+     *
+     *     Attributes:
+     *         id: Identifier of the user.
+     *         email: The user's email address.
+     *         full_name: Display name.
+     *         role: Global role: admin, maintainer or viewer.
+     *         is_active: Whether the account can currently authenticate.
+     *         created_at: When the account was created, ISO-8601.
+     *         updated_at: When the account was last modified, ISO-8601.
+     */
+    UserSummary: {
+      /** Created At */
+      created_at: string | null;
+      /** Email */
+      email: string;
+      /** Full Name */
+      full_name: string | null;
+      /** Id */
+      id: number;
+      /** Is Active */
+      is_active: boolean;
+      /** Role */
+      role: string;
+      /** Updated At */
+      updated_at: string | null;
+    };
   };
   responses: never;
   parameters: never;
@@ -1778,12 +2007,34 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for GET /api/v1/audit/logs.
+       *
+       *     Attributes:
+       *         logs: The matching audit entries, newest first.
+       *         total: Total matching rows across every page.
+       *         page: The page returned.
+       *         per_page: Page size used.
+       *         pages: Total number of pages.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Logs */
+            logs: components["schemas"]["AuditRecord"][];
+            /** Page */
+            page: number;
+            /** Pages */
+            pages: number;
+            /** Per Page */
+            per_page: number;
+            /** Total */
+            total: number;
+          };
+        };
       };
     };
   };
@@ -1834,12 +2085,40 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for POST /api/v1/auth/login.
+       *
+       *     No ``id_token``: id tokens are OIDC "who is this" material, not bearer
+       *     credentials — TestTokenTypeConfusion (tests/api/test_auth.py) requires
+       *     penguin-aaa's id token to be REFUSED on every protected route, so
+       *     returning one alongside the access token here would hand the client a
+       *     value it is equally likely to just replay as a bearer.
+       *
+       *     Attributes:
+       *         access_token: Bearer token for subsequent requests.
+       *         refresh_token: Opaque token to exchange for a new pair via
+       *             /api/v1/auth/refresh.
+       *         token_type: Always "Bearer".
+       *         expires_in: Seconds until access_token expires.
+       *         user: The authenticated caller's profile.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Access Token */
+            access_token: string;
+            /** Expires In */
+            expires_in: number;
+            /** Refresh Token */
+            refresh_token: string;
+            /** Token Type */
+            token_type: string;
+            user: components["schemas"]["AuthenticatedUser"];
+          };
+        };
       };
     };
   };
@@ -1852,12 +2131,25 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for POST /api/v1/auth/logout.
+       *
+       *     Attributes:
+       *         message: Human-readable confirmation.
+       *         tokens_revoked: Number of the caller's refresh tokens revoked.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Message */
+            message: string;
+            /** Tokens Revoked */
+            tokens_revoked: number;
+          };
+        };
       };
     };
   };
@@ -1870,12 +2162,43 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for GET /api/v1/auth/me.
+       *
+       *     Wider than :class:`AuthenticatedUser` (adds ``is_active`` and
+       *     ``created_at``) because this route's whole purpose is the caller's own
+       *     profile — the same reasoning that keeps LoginResponse's embedded user
+       *     narrow applies in reverse here: this IS the profile view. Never
+       *     ``password_hash``, MFA secret, or any other row internal.
+       *
+       *     Attributes:
+       *         id: Identifier of the authenticated user.
+       *         email: The user's email address.
+       *         full_name: Display name.
+       *         role: Global role: admin, maintainer or viewer.
+       *         is_active: Whether the account can currently authenticate.
+       *         created_at: When the account was created, ISO-8601.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Created At */
+            created_at: string | null;
+            /** Email */
+            email: string;
+            /** Full Name */
+            full_name: string;
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+            /** Role */
+            role: string;
+          };
+        };
       };
     };
   };
@@ -1966,12 +2289,37 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for POST /api/v1/auth/refresh.
+       *
+       *     No ``user``: a refresh proves possession of a still-valid refresh
+       *     token, not a fresh credential check, so re-stating the profile here
+       *     would imply a re-authentication this endpoint does not perform. Callers
+       *     that need the current profile call GET /api/v1/auth/me.
+       *
+       *     Attributes:
+       *         access_token: Newly issued bearer token.
+       *         refresh_token: Newly issued refresh token — the presented one was
+       *             revoked as part of rotation and is no longer valid.
+       *         token_type: Always "Bearer".
+       *         expires_in: Seconds until access_token expires.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Access Token */
+            access_token: string;
+            /** Expires In */
+            expires_in: number;
+            /** Refresh Token */
+            refresh_token: string;
+            /** Token Type */
+            token_type: string;
+          };
+        };
       };
     };
   };
@@ -2107,12 +2455,25 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for GET /api/v1/dashboard/health.
+       *
+       *     Attributes:
+       *         health: One entry per product connection in the tenant.
+       *         count: Number of entries returned.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Count */
+            count: number;
+            /** Health */
+            health: components["schemas"]["HealthMatrixEntry"][];
+          };
+        };
       };
     };
   };
@@ -2125,12 +2486,27 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for GET /api/v1/dashboard/overview.
+       *
+       *     Attributes:
+       *         tenant: The active tenant this overview describes.
+       *         stats: Aggregate counters across the tenant's connections.
+       *         products: The tenant's product connections, credentials masked —
+       *             the same projection GET /api/v1/products publishes.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Products */
+            products: components["schemas"]["ProductConnection"][];
+            stats: components["schemas"]["DashboardStats"];
+            tenant: components["schemas"]["TenantSummary"];
+          };
+        };
       };
     };
   };
@@ -2390,12 +2766,25 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for GET /api/v1/products.
+       *
+       *     Attributes:
+       *         products: The tenant's product connections, credentials masked.
+       *         count: Number of connections returned.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Count */
+            count: number;
+            /** Products */
+            products: components["schemas"]["ProductConnection"][];
+          };
+        };
       };
     };
   };
@@ -3234,12 +3623,32 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for the public, unauthenticated GET /api/v1/status.
+       *
+       *     Attributes:
+       *         status: Liveness state — always "running" once the process is
+       *             serving requests.
+       *         service: Which service answered.
+       *         version: Deployed service version.
+       *         timestamp: When this response was generated, ISO-8601.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            /** Service */
+            service: string;
+            /** Status */
+            status: string;
+            /** Timestamp */
+            timestamp: string;
+            /** Version */
+            version: string;
+          };
+        };
       };
     };
   };
@@ -3863,12 +4272,24 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Response shape is not yet declared for this operation. The view has no @validate_response annotation, so no schema is published for it; do not rely on a specific body until one is. */
-      default: {
+      /**
+       * @description Envelope for GET /api/v1/users.
+       *
+       *     Attributes:
+       *         users: The matching users, credentials never included.
+       *         pagination: Page metadata for this result set.
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": {
+            pagination: components["schemas"]["Pagination"];
+            /** Users */
+            users: components["schemas"]["UserSummary"][];
+          };
+        };
       };
     };
   };

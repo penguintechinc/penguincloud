@@ -35,8 +35,24 @@ describe("envelopeString", () => {
 
   it("refuses an absent key rather than rendering blank", () => {
     expect(() => envelopeString({ rendered: "<h1/>" }, "html")).toThrow(
-      /no "html" key \(got \["rendered"\]\) — refusing to render it as blank/,
+      /no "html" key in the response — refusing to render it as blank/,
     );
+  });
+
+  it("logs the received key set for a developer rather than in the thrown message", () => {
+    // C1: a client-generated Error is trusted verbatim by
+    // describeMutationError, so the untrusted response's own key names stay
+    // out of the message and go to the console instead.
+    const spy = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    expect(() => envelopeString({ rendered: "<h1/>" }, "html")).toThrow();
+
+    expect(spy).toHaveBeenCalledWith('[envelope] Missing "html" key', [
+      "rendered",
+    ]);
+    spy.mockRestore();
   });
 
   it("refuses a non-string under a present key", () => {
@@ -71,7 +87,7 @@ describe("envelopeList", () => {
 
   it("refuses an absent key rather than reporting none", () => {
     expect(() => envelopeList({ items: [] }, "peers")).toThrow(
-      /no "peers" key \(got \["items"\]\) — refusing to report it as empty/,
+      /no "peers" key in the response — refusing to report it as empty/,
     );
   });
 

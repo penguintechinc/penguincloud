@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "portal-api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+  {{- if eq .Values.service.type "NodePort" }}
+  annotations:
+    # Alpha-only exposure — security.md "No Direct External Access
+    # (Beta/Prod)" exempts alpha explicitly.
+    penguincloud.io/exposure: alpha-nodeport
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "portal-api.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
+---
+{{/*
+Deliberately a SEPARATE Service, always ClusterIP regardless of
+.Values.service.type. Kubernetes auto-allocates a node port for EVERY port
+on a type: NodePort Service unless that port has its own separate Service
+object — a single Service carrying both http and metrics would have
+published the unauthenticated :9090 listener (health_poller.py's
+start_metrics_server — connection ids, product types, no auth) on every
+node's IP in alpha, with only http ever getting an intentional nodePort.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "portal-api.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "portal-api.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP

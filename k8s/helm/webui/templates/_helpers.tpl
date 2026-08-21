@@ -58,3 +58,56 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+ConfigMap name
+*/}}
+{{- define "webui.configMapName" -}}
+{{- printf "%s-config" (include "webui.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Secret name — webui has no secret config today (FLASK_API_URL is a plain
+in-cluster DNS name); templates/secret.yaml + externalsecret.yaml exist for
+parity with portal-api's pattern, gated off by default.
+*/}}
+{{- define "webui.secretName" -}}
+{{- printf "%s-secret" (include "webui.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Per-tier default cap on THIS service type's backend node (replica) count —
+same model as portal-api (docs/APP_STANDARDS.md "Backend nodes per service
+type"): 1 each on Free/Professional, multiple/HA on Enterprise.
+*/}}
+{{- define "webui.licenseTier" -}}
+{{- default "community" .Values.license.tier }}
+{{- end }}
+
+{{/*
+Absolute -- see portal-api's identical comment. license.maxReplicasOverride
+was removed: a self-assertable Helm value is a one-flag bypass of the
+entire cap, not enforcement (general.md requires a hard block).
+*/}}
+{{- define "webui.maxReplicas" -}}
+{{- $tier := include "webui.licenseTier" . }}
+{{- if eq $tier "enterprise" }}
+{{- 999999 }}
+{{- else }}
+{{- 1 }}
+{{- end }}
+{{- end }}
+
+{{/*
+The replica count that actually governs the running pod count — see
+portal-api's identical helper/comment. .Values.replicaCount alone is not
+what controls behaviour once autoscaling is on (spec.replicas is omitted
+from the Deployment and the HPA drives scale up to autoscaling.maxReplicas).
+*/}}
+{{- define "webui.effectiveReplicas" -}}
+{{- if .Values.autoscaling.enabled -}}
+{{- max (int .Values.replicaCount) (int .Values.autoscaling.maxReplicas) -}}
+{{- else -}}
+{{- int .Values.replicaCount -}}
+{{- end -}}
+{{- end -}}

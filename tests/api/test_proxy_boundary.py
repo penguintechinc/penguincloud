@@ -62,9 +62,7 @@ async def _create_tenant(client: Any, headers: dict[str, str], name: str) -> int
     return int((await response.get_json())["id"])
 
 
-async def _create_connection(
-    app: Quart, tenant_id: int, *, product_type: str = "gough"
-) -> int:
+async def _create_connection(app: Quart, tenant_id: int, *, product_type: str = "gough") -> int:
     """Create an active product connection plus its tenant mapping."""
     async with app.app_context():
         from app.models import create_product_connection, set_product_tenant_map
@@ -145,11 +143,18 @@ def upstream(monkeypatch: pytest.MonkeyPatch) -> _Upstream:
 
     fake = _Upstream()
 
-    async def _get_transport(timeout: float = 10.0) -> Any:
-        instance = transport_module.Transport(timeout=timeout)
+    # Named `request_timeout`, not `timeout` — ASYNC109 flags any async def
+    # with a `timeout` parameter (it assumes the function implements its own
+    # cancellation), which is a false positive here: this is a monkeypatch
+    # replacement for get_transport() that only threads the value through to
+    # Transport()/httpx.Timeout(), never awaits on it directly. Pre-existing,
+    # fixed here only because this file's ruff hook now runs on every commit
+    # touching it, this one included.
+    async def _get_transport(request_timeout: float = 10.0) -> Any:
+        instance = transport_module.Transport(timeout=request_timeout)
         instance._client = httpx.AsyncClient(
             transport=httpx.MockTransport(fake.handler),
-            timeout=httpx.Timeout(timeout),
+            timeout=httpx.Timeout(request_timeout),
         )
         return instance
 
@@ -263,9 +268,7 @@ class TestAuditOnEveryPath:
         tenant_id = await _create_tenant(client, headers, "AuditRoute")
         conn_id = await _create_connection(app, tenant_id)
 
-        response = await client.get(
-            _proxy_url(conn_id, "/admin/users"), headers=headers
-        )
+        response = await client.get(_proxy_url(conn_id, "/admin/users"), headers=headers)
 
         assert response.status_code == 404
         rows = await _audit_rows(app, conn_id)
@@ -286,9 +289,7 @@ class TestAuditOnEveryPath:
         _, outsider_email = await _register(client)
         outsider_headers = await _headers(client, outsider_email)
 
-        response = await client.get(
-            _proxy_url(conn_id, "/healthz"), headers=outsider_headers
-        )
+        response = await client.get(_proxy_url(conn_id, "/healthz"), headers=outsider_headers)
 
         assert response.status_code == 403
         rows = await _audit_rows(app, conn_id)
@@ -323,9 +324,7 @@ class TestAuditOnEveryPath:
         tenant_id = await _create_tenant(client, headers, "AuditTraversal")
         conn_id = await _create_connection(app, tenant_id)
 
-        response = await client.get(
-            _proxy_url(conn_id, "/healthz/../admin"), headers=headers
-        )
+        response = await client.get(_proxy_url(conn_id, "/healthz/../admin"), headers=headers)
 
         assert response.status_code == 400
         assert _outcomes(await _audit_rows(app, conn_id)) == ["malformed_path"]
@@ -358,9 +357,7 @@ class TestAuditOnEveryPath:
         response = await client.get(_proxy_url(conn_id, "/healthz"), headers=headers)
 
         assert response.status_code == 502
-        assert _outcomes(await _audit_rows(app, conn_id)) == [
-            "credential_too_short_to_redact"
-        ]
+        assert _outcomes(await _audit_rows(app, conn_id)) == ["credential_too_short_to_redact"]
 
     @pytest.mark.asyncio
     async def test_oversize_request_denial_is_audited(
@@ -402,9 +399,7 @@ class TestAuditOnEveryPath:
         original = transport_module.MAX_RESPONSE_SIZE
         transport_module.MAX_RESPONSE_SIZE = 128
         try:
-            response = await client.get(
-                _proxy_url(conn_id, "/healthz"), headers=headers
-            )
+            response = await client.get(_proxy_url(conn_id, "/healthz"), headers=headers)
         finally:
             transport_module.MAX_RESPONSE_SIZE = original
 
@@ -446,9 +441,7 @@ class TestAuditOnEveryPath:
         assert add.status_code == 201, await add.get_json()
         member_headers = await _headers(client, member_email)
 
-        response = await client.get(
-            _proxy_url(conn_id, "/healthz"), headers=member_headers
-        )
+        response = await client.get(_proxy_url(conn_id, "/healthz"), headers=member_headers)
 
         assert response.status_code == 403
         assert (await response.get_json())["error"] == "Insufficient permissions"
@@ -610,6 +603,82 @@ class TestResponseHeaderStripping:
         returned = {key.lower() for key in response.headers.keys()}
         for name in ("location", "content-location", "refresh", "set-cookie"):
             assert name not in returned
+
+
+@pytest.mark.usefixtures("app_context")
+class TestUpstreamProvenanceHeader:
+    """`UPSTREAM_RESPONSE_HEADER` marks a body as forwarded from a product.
+
+    services/webui/src/client/lib/mutationError.ts trusts this header to
+    decide whether a response body is safe to show an operator verbatim: a
+    portal-generated error (auth failure, validation error, a `_deny()`
+    refusal) is shown as-is, but anything carrying this header is ALWAYS
+    replaced with a generic message, regardless of content — a hostname, an
+    internal IP, or a raw credential in an upstream error body is exactly
+    what a content-shape denylist could never fully enumerate.
+    """
+
+    @pytest.mark.asyncio
+    async def test_forwarded_response_carries_the_marker(
+        self, client: Any, app: Quart, upstream: _Upstream
+    ) -> None:
+        """A body that reached the product and came back is marked."""
+        _, email = await _register(client)
+        headers = await _headers(client, email)
+        tenant_id = await _create_tenant(client, headers, "Provenance")
+        conn_id = await _create_connection(app, tenant_id)
+
+        response = await client.get(_proxy_url(conn_id, "/healthz"), headers=headers)
+
+        assert response.status_code == 200
+        assert response.headers.get("X-Portal-Upstream-Response") == "true"
+
+    @pytest.mark.asyncio
+    async def test_portal_denial_does_not_carry_the_marker(
+        self, client: Any, app: Quart, upstream: _Upstream
+    ) -> None:
+        """A refusal the portal generated itself is never marked upstream.
+
+        `{"error": "Route not allowed"}` never reached the product — the
+        request was refused before dispatch — so the webui client must be
+        free to show it verbatim.
+        """
+        _, email = await _register(client)
+        headers = await _headers(client, email)
+        tenant_id = await _create_tenant(client, headers, "ProvenanceDenied")
+        conn_id = await _create_connection(app, tenant_id)
+
+        response = await client.get(_proxy_url(conn_id, "/admin/users"), headers=headers)
+
+        assert response.status_code == 404
+        assert upstream.requests == [], "denied request still reached the product"
+        assert "X-Portal-Upstream-Response" not in response.headers
+
+    @pytest.mark.asyncio
+    async def test_a_product_cannot_forge_the_marker_on_its_own_response(
+        self, client: Any, app: Quart, upstream: _Upstream
+    ) -> None:
+        """The product's own header of the same name never survives.
+
+        If a product could set this header on its OWN response, it could
+        mark its body "portal-native" and have the client trust content it
+        never wrote — the header only means something because the PROXY is
+        the sole writer of it, always last, always "true".
+        """
+        _, email = await _register(client)
+        headers = await _headers(client, email)
+        tenant_id = await _create_tenant(client, headers, "ProvenanceForge")
+        conn_id = await _create_connection(app, tenant_id)
+
+        upstream.headers = {
+            "content-type": "application/json",
+            "x-portal-upstream-response": "forged-by-product",
+        }
+
+        response = await client.get(_proxy_url(conn_id, "/healthz"), headers=headers)
+
+        assert response.status_code == 200
+        assert response.headers.get("X-Portal-Upstream-Response") == "true"
 
 
 @pytest.mark.usefixtures("app_context")
