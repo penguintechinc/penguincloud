@@ -67,6 +67,93 @@ describe("DataTable", () => {
     expect(screen.getByText("No data available")).toBeInTheDocument();
   });
 
+  it("does not render the raw body of an upstream-marked query error", () => {
+    // Same provenance rule the mutation banner enforces
+    // (`lib/mutationError.ts`, `describeQueryError`): a response the proxy
+    // marked `X-Portal-Upstream-Response` is untrusted product text and must
+    // never reach the DOM verbatim, no matter how the caller shaped it.
+    const upstreamError = Object.assign(
+      new Error("Request failed with status code 500"),
+      {
+        isAxiosError: true,
+        response: {
+          data: { error: "internal: gough-api-primary.gough.svc:8080" },
+          headers: { "x-portal-upstream-response": "1" },
+        },
+      },
+    );
+
+    render(<DataTable columns={mockColumns} data={[]} error={upstreamError} />);
+
+    const alert = screen.getByRole("alert");
+    expect(alert).not.toHaveTextContent("gough-api-primary.gough.svc");
+    expect(alert).toHaveTextContent(/could not be loaded/i);
+  });
+
+  it("takes over the whole surface when an error has no data to protect", () => {
+    // Initial-load failure: nothing has ever loaded, so there is nothing to
+    // preserve underneath the failure state.
+    render(
+      <DataTable columns={mockColumns} data={[]} error={new Error("boom")} />,
+    );
+
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("keeps showing stale rows, with a quiet notice, when a background refetch fails", () => {
+    // A background refetch (e.g. window refocus) failing must not discard
+    // rows the operator can already see and act on — that is the same
+    // "flapping" harm a naive query-error banner would cause, just as a
+    // full-table swap instead of a toast. `role="status"` (not "alert"):
+    // this does not need to interrupt the way an initial-load failure does.
+    render(
+      <DataTable
+        columns={mockColumns}
+        data={mockData}
+        error={new Error("refetch failed")}
+      />,
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("refetch failed");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("offers a retry button on the stale notice when onRetry is supplied", () => {
+    const onRetry = jest.fn();
+    render(
+      <DataTable
+        columns={mockColumns}
+        data={mockData}
+        error={new Error("refetch failed")}
+        onRetry={onRetry}
+      />,
+    );
+
+    const retryBtn = screen.getByRole("button", { name: /retry/i });
+    fireEvent.click(retryBtn);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the stale notice once the query recovers", () => {
+    const { rerender } = render(
+      <DataTable
+        columns={mockColumns}
+        data={mockData}
+        error={new Error("refetch failed")}
+      />,
+    );
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    rerender(<DataTable columns={mockColumns} data={mockData} error={null} />);
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+  });
+
   it("sorts by column ascending", () => {
     render(<DataTable columns={mockColumns} data={mockData} pageSize={25} />);
 
