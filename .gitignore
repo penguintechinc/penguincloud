@@ -1,7 +1,6 @@
 .worktrees/
 .PLAN
 .TODO
-*secret*
 id_rsa*
 *.key
 .idea/
@@ -55,7 +54,6 @@ __pycache__/
 */*.whl
 */*.zip
 */password.txt
-*secret*
 .idea/
 id_rsa*
 */web/apps/.service/*/*
@@ -72,10 +70,23 @@ id_rsa*
 # Go coverage profile (build artifact)
 coverage-go.out
 
-# Helm chart Secret/ExternalSecret templates contain no actual secret
-# material -- only template syntax; real values come from Vault/External
-# Secrets Operator or --set at install time (never committed). The blanket
-# *secret* rule above exists to keep real credential files out of the repo,
-# not to block legitimate chart templates named secret.yaml/
-# externalsecret.yaml -- this is a scoped exception, not a weakening of it.
-!k8s/helm/**/templates/*secret*.yaml
+# Secret material -- narrowed to filename shapes that genuinely hold
+# credentials, not any path containing the substring "secret". The old
+# blanket `*secret*` glob matched on name only, not content, so it could
+# not tell a credential file from prose about one: it blocked legitimate
+# Helm Secret/ExternalSecret chart *templates* (k8s/helm/**/templates/
+# secret.yaml, externalsecret.yaml -- no real secret material, template
+# syntax only) and, worse, silently untracked tests/api/test_secret_key.py
+# -- a test *about* secret handling, ignored without any error, which is
+# indistinguishable from a test that was never written. Content-based
+# detection (gitleaks, detect-private-key -- both in the pre-commit hooks)
+# is the real control against committed secret material; this glob is
+# belt-and-braces for the predictable filename shapes credentials
+# actually take. Narrowed this way, the Helm templates above no longer
+# match, so no negation exception is needed for them.
+*.secret
+*.secrets
+secrets.env
+secrets/
+*-secrets.yaml
+*-secrets.yml

@@ -44,7 +44,9 @@ Product tenant identity mapping via `product_tenant_map` table: portal tenant �
 
 ## Tenancy Model
 
-Hierarchical — provider org → customer tenants → teams/users. Delegated MSP admin via ancestor-tenant membership resolved at token issue. JWT claims carry `tenant`, `teams`, `roles`, and `scope` fields. Tenant isolation enforced at middleware layer (runs first, blocks 403 on mismatch).
+Hierarchical — provider org → customer tenants → teams/users. Delegated MSP admin via ancestor-tenant membership resolved at token issue. JWT claims carry `tenant`, `teams`, `roles`, and `scope` fields.
+
+**There is no centralized tenant-isolation middleware — it is a per-route decorator plus a per-view check, and a new route must apply both.** `tenancy_aware` (`app/tenancy/middleware.py`) runs after JWT auth and only validates the token's `tenant` claim — 403 on missing/blank/non-integer claim or a nonexistent tenant — then attaches `TenancyContext` to `g`. **It performs no membership check** and is not applied globally; today it decorates routes in `operations_api.py`, `health_api.py`, `resources_api.py`, `products.py`, and `tenants.py` only. The actual isolation boundary is per-view: every handler that reads or writes tenant-scoped data must call `require_scope(tenant_arg=...)` / `require_tenant_scope()` (`app/authz.py`) or `resolve_effective_role()` (`app/tenancy/authz.py`), scoped to the tenant the resource actually belongs to — not the request path's own diligence, `tenancy_aware`'s presence. Skipping that call is how `GET /users/audit-logs` queried `db(db.audit_logs.id > 0)` with no tenant predicate at all.
 
 ## License Tiers
 

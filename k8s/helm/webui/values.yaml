@@ -27,16 +27,17 @@ podAnnotations: {}
 podLabels: {}
 
 # securityContext — devops-kubernetes.md mandates runAsUser: 1000.
-# services/webui/Dockerfile's `USER 1000` reuses node:22-bookworm-slim's
+# services/webui/Dockerfile's `USER 1000` reuses node:26-bookworm-slim's
 # shipped `node` user rather than creating a second one (verified against
-# the base image: `docker run node:22-bookworm-slim id node` ->
-# uid=1000(node) gid=1000(node)), and `chown -R node:node /app` at build
-# time gives that same identity ownership of the app directory — so 1000
-# here matches both the org standard and the image's actual file
-# ownership. (An earlier revision of this chart ran as 999 to match a
-# prior Dockerfile revision that created its own user via a bare
-# `useradd -r`, landing at whatever UID that assigned rather than 1000;
-# that Dockerfile revision is gone.)
+# the base image: `docker run --rm node:26-bookworm-slim id node` ->
+# uid=1000(node) gid=1000(node) — unchanged from the prior 22-bookworm-slim
+# base, re-checked on every base-image bump rather than assumed from the
+# Dockerfile), and `chown -R node:node /app` at build time gives that same
+# identity ownership of the app directory — so 1000 here matches both the
+# org standard and the image's actual file ownership. (An earlier revision
+# of this chart ran as 999 to match a prior Dockerfile revision that
+# created its own user via a bare `useradd -r`, landing at whatever UID
+# that assigned rather than 1000; that Dockerfile revision is gone.)
 securityContext:
   runAsNonRoot: true
   runAsUser: 1000
