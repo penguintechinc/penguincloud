@@ -66,3 +66,19 @@ select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.coverage.report]
+# Org standard (testing-python.md): 90% minimum, configured here so
+# `pytest --cov=app` (or plain `coverage report`) enforces the same floor
+# CI's dedicated coverage-gate step passes on the command line
+# (.github/workflows/ci.yml's "Backend coverage gate" step) -- that step's
+# explicit `--cov-fail-under=90` still wins in CI (a CLI flag overrides this
+# file), but a developer running `pytest tests/ --cov=app` locally without
+# repeating the flag now gets the same enforcement rather than a silent
+# green pass at any coverage level.
+#
+# This repo went from 78% (a deliberately temporary regression floor, see
+# ci.yml's step comment) to 90% (measured, not aspirational) in the same
+# change that added this section -- do not lower it.
+fail_under = 90
+show_missing = true
