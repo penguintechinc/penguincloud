@@ -669,6 +669,24 @@ seed-mock-data: ## Testing - Seed database with mock data
 	@echo "$(BLUE)Seeding mock data...$(RESET)"
 	@echo "$(YELLOW)No mock data seeding defined$(RESET)"
 
+screenshots: ## Testing - Capture docs/screenshots/ against the MSW-mocked webui dev server
+	@echo "$(BLUE)Capturing marketing screenshots...$(RESET)"
+	@set -eu; \
+	VITE_LOG=$$(mktemp); \
+	( cd services/webui && ( VITE_MOCKS=true setsid npx vite --host 127.0.0.1 >"$$VITE_LOG" 2>&1 & echo $$! >/tmp/penguincloud-screenshots-vite.pid ) ); \
+	trap 'pgid=$$(cat /tmp/penguincloud-screenshots-vite.pid 2>/dev/null); [ -n "$$pgid" ] && kill -TERM "-$$pgid" 2>/dev/null || true; rm -f /tmp/penguincloud-screenshots-vite.pid "$$VITE_LOG"' EXIT; \
+	up=0; \
+	for i in $$(seq 1 30); do \
+		if curl -sf http://127.0.0.1:5173/ -o /dev/null; then up=1; break; fi; \
+		sleep 1; \
+	done; \
+	if [ "$$up" != "1" ]; then \
+		echo "$(RED)webui dev server did not become ready on :5173$(RESET)"; \
+		cat "$$VITE_LOG"; \
+		exit 1; \
+	fi; \
+	BASE_URL=http://127.0.0.1:5173 node scripts/capture-screenshots.cjs
+
 pre-commit: ## Git - Run pre-commit checks
 	@echo "$(BLUE)=== Pre-commit Checks ===$(RESET)"
 	@$(MAKE) lint
