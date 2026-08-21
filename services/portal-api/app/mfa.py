@@ -7,6 +7,7 @@ from typing import Any
 import pyotp
 from quart import Blueprint, jsonify, request
 
+from . import ratelimit
 from .middleware import auth_required, get_current_user
 from .models import (
     create_mfa_secret,
@@ -80,7 +81,7 @@ async def setup_mfa() -> tuple[Any, int]:
 
 @mfa_bp.route("/verify", methods=["POST"])
 @auth_required
-# TODO(phase-3): Add rate limiting via quart-rate-limiter adapter
+@ratelimit.rate_limited("mfa_verify", account_key_fn=ratelimit.user_account_key)
 async def verify_mfa() -> tuple[Any, int]:
     """Verify TOTP code and enable MFA."""
     user = get_current_user()
@@ -122,7 +123,7 @@ async def verify_mfa() -> tuple[Any, int]:
 
 @mfa_bp.route("/disable", methods=["POST"])
 @auth_required
-# TODO(phase-3): Add rate limiting via quart-rate-limiter adapter
+@ratelimit.rate_limited("mfa_disable", account_key_fn=ratelimit.user_account_key)
 async def disable_mfa_endpoint() -> tuple[Any, int]:
     """Disable MFA (requires password and TOTP verification)."""
     user = get_current_user()
@@ -185,7 +186,7 @@ async def get_backup_codes() -> tuple[Any, int]:
 
 @mfa_bp.route("/backup-codes/regenerate", methods=["POST"])
 @auth_required
-# TODO(phase-3): Add rate limiting via quart-rate-limiter adapter
+@ratelimit.rate_limited("mfa_backup_regenerate", account_key_fn=ratelimit.user_account_key)
 async def regenerate_backup_codes() -> tuple[Any, int]:
     """Regenerate backup codes."""
     user = get_current_user()

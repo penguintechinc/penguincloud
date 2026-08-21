@@ -19,7 +19,7 @@ from prometheus_client import Counter
 from quart import Blueprint, current_app, request
 from quart_schema import validate_response
 
-from . import devmode, quotas
+from . import devmode, quotas, ratelimit
 from .config import UNSCOPED_TENANT
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -314,6 +314,7 @@ async def issue_and_store_token_set(
 
 
 @auth_bp.route("/login", methods=["POST"])
+@ratelimit.rate_limited("login", account_key_fn=ratelimit.email_account_key)
 @validate_response(LoginResponse)
 async def login() -> tuple[Any, int]:
     """Login endpoint - returns access and refresh tokens."""
@@ -391,6 +392,7 @@ _REFRESH_REJECTED = "Invalid or expired refresh token"
 
 
 @auth_bp.route("/refresh", methods=["POST"])
+@ratelimit.rate_limited("refresh")
 @validate_response(RefreshResponse)
 async def refresh() -> tuple[Any, int]:
     """Exchange a refresh token for a new token pair, rotating the old one.
@@ -494,9 +496,33 @@ async def get_me() -> tuple[Any, int]:
     )
 
 
+#: The refusal when self-service registration is closed on this deployment
+#: (Config.ALLOW_SELF_REGISTRATION, closed by default). 403, not 404 or a
+#: generic error: an operator who set nothing needs to see WHY signup is
+#: refused and how to open it, not guess.
+def _registration_disabled_body() -> dict[str, Any]:
+    return {
+        "error": "registration_disabled",
+        "message": (
+            "Self-service registration is disabled on this deployment. "
+            "An administrator must create your account, or the operator "
+            "must set ALLOW_SELF_REGISTRATION=true to enable open signup."
+        ),
+    }
+
+
 @auth_bp.route("/register", methods=["POST"])
+@ratelimit.rate_limited("register")
 async def register() -> tuple[dict[str, Any], int]:
-    """Register new user (creates viewer role by default + personal team)."""
+    """Register new user (creates viewer role by default + personal team).
+
+    Closed by default (Config.ALLOW_SELF_REGISTRATION) — checked before
+    anything else runs, including request-body validation, so a closed
+    deployment never even parses an anonymous caller's payload.
+    """
+    if not current_app.config.get("ALLOW_SELF_REGISTRATION", False):
+        return _registration_disabled_body(), 403
+
     data = await request.get_json()
 
     if not data:
@@ -769,6 +795,7 @@ async def _deliver_password_reset_token(
 
 
 @auth_bp.route("/forgot-password", methods=["POST"])
+@ratelimit.rate_limited("forgot_password", account_key_fn=ratelimit.email_account_key)
 async def forgot_password() -> tuple[dict[str, Any], int]:
     """Request a password reset link.
 
@@ -799,6 +826,7 @@ async def forgot_password() -> tuple[dict[str, Any], int]:
 
 
 @auth_bp.route("/reset-password", methods=["POST"])
+@ratelimit.rate_limited("reset_password")
 async def reset_password() -> tuple[dict[str, Any], int]:
     """Reset password with token."""
     data = await request.get_json()
@@ -824,6 +852,7 @@ async def reset_password() -> tuple[dict[str, Any], int]:
 
 
 @auth_bp.route("/confirm-email/<token>", methods=["POST"])
+@ratelimit.rate_limited("confirm_email")
 async def confirm_email_endpoint(token: str) -> tuple[dict[str, Any], int]:
     """Confirm a user's email address with a confirmation token.
 

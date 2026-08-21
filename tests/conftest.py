@@ -126,6 +126,29 @@ def _reset_killkrill_manager() -> Any:
 
 
 @pytest_asyncio.fixture(autouse=True)
+def _clear_ratelimit_state() -> Any:
+    """Empty app.ratelimit's module-level counters around every test.
+
+    Same isolation gap as _clear_health_cache below, and the same fix:
+    app.ratelimit's per-process fallback counter is module-level, keyed by
+    (bucket, source IP/account). Quart's test client reports every request
+    from the same apparent source IP, and this suite's fixtures
+    (`client`, `user_id`, `auth_headers`, `admin_headers`) register and log
+    in dozens of throwaway accounts per run — without a per-test reset
+    those attempts would accumulate across UNRELATED tests in one shared
+    counter and start tripping 429s that have nothing to do with whatever
+    a given test is actually exercising.
+    """
+    from app.ratelimit import clear_local_state, reset_cache_client_for_tests
+
+    clear_local_state()
+    reset_cache_client_for_tests()
+    yield
+    clear_local_state()
+    reset_cache_client_for_tests()
+
+
+@pytest_asyncio.fixture(autouse=True)
 def _clear_health_cache() -> Any:
     """Empty the health poller's module-level cache state around every test.
 

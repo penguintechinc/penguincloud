@@ -169,6 +169,15 @@ class Config:
     # CORS - comma-separated allowlist (parsed in app factory)
     CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 
+    # Self-service registration. CLOSED by default -- a fresh deployment
+    # with nothing configured must not let an anonymous caller mint an
+    # account (and, on a licensed deployment, consume a metered team slot
+    # -- see app.quotas.quota_refusal's call site in app.auth.register).
+    # An operator opts IN explicitly; there is deliberately no equivalent
+    # "opt out" knob to accidentally leave unset, since unset already means
+    # closed. See app.auth.register and app.auth._registration_disabled_body.
+    ALLOW_SELF_REGISTRATION = os.getenv("ALLOW_SELF_REGISTRATION", "false").lower() == "true"
+
     # OAuth2/SSO Configuration
     OAUTH_ENABLED = os.getenv("OAUTH_ENABLED", "false").lower() == "true"
     OAUTH_PROVIDERS = {
@@ -271,6 +280,13 @@ class TestingConfig(Config):
     """Testing configuration."""
 
     TESTING = True
+    # The production default is closed (see Config.ALLOW_SELF_REGISTRATION);
+    # the test suite's own fixtures (conftest.py's `client`/`user_id`/
+    # `auth_headers`/`admin_headers`) register dozens of throwaway accounts
+    # per run and are not exercising the gate itself -- that gate has its
+    # own dedicated test (test_self_registration_gate.py), built against an
+    # explicit `ALLOW_SELF_REGISTRATION = False` subclass, not this one.
+    ALLOW_SELF_REGISTRATION = True
     # Declared explicitly, not left to default-and-undeclared: the JWT
     # keystore guard (app/__init__.py:_build_oidc_provider) refuses to
     # start when NEITHER JWT_KEYSTORE_PATH nor an explicit replica/worker
