@@ -241,75 +241,153 @@ class TestPasswordReset:
         # Should not reveal if user exists
         assert response.status_code == 200
 
-    @pytest.mark.xfail(
-        reason="Password reset feature not fully implemented — Phase 1B",
-        strict=False,
-    )
     @pytest.mark.asyncio
-    async def test_reset_password_success(self, client: Any) -> None:
-        """Test password reset with valid token."""
-        # This would need actual token from forgot-password
+    async def test_reset_password_success(
+        self, client: Any, app: Quart, auth_headers: dict[str, str]
+    ) -> None:
+        """Test password reset with a genuinely valid token.
+
+        Un-xfailed: POST /auth/reset-password IS implemented (auth.py:801) —
+        the original xfail's "not fully implemented" reason was stale. What
+        the two literal-string-token variants below actually proved is that
+        an invalid token 401s, never that reset itself doesn't work. This
+        exercises the real success path with a token minted the same way
+        forgot-password mints one.
+        """
+        profile = await client.get("/api/v1/users/me", headers=auth_headers)
+        user_id = int((await profile.get_json())["id"])
+        email = (await profile.get_json())["email"]
+
+        async with app.app_context():
+            from app.auth_features import create_password_reset_token
+
+            token, _expires_at = await create_password_reset_token(user_id)
+
         response = await client.post(
             "/api/v1/auth/reset-password",
-            json={"token": "invalid-token", "password": "newpassword123"},
+            json={"token": token, "password": "newpassword123"},
         )
+        assert response.status_code == 200
 
-        assert response.status_code in [400, 404]
+        login = await client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": "newpassword123"},
+        )
+        assert login.status_code == 200, "new password does not work after reset"
 
-    @pytest.mark.xfail(
-        reason="Password reset feature not fully implemented — Phase 1B",
-        strict=False,
-    )
     @pytest.mark.asyncio
     async def test_reset_password_invalid_token(self, client: Any) -> None:
-        """Test password reset with invalid token."""
+        """An invalid/unknown token is refused -- 401, not 400/404.
+
+        Un-xfailed: reset-password validates the token via
+        validate_password_reset_token and answers 401 "Invalid or expired
+        token" for anything it cannot find, never 400/404 as the original
+        assertion assumed.
+        """
         response = await client.post(
             "/api/v1/auth/reset-password",
             json={"token": "invalid-token", "password": "newpassword123"},
         )
 
-        assert response.status_code in [400, 404]
+        assert response.status_code == 401
+        assert "Invalid or expired token" in (await response.get_json())["error"]
 
-    @pytest.mark.xfail(
-        reason="Password reset feature not fully implemented — Phase 1B",
-        strict=False,
-    )
     @pytest.mark.asyncio
-    async def test_reset_password_weak(self, client: Any) -> None:
-        """Test password reset with weak password."""
+    async def test_reset_password_weak(
+        self, client: Any, app: Quart, auth_headers: dict[str, str]
+    ) -> None:
+        """A genuinely valid token still rejects a weak new password.
+
+        Un-xfailed: needs a REAL token to reach the strength check at all —
+        the original test's literal "valid-token" string 401'd on token
+        validation before ever reaching the password-length branch it meant
+        to exercise.
+        """
+        profile = await client.get("/api/v1/users/me", headers=auth_headers)
+        user_id = int((await profile.get_json())["id"])
+
+        async with app.app_context():
+            from app.auth_features import create_password_reset_token
+
+            token, _expires_at = await create_password_reset_token(user_id)
+
         response = await client.post(
             "/api/v1/auth/reset-password",
-            json={"token": "valid-token", "password": "weak"},
+            json={"token": token, "password": "weak"},
         )
 
-        # Should validate password strength
         assert response.status_code == 400
+        assert "8" in (await response.get_json())["error"]
 
 
 class TestEmailConfirmation:
     """Test email confirmation flow."""
 
-    @pytest.mark.xfail(
-        reason="Email confirmation feature not fully implemented — Phase 1B",
-        strict=False,
-    )
     @pytest.mark.asyncio
-    async def test_confirm_email_success(self, client: Any) -> None:
-        """Test email confirmation with valid token."""
+    async def test_confirm_email_success(
+        self, client: Any, app: Quart, auth_headers: dict[str, str]
+    ) -> None:
+        """A genuinely valid confirmation token confirms the account.
+
+        Un-xfailed: POST /auth/confirm-email/<token> IS implemented
+        (auth.py:826) -- the original xfail's "not fully implemented"
+        reason was stale. The literal "invalid-token" string it posted
+        could only ever probe the invalid-token branch (below), never the
+        success path its name claimed to test.
+        """
+        profile = await client.get("/api/v1/users/me", headers=auth_headers)
+        user_id = int((await profile.get_json())["id"])
+
+        async with app.app_context():
+            from app.auth_features import create_email_confirmation_token
+
+            token, _expires_at = await create_email_confirmation_token(user_id)
+
+        response = await client.post(f"/api/v1/auth/confirm-email/{token}")
+        assert response.status_code == 200
+        assert (await response.get_json())["message"] == "Email confirmed"
+
+    @pytest.mark.asyncio
+    async def test_confirm_email_invalid_token(self, client: Any) -> None:
+        """An unknown token is refused -- 401, not 400/404.
+
+        Un-xfailed: validate_email_token finds no row for a token that was
+        never issued and confirm_email_endpoint answers 401 "Invalid or
+        expired token", never 400/404 as the original assertion assumed.
+        """
         response = await client.post("/api/v1/auth/confirm-email/invalid-token")
 
-        assert response.status_code in [400, 404]
+        assert response.status_code == 401
+        assert "Invalid or expired token" in (await response.get_json())["error"]
 
-    @pytest.mark.xfail(
-        reason="Email confirmation feature not fully implemented — Phase 1B",
-        strict=False,
-    )
     @pytest.mark.asyncio
-    async def test_confirm_email_expired_token(self, client: Any) -> None:
-        """Test email confirmation with expired token."""
-        response = await client.post("/api/v1/auth/confirm-email/expired-token")
+    async def test_confirm_email_expired_token(
+        self, client: Any, app: Quart, auth_headers: dict[str, str]
+    ) -> None:
+        """A token past its expires_at is refused the same as an unknown one.
 
-        assert response.status_code in [400, 404]
+        Un-xfailed: needs a REAL, expired row -- the original literal
+        "expired-token" string was indistinguishable from any other unknown
+        token and never actually reached the expiry comparison.
+        """
+        profile = await client.get("/api/v1/users/me", headers=auth_headers)
+        user_id = int((await profile.get_json())["id"])
+
+        async with app.app_context():
+            from app.models import get_db
+
+            db = get_db()
+            token = "already-expired-token"
+            await db.email_confirmation_tokens.async_insert(
+                user_id=user_id,
+                token=token,
+                expires_at=datetime.now(UTC) - timedelta(hours=1),
+            )
+
+        response = await client.post(f"/api/v1/auth/confirm-email/{token}")
+
+        assert response.status_code == 401
+        assert "Invalid or expired token" in (await response.get_json())["error"]
 
     @pytest.mark.asyncio
     async def test_email_confirmation_required(
