@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
-
 from app.adapters.gough.mapping import (
     map_biome,
     map_biome_group,
@@ -99,9 +98,7 @@ class TestRealNode:
         assert resource.created_at is not None
         assert resource.created_at.tzinfo is not None
 
-    def test_firmware_type_is_structurally_none(
-        self, serializer: dict[str, Any]
-    ) -> None:
+    def test_firmware_type_is_structurally_none(self, serializer: dict[str, Any]) -> None:
         """Documents a Gough gap rather than pretending the field works.
 
         ``_serialize_node`` emits ``firmware_type`` from a tolerant getter over
@@ -120,9 +117,7 @@ class TestRealNode:
 class TestRealBiome:
     """``map_biome`` against a real ``serialize_biome`` payload."""
 
-    def test_every_field_the_mapper_reads_exists(
-        self, serializer: dict[str, Any]
-    ) -> None:
+    def test_every_field_the_mapper_reads_exists(self, serializer: dict[str, Any]) -> None:
         """No mapped biome key is absent from Gough's real serialisation."""
         payload = serializer["biome"]
         for field in (
@@ -145,9 +140,7 @@ class TestRealBiome:
         ):
             assert field in payload, f"gough no longer emits biome field {field!r}"
 
-    def test_is_active_becomes_a_readable_status(
-        self, serializer: dict[str, Any]
-    ) -> None:
+    def test_is_active_becomes_a_readable_status(self, serializer: dict[str, Any]) -> None:
         """Biomes carry no lifecycle field, so ``is_active`` supplies one."""
         payload = serializer["biome"]
         assert payload["is_active"] is True
@@ -180,9 +173,7 @@ class TestRealBiomeGroup:
         assert "biomes" in payload
         assert "biome_ids" not in payload
 
-    def test_membership_is_ordered_objects_not_bare_ids(
-        self, serializer: dict[str, Any]
-    ) -> None:
+    def test_membership_is_ordered_objects_not_bare_ids(self, serializer: dict[str, Any]) -> None:
         """Shape, not just name: entries are ``{biome_id, order}`` objects."""
         members = serializer["biome_group"]["biomes"]
         assert members == [{"biome_id": 1, "order": 0}, {"biome_id": 2, "order": 1}]
@@ -201,9 +192,7 @@ class TestRealBiomeGroup:
             {"biome_id": 2, "order": 1},
         ]
 
-    def test_group_timestamps_use_the_offset_form(
-        self, serializer: dict[str, Any]
-    ) -> None:
+    def test_group_timestamps_use_the_offset_form(self, serializer: dict[str, Any]) -> None:
         """Gough is not internally consistent about timestamp spelling.
 
         ``serialize_biome_group`` uses a bare ``.isoformat()`` (``+00:00``)

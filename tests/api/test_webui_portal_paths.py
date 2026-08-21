@@ -1,4 +1,4 @@
-"""The browser and the portal must agree on the portal's OWN URLs.
+r"""The browser and the portal must agree on the portal's OWN URLs.
 
 Why this file exists
 ====================
@@ -55,13 +55,7 @@ from quart import Quart
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 _PORTAL_PATHS_TS: Final[Path] = (
-    _REPO_ROOT
-    / "services"
-    / "webui"
-    / "src"
-    / "client"
-    / "api"
-    / "portalPaths.ts"
+    _REPO_ROOT / "services" / "webui" / "src" / "client" / "api" / "portalPaths.ts"
 )
 
 #: ``<int:connection_id>`` / ``<path:proxy_path>`` / ``<kind>`` → ``{name}``.
@@ -71,9 +65,7 @@ _WERKZEUG_PARAM_RE: Final[re.Pattern[str]] = re.compile(r"<(?:[^:>]+:)?([^>]+)>"
 def _ts_const(name: str) -> str:
     """Read one exported string constant out of ``portalPaths.ts``."""
     source = _PORTAL_PATHS_TS.read_text(encoding="utf-8")
-    match = re.search(
-        rf"export const {name}\s*=\s*\n?\s*\"(?P<value>[^\"]+)\"", source
-    )
+    match = re.search(rf"export const {name}\s*=\s*\n?\s*\"(?P<value>[^\"]+)\"", source)
     assert match is not None, (
         f"export const {name} not found in {_PORTAL_PATHS_TS}. If it was "
         f"renamed or restructured, update this parser — do not delete the "
@@ -290,9 +282,7 @@ class TestTypedRoutes:
     """Every typed portal URL the browser builds must be a route Quart serves."""
 
     @pytest.mark.parametrize("rule", sorted(_typed_rules()))
-    async def test_typed_rule_matches_the_registered_route(
-        self, rule: str, app: Quart
-    ) -> None:
+    async def test_typed_rule_matches_the_registered_route(self, rule: str, app: Quart) -> None:
         """Resolved through the Quart ENDPOINT, not compared to a literal.
 
         A rule naming an endpoint the portal does not register fails in
@@ -301,9 +291,7 @@ class TestTypedRoutes:
         """
         assert rule == _rule_for(app, _typed_rules()[rule])
 
-    async def test_every_typed_rule_starts_at_the_axios_base_path(
-        self, app: Quart
-    ) -> None:
+    async def test_every_typed_rule_starts_at_the_axios_base_path(self, app: Quart) -> None:
         """The builders return baseURL-relative paths; the rules are absolute.
 
         If a rule did not start with the base path the two could never agree,
@@ -365,14 +353,10 @@ class TestTypedRoutes:
         ``/api/v1/products`` and watching this go red; without it, nothing did.
         """
         base = _ts_const("API_BASE_PATH")
-        rule_shapes = {
-            _shape(rule[len(base):]) for rule in _typed_rules()
-        }
+        rule_shapes = {_shape(rule[len(base) :]) for rule in _typed_rules()}
 
         unbacked = {
-            name: shape
-            for name, shape in _builder_shapes().items()
-            if shape not in rule_shapes
+            name: shape for name, shape in _builder_shapes().items() if shape not in rule_shapes
         }
 
         assert not unbacked, (
@@ -391,16 +375,14 @@ class TestTypedRoutes:
         """
         builders = _builder_shapes()
 
-        assert {"products", "productTypes", "product", "resourceAction"} <= set(
+        assert {"products", "productTypes", "product", "resourceAction"} <= set(builders), sorted(
             builders
-        ), sorted(builders)
+        )
         assert builders["products"] == "/products"
         assert builders["product"] == "/products/{}"
         assert builders["resourceAction"] == "/products/{}/resources/{}/{}/actions/{}"
 
-    async def test_every_literal_api_url_resolves_to_a_registered_route(
-        self, app: Quart
-    ) -> None:
+    async def test_every_literal_api_url_resolves_to_a_registered_route(self, app: Quart) -> None:
         """The finder. Every literal URL, every prefix, method included.
 
         The ban rule only covers ``_GUARDED_PREFIXES``; this covers ALL of
@@ -436,9 +418,7 @@ class TestTypedRoutes:
                 shape = _shape(f"{base}{_TS_INTERP_RE.sub('{}', raw)}")
                 checked += 1
                 if shape not in rules:
-                    unresolved.append(
-                        f"{where}  {verb} {raw} -> {shape}  NO SUCH ROUTE"
-                    )
+                    unresolved.append(f"{where}  {verb} {raw} -> {shape}  NO SUCH ROUTE")
                 elif verb == "REQUEST":
                     # `api.request("/x")` names no method, so there is nothing
                     # to compare against `rules[shape]`. The PATH still has to
@@ -448,8 +428,7 @@ class TestTypedRoutes:
                     continue
                 elif verb not in rules[shape]:
                     unresolved.append(
-                        f"{where}  {verb} {raw} -> {shape}  405, serves "
-                        f"{sorted(rules[shape])}"
+                        f"{where}  {verb} {raw} -> {shape}  405, serves " f"{sorted(rules[shape])}"
                     )
 
         assert checked > 0, (
@@ -515,9 +494,7 @@ class TestTypedRoutes:
                 if match.group("verb").lower() != "request":
                     continue
                 line = text.count("\n", 0, match.start()) + 1
-                offenders.append(
-                    f"{path.relative_to(_REPO_ROOT)}:{line} {match.group('path')}"
-                )
+                offenders.append(f"{path.relative_to(_REPO_ROOT)}:{line} {match.group('path')}")
 
         assert not offenders, (
             f"literal URLs handed to api.request: {offenders}. These evaded "
@@ -525,9 +502,7 @@ class TestTypedRoutes:
             f"each against url_map or route it through a portalUrl builder."
         )
 
-    async def test_the_resolution_check_can_see_a_wrong_method(
-        self, app: Quart
-    ) -> None:
+    async def test_the_resolution_check_can_see_a_wrong_method(self, app: Quart) -> None:
         """Falsifies the method half, which is the half that found the 405.
 
         A path-only comparison would have passed ``PUT /auth/me`` — the rule
@@ -566,7 +541,7 @@ class TestTypedRoutes:
         for line in (
             '  <Route path="/products/gough/nodes" element={<NodesPage />} />',
             '  { name: "Nodes", href: "/products/gough/nodes", icon: Gauge },',
-            '    navigate(`/products/${product.id}`);',
+            "    navigate(`/products/${product.id}`);",
             "    const r = await api.get(portalUrl.products());",
         ):
             assert not _PORTAL_URL_LITERAL_RE.search(line), (

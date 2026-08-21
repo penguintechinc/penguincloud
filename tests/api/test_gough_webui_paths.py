@@ -35,21 +35,13 @@ from pathlib import Path
 from typing import Final
 
 import pytest
-
 from app.adapters.gough.adapter import _COLLECTION_ROUTES
 
 #: Repo root, resolved from this file so the test does not depend on cwd.
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 _WEBUI_PATHS_TS: Final[Path] = (
-    _REPO_ROOT
-    / "services"
-    / "webui"
-    / "src"
-    / "client"
-    / "api"
-    / "resources"
-    / "goughPaths.ts"
+    _REPO_ROOT / "services" / "webui" / "src" / "client" / "api" / "resources" / "goughPaths.ts"
 )
 
 #: ``key: "value",`` inside the exported object literal.
@@ -129,8 +121,7 @@ def test_webui_path_matches_adapter_path(kind: str) -> None:
         "/"
     ), f"webui path for {kind!r} must be proxy-relative, got {webui!r}"
     assert f"/{webui}" == _COLLECTION_ROUTES[kind], (
-        f"webui sends {webui!r} but the adapter sends "
-        f"{_COLLECTION_ROUTES[kind]!r} for {kind!r}"
+        f"webui sends {webui!r} but the adapter sends " f"{_COLLECTION_ROUTES[kind]!r} for {kind!r}"
     )
 
 

@@ -18,7 +18,6 @@ from typing import Any, Final
 
 import httpx
 import pytest
-
 from app.adapters.base import (
     AdapterCapabilityError,
     AdapterContext,
@@ -27,7 +26,6 @@ from app.adapters.base import (
     UpstreamError,
 )
 from app.adapters.tobogganing import TobogganingAdapter
-from app.adapters.transport import Transport
 from app.adapters.tobogganing.mapping import (
     COLLECTION_ENVELOPE_KEYS,
     KIND_BLOCK_PAGE,
@@ -38,7 +36,7 @@ from app.adapters.tobogganing.mapping import (
     RESOURCE_KINDS,
     envelope_key,
 )
-
+from app.adapters.transport import Transport
 from tobogganing_route_source import effective_envelope_table
 
 pytestmark = pytest.mark.asyncio
@@ -106,9 +104,7 @@ class _Recorder:
         return self.responses[key]
 
 
-def _adapter_with(
-    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
-) -> TobogganingAdapter:
+def _adapter_with(recorder: _Recorder, monkeypatch: pytest.MonkeyPatch) -> TobogganingAdapter:
     """Build an adapter whose transport is backed by ``recorder``.
 
     ``follow_redirects=False`` mirrors the real transport, which is what makes
@@ -211,11 +207,7 @@ class TestListResources:
     ) -> None:
         """SASE pages arrive under ``pages`` and carry no ``meta`` at all."""
         recorder = _Recorder(
-            {
-                "GET /api/v1/sase/blockpages/pages": httpx.Response(
-                    200, json={"pages": [_PAGE_ROW]}
-                )
-            }
+            {"GET /api/v1/sase/blockpages/pages": httpx.Response(200, json={"pages": [_PAGE_ROW]})}
         )
         adapter = _adapter_with(recorder, monkeypatch)
 
@@ -238,7 +230,8 @@ class TestListResources:
         recorder = _Recorder(
             {
                 "GET /api/v1/sdwan/wireguard/peers": httpx.Response(
-                    200, json={"items": [], "meta": {}}  # the WRONG key
+                    200,
+                    json={"items": [], "meta": {}},  # the WRONG key
                 )
             }
         )
@@ -280,16 +273,10 @@ class TestListResources:
 class TestGetResource:
     """Item reads filter the collection, because the product serves no item route."""
 
-    async def test_returns_the_matching_row(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_returns_the_matching_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """It must query the COLLECTION, never invent an item path."""
         recorder = _Recorder(
-            {
-                "GET /api/v1/sdwan/clusters": httpx.Response(
-                    200, json={"clusters": [_CLUSTER_ROW]}
-                )
-            }
+            {"GET /api/v1/sdwan/clusters": httpx.Response(200, json={"clusters": [_CLUSTER_ROW]})}
         )
         adapter = _adapter_with(recorder, monkeypatch)
 
@@ -298,9 +285,7 @@ class TestGetResource:
         assert resource.id == "cluster-1"
         assert recorder.seen == ["GET /api/v1/sdwan/clusters"]
 
-    async def test_missing_row_raises_not_found(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_missing_row_raises_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A genuine absence is a 404, not an empty object."""
         recorder = _Recorder(
             {"GET /api/v1/sdwan/clusters": httpx.Response(200, json={"clusters": []})}

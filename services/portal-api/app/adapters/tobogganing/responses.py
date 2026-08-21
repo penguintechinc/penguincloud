@@ -81,9 +81,7 @@ class TobogganingResponse:
     def dict_data(self) -> dict[str, Any]:
         """Return the payload as a mapping, or raise if it is not one."""
         if not isinstance(self.data, dict):
-            raise UpstreamError(
-                "tobogganing returned a non-object where one was required"
-            )
+            raise UpstreamError("tobogganing returned a non-object where one was required")
         return self.data
 
     def items(self, key: str) -> list[dict[str, Any]]:

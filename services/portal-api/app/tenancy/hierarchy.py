@@ -64,9 +64,7 @@ async def validate_parent(
 
     if child_tenant_id is not None:
         if child_tenant_id == parent_tenant_id:
-            return ParentValidation(
-                ok=False, error="A tenant cannot be its own parent", status=400
-            )
+            return ParentValidation(ok=False, error="A tenant cannot be its own parent", status=400)
         # Walking UP from the prospective parent is the cycle test: if the
         # child already sits above the parent, the parent's ancestor chain
         # contains it, and re-parenting would close the loop.
@@ -87,9 +85,7 @@ async def validate_parent(
     return ParentValidation(ok=True, parent_depth=parent_depth)
 
 
-async def validate_origin_authority(
-    user_id: int, tenant: dict[str, Any]
-) -> ParentValidation:
+async def validate_origin_authority(user_id: int, tenant: dict[str, Any]) -> ParentValidation:
     """Check that a user may detach a tenant from where it currently sits.
 
     Validating only the DESTINATION is not enough. Moving a subtree out from

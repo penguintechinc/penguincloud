@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Final
 
 import pytest
-
 from app.adapters.base import TENANT_PLACEHOLDER
 from app.adapters.nest.mapping import (
     COLLECTION_ENVELOPE_KEYS,
@@ -46,14 +45,7 @@ from app.adapters.nest.routes import (
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 _WEBUI_PATHS_TS: Final[Path] = (
-    _REPO_ROOT
-    / "services"
-    / "webui"
-    / "src"
-    / "client"
-    / "api"
-    / "resources"
-    / "nestPaths.ts"
+    _REPO_ROOT / "services" / "webui" / "src" / "client" / "api" / "resources" / "nestPaths.ts"
 )
 
 #: ``key: "value",`` inside the exported object literal.
@@ -66,9 +58,7 @@ _EXPECTED: Final[dict[str, str]] = {
     "databases": tenant_path(TENANT_PLACEHOLDER, COLLECTION_DATA_RESOURCES),
     "snapshots": tenant_path(TENANT_PLACEHOLDER, COLLECTION_SNAPSHOTS),
     "costReport": tenant_path(TENANT_PLACEHOLDER, COLLECTION_COST_REPORT),
-    "costSummary": tenant_path(
-        TENANT_PLACEHOLDER, COLLECTION_COST_REPORT, COST_SUMMARY_SEGMENT
-    ),
+    "costSummary": tenant_path(TENANT_PLACEHOLDER, COLLECTION_COST_REPORT, COST_SUMMARY_SEGMENT),
 }
 
 
@@ -144,8 +134,7 @@ def test_webui_path_matches_the_adapter_builder(key: str) -> None:
         "/"
     ), f"nest registers no route with a trailing slash, but {key!r} sends {webui!r}"
     assert f"/{webui}" == _EXPECTED[key], (
-        f"webui sends {webui!r} but the adapter builds {_EXPECTED[key]!r} "
-        f"for {key!r}"
+        f"webui sends {webui!r} but the adapter builds {_EXPECTED[key]!r} " f"for {key!r}"
     )
 
 
@@ -203,11 +192,7 @@ def test_a_named_data_resource_is_allowlisted() -> None:
     """
     databases = f"/{_webui_collection_paths()['databases']}"
 
-    assert any(
-        rule.matches("GET", f"{databases}/orders-primary")
-        for rule in NEST_ROUTE_ALLOWLIST
-    )
+    assert any(rule.matches("GET", f"{databases}/orders-primary") for rule in NEST_ROUTE_ALLOWLIST)
     assert not any(
-        rule.matches("GET", f"{databases}/../../auth/login")
-        for rule in NEST_ROUTE_ALLOWLIST
+        rule.matches("GET", f"{databases}/../../auth/login") for rule in NEST_ROUTE_ALLOWLIST
     )

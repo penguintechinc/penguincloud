@@ -10,14 +10,12 @@ is required"). monkeypatch restores the exact prior state, including absence.
 
 import os
 import sys
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
 # Add services/portal-api to path so we can import app
-sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "../../services/portal-api")
-)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../services/portal-api"))
 
 
 @pytest.fixture(autouse=True)
@@ -38,23 +36,17 @@ def reset_fernet() -> Iterator[None]:
 class TestEncryptionKeyRequirement:
     """Test encryption key handling."""
 
-    def test_encryption_key_unset_raises_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_encryption_key_unset_raises_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test unset ENCRYPTION_KEY raises RuntimeError."""
         monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
         monkeypatch.delenv("TESTING", raising=False)
 
         from app import encryption
 
-        with pytest.raises(
-            RuntimeError, match="ENCRYPTION_KEY environment variable is required"
-        ):
+        with pytest.raises(RuntimeError, match="ENCRYPTION_KEY environment variable is required"):
             encryption._get_fernet()
 
-    def test_encryption_key_testing_mode_works(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_encryption_key_testing_mode_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that TESTING=true allows encryption to work without ENCRYPTION_KEY."""
         monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
         monkeypatch.setenv("TESTING", "true")

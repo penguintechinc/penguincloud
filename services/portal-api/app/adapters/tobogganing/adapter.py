@@ -221,9 +221,7 @@ class TobogganingAdapter(HealthOnlyAdapter):
             has_more=start + per_page < len(resources),
         )
 
-    async def get_resource(
-        self, kind: str, resource_id: str, ctx: AdapterContext
-    ) -> Resource:
+    async def get_resource(self, kind: str, resource_id: str, ctx: AdapterContext) -> Resource:
         """Fetch one resource by id.
 
         Tobogganing serves no item route for any of these kinds — the

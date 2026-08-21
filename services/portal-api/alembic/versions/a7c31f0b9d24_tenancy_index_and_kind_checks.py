@@ -1,4 +1,4 @@
-"""Index tenants.parent_tenant_id and constrain the enumerated kind columns
+"""Index tenants.parent_tenant_id and constrain the enumerated kind columns.
 
 Closes the gap between models_sqlalchemy.py and e94b513398d4:
 
@@ -16,21 +16,18 @@ Create Date: 2026-08-07 18:20:00.000000
 
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 
-
 # revision identifiers, used by Alembic.
 revision: str = "a7c31f0b9d24"
-down_revision: Union[str, None] = "e94b513398d4"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "e94b513398d4"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 _TENANT_KIND_CHECK = "kind IN ('provider', 'customer')"
-_EXTERNAL_KIND_CHECK = (
-    "external_kind IN ('tenant_id', 'organization_id', 'namespace')"
-)
+_EXTERNAL_KIND_CHECK = "external_kind IN ('tenant_id', 'organization_id', 'namespace')"
 
 
 def upgrade() -> None:
@@ -56,9 +53,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Drop the CHECK constraints and the parent index."""
     with op.batch_alter_table("product_tenant_map") as batch_op:
-        batch_op.drop_constraint(
-            "ck_product_tenant_map_external_kind", type_="check"
-        )
+        batch_op.drop_constraint("ck_product_tenant_map_external_kind", type_="check")
 
     with op.batch_alter_table("tenants") as batch_op:
         batch_op.drop_constraint("ck_tenants_kind", type_="check")

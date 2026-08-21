@@ -35,9 +35,7 @@ class TestFeatureGateFailsClosed:
         async def _gated() -> tuple[dict[str, str], int]:
             return {"reached": "yes"}, 200
 
-        response = await client.get(
-            "/api/v1/_test/gated?tenant_id=1", headers=auth_headers
-        )
+        response = await client.get("/api/v1/_test/gated?tenant_id=1", headers=auth_headers)
         assert response.status_code in (400, 403)
         if response.status_code == 403:
             body = await response.get_json()
@@ -87,9 +85,7 @@ class TestOAuthFeatureGate:
         """With entitlement checking active and SSO absent, the route 403s."""
         from app.license import LicenseManager
 
-        monkeypatch.setattr(
-            LicenseManager, "is_feature_enabled", lambda self, feature: False
-        )
+        monkeypatch.setattr(LicenseManager, "is_feature_enabled", lambda self, feature: False)
 
         response = await client.get("/api/v1/auth/oauth/google")
         assert response.status_code == 403
@@ -102,9 +98,8 @@ class TestOAuthStateToken:
     @pytest.mark.asyncio
     async def test_valid_state_passes(self, app: Quart) -> None:
         """A state matching the session value validates."""
-        from quart import session
-
         from app.oauth import validate_state_token
+        from quart import session
 
         async with app.test_request_context("/callback"):
             state = secrets.token_urlsafe(32)
@@ -114,9 +109,8 @@ class TestOAuthStateToken:
     @pytest.mark.asyncio
     async def test_replay_is_rejected(self, app: Quart) -> None:
         """The same state cannot be validated twice — it is consumed."""
-        from quart import session
-
         from app.oauth import validate_state_token
+        from quart import session
 
         async with app.test_request_context("/callback"):
             state = secrets.token_urlsafe(32)
@@ -129,9 +123,8 @@ class TestOAuthStateToken:
     @pytest.mark.asyncio
     async def test_mismatched_state_rejected(self, app: Quart) -> None:
         """A state that does not match the stored value is refused."""
-        from quart import session
-
         from app.oauth import validate_state_token
+        from quart import session
 
         async with app.test_request_context("/callback"):
             session["oauth_state"] = secrets.token_urlsafe(32)
@@ -148,9 +141,8 @@ class TestOAuthStateToken:
     @pytest.mark.asyncio
     async def test_empty_presented_state_rejected(self, app: Quart) -> None:
         """An empty presented state never matches, even if one is stored."""
-        from quart import session
-
         from app.oauth import validate_state_token
+        from quart import session
 
         async with app.test_request_context("/callback"):
             session["oauth_state"] = secrets.token_urlsafe(32)
@@ -163,9 +155,7 @@ class TestOAuthStateToken:
         """The callback route refuses a request carrying no state."""
         from app.license import LicenseManager
 
-        monkeypatch.setattr(
-            LicenseManager, "is_feature_enabled", lambda self, feature: True
-        )
+        monkeypatch.setattr(LicenseManager, "is_feature_enabled", lambda self, feature: True)
 
         response = await client.get("/api/v1/auth/oauth/google/callback?code=abc")
         assert response.status_code == 401

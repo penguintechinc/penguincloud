@@ -12,7 +12,6 @@ import re
 from typing import Any
 
 import pytest
-
 from app.adapters import (
     ADAPTER_REGISTRY,
     PLANNED_PRODUCTS,
@@ -170,9 +169,7 @@ class TestAllowlists:
 
         assert rule.matches("GET", "/health") is True
         assert rule.matches("GET", "/healthz") is True
-        assert (
-            rule.matches("get", "/healthz") is True
-        ), "method compare is case-insensitive"
+        assert rule.matches("get", "/healthz") is True, "method compare is case-insensitive"
         assert rule.matches("POST", "/healthz") is False
         # Anchoring: a path that merely starts with the pattern must not match.
         assert rule.matches("GET", "/healthz/../admin") is False
@@ -226,9 +223,7 @@ class TestHealthOnlyBehaviour:
         assert {"list_resources", "get_operation", "cancel_operation"} <= set(reported)
 
     @pytest.mark.parametrize("product_type", ["nest", "tobogganing", "generic"])
-    async def test_resource_operations_raise_capability_error(
-        self, product_type: str
-    ) -> None:
+    async def test_resource_operations_raise_capability_error(self, product_type: str) -> None:
         """Every resource op raises AdapterCapabilityError (rendered 501).
 
         Deliberately not an empty Page: a caller cannot distinguish "this
@@ -281,9 +276,7 @@ class TestNoSyncHttpClient:
         """
         import pathlib
 
-        app_dir = pathlib.Path(__file__).resolve().parents[2] / (
-            "services/portal-api/app"
-        )
+        app_dir = pathlib.Path(__file__).resolve().parents[2] / ("services/portal-api/app")
         offenders = [
             str(path.relative_to(app_dir))
             for path in app_dir.rglob("*.py")
@@ -373,7 +366,7 @@ def test_get_adapter_returns_a_fresh_instance(_unused: Any = None) -> None:
 
 
 def _rule_segments(rule: RouteRule) -> list[str]:
-    """Split a ``path_regex`` into its path segments.
+    r"""Split a ``path_regex`` into its path segments.
 
     Strips the mandatory ``^`` / ``\\Z`` anchors and the optional trailing
     ``/?`` some collection rules carry, then splits on the ``/`` characters
@@ -428,7 +421,7 @@ _LITERAL_SEGMENT = re.compile(r"^[A-Za-z0-9_-]+\Z")
 
 
 def _is_literal(segment: str) -> bool:
-    """True when a segment is a plain path literal.
+    r"""True when a segment is a plain path literal.
 
     The escaped tenant placeholder counts as a literal, by EXACT equality
     with the contract's own constant and nothing looser.
@@ -466,7 +459,7 @@ def _adapters_with_rules() -> list[tuple[str, list[RouteRule]]]:
 
 
 class TestTypedIdPatterns:
-    """No id slot may swallow a literal sibling route.
+    r"""No id slot may swallow a literal sibling route.
 
     This is the registry-wide form of the defect that shipped twice in Task
     4G. A permissive id pattern is correctly anchored, reads as correct, and
@@ -500,9 +493,7 @@ class TestTypedIdPatterns:
                     stripped == rebuilt
                 ), f"segment split lost information for {rule.path_regex!r}"
 
-    @pytest.mark.parametrize(
-        "product_type", sorted(p for p, _ in _adapters_with_rules())
-    )
+    @pytest.mark.parametrize("product_type", sorted(p for p, _ in _adapters_with_rules()))
     def test_no_id_pattern_matches_a_sibling_literal(self, product_type: str) -> None:
         """An id slot must not match a literal route at the same position.
 
@@ -537,13 +528,9 @@ class TestTypedIdPatterns:
                         f"scope, not its own"
                     )
 
-    @pytest.mark.parametrize(
-        "product_type", sorted(p for p, _ in _adapters_with_rules())
-    )
-    def test_every_variable_segment_is_an_approved_id_shape(
-        self, product_type: str
-    ) -> None:
-        """POSITIVE check: a variable segment must BE an approved id shape.
+    @pytest.mark.parametrize("product_type", sorted(p for p, _ in _adapters_with_rules()))
+    def test_every_variable_segment_is_an_approved_id_shape(self, product_type: str) -> None:
+        r"""POSITIVE check: a variable segment must BE an approved id shape.
 
         This replaces a blocklist of ``("[^/]+", "[^/]*", ".+", ".*")`` matched
         as substrings against the whole ``path_regex``. That check was
@@ -588,9 +575,7 @@ class TestTypedIdPatterns:
             r".{1,32}",
         ],
     )
-    def test_the_check_rejects_the_evasions_that_motivated_it(
-        self, evasion: str
-    ) -> None:
+    def test_the_check_rejects_the_evasions_that_motivated_it(self, evasion: str) -> None:
         """Each of these passed the old substring blocklist. None may pass now.
 
         The first four are the specific evasions named in review. They are not
@@ -635,7 +620,7 @@ class TestTypedIdPatterns:
         ],
     )
     def test_tenant_placeholder_exemption_is_exact(self, near_miss: str) -> None:
-        """The exemption is equality, not a prefix or a family of shapes.
+        r"""The exemption is equality, not a prefix or a family of shapes.
 
         Written as the falsification of the exemption added in 4N: a
         substring or ``startswith`` test would admit every entry here, and
@@ -643,12 +628,11 @@ class TestTypedIdPatterns:
         space beneath a rule that reads as tenant-scoped.
         """
         assert not _is_literal(near_miss), (
-            f"{near_miss!r} is not the tenant placeholder and must still be "
-            f"judged as a pattern"
+            f"{near_miss!r} is not the tenant placeholder and must still be " f"judged as a pattern"
         )
-        assert near_miss not in APPROVED_ID_PATTERNS, (
-            f"{near_miss!r} must not be an approved id shape"
-        )
+        assert (
+            near_miss not in APPROVED_ID_PATTERNS
+        ), f"{near_miss!r} must not be an approved id shape"
 
     def test_approved_shapes_are_exactly_the_shared_constants(self) -> None:
         """The approved set is small and explicit — assert it by equality.
@@ -721,18 +705,14 @@ class TestUnexposedRoutes:
                 adapter_cls.unexposed_routes, tuple
             ), f"{product_type}: unexposed_routes must be a tuple"
 
-    @pytest.mark.parametrize(
-        "product_type", sorted(p for p, _ in _adapters_with_rules())
-    )
+    @pytest.mark.parametrize("product_type", sorted(p for p, _ in _adapters_with_rules()))
     def test_no_rule_admits_a_declared_unexposed_route(self, product_type: str) -> None:
         """The assertion the whole declaration exists for."""
         adapter_cls = ADAPTER_REGISTRY[product_type]
         rules = list(adapter_cls.route_allowlist)
 
         for method, path in adapter_cls.unexposed_routes:
-            offenders = [
-                rule.path_regex for rule in rules if rule.matches(method, path)
-            ]
+            offenders = [rule.path_regex for rule in rules if rule.matches(method, path)]
             assert not offenders, (
                 f"{product_type}: {method} {path} is declared unexposed but is "
                 f"admitted by {offenders!r}. Either the rule's id pattern is "
@@ -740,9 +720,7 @@ class TestUnexposedRoutes:
                 f"the declaration is stale."
             )
 
-    @pytest.mark.parametrize(
-        "product_type", sorted(p for p, _ in _adapters_with_rules())
-    )
+    @pytest.mark.parametrize("product_type", sorted(p for p, _ in _adapters_with_rules()))
     def test_an_adapter_with_id_patterns_must_declare_unexposed_routes(
         self, product_type: str
     ) -> None:

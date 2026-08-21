@@ -37,7 +37,7 @@ whose envelope nobody looked up must fail loudly at the call site; defaulting to
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Final
 
 from ..base import Resource
@@ -168,7 +168,7 @@ def parse_timestamp(raw: Any) -> datetime | None:
         parsed = datetime.fromisoformat(text)
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _display_name(kind: str, row: dict[str, Any]) -> str:
@@ -204,7 +204,7 @@ def to_resource(kind: str, row: dict[str, Any]) -> Resource:
         id=_identifier(kind, row),
         kind=kind,
         name=_display_name(kind, row),
-        status=str(status) if isinstance(status, (str, int)) else None,
+        status=str(status) if isinstance(status, str | int) else None,
         created_at=parse_timestamp(row.get("created_at")),
         updated_at=parse_timestamp(row.get("updated_at")),
         metadata={key: value for key, value in row.items() if key not in known},

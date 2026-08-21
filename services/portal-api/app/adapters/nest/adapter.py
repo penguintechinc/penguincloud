@@ -40,6 +40,7 @@ from __future__ import annotations
 from typing import Any, Final
 
 from ..base import (
+    RESOURCE_OPERATION_ID_KEY,
     ActionResult,
     AdapterCapabilityError,
     AdapterContext,
@@ -47,7 +48,6 @@ from ..base import (
     Operation,
     OperationState,
     Page,
-    RESOURCE_OPERATION_ID_KEY,
     Resource,
     RouteRule,
     UpstreamError,
@@ -101,9 +101,7 @@ _DETAIL_KINDS: Final[frozenset[str]] = frozenset({KIND_DATABASE, KIND_SEARCH_POO
 #: Actions Nest exposes on a data-resource, each a literal sub-path. The
 #: action is matched against this set and never interpolated from caller
 #: input — see the boundary note in :mod:`app.adapters.base`.
-_ACTIONS: Final[frozenset[str]] = frozenset(
-    {"snapshot", "restore", "introspect", "migrate"}
-)
+_ACTIONS: Final[frozenset[str]] = frozenset({"snapshot", "restore", "introspect", "migrate"})
 
 #: Nest's key for the operation id it returns from every 202 — and, as it
 #: happens, the contract's own spelling. Aliased to the shared constant rather
@@ -194,9 +192,7 @@ class NestAdapter(HealthOnlyAdapter):
         an operator sent arrives as a literal ``?`` and would otherwise start a
         query string at Nest. See :func:`~app.adapters.base.quote_path_segment`.
         """
-        return tenant_path(
-            ctx.external_id, self._require_kind(kind), quote_path_segment(name)
-        )
+        return tenant_path(ctx.external_id, self._require_kind(kind), quote_path_segment(name))
 
     # -- resources --------------------------------------------------------
 
@@ -230,9 +226,7 @@ class NestAdapter(HealthOnlyAdapter):
         offset = max(page - 1, 0) * per_page
         params: dict[str, Any] = {"limit": per_page + 1, "offset": offset}
         if filters:
-            params.update(
-                {key: value for key, value in filters.items() if value is not None}
-            )
+            params.update({key: value for key, value in filters.items() if value is not None})
 
         payload = await self._call("GET", path, ctx, f"list {kind}", params=params)
         items = payload.items(key)
@@ -247,9 +241,7 @@ class NestAdapter(HealthOnlyAdapter):
             has_more=has_more,
         )
 
-    async def get_resource(
-        self, kind: str, resource_id: str, ctx: AdapterContext
-    ) -> Resource:
+    async def get_resource(self, kind: str, resource_id: str, ctx: AdapterContext) -> Resource:
         """Fetch one Nest resource by name."""
         if kind not in _DETAIL_KINDS:
             self._require_kind(kind)
@@ -280,9 +272,7 @@ class NestAdapter(HealthOnlyAdapter):
         data = response.dict_data()
         resource = to_resource(kind, data)
 
-        operation_id = data.get(_OPERATION_ID_KEY) or response.headers.get(
-            "x-operation-id"
-        )
+        operation_id = data.get(_OPERATION_ID_KEY) or response.headers.get("x-operation-id")
         if operation_id:
             resource.metadata[_OPERATION_ID_KEY] = str(operation_id)
             # Encoded for the same reason get_operation encodes it: this is a
@@ -296,9 +286,7 @@ class NestAdapter(HealthOnlyAdapter):
             )
         return resource
 
-    async def delete_resource(
-        self, kind: str, resource_id: str, ctx: AdapterContext
-    ) -> None:
+    async def delete_resource(self, kind: str, resource_id: str, ctx: AdapterContext) -> None:
         """Delete a Nest resource by name.
 
         Nest answers ``204``. A ``409`` becomes ``ResourceConflictError`` via
@@ -332,8 +320,7 @@ class NestAdapter(HealthOnlyAdapter):
             )
         if action not in _ACTIONS:
             raise AdapterCapabilityError(
-                f"nest does not support action {action!r} "
-                f"(supported: {sorted(_ACTIONS)})"
+                f"nest does not support action {action!r} " f"(supported: {sorted(_ACTIONS)})"
             )
 
         path = tenant_path(
@@ -351,9 +338,7 @@ class NestAdapter(HealthOnlyAdapter):
         )
         data = response.dict_data()
 
-        operation_id = data.get(_OPERATION_ID_KEY) or response.headers.get(
-            "x-operation-id"
-        )
+        operation_id = data.get(_OPERATION_ID_KEY) or response.headers.get("x-operation-id")
         operations: list[Operation] = []
         if operation_id:
             operations.append(
@@ -382,13 +367,10 @@ class NestAdapter(HealthOnlyAdapter):
         """Reject an operation family Nest does not have."""
         if kind not in OPERATION_KINDS:
             raise AdapterCapabilityError(
-                f"nest has no operation kind {kind!r} "
-                f"(supported: {sorted(OPERATION_KINDS)})"
+                f"nest has no operation kind {kind!r} " f"(supported: {sorted(OPERATION_KINDS)})"
             )
 
-    async def get_operation(
-        self, kind: str, operation_id: str, ctx: AdapterContext
-    ) -> Operation:
+    async def get_operation(self, kind: str, operation_id: str, ctx: AdapterContext) -> Operation:
         """Poll one Nest operation.
 
         A ``SUCCEEDED`` operation carries Nest's own ``result`` object —
@@ -396,9 +378,7 @@ class NestAdapter(HealthOnlyAdapter):
         through :attr:`Operation.result`.
         """
         self._require_operation_kind(kind)
-        path = tenant_path(
-            ctx.external_id, COLLECTION_OPERATIONS, quote_path_segment(operation_id)
-        )
+        path = tenant_path(ctx.external_id, COLLECTION_OPERATIONS, quote_path_segment(operation_id))
         payload = await self._call("GET", path, ctx, f"get operation {operation_id}")
         data = payload.dict_data()
         operation = to_operation(data)

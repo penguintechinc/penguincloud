@@ -1,5 +1,4 @@
-"""
-API Keys Tests
+"""API Keys Tests.
 
 Tests for API key creation, usage, and revocation.
 """
@@ -9,19 +8,15 @@ from typing import Any
 import pytest
 
 # Skip all tests - API key endpoints not implemented on v0.1.x
-pytestmark = pytest.mark.skip(
-    reason="API key endpoints not implemented on v0.1.x — Phase 1B"
-)
+pytestmark = pytest.mark.skip(reason="API key endpoints not implemented on v0.1.x — Phase 1B")
 
 
 class TestAPIKeyCreation:
-    """Test API key creation"""
+    """Test API key creation."""
 
     @pytest.mark.asyncio
-    async def test_create_api_key(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test creating API key"""
+    async def test_create_api_key(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test creating API key."""
         response = await client.post(
             "/api/v1/api-keys",
             headers=auth_headers,
@@ -35,10 +30,8 @@ class TestAPIKeyCreation:
         assert data["key"].startswith("pk_")
 
     @pytest.mark.asyncio
-    async def test_api_key_format(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test API key format"""
+    async def test_api_key_format(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test API key format."""
         response = await client.post(
             "/api/v1/api-keys", headers=auth_headers, json={"name": "Format Test"}
         )
@@ -53,7 +46,7 @@ class TestAPIKeyCreation:
     async def test_create_key_with_expiration(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
-        """Test creating API key with expiration"""
+        """Test creating API key with expiration."""
         response = await client.post(
             "/api/v1/api-keys",
             headers=auth_headers,
@@ -66,17 +59,13 @@ class TestAPIKeyCreation:
 
 
 class TestAPIKeyListing:
-    """Test listing API keys"""
+    """Test listing API keys."""
 
     @pytest.mark.asyncio
-    async def test_list_api_keys(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test listing user's API keys"""
+    async def test_list_api_keys(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test listing user's API keys."""
         # Create a key first
-        await client.post(
-            "/api/v1/api-keys", headers=auth_headers, json={"name": "Key 1"}
-        )
+        await client.post("/api/v1/api-keys", headers=auth_headers, json={"name": "Key 1"})
 
         response = await client.get("/api/v1/api-keys", headers=auth_headers)
 
@@ -86,13 +75,9 @@ class TestAPIKeyListing:
         assert len(data["keys"]) >= 1
 
     @pytest.mark.asyncio
-    async def test_list_keys_no_secret(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test that list doesn't return full key secret"""
-        await client.post(
-            "/api/v1/api-keys", headers=auth_headers, json={"name": "Secret Key"}
-        )
+    async def test_list_keys_no_secret(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test that list doesn't return full key secret."""
+        await client.post("/api/v1/api-keys", headers=auth_headers, json={"name": "Secret Key"})
 
         response = await client.get("/api/v1/api-keys", headers=auth_headers)
 
@@ -105,21 +90,19 @@ class TestAPIKeyListing:
 
 
 class TestAPIKeyUsage:
-    """Test using API keys for authentication"""
+    """Test using API keys for authentication."""
 
     @pytest.mark.asyncio
     async def test_request_with_api_key(self, client: Any) -> None:
-        """Test making request with API key"""
+        """Test making request with API key."""
         # This would need actual valid API key
-        response = await client.get(
-            "/api/v1/users/me", headers={"X-API-Key": "pk_test_invalid"}
-        )
+        response = await client.get("/api/v1/users/me", headers={"X-API-Key": "pk_test_invalid"})
 
         assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_api_key_not_found(self, client: Any) -> None:
-        """Test request with non-existent key"""
+        """Test request with non-existent key."""
         response = await client.get(
             "/api/v1/users/me", headers={"X-API-Key": "pk_test_nonexistent123"}
         )
@@ -128,22 +111,18 @@ class TestAPIKeyUsage:
 
     @pytest.mark.asyncio
     async def test_api_key_expired(self, client: Any) -> None:
-        """Test request with expired API key"""
-        response = await client.get(
-            "/api/v1/users/me", headers={"X-API-Key": "pk_test_expired"}
-        )
+        """Test request with expired API key."""
+        response = await client.get("/api/v1/users/me", headers={"X-API-Key": "pk_test_expired"})
 
         assert response.status_code == 401
 
 
 class TestAPIKeyRevocation:
-    """Test revoking API keys"""
+    """Test revoking API keys."""
 
     @pytest.mark.asyncio
-    async def test_revoke_api_key(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test revoking API key"""
+    async def test_revoke_api_key(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test revoking API key."""
         # Create key
         create_response = await client.post(
             "/api/v1/api-keys", headers=auth_headers, json={"name": "Revoke Me"}
@@ -151,17 +130,13 @@ class TestAPIKeyRevocation:
         key_id = (await create_response.get_json())["id"]
 
         # Revoke it
-        response = await client.delete(
-            f"/api/v1/api-keys/{key_id}", headers=auth_headers
-        )
+        response = await client.delete(f"/api/v1/api-keys/{key_id}", headers=auth_headers)
 
         assert response.status_code == 204
 
     @pytest.mark.asyncio
-    async def test_use_revoked_key(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test that revoked key no longer works"""
+    async def test_use_revoked_key(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test that revoked key no longer works."""
         # Create and revoke key
         create_response = await client.post(
             "/api/v1/api-keys", headers=auth_headers, json={"name": "Revoke Test"}
@@ -178,13 +153,11 @@ class TestAPIKeyRevocation:
 
 
 class TestAPIKeyScopes:
-    """Test API key scopes"""
+    """Test API key scopes."""
 
     @pytest.mark.asyncio
-    async def test_key_with_limited_scopes(
-        self, client: Any, auth_headers: dict[str, str]
-    ) -> None:
-        """Test creating key with limited scopes"""
+    async def test_key_with_limited_scopes(self, client: Any, auth_headers: dict[str, str]) -> None:
+        """Test creating key with limited scopes."""
         response = await client.post(
             "/api/v1/api-keys",
             headers=auth_headers,
@@ -199,11 +172,9 @@ class TestAPIKeyScopes:
     async def test_key_permission_enforcement(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
-        """Test that key scopes are enforced"""
+        """Test that key scopes are enforced."""
         # Would need actual key with limited scopes
-        response = await client.get(
-            "/api/v1/users/me", headers={"X-API-Key": "pk_test_limited"}
-        )
+        response = await client.get("/api/v1/users/me", headers={"X-API-Key": "pk_test_limited"})
 
         # Should fail or succeed based on scopes
         assert response.status_code in [200, 403]

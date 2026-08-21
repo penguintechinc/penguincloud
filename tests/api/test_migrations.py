@@ -1,38 +1,35 @@
-"""
-Database Migration Tests
+"""Database Migration Tests.
 
 Tests for Alembic migrations, schema changes, and rollback.
 """
 
 import re
-
-from alembic.config import Config
-
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from alembic.config import Config
 
 
 class TestMigrationSetup:
-    """Test Alembic setup and configuration"""
+    """Test Alembic setup and configuration."""
 
     def test_alembic_config_exists(self) -> None:
-        """Test Alembic configuration exists"""
+        """Test Alembic configuration exists."""
         import os
 
         alembic_ini = "services/portal-api/alembic.ini"
         assert os.path.exists(alembic_ini), "alembic.ini not found"
 
     def test_alembic_env_exists(self) -> None:
-        """Test Alembic env.py exists"""
+        """Test Alembic env.py exists."""
         import os
 
         env_py = "services/portal-api/alembic/env.py"
         assert os.path.exists(env_py), "env.py not found"
 
     def test_versions_directory_exists(self) -> None:
-        """Test versions directory exists"""
+        """Test versions directory exists."""
         import os
 
         versions = "services/portal-api/alembic/versions"
@@ -40,10 +37,10 @@ class TestMigrationSetup:
 
 
 class TestMigrationHistory:
-    """Test migration history tracking"""
+    """Test migration history tracking."""
 
     def test_get_current_revision(self, db: Any) -> None:
-        """Test getting current migration revision"""
+        """Test getting current migration revision."""
         # This would need actual DB setup
         # For now, just verify command structure
 
@@ -51,7 +48,7 @@ class TestMigrationHistory:
         assert cfg is not None
 
     def test_migration_list(self, db: Any) -> None:
-        """Test listing migrations"""
+        """Test listing migrations."""
         # Verify migrations can be discovered
         import os
 
@@ -62,10 +59,10 @@ class TestMigrationHistory:
 
 
 class TestMigrationUpgrade:
-    """Test upgrading database schema"""
+    """Test upgrading database schema."""
 
     def test_upgrade_head(self, db: Any) -> None:
-        """Test upgrading to head"""
+        """Test upgrading to head."""
         # This would require actual database connection
         # Verify command structure is correct
 
@@ -73,7 +70,7 @@ class TestMigrationUpgrade:
         assert cfg is not None
 
     def test_upgrade_specific_version(self, db: Any) -> None:
-        """Test upgrading to specific version"""
+        """Test upgrading to specific version."""
         # Verify command structure
         import os
 
@@ -81,32 +78,32 @@ class TestMigrationUpgrade:
         assert os.path.isdir(versions_dir)
 
     def test_upgrade_creates_tables(self, db: Any) -> None:
-        """Test that upgrade creates expected tables"""
+        """Test that upgrade creates expected tables."""
         # Verify tables exist after migration
         pass
 
 
 class TestMigrationDowngrade:
-    """Test downgrading database schema"""
+    """Test downgrading database schema."""
 
     def test_downgrade_one_revision(self, db: Any) -> None:
-        """Test downgrading by one revision"""
+        """Test downgrading by one revision."""
         # Verify command structure
 
         cfg = Config("services/portal-api/alembic.ini")
         assert cfg is not None
 
     def test_downgrade_to_version(self, db: Any) -> None:
-        """Test downgrading to specific version"""
+        """Test downgrading to specific version."""
         # Verify command works
         pass
 
 
 class TestMigrationIntegrity:
-    """Test migration integrity"""
+    """Test migration integrity."""
 
     def test_migration_file_syntax(self) -> None:
-        """Test migration files have valid Python syntax"""
+        """Test migration files have valid Python syntax."""
         import os
         import py_compile
 
@@ -121,7 +118,7 @@ class TestMigrationIntegrity:
                         pytest.fail(f"Syntax error in {filename}: {e}")
 
     def test_migration_has_upgrade_downgrade(self) -> None:
-        """Test migrations have upgrade and downgrade functions"""
+        """Test migrations have upgrade and downgrade functions."""
         import os
 
         versions_dir = "services/portal-api/alembic/versions"
@@ -129,24 +126,24 @@ class TestMigrationIntegrity:
             for filename in os.listdir(versions_dir):
                 if filename.endswith(".py") and not filename.startswith("_"):
                     filepath = os.path.join(versions_dir, filename)
-                    with open(filepath, "r") as f:
+                    with open(filepath) as f:
                         content = f.read()
                         assert "def upgrade()" in content
                         assert "def downgrade()" in content
 
 
 class TestSQLAlchemyModels:
-    """Test SQLAlchemy model definitions"""
+    """Test SQLAlchemy model definitions."""
 
     def test_models_file_exists(self) -> None:
-        """Test models.py exists"""
+        """Test models.py exists."""
         import os
 
         models_file = "services/portal-api/app/models.py"
         assert os.path.exists(models_file), "models.py not found"
 
     def test_models_imports(self) -> None:
-        """Test models can be imported"""
+        """Test models can be imported."""
         try:
             from app.models_sqlalchemy import Base
 
@@ -155,7 +152,7 @@ class TestSQLAlchemyModels:
             pytest.skip("Cannot import models")
 
     def test_base_metadata_exists(self) -> None:
-        """Test SQLAlchemy Base metadata exists"""
+        """Test SQLAlchemy Base metadata exists."""
         try:
             from app.models_sqlalchemy import Base
 
@@ -165,10 +162,10 @@ class TestSQLAlchemyModels:
 
 
 class TestMigrationNaming:
-    """Test migration file naming conventions"""
+    """Test migration file naming conventions."""
 
     def test_migration_naming_convention(self) -> None:
-        """Test migrations follow naming convention"""
+        """Test migrations follow naming convention."""
         import os
 
         versions_dir = "services/portal-api/alembic/versions"
@@ -176,16 +173,14 @@ class TestMigrationNaming:
             pattern = re.compile(r"^[0-9a-f]{12}_\w+\.py$")
             for filename in os.listdir(versions_dir):
                 if not filename.startswith("_") and filename.endswith(".py"):
-                    assert pattern.match(
-                        filename
-                    ), f"Invalid migration name: {filename}"
+                    assert pattern.match(filename), f"Invalid migration name: {filename}"
 
 
 class TestMigrationConflicts:
-    """Test handling of migration conflicts"""
+    """Test handling of migration conflicts."""
 
     def test_no_duplicate_versions(self) -> None:
-        """Test no duplicate version identifiers"""
+        """Test no duplicate version identifiers."""
         import os
 
         versions_dir = "services/portal-api/alembic/versions"
@@ -194,7 +189,7 @@ class TestMigrationConflicts:
             for filename in os.listdir(versions_dir):
                 if filename.endswith(".py"):
                     filepath = os.path.join(versions_dir, filename)
-                    with open(filepath, "r") as f:
+                    with open(filepath) as f:
                         content = f.read()
                         match = re.search(r"revision = '([a-f0-9]+)'", content)
                         if match:
@@ -205,6 +200,6 @@ class TestMigrationConflicts:
 
 @pytest.fixture
 def db() -> Iterator[None]:
-    """Create test database"""
+    """Create test database."""
     # This would initialize test DB
     yield None

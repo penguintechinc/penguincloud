@@ -38,8 +38,9 @@ import asyncio
 import logging
 import re
 import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Optional, Sequence, Set
+from typing import Any
 
 from app.models import get_db
 
@@ -71,8 +72,8 @@ class TenantHierarchy:
     """Immutable tenant hierarchy information."""
 
     tenant_id: int
-    ancestors: Set[int]
-    descendants: Set[int]
+    ancestors: set[int]
+    descendants: set[int]
     depth: int
 
 
@@ -111,9 +112,7 @@ _NAMED_TOKENS: dict[str, Callable[[str], str]] = {
 _SLOT_RE = re.compile(r"\{(\w+)\}")
 
 
-def bind_query(
-    template: str, paramstyle: str, values: Mapping[str, Any]
-) -> BoundQuery:
+def bind_query(template: str, paramstyle: str, values: Mapping[str, Any]) -> BoundQuery:
     """Render ``{name}`` slots in a SQL template for one driver's paramstyle.
 
     Positional styles bind in order of first appearance in the template, so
@@ -209,7 +208,7 @@ def build_ancestors_query(paramstyle: str, tenant_id: int) -> BoundQuery:
     )
 
 
-async def get_descendants(tenant_id: int) -> Set[int]:
+async def get_descendants(tenant_id: int) -> set[int]:
     """Get all descendant tenant IDs via SQL WITH RECURSIVE CTE.
 
     Memoised per process for LOCAL_CACHE_TTL_SECONDS; see the module
@@ -233,7 +232,7 @@ async def get_descendants(tenant_id: int) -> Set[int]:
     return descendants
 
 
-async def get_ancestors(tenant_id: int) -> Set[int]:
+async def get_ancestors(tenant_id: int) -> set[int]:
     """Get all ancestor tenant IDs via SQL WITH RECURSIVE CTE.
 
     Deliberately NOT cached. The ancestor chain is what every delegated-admin
@@ -362,7 +361,7 @@ def clear_local_cache() -> None:
 # In-process cache with TTL
 
 
-def _cache_get(key: str) -> Optional[frozenset[int]]:
+def _cache_get(key: str) -> frozenset[int] | None:
     """Return a live cached set, or None when missing or expired."""
     entry = _LOCAL_CACHE.get(key)
     if entry is None:
@@ -374,7 +373,7 @@ def _cache_get(key: str) -> Optional[frozenset[int]]:
     return value
 
 
-def _cache_set(key: str, value: Set[int]) -> None:
+def _cache_set(key: str, value: set[int]) -> None:
     """Memoise a set until LOCAL_CACHE_TTL_SECONDS from now."""
     _LOCAL_CACHE[key] = (
         time.monotonic() + LOCAL_CACHE_TTL_SECONDS,
@@ -396,12 +395,12 @@ async def _execute_ids(db: Any, bound: BoundQuery) -> list[Any]:
     return list(rows or [])
 
 
-def _first_column(rows: Sequence[Any]) -> Set[int]:
+def _first_column(rows: Sequence[Any]) -> set[int]:
     """Collect the non-NULL first column of raw cursor rows as ints."""
     return {int(row[0]) for row in rows if row[0] is not None}
 
 
-async def _query_descendants_cte(db: Any, tenant_id: int) -> Set[int]:
+async def _query_descendants_cte(db: Any, tenant_id: int) -> set[int]:
     """Query all descendants via SQL WITH RECURSIVE CTE.
 
     Placeholders are rendered for the bound driver, so this works on
@@ -418,7 +417,7 @@ async def _query_descendants_cte(db: Any, tenant_id: int) -> Set[int]:
     return _first_column(await _execute_ids(db, bound))
 
 
-async def _query_ancestors_cte(db: Any, tenant_id: int) -> Set[int]:
+async def _query_ancestors_cte(db: Any, tenant_id: int) -> set[int]:
     """Query all ancestors via SQL WITH RECURSIVE CTE.
 
     Args:

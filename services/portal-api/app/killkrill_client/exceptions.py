@@ -1,6 +1,4 @@
-"""
-Custom exceptions for receiver client operations.
-"""
+"""Custom exceptions for receiver client operations."""
 
 
 class ReceiverClientError(Exception):

@@ -15,8 +15,7 @@ license_bp = Blueprint("license", __name__)
 @auth_required
 @require_scope(SCOPE_LICENSE_READ)
 async def get_license_status() -> tuple[Any, int]:
-    """
-    Get license status.
+    """Get license status.
 
     Gated on the ``license:read`` scope, which the platform-admin bundle
     carries and no other role does — the same authority the previous
