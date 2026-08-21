@@ -2,7 +2,7 @@
 # Node.js backend + React frontend shell
 
 # Build stage
-FROM node:22-bookworm-slim@sha256:4f77a690f2f8946ab16fe1e791a3ac0667ae1c3575c3e4d0d4589e9ed5bfaf3d AS builder
+FROM node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341 AS builder
 
 WORKDIR /app
 
@@ -23,21 +23,22 @@ COPY ./services/webui .
 RUN npm run build
 
 # Production stage
-FROM node:22-bookworm-slim@sha256:4f77a690f2f8946ab16fe1e791a3ac0667ae1c3575c3e4d0d4589e9ed5bfaf3d AS production
+FROM node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341 AS production
 
 WORKDIR /app
 
-# node:22-bookworm-slim already ships a non-root `node` user at UID/GID
-# 1000 -- reused rather than creating a second one (groupadd/useradd at GID
-# 1000 collides with it: "GID '1000' already exists"). Numeric UID matches
-# services/portal-api/Dockerfile and devops-kubernetes.md's securityContext
-# (runAsUser: 1000).
+# node:26-bookworm-slim ships a non-root `node` user at UID/GID 1000 (same
+# as 22-bookworm-slim -- re-verified via `docker run --rm <img> id node`
+# when bumping the base) -- reused rather than creating a second one
+# (groupadd/useradd at GID 1000 collides with it: "GID '1000' already
+# exists"). Numeric UID matches services/portal-api/Dockerfile and
+# devops-kubernetes.md's securityContext (runAsUser: 1000).
 
 # Copy package files for production dependencies
 COPY ./services/webui/package*.json ./
 
-# Install production dependencies only
-RUN npm install --omit=dev && npm cache clean --force
+# Install production dependencies only (lockfileVersion 3 supports omit)
+RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy built assets from builder
 COPY --from=builder /app/dist ./dist
