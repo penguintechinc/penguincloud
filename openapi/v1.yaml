@@ -1136,7 +1136,13 @@ paths:
       summary: Exchange a refresh token for a new token pair, rotating the old one.
   /api/v1/auth/register:
     post:
-      description: ''
+      description: '
+
+        Closed by default (Config.ALLOW_SELF_REGISTRATION) — checked before
+
+        anything else runs, including request-body validation, so a closed
+
+        deployment never even parses an anonymous caller''s payload.'
       operationId: post_register
       parameters: []
       responses:

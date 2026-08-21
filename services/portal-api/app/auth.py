@@ -494,9 +494,32 @@ async def get_me() -> tuple[Any, int]:
     )
 
 
+#: The refusal when self-service registration is closed on this deployment
+#: (Config.ALLOW_SELF_REGISTRATION, closed by default). 403, not 404 or a
+#: generic error: an operator who set nothing needs to see WHY signup is
+#: refused and how to open it, not guess.
+def _registration_disabled_body() -> dict[str, Any]:
+    return {
+        "error": "registration_disabled",
+        "message": (
+            "Self-service registration is disabled on this deployment. "
+            "An administrator must create your account, or the operator "
+            "must set ALLOW_SELF_REGISTRATION=true to enable open signup."
+        ),
+    }
+
+
 @auth_bp.route("/register", methods=["POST"])
 async def register() -> tuple[dict[str, Any], int]:
-    """Register new user (creates viewer role by default + personal team)."""
+    """Register new user (creates viewer role by default + personal team).
+
+    Closed by default (Config.ALLOW_SELF_REGISTRATION) — checked before
+    anything else runs, including request-body validation, so a closed
+    deployment never even parses an anonymous caller's payload.
+    """
+    if not current_app.config.get("ALLOW_SELF_REGISTRATION", False):
+        return _registration_disabled_body(), 403
+
     data = await request.get_json()
 
     if not data:
