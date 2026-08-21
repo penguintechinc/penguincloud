@@ -1,0 +1,15 @@
+valkey deployed as {{ include "valkey.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+In-cluster: {{ include "valkey.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Wire this into portal-api's config.CACHE_HOST (portal-api/values.yaml
+defaults it to "valkey", matching this Release's default fullname when
+installed as `helm install valkey ./k8s/helm/valkey`) and CACHE_PASS from
+the same password this chart's Secret holds.
+
+{{- if not .Values.persistence.enabled }}
+Note: persistence.enabled is false — /data is an ephemeral emptyDir. This
+is intentional for a pure cache (see values.yaml persistence comment); a
+pod restart loses all cached health entries, and portal-api's poller
+repopulates them within one sweep interval (~15s).
+{{- end }}

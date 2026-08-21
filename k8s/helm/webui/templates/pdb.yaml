@@ -1,0 +1,22 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{/*
+See portal-api's identical guard/comment: minAvailable >= effectiveReplicas
+deadlocks every voluntary disruption.
+*/}}
+{{- $effectiveReplicas := int (include "webui.effectiveReplicas" .) }}
+{{- if ge (int .Values.podDisruptionBudget.minAvailable) $effectiveReplicas }}
+{{- fail (printf "webui: podDisruptionBudget.minAvailable (%d) >= effective replica count (%d) — no voluntary disruption (node drain, cluster upgrade) could ever proceed; lower minAvailable to at most effectiveReplicas - 1." (int .Values.podDisruptionBudget.minAvailable) $effectiveReplicas) }}
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "webui.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "webui.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "webui.selectorLabels" . | nindent 6 }}
+{{- end }}

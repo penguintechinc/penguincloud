@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "portal-api.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- if .Values.persistence.jwtKeystore.enabled }}
+  JWT_KEYSTORE_PATH: {{ printf "%s/%s" .Values.persistence.jwtKeystore.mountPath .Values.persistence.jwtKeystore.fileName | quote }}
+  {{- end }}
+  # Declared, not detected: app/__init__.py::_build_oidc_provider trusts
+  # this rather than guessing "how many siblings does my ReplicaSet have"
+  # (Kubernetes' Downward API exposes no such signal). ALWAYS derived from
+  # the same effectiveReplicas helper the jwtKeystore guards below gate on
+  # — see values.yaml's "NOT set here" comment on config.DEPLOYMENT_REPLICAS
+  # for why this is rendered directly rather than sourced from .Values.config.
+  DEPLOYMENT_REPLICAS: {{ include "portal-api.effectiveReplicas" . | quote }}

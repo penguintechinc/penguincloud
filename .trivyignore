@@ -1,0 +1,13 @@
+# Trivy baseline (see .pre-commit-config.yaml trivy-config hook, pre-push:
+# `trivy config --exit-code 1 --severity HIGH,CRITICAL --quiet .`).
+#
+# KSV-0109 false positive: k8s/helm/portal-api's ConfigMap sets
+# JWT_ACCESS_TOKEN_MINUTES and JWT_REFRESH_TOKEN_DAYS, which are integer
+# durations (30, 7), not secret values -- trivy's heuristic flags them
+# purely because the key name contains the substring "TOKEN". The actual
+# JWT signing material never lives in a ConfigMap: SECRET_KEY/
+# JWT_SECRET_KEY are Secret-managed (see k8s/helm/portal-api/templates/
+# secret.yaml and externalsecret.yaml), and the signing KEY ITSELF is a
+# FileKeyStore on a dedicated PVC (templates/pvc.yaml), never an env var
+# at all -- see services/portal-api/app/__init__.py::_build_oidc_provider.
+KSV-0109

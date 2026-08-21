@@ -1,0 +1,20 @@
+# valkey — beta overrides (dal2-beta cluster).
+
+persistence:
+  enabled: false
+
+secrets:
+  create: false
+
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    name: penguincloud-vault
+    kind: ClusterSecretStore
+  keys:
+    VALKEY_PASSWORD: penguincloud/beta/valkey#VALKEY_PASSWORD
+
+podSecurityAdmission:
+  manageNamespace: false
+  namespace: penguincloud
+  enforce: restricted
