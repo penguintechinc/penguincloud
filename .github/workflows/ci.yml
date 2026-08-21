@@ -205,24 +205,21 @@ jobs:
         # green because tee's own exit code, not pytest's, decided the
         # step's outcome.
         #
-        # This repo currently has NO coverage floor configured anywhere
-        # (no pytest.ini fail-under, no codecov.yml). testing-python.md's
-        # org-wide standard is 90%; actual measured coverage as of this
-        # workflow landing is 78% (`--cov=app --cov-report=term-missing`,
-        # verified locally -- see PR description). The gate is set to that
-        # measured baseline rather than 90%: a fresh 90% gate would fail on
-        # every future PR regardless of what it changes, for a gap this
-        # workflow did not introduce.
-        #
-        # 78 is a TEMPORARY REGRESSION FLOOR, not the target -- it exists so
-        # this number can only go up from here, not so it can stay here.
-        # Raising it to the org-standard 90% is tracked as separate,
-        # follow-up work; do not read 78 as an acceptable steady state, and
-        # never lower it.
+        # This repo's coverage floor was a TEMPORARY REGRESSION FLOOR of 78%
+        # (see git history: this comment previously explained that 78% was
+        # measured, not aspirational, and that 90% was tracked follow-up
+        # work) -- that follow-up work landed in the same change that raised
+        # this number to 90%. testing-python.md's org-wide standard is 90%;
+        # this is now that standard, not a temporary marker, verified
+        # locally at exactly 90% (7107 statements, 696 missed) with 0 test
+        # failures. pyproject.toml's `[tool.coverage.report] fail_under =
+        # 90` mirrors this so a local `pytest --cov=app` enforces the same
+        # floor without repeating the flag; the CLI flag below is still
+        # authoritative in CI. Do not lower this number.
         run: |
           .venv/bin/python -m pytest tests/ -q -rs \
             --cov=app --cov-report=xml:coverage-backend.xml --cov-report=term-missing \
-            --cov-fail-under=78 | tee pytest-backend.log
+            --cov-fail-under=90 | tee pytest-backend.log
 
       - name: Surface skipped tests in the job summary
         # Known gap: TestAgainstLiveNest (tests/api/test_nest_adapter.py)
