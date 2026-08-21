@@ -19,9 +19,6 @@ import re
 from typing import Final
 
 import pytest
-from werkzeug.exceptions import MethodNotAllowed, NotFound
-from werkzeug.routing import Map, RequestRedirect, Rule
-
 from app.adapters import ADAPTER_REGISTRY
 from app.adapters.base import ID_SLUG, ID_UUID, TENANT_PLACEHOLDER, RouteRule
 from app.adapters.nest import NestAdapter
@@ -31,8 +28,9 @@ from app.adapters.nest.routes import (
     SCOPE_MANAGE,
     SCOPE_READ,
 )
-
 from nest_route_source import effective_route_table
+from werkzeug.exceptions import MethodNotAllowed, NotFound
+from werkzeug.routing import Map, RequestRedirect, Rule
 
 #: A tenant id of the shape ``product_tenant_map`` supplies.
 _TENANT: Final[str] = "acme-prod"
@@ -96,20 +94,14 @@ class TestDeniedRoutes:
     """Every case here names a route that must never be proxied."""
 
     @pytest.mark.parametrize(("method", "path"), NEST_UNEXPOSED_ROUTES)
-    def test_declared_unexposed_routes_are_refused(
-        self, method: str, path: str
-    ) -> None:
+    def test_declared_unexposed_routes_are_refused(self, method: str, path: str) -> None:
         """The declaration is only worth having if it is enforced here too.
 
         ``test_adapter_registry`` asserts this registry-wide; repeating it in
         Nest's own matrix is deliberate — this is the file a Nest reviewer
         reads, and the hazard list belongs where the product knowledge is.
         """
-        offenders = [
-            rule.path_regex
-            for rule in NEST_ROUTE_ALLOWLIST
-            if rule.matches(method, path)
-        ]
+        offenders = [rule.path_regex for rule in NEST_ROUTE_ALLOWLIST if rule.matches(method, path)]
         assert not offenders, f"{method} {path} admitted by {offenders!r}"
 
     @pytest.mark.parametrize(
@@ -157,18 +149,14 @@ class TestDeniedRoutes:
             ),
         ],
     )
-    def test_named_hazards_are_refused(
-        self, method: str, path: str, hazard: str
-    ) -> None:
+    def test_named_hazards_are_refused(self, method: str, path: str, hazard: str) -> None:
         """Spelled out individually so a reviewer sees the risk, not a tuple."""
         for rule in NEST_ROUTE_ALLOWLIST:
-            assert not rule.matches(method, path), (
-                f"{method} {path} is allowlisted by {rule.path_regex!r} — {hazard}"
-            )
+            assert not rule.matches(
+                method, path
+            ), f"{method} {path} is allowlisted by {rule.path_regex!r} — {hazard}"
 
-    @pytest.mark.parametrize(
-        "method", ["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-    )
+    @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
     def test_no_mutating_verb_is_proxied_at_all(self, method: str) -> None:
         """Nest's allowlist is GET-only — every write is a typed method.
 
@@ -241,9 +229,7 @@ class TestAdmittedRoutes:
                 rule.matches("GET", path) for rule in NEST_ROUTE_ALLOWLIST
             ), f"{path} should be proxied and is not"
 
-    @pytest.mark.parametrize(
-        "rule", NEST_ROUTE_ALLOWLIST, ids=lambda r: r.path_regex
-    )
+    @pytest.mark.parametrize("rule", NEST_ROUTE_ALLOWLIST, ids=lambda r: r.path_regex)
     def test_every_rule_points_at_a_route_nest_registers(
         self, rule: RouteRule, nest_router: Map
     ) -> None:
@@ -273,9 +259,7 @@ class TestAdmittedRoutes:
                 f"allowlist admits a path the product does not serve"
             )
 
-    @pytest.mark.parametrize(
-        "rule", NEST_ROUTE_ALLOWLIST, ids=lambda r: r.path_regex
-    )
+    @pytest.mark.parametrize("rule", NEST_ROUTE_ALLOWLIST, ids=lambda r: r.path_regex)
     def test_no_rule_carries_a_trailing_slash(self, rule: RouteRule) -> None:
         """Nest registers every route without one, so a slash is a 404.
 
@@ -287,9 +271,7 @@ class TestAdmittedRoutes:
         """
         assert not rule.path_regex.endswith(r"/\Z"), rule.path_regex
 
-    def test_nest_registers_no_route_with_a_trailing_slash(
-        self, nest_router: Map
-    ) -> None:
+    def test_nest_registers_no_route_with_a_trailing_slash(self, nest_router: Map) -> None:
         """The premise of the rule above, asserted against Nest's source.
 
         If Nest ever registers a ``route("/")`` collection the way Gough does,
@@ -315,9 +297,9 @@ class TestScopes:
     def test_reads_require_the_read_scope_not_manage(self) -> None:
         """A read-only operator must reach every proxied Nest route."""
         for rule in NEST_ROUTE_ALLOWLIST:
-            assert rule.required_scope != SCOPE_MANAGE, (
-                f"{rule.path_regex} is a GET but demands manage"
-            )
+            assert (
+                rule.required_scope != SCOPE_MANAGE
+            ), f"{rule.path_regex} is a GET but demands manage"
 
     def test_every_rule_uses_the_per_product_scope(self) -> None:
         """Per-product scopes are what allow a narrower grant later.

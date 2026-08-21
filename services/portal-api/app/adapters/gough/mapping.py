@@ -21,7 +21,7 @@ Two traps this module exists to contain:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Final
 
 from ..base import (
@@ -105,9 +105,7 @@ def parse_timestamp(value: Any) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        from datetime import timezone
-
-        return parsed.replace(tzinfo=timezone.utc)
+        return parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -239,9 +237,7 @@ def map_biome_group(payload: dict[str, Any]) -> Resource:
             "is_default": payload.get("is_default"),
             "biomes": members,
             "biome_ids": [
-                entry["biome_id"]
-                for entry in members
-                if entry.get("biome_id") is not None
+                entry["biome_id"] for entry in members if entry.get("biome_id") is not None
             ],
         },
     )
@@ -313,9 +309,7 @@ def map_deployment(payload: dict[str, Any]) -> Operation:
         resource_id=_identifier(payload, "node_id") or None,
         resource_kind="nodes",
         progress=None,
-        detail=(
-            f"phase {payload['phase']}" if payload.get("phase") is not None else None
-        ),
+        detail=(f"phase {payload['phase']}" if payload.get("phase") is not None else None),
         created_at=parse_timestamp(payload.get("created_at")),
         updated_at=updated,
         completed_at=updated if state.is_terminal else None,
@@ -378,9 +372,7 @@ def map_upgrade_run(payload: dict[str, Any]) -> Operation:
         progress = max(0.0, min(1.0, done / float(total)))
 
     return Operation(
-        id=upgrade_operation_id(
-            _identifier(payload, "biome_id"), _identifier(payload, "id")
-        ),
+        id=upgrade_operation_id(_identifier(payload, "biome_id"), _identifier(payload, "id")),
         kind=OP_BIOME_UPGRADE,
         state=state,
         status=status,

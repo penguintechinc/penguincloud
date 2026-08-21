@@ -176,9 +176,7 @@ class Transport:
 
         # Merge auth headers with any caller-supplied headers
         headers = kwargs.pop("headers", {})
-        auth_headers = self._build_auth_headers(
-            ctx.auth_type, ctx.api_key, ctx.api_secret
-        )
+        auth_headers = self._build_auth_headers(ctx.auth_type, ctx.api_key, ctx.api_secret)
         headers.update(auth_headers)
 
         # Inject correlation ID
@@ -221,9 +219,7 @@ class Transport:
                 # body is read: a retryable 5xx is discarded without pulling
                 # its payload, and the cap below can refuse an oversized body
                 # instead of buffering it first.
-                response = await client.send(
-                    outbound, stream=True, follow_redirects=False
-                )
+                response = await client.send(outbound, stream=True, follow_redirects=False)
             except httpx.RequestError as exc:
                 # Connect errors, read timeouts and the like: no response was
                 # produced, so nothing about the product's state is known.
@@ -267,9 +263,7 @@ class Transport:
         """
         base = urlsplit(ctx.base_url)
         if not base.scheme or not base.netloc:
-            raise CredentialEgressError(
-                "connection has no usable base_url to pin the request to"
-            )
+            raise CredentialEgressError("connection has no usable base_url to pin the request to")
         target = urlsplit(url)
         if (target.scheme, target.netloc) != (base.scheme, base.netloc):
             raise CredentialEgressError(
@@ -280,9 +274,7 @@ class Transport:
         try:
             normalize_proxy_path(target.path or "/")
         except PathTraversalError as exc:
-            raise CredentialEgressError(
-                f"refusing malformed request path: {exc}"
-            ) from exc
+            raise CredentialEgressError(f"refusing malformed request path: {exc}") from exc
 
     @staticmethod
     async def _read_capped(response: httpx.Response) -> httpx.Response:
@@ -322,9 +314,7 @@ class Transport:
             async for chunk in response.aiter_bytes():
                 body.extend(chunk)
                 if len(body) > MAX_RESPONSE_SIZE:
-                    raise ResponseTooLargeError(
-                        f"Response body exceeds {MAX_RESPONSE_SIZE} bytes"
-                    )
+                    raise ResponseTooLargeError(f"Response body exceeds {MAX_RESPONSE_SIZE} bytes")
         finally:
             await response.aclose()
 
@@ -397,18 +387,19 @@ class Transport:
 _transport: Transport | None = None
 
 
-async def get_transport(timeout: float = TIMEOUT_DEFAULT) -> Transport:
+async def get_transport(connect_timeout: float = TIMEOUT_DEFAULT) -> Transport:
     """Get or create the global transport instance.
 
     Args:
-        timeout: Request timeout in seconds (only used on first call)
+        connect_timeout: Per-request timeout in seconds for the underlying
+            HTTP client, applied only on first call
 
     Returns:
         Connected Transport instance
     """
     global _transport
     if _transport is None:
-        _transport = Transport(timeout=timeout)
+        _transport = Transport(timeout=connect_timeout)
         await _transport.connect()
     return _transport
 

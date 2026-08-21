@@ -68,7 +68,7 @@ class TestRouteRuleAnchoring:
         with pytest.raises(ValueError, match="end-anchored"):
             RouteRule("GET", r"^/users", "products:read")
 
-    def test_dollar_anchor_is_rejected_in_favour_of_Z(self) -> None:
+    def test_dollar_anchor_is_rejected_in_favour_of_z_anchor(self) -> None:
         r"""``$`` also matches before a trailing newline; ``\Z`` does not."""
         with pytest.raises(ValueError, match=r"trailing\s+newline"):
             RouteRule("GET", r"^/health$", "products:read")
@@ -101,7 +101,7 @@ class TestRouteRuleAnchoring:
         assert rule.matches("GET", "/health\n") is False
 
     def test_rule_does_not_match_a_traversal_of_its_own_prefix(self) -> None:
-        """``^/users(/.*)?\\Z`` must not admit ``/users/../admin``.
+        r"""``^/users(/.*)?\\Z`` must not admit ``/users/../admin``.
 
         Anchoring alone does not settle this — ``/users/../admin`` genuinely
         matches ``^/users(/.*)?\\Z``. The path is refused as malformed before
@@ -201,7 +201,7 @@ class TestPathNormalization:
             normalize_proxy_path(hostile)
 
     def test_backslash_is_refused(self) -> None:
-        """Some servers treat ``\\`` as a separator, making ``..\\`` traversal."""
+        r"""Some servers treat ``\\`` as a separator, making ``..\\`` traversal."""
         with pytest.raises(PathTraversalError):
             normalize_proxy_path("/users\\..\\admin")
 
@@ -229,9 +229,7 @@ class TestDeclaredSubstitution:
 
     def test_default_substitution_maps_tenant_to_the_mapped_external_id(self) -> None:
         """The one substitution every adapter gets, stated in the contract."""
-        assert DEFAULT_PATH_SUBSTITUTIONS == (
-            PathSubstitution(TENANT_PLACEHOLDER, "external_id"),
-        )
+        assert DEFAULT_PATH_SUBSTITUTIONS == (PathSubstitution(TENANT_PLACEHOLDER, "external_id"),)
 
     def test_substitution_must_name_a_real_context_field(self) -> None:
         """A typo'd attribute would silently substitute an empty string."""
@@ -255,9 +253,7 @@ class TestDeclaredSubstitution:
         the kind of thing that either works by accident or never matches,
         and the difference is not visible in review.
         """
-        rule = RouteRule(
-            "GET", rf"^/orgs/{TENANT_PLACEHOLDER_PATTERN}/vms\Z", "products:read"
-        )
+        rule = RouteRule("GET", rf"^/orgs/{TENANT_PLACEHOLDER_PATTERN}/vms\Z", "products:read")
 
         assert rule.matches("GET", "/orgs/{tenant}/vms") is True
         assert rule.matches("GET", "/orgs/somebody-else/vms") is False
@@ -277,9 +273,7 @@ class TestErrorTaxonomy:
             (UpstreamError("x"), 502),
         ],
     )
-    def test_each_member_maps_to_one_status(
-        self, error: AdapterError, status: int
-    ) -> None:
+    def test_each_member_maps_to_one_status(self, error: AdapterError, status: int) -> None:
         """Defined once, so three adapters cannot invent three mappings."""
         assert adapter_error_status(error) == status
 
@@ -290,10 +284,10 @@ class TestErrorTaxonomy:
         behaviour.
         """
 
-        class NovelFailure(AdapterError):
+        class NovelFailureError(AdapterError):
             """A subclass added without a mapping."""
 
-        assert adapter_error_status(NovelFailure("x")) == 502
+        assert adapter_error_status(NovelFailureError("x")) == 502
 
     def test_everything_shares_one_base(self) -> None:
         """One ``except AdapterError`` catches the whole taxonomy."""
@@ -359,9 +353,7 @@ class TestDashboardShapes:
         fabricated total is worse than an absent one because the UI renders
         it as fact.
         """
-        page: Page[Resource] = Page(
-            items=[], cursor="c1", next_cursor="c2", has_more=True
-        )
+        page: Page[Resource] = Page(items=[], cursor="c1", next_cursor="c2", has_more=True)
 
         assert page.total is None
         assert page.has_more is True
@@ -369,9 +361,7 @@ class TestDashboardShapes:
 
     def test_page_supports_offset_pagination(self) -> None:
         """The offset style still works, unchanged in meaning."""
-        page: Page[Resource] = Page(
-            items=[], page=2, per_page=50, total=120, has_more=True
-        )
+        page: Page[Resource] = Page(items=[], page=2, per_page=50, total=120, has_more=True)
 
         assert (page.page, page.per_page, page.total) == (2, 50, 120)
         assert page.cursor is None

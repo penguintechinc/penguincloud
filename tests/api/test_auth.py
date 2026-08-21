@@ -162,17 +162,13 @@ class TestAuthRequiredRejects:
     @pytest.mark.asyncio
     async def test_malformed_header_rejected(self, client: Any) -> None:
         """A non-Bearer scheme is not accepted."""
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": "Basic abc123"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": "Basic abc123"})
         assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_garbage_token_rejected(self, client: Any) -> None:
         """A token that is not a JWT at all."""
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": "Bearer not-a-jwt"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": "Bearer not-a-jwt"})
         assert response.status_code == 401
 
     @pytest.mark.asyncio
@@ -201,27 +197,21 @@ class TestAuthRequiredRejects:
             headers={"kid": kid},
         )
 
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": f"Bearer {forged}"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": f"Bearer {forged}"})
         assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_wrong_issuer_rejected(self, app: Quart, client: Any) -> None:
         """Correctly signed but issued by someone else."""
         token = _mint(app, iss="https://evil.example.com")
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_wrong_audience_rejected(self, app: Quart, client: Any) -> None:
         """Correctly signed but minted for a different audience."""
         token = _mint(app, aud=["some-other-service"])
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 
     @pytest.mark.asyncio
@@ -233,9 +223,7 @@ class TestAuthRequiredRejects:
             iat=int(past.timestamp()),
             exp=int((past + timedelta(hours=1)).timestamp()),
         )
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 
     @pytest.mark.asyncio
@@ -259,29 +247,21 @@ class TestAuthRequiredRejects:
             algorithm="RS256",
             headers={"kid": "no-such-key-id"},
         )
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_missing_tenant_claim_rejected(
-        self, app: Quart, client: Any
-    ) -> None:
+    async def test_missing_tenant_claim_rejected(self, app: Quart, client: Any) -> None:
         """security.md requires a tenant claim on every token."""
         token = _mint(app, tenant="")
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_missing_sub_claim_rejected(self, app: Quart, client: Any) -> None:
         """A token with no subject identifies nobody."""
         token = _mint(app, sub="")
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 
 
@@ -296,9 +276,7 @@ class TestTokenTypeConfusion:
     """
 
     @pytest.mark.asyncio
-    async def test_id_token_rejected_on_protected_route(
-        self, app: Quart, client: Any
-    ) -> None:
+    async def test_id_token_rejected_on_protected_route(self, app: Quart, client: Any) -> None:
         """The real id token from issue_token_set is refused."""
         async with app.app_context():
             from app.auth import create_token_set_async
@@ -311,9 +289,7 @@ class TestTokenTypeConfusion:
                 role="viewer",
             )
             assert user is not None
-            token_set = await create_token_set_async(
-                user["id"], tenant_id="", role="viewer"
-            )
+            token_set = await create_token_set_async(user["id"], tenant_id="", role="viewer")
 
         # Sanity: the access token from the same set IS accepted, so the
         # rejection below is about token type and nothing else.
@@ -331,14 +307,10 @@ class TestTokenTypeConfusion:
         assert "token type" in (await response.get_json())["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_refresh_token_rejected_on_protected_route(
-        self, client: Any
-    ) -> None:
+    async def test_refresh_token_rejected_on_protected_route(self, client: Any) -> None:
         """An opaque refresh token is not a bearer credential."""
         email, _ = await _register(client)
-        login = await client.post(
-            "/api/v1/auth/login", json={"email": email, "password": PASSWORD}
-        )
+        login = await client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
         refresh_token = (await login.get_json())["refresh_token"]
 
         response = await client.get(
@@ -347,9 +319,7 @@ class TestTokenTypeConfusion:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_token_without_token_use_rejected(
-        self, app: Quart, client: Any
-    ) -> None:
+    async def test_token_without_token_use_rejected(self, app: Quart, client: Any) -> None:
         """A token omitting token_use fails closed rather than defaulting."""
         signing_key, kid, config = _signing_material(app)
         now = datetime.now(UTC)
@@ -366,9 +336,7 @@ class TestTokenTypeConfusion:
             algorithm=config["JWT_ALGORITHM"],
             headers={"kid": kid},
         )
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 
 
@@ -376,14 +344,10 @@ class TestErrorDisclosure:
     """Verification failures must not describe themselves to the caller."""
 
     @pytest.mark.asyncio
-    async def test_rejection_does_not_leak_exception_detail(
-        self, app: Quart, client: Any
-    ) -> None:
+    async def test_rejection_does_not_leak_exception_detail(self, app: Quart, client: Any) -> None:
         """The 401 body is generic — no PyJWT exception text echoed out."""
         token = _mint(app, aud=["some-other-service"])
-        response = await client.get(
-            PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"}
-        )
+        response = await client.get(PROTECTED_ROUTE, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 
         error = (await response.get_json())["error"]

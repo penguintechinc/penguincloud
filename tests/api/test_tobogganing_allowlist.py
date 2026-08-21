@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Final
 
 import pytest
-
 from app.adapters.base import ID_UUID
 from app.adapters.tobogganing import (
     TOBOGGANING_ROUTE_ALLOWLIST,
@@ -53,7 +52,6 @@ from app.adapters.tobogganing.routes import (
     SEGMENT_PREVIEW,
     SEGMENT_PUBLISH,
 )
-
 from tobogganing_route_source import (
     AUTH_USER_JWT,
     effective_auth_table,
@@ -70,14 +68,7 @@ _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 #: The webui module whose ``proxyApi.request`` call sites are the browser-side
 #: consumers of this allowlist.
 _WEBUI_API_TS: Final[Path] = (
-    _REPO_ROOT
-    / "services"
-    / "webui"
-    / "src"
-    / "client"
-    / "api"
-    / "resources"
-    / "tobogganing.ts"
+    _REPO_ROOT / "services" / "webui" / "src" / "client" / "api" / "resources" / "tobogganing.ts"
 )
 
 #: ``proxyApi.request(productId, "VERB", <path expression>`` — the verb and the
@@ -103,8 +94,7 @@ def _webui_collection_paths() -> dict[str, str]:
     """
     source = (_WEBUI_API_TS.parent / "tobogganingPaths.ts").read_text(encoding="utf-8")
     match = re.search(
-        r"export const TOBOGGANING_COLLECTION_PATHS\s*=\s*\{(?P<body>.*?)\}"
-        r"\s*as const;",
+        r"export const TOBOGGANING_COLLECTION_PATHS\s*=\s*\{(?P<body>.*?)\}" r"\s*as const;",
         source,
         re.DOTALL,
     )
@@ -363,8 +353,7 @@ class TestAdmissions:
                 wrong.append(f"{rule.method} {normalised} is {kind!r}")
 
         assert not wrong, (
-            f"these allowlist rules point at routes that are not on the user "
-            f"plane: {wrong}"
+            f"these allowlist rules point at routes that are not on the user " f"plane: {wrong}"
         )
 
 
@@ -492,9 +481,7 @@ class TestConsumers:
             if member:
                 consumers.add((verb, f"/{paths[member.group(1)]}"))
                 continue
-            item = re.fullmatch(
-                r"blockPagePath\(\s*pageId\s*(?:,\s*(?P<seg>\w+)\s*)?\)", expr
-            )
+            item = re.fullmatch(r"blockPagePath\(\s*pageId\s*(?:,\s*(?P<seg>\w+)\s*)?\)", expr)
             if item:
                 base = f"/{paths['blockPages']}/{_UUID}"
                 segment = item.group("seg")

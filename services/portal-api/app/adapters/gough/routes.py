@@ -1,4 +1,4 @@
-"""Gough's deny-by-default proxy allowlist.
+r"""Gough's deny-by-default proxy allowlist.
 
 This list governs the PROXY only — the untrusted-input path, where the
 browser supplies the path string. The adapter's typed methods are not

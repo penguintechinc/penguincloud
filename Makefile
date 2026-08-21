@@ -265,15 +265,44 @@ openapi-lint: ## API - Lint openapi/v1.yaml with spectral
 		--ruleset .spectral.yaml --fail-severity=error
 
 
-lint: ## Code Quality - Run linting for all languages
+# golangci-lint/hadolint/shellcheck: `command -v TOOL` guarding a `|| true`
+# check is exactly the shape that let `make lint` report success while
+# running no Python linter at all (see lint-python below) — fixed the same
+# way here: find the relevant files FIRST, and only require the tool (fail
+# loud if absent) when there's something for it to check. A machine with no
+# Go code installed doesn't need golangci-lint; one with Dockerfiles or
+# shell scripts does need hadolint/shellcheck, and silently skipping them
+# because the binary happened to be missing is the bug, not a feature.
+# `--severity=warning` on shellcheck and the $(PORTAL_API_VENV) exclusion
+# match the pre-commit hook exactly, so this and the real gate agree.
+#
+# eslint(web)/eslint(root)/flutter analyze below keep `|| true` on purpose:
+# those are gated on `[ -f/-d ]`, not `command -v`, so they're not the same
+# bug (a missing dir just means "nothing to lint", not "tool not found").
+# flutter analyze in particular has ~700 pre-existing findings in
+# services/mobile — turning that into a hard gate here is a separate,
+# much bigger cleanup, not part of this fix.
+lint: venv-portal-api ## Code Quality - Run linting for all languages
 	@echo "$(BLUE)=== Linting ===$(RESET)"
-	@if command -v flake8 >/dev/null 2>&1; then echo "$(YELLOW)-- flake8 --$(RESET)"; python3 -m flake8 . --max-line-length=120 --exclude=.git,__pycache__,venv,node_modules || true; fi
-	@if command -v black >/dev/null 2>&1; then echo "$(YELLOW)-- black --$(RESET)"; black --check . --exclude '/(\.git|venv|__pycache__|node_modules)/' || true; fi
-	@if command -v isort >/dev/null 2>&1; then echo "$(YELLOW)-- isort --$(RESET)"; isort --check-only . || true; fi
-	@if command -v mypy >/dev/null 2>&1; then echo "$(YELLOW)-- mypy --$(RESET)"; python3 -m mypy . --ignore-missing-imports || true; fi
-	@if command -v golangci-lint >/dev/null 2>&1; then echo "$(YELLOW)-- golangci-lint --$(RESET)"; find . -name "go.mod" -not -path "*/.git/*" -not -path "*/vendor/*" | xargs -I{} dirname {} | xargs -I{} sh -c 'cd {} && golangci-lint run || true'; fi
-	@if command -v hadolint >/dev/null 2>&1; then echo "$(YELLOW)-- hadolint --$(RESET)"; find . -name "Dockerfile*" -not -path "*/.git/*" | xargs hadolint || true; fi
-	@if command -v shellcheck >/dev/null 2>&1; then echo "$(YELLOW)-- shellcheck --$(RESET)"; find . -name "*.sh" -not -path "*/.git/*" | xargs shellcheck || true; fi
+	@$(MAKE) --no-print-directory lint-python
+	@gomods=$$(find . -name "go.mod" -not -path "*/.git/*" -not -path "*/vendor/*" -not -path "*/$(PORTAL_API_VENV)/*"); \
+	if [ -n "$$gomods" ]; then \
+		echo "$(YELLOW)-- golangci-lint --$(RESET)"; \
+		command -v golangci-lint >/dev/null 2>&1 || { echo "$(RED)golangci-lint not installed, but go.mod files exist$(RESET)"; exit 1; }; \
+		echo "$$gomods" | xargs -I{} dirname {} | xargs -I{} sh -c 'cd {} && golangci-lint run'; \
+	fi
+	@dockerfiles=$$(find . -name "Dockerfile*" -not -path "*/.git/*" -not -path "*/node_modules/*" -not -path "*/$(PORTAL_API_VENV)/*"); \
+	if [ -n "$$dockerfiles" ]; then \
+		echo "$(YELLOW)-- hadolint --$(RESET)"; \
+		command -v hadolint >/dev/null 2>&1 || { echo "$(RED)hadolint not installed, but Dockerfiles exist$(RESET)"; exit 1; }; \
+		echo "$$dockerfiles" | xargs hadolint; \
+	fi
+	@shfiles=$$(find . -name "*.sh" -not -path "*/.git/*" -not -path "*/node_modules/*" -not -path "*/$(PORTAL_API_VENV)/*"); \
+	if [ -n "$$shfiles" ]; then \
+		echo "$(YELLOW)-- shellcheck --$(RESET)"; \
+		command -v shellcheck >/dev/null 2>&1 || { echo "$(RED)shellcheck not installed, but shell scripts exist$(RESET)"; exit 1; }; \
+		echo "$$shfiles" | xargs shellcheck --severity=warning; \
+	fi
 	@if [ -f "web/package.json" ]; then echo "$(YELLOW)-- eslint (web) --$(RESET)"; cd web && npm run lint || true; fi
 	@if [ -f "package.json" ]; then echo "$(YELLOW)-- eslint (root) --$(RESET)"; npm run lint || true; fi
 	@if [ -d "services/mobile" ]; then echo "$(YELLOW)-- flutter analyze --$(RESET)"; cd services/mobile && flutter analyze || true; fi
@@ -283,12 +312,16 @@ lint-go: ## Code Quality - Run Go linting
 	@echo "$(BLUE)Linting Go code...$(RESET)"
 	@golangci-lint run
 
-lint-python: ## Code Quality - Run Python linting
+# ruff replaced flake8/black/isort repo-wide (PR #18) — those three are no
+# longer installed anywhere, not even in .venv. Runs through the pinned
+# venv (never $(PATH)) for the same reason the mypy pre-commit hook does —
+# see scripts/hooks/run-mypy.sh. No `command -v` guard and no `|| true`: a
+# missing venv or a real finding must fail the target, not report clean.
+lint-python: venv-portal-api ## Code Quality - Run Python linting (ruff + mypy, via the pinned venv)
 	@echo "$(BLUE)Linting Python code...$(RESET)"
-	@flake8 .
-	@black --check .
-	@isort --check-only .
-	@mypy . --ignore-missing-imports
+	@$(PORTAL_API_VENV)/bin/ruff check .
+	@$(PORTAL_API_VENV)/bin/ruff format --check .
+	@$(PORTAL_API_VENV)/bin/mypy . --ignore-missing-imports
 
 lint-node: ## Code Quality - Run Node.js linting
 	@echo "$(BLUE)Linting Node.js code...$(RESET)"
@@ -588,14 +621,41 @@ test-functional: ## Testing - Run functional tests
 	@echo "$(BLUE)Running functional tests...$(RESET)"
 	@echo "$(YELLOW)No functional tests defined$(RESET)"
 
+# Same "tool missing -> reports clean" bug class as `lint` above, fixed the
+# same way: fail loud only when there's actually something for the tool to
+# check. bandit and pip-audit are unconditional (this repo always has
+# Python) and both verified clean, so their `|| true` is dropped too.
+# gitleaks stays advisory on its OWN findings (not just "tool missing"):
+# `--no-git` scans the working tree unscoped and currently flags 8 hits,
+# all illustrative API-key/curl-auth-header examples in docs/standards/*.md
+# and docs/API.md — files this repo is not allowed to edit (see repo
+# CLAUDE.md). The real, blocking gate is the pre-commit `gitleaks
+# protect --staged` hook, which only scans staged diffs and doesn't hit
+# this false-positive class.
 test-security: ## Testing - Run security tests
 	@echo "$(BLUE)=== Security Scans ===$(RESET)"
-	@if command -v bandit >/dev/null 2>&1; then echo "$(YELLOW)-- bandit --$(RESET)"; bandit -r . -x ./tests,./venv,./.git --quiet || true; fi
-	@if command -v pip-audit >/dev/null 2>&1; then echo "$(YELLOW)-- pip-audit --$(RESET)"; find . -name "requirements.txt" -not -path "*/.git/*" -not -path "*/venv/*" | xargs -I{} pip-audit -r {} 2>/dev/null || true; fi
-	@if command -v gosec >/dev/null 2>&1; then echo "$(YELLOW)-- gosec --$(RESET)"; find . -name "go.mod" -not -path "*/.git/*" -not -path "*/vendor/*" | xargs -I{} dirname {} | xargs -I{} sh -c 'cd {} && gosec ./... || true'; fi
-	@if command -v govulncheck >/dev/null 2>&1; then echo "$(YELLOW)-- govulncheck --$(RESET)"; find . -name "go.mod" -not -path "*/.git/*" -not -path "*/vendor/*" | xargs -I{} dirname {} | xargs -I{} sh -c 'cd {} && govulncheck ./... || true'; fi
+	@echo "$(YELLOW)-- bandit --$(RESET)"
+	@command -v bandit >/dev/null 2>&1 || { echo "$(RED)bandit not installed$(RESET)"; exit 1; }
+	@bandit -r . -x ./tests,./.venv,./venv,./.git -ll --quiet
+	@reqs=$$(find . -name "requirements.txt" -not -path "*/.git/*" -not -path "*/venv/*" -not -path "*/.venv/*"); \
+	if [ -n "$$reqs" ]; then \
+		echo "$(YELLOW)-- pip-audit --$(RESET)"; \
+		command -v pip-audit >/dev/null 2>&1 || { echo "$(RED)pip-audit not installed, but requirements.txt files exist$(RESET)"; exit 1; }; \
+		echo "$$reqs" | xargs -I{} pip-audit -r {}; \
+	fi
+	@gomods=$$(find . -name "go.mod" -not -path "*/.git/*" -not -path "*/vendor/*" -not -path "*/$(PORTAL_API_VENV)/*"); \
+	if [ -n "$$gomods" ]; then \
+		echo "$(YELLOW)-- gosec --$(RESET)"; \
+		command -v gosec >/dev/null 2>&1 || { echo "$(RED)gosec not installed, but go.mod files exist$(RESET)"; exit 1; }; \
+		echo "$$gomods" | xargs -I{} dirname {} | xargs -I{} sh -c 'cd {} && gosec ./...'; \
+		echo "$(YELLOW)-- govulncheck --$(RESET)"; \
+		command -v govulncheck >/dev/null 2>&1 || { echo "$(RED)govulncheck not installed, but go.mod files exist$(RESET)"; exit 1; }; \
+		echo "$$gomods" | xargs -I{} dirname {} | xargs -I{} sh -c 'cd {} && govulncheck ./...'; \
+	fi
 	@find . -name "package.json" -not -path "*/.git/*" -not -path "*/node_modules/*" -maxdepth 3 | xargs -I{} dirname {} | xargs -I{} sh -c 'cd {} && npm audit 2>/dev/null || true'
-	@if command -v gitleaks >/dev/null 2>&1; then echo "$(YELLOW)-- gitleaks --$(RESET)"; gitleaks detect --source . --no-git 2>/dev/null || true; fi
+	@echo "$(YELLOW)-- gitleaks --$(RESET)"
+	@command -v gitleaks >/dev/null 2>&1 || { echo "$(RED)gitleaks not installed$(RESET)"; exit 1; }
+	@gitleaks detect --source . --no-git 2>/dev/null || true
 
 deploy-dev: ## Deploy - Deploy to development environment
 	@echo "$(BLUE)Deploying to development...$(RESET)"

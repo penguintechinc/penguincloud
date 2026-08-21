@@ -77,9 +77,17 @@ python-decouple>=3.8
 pytest>=9.0.0
 pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0
-black>=26.0.0
-flake8>=7.1.0
-isort>=5.13.0
+ruff==0.8.4                 # PINNED to match .pre-commit-config.yaml's
+                             # ruff-pre-commit rev exactly - the hook runs in
+                             # its OWN isolated env (mirrors-ruff), so this is
+                             # what `make lint`/`make lint-python` use to get
+                             # the same answer locally without needing a
+                             # second install. Bump both together, never one
+                             # alone (same drift class the mypy hook hit -
+                             # see docs/DEVELOPMENT.md). Replaces
+                             # flake8/black/isort, which ruff replaced
+                             # repo-wide (PR #18) and which are no longer the
+                             # gate anywhere.
 mypy>=1.14.0
 types-PyYAML>=6.0.0         # stubs for `yaml` (scripts/export-openapi.py);
                             # PyYAML ships none inline, and mypy --strict

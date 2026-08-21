@@ -72,8 +72,8 @@ from quart_schema import validate_response
 
 from .adapters import get_adapter
 from .adapters.base import (
-    AdapterError,
     RESOURCE_OPERATION_ID_KEY,
+    AdapterError,
     Resource,
 )
 from .middleware import auth_required
@@ -163,9 +163,7 @@ async def create_resource(product_id: int, kind: str) -> tuple[Any, int]:
     would leave a client that ignores the body unable to tell a created
     resource from a rejected one.
     """
-    ctx, product_type, error = await resolve_product_context(
-        product_id, ACTION_MANAGE
-    )
+    ctx, product_type, error = await resolve_product_context(product_id, ACTION_MANAGE)
     if error is not None or ctx is None or product_type is None:
         return error or NOT_FOUND
 
@@ -186,24 +184,18 @@ async def create_resource(product_id: int, kind: str) -> tuple[Any, int]:
     return ResourceView.of(resource), 201
 
 
-@resources_bp.route(
-    "/<int:product_id>/resources/<kind>/<resource_id>", methods=["DELETE"]
-)
+@resources_bp.route("/<int:product_id>/resources/<kind>/<resource_id>", methods=["DELETE"])
 @auth_required
 @tenancy_aware
 @validate_response(ResourceDeletedResponse)
-async def delete_resource(
-    product_id: int, kind: str, resource_id: str
-) -> tuple[Any, int]:
+async def delete_resource(product_id: int, kind: str, resource_id: str) -> tuple[Any, int]:
     """Delete one resource from the connected product.
 
     A product that refuses because the resource is still referenced surfaces as
     ``409`` through the shared taxonomy, which is the distinction a confirm
     dialog needs — see the module docstring.
     """
-    ctx, product_type, error = await resolve_product_context(
-        product_id, ACTION_MANAGE
-    )
+    ctx, product_type, error = await resolve_product_context(product_id, ACTION_MANAGE)
     if error is not None or ctx is None or product_type is None:
         return error or NOT_FOUND
 

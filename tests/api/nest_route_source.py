@@ -41,8 +41,8 @@ from typing import Any, Final
 
 from product_source_fixtures import (
     load_fixture,
-    provenance,
     method_map,
+    provenance,
     unmethod_map,
     write_fixture,
 )
@@ -137,7 +137,7 @@ def _declared_methods(call: ast.Call) -> frozenset[str]:
     for keyword in call.keywords:
         if keyword.arg != "methods":
             continue
-        if not isinstance(keyword.value, (ast.List, ast.Tuple)):
+        if not isinstance(keyword.value, ast.List | ast.Tuple):
             continue
         methods = {
             literal.upper()
@@ -171,7 +171,7 @@ def route_table(root: Path | None = None) -> dict[str, frozenset[str]]:
     registrations = 0
 
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         for decorator in node.decorator_list:
             if not isinstance(decorator, ast.Call):
@@ -188,9 +188,7 @@ def route_table(root: Path | None = None) -> dict[str, frozenset[str]]:
             registrations += 1
             table.setdefault(path, set()).update(_declared_methods(decorator))
 
-    assert (
-        registrations >= _MINIMUM_REGISTRATIONS and len(table) >= _MINIMUM_PATHS
-    ), (
+    assert registrations >= _MINIMUM_REGISTRATIONS and len(table) >= _MINIMUM_PATHS, (
         f"parsed {registrations} route registrations across {len(table)} "
         f"distinct paths from {module}, expected at least "
         f"{_MINIMUM_REGISTRATIONS} / {_MINIMUM_PATHS}. The file's registration "
@@ -253,7 +251,7 @@ def envelope_keys(root: Path | None = None) -> dict[str, str]:
     for path in sorted(handlers.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             key = _envelope_key_of(node)
             if key is not None:

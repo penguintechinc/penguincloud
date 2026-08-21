@@ -36,7 +36,33 @@ select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
 # itself -- identical fixture patterns in untouched files were still
 # unsuppressed findings waiting to surface the next time ruff touched
 # them. Consolidated to this one rule, one tree, stated once.
-"tests/**" = ["S101", "S105", "S107"]
+#
+# S106 (hardcoded-password-func-arg) joined during the dependency-hygiene
+# lint cleanup for the identical reason as S105/S107 above -- it is the
+# keyword-argument form of the same name-pattern heuristic
+# (`password="short"`, `password_hash="hashedpwd"` in auth fixtures), just
+# a rule ruff hadn't been actually running long enough to surface before.
+#
+# S603 (subprocess-call-check) joined the same day: several test files
+# invoke `subprocess.run([sys.executable, "script.py", ...])` with a fully
+# static argv to exercise a script in-process-adjacent (no shell, no
+# untrusted input, nothing caller-controlled) -- test_declared_dependencies_
+# suffice.py, product_source_fixtures.py, and tobogganing_route_source.py
+# had each independently landed an identical inline `# noqa: S603` for this
+# exact pattern before test_openapi_spec.py hit the same finding and had no
+# precedent to follow. Consolidating avoids a fifth scattered copy.
+"tests/**" = ["S101", "S105", "S106", "S107", "S603"]
+
+# `token_type: str = "Bearer"` is the literal OAuth2 response field name
+# (RFC 6749 §5.1) holding the auth scheme, not a credential -- S105 matches
+# on the identifier containing "token", not on the value. See the tests/**
+# S105 rationale above for the same bandit heuristic.
+"services/portal-api/app/killkrill_client/client.py" = ["S105"]
+
+# `TOKEN_USE_ACCESS = "access"` is the literal value of penguin-aaa's
+# `token_use` JWT claim (see the constant's own docstring), not a
+# credential -- same S105 name-pattern false positive as above.
+"services/portal-api/app/middleware.py" = ["S105"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

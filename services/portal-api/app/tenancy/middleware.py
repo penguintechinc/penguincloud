@@ -11,13 +11,14 @@ containing the active tenant's full hierarchy information.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Awaitable, Callable, Optional, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 from quart import g
 
-from .resolver import get_hierarchy, TenantHierarchy
+from .resolver import TenantHierarchy, get_hierarchy
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ def tenancy_aware(
         from app.config import UNSCOPED_TENANT
 
         # Get tenant from already-validated JWT claims
-        claims: Optional[dict[str, Any]] = g.get("current_claims", None)
+        claims: dict[str, Any] | None = g.get("current_claims", None)
         if not claims:
             return {"error": "Authentication required"}, 401
 
@@ -152,10 +153,10 @@ def tenancy_aware(
     return decorated
 
 
-def get_tenancy_context() -> Optional[TenancyContext]:
+def get_tenancy_context() -> TenancyContext | None:
     """Get the tenancy context from the current request.
 
     Returns None if tenancy_aware was not applied to the route.
     """
-    context: Optional[TenancyContext] = g.get("tenancy_context", None)
+    context: TenancyContext | None = g.get("tenancy_context", None)
     return context

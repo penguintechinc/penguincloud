@@ -1,11 +1,9 @@
-"""
-Main ReceiverClient implementation with JWT authentication and protocol fallback.
-"""
+"""Main ReceiverClient implementation with JWT authentication and protocol fallback."""
 
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, List
+from typing import Any
 
 import httpx
 import structlog
@@ -32,9 +30,7 @@ class TokenInfo:
 
 
 class ReceiverClient:
-    """
-    Unified client for Killkrill receivers with JWT auth and gRPC/REST fallback.
-    """
+    """Unified client for Killkrill receivers with JWT auth and gRPC/REST fallback."""
 
     def __init__(
         self,
@@ -45,8 +41,7 @@ class ReceiverClient:
         max_retries: int = 3,
         retry_backoff: float = 1.0,
     ) -> None:
-        """
-        Initialize receiver client.
+        """Initialize receiver client.
 
         Args:
             api_url: REST API base URL (https://receiver.example.com)
@@ -72,8 +67,7 @@ class ReceiverClient:
         self._lock = asyncio.Lock()
 
     async def authenticate(self) -> bool:
-        """
-        Authenticate with the receiver and obtain JWT token.
+        """Authenticate with the receiver and obtain JWT token.
 
         Returns:
             True if authentication successful
@@ -95,8 +89,7 @@ class ReceiverClient:
 
                     if response.status_code != 200:
                         raise AuthenticationError(
-                            f"Authentication failed: {response.status_code} - "
-                            f"{response.text}"
+                            f"Authentication failed: {response.status_code} - " f"{response.text}"
                         )
 
                     data = response.json()
@@ -117,14 +110,13 @@ class ReceiverClient:
 
             except httpx.RequestError as e:
                 logger.error("authentication_request_failed", error=str(e))
-                raise AuthenticationError(f"Authentication request failed: {str(e)}")
+                raise AuthenticationError(f"Authentication request failed: {str(e)}") from e
             except KeyError as e:
                 logger.error("authentication_response_invalid", missing_field=str(e))
-                raise AuthenticationError(f"Invalid authentication response: {str(e)}")
+                raise AuthenticationError(f"Invalid authentication response: {str(e)}") from e
 
     async def refresh_token(self) -> bool:
-        """
-        Refresh JWT token using refresh token.
+        """Refresh JWT token using refresh token.
 
         Returns:
             True if refresh successful
@@ -152,9 +144,7 @@ class ReceiverClient:
                     expires_in = data.get("expires_in", 3600)
 
                     self.token_info.access_token = data["access_token"]
-                    self.token_info.expires_at = datetime.utcnow() + timedelta(
-                        seconds=expires_in
-                    )
+                    self.token_info.expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
 
                     logger.info("token_refreshed")
 
@@ -164,7 +154,7 @@ class ReceiverClient:
 
             except httpx.RequestError as e:
                 logger.error("token_refresh_request_failed", error=str(e))
-                raise AuthenticationError(f"Token refresh failed: {str(e)}")
+                raise AuthenticationError(f"Token refresh failed: {str(e)}") from e
 
     async def _initialize_clients(self) -> None:
         """Initialize gRPC and REST clients with current token."""
@@ -184,8 +174,7 @@ class ReceiverClient:
             await self._fallback_to_rest()
 
     async def _try_grpc(self) -> bool:
-        """
-        Attempt to establish gRPC connection.
+        """Attempt to establish gRPC connection.
 
         Returns:
             True if gRPC connection successful
@@ -194,9 +183,7 @@ class ReceiverClient:
             return False
 
         try:
-            self.grpc_client = GRPCSubmitter(
-                self.grpc_url, self.token_info.access_token
-            )
+            self.grpc_client = GRPCSubmitter(self.grpc_url, self.token_info.access_token)
 
             if self.grpc_client.connect():
                 self.use_grpc = True
@@ -228,8 +215,7 @@ class ReceiverClient:
             await self.refresh_token()
 
     async def _retry_with_backoff(self, operation: str, func: Any, *args: Any) -> bool:
-        """
-        Execute operation with exponential backoff retry logic.
+        """Execute operation with exponential backoff retry logic.
 
         Args:
             operation: Operation name for logging
@@ -270,14 +256,11 @@ class ReceiverClient:
                         logger.info("attempting_protocol_fallback")
                         await self._fallback_to_rest()
 
-        logger.error(
-            "operation_failed_all_retries", operation=operation, error=str(last_error)
-        )
+        logger.error("operation_failed_all_retries", operation=operation, error=str(last_error))
         raise SubmissionError(f"{operation} failed after {self.max_retries} retries")
 
-    async def submit_logs(self, logs: List[dict[str, Any]]) -> bool:
-        """
-        Submit logs via gRPC or REST fallback.
+    async def submit_logs(self, logs: list[dict[str, Any]]) -> bool:
+        """Submit logs via gRPC or REST fallback.
 
         Args:
             logs: List of log entries
@@ -299,9 +282,8 @@ class ReceiverClient:
 
         return await self._retry_with_backoff("submit_logs", _submit)
 
-    async def submit_metrics(self, metrics: List[dict[str, Any]]) -> bool:
-        """
-        Submit metrics via gRPC or REST fallback.
+    async def submit_metrics(self, metrics: list[dict[str, Any]]) -> bool:
+        """Submit metrics via gRPC or REST fallback.
 
         Args:
             metrics: List of metric entries
@@ -324,8 +306,7 @@ class ReceiverClient:
         return await self._retry_with_backoff("submit_metrics", _submit)
 
     async def health_check(self) -> bool:
-        """
-        Check connection health.
+        """Check connection health.
 
         Returns:
             True if connection is healthy

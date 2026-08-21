@@ -20,8 +20,9 @@ Deliberate capability gaps, each a 501 rather than an empty list:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Callable, Final
+from typing import Any, Final
 
 import httpx
 
@@ -324,14 +325,10 @@ class GoughAdapter(HealthOnlyAdapter):
         if not filters:
             return {}
         return {
-            key: value
-            for key, value in filters.items()
-            if key in permitted and value is not None
+            key: value for key, value in filters.items() if key in permitted and value is not None
         }
 
-    async def get_resource(
-        self, kind: str, resource_id: str, ctx: AdapterContext
-    ) -> Resource:
+    async def get_resource(self, kind: str, resource_id: str, ctx: AdapterContext) -> Resource:
         """Fetch one resource.
 
         Clusters are read from their LXD status document, the only per-cluster
@@ -439,9 +436,7 @@ class GoughAdapter(HealthOnlyAdapter):
         )
         return _MAPPERS[kind](self._unwrap_single(response, kind))
 
-    async def delete_resource(
-        self, kind: str, resource_id: str, ctx: AdapterContext
-    ) -> None:
+    async def delete_resource(self, kind: str, resource_id: str, ctx: AdapterContext) -> None:
         """Delete a node, biome or biome group."""
         if kind not in ("nodes", "biomes", "biome_groups"):
             raise AdapterCapabilityError(f"gough does not support deleting {kind!r}")
@@ -468,8 +463,7 @@ class GoughAdapter(HealthOnlyAdapter):
         suffix = verbs.get(action)
         if suffix is None:
             raise AdapterCapabilityError(
-                f"gough has no action {action!r} for {kind!r} "
-                f"(supported: {sorted(verbs)})"
+                f"gough has no action {action!r} for {kind!r} " f"(supported: {sorted(verbs)})"
             )
         path = self._require_kind(kind)
         url_path = f"{path}/{self._segment(resource_id)}/{suffix}"
@@ -563,8 +557,7 @@ class GoughAdapter(HealthOnlyAdapter):
         """Reject an unknown operation family before building a URL."""
         if kind not in OPERATION_KINDS:
             raise AdapterCapabilityError(
-                f"gough has no operation kind {kind!r} "
-                f"(supported: {sorted(OPERATION_KINDS)})"
+                f"gough has no operation kind {kind!r} " f"(supported: {sorted(OPERATION_KINDS)})"
             )
         return kind
 
@@ -605,11 +598,7 @@ class GoughAdapter(HealthOnlyAdapter):
         )
         data = payload.dict_data()
         raw = data.get("deployments")
-        rows = (
-            [row for row in raw if isinstance(row, dict)]
-            if isinstance(raw, list)
-            else []
-        )
+        rows = [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
         items = [mapping.map_deployment(row) for row in rows]
 
         total = data.get("total")
@@ -637,9 +626,7 @@ class GoughAdapter(HealthOnlyAdapter):
         }
         return by_state[state]
 
-    async def get_operation(
-        self, kind: str, operation_id: str, ctx: AdapterContext
-    ) -> Operation:
+    async def get_operation(self, kind: str, operation_id: str, ctx: AdapterContext) -> Operation:
         """Poll one operation. The portal's refetch loop calls exactly this.
 
         An upgrade run's id is the composite ``biome_id:run_id`` built by
@@ -666,8 +653,7 @@ class GoughAdapter(HealthOnlyAdapter):
             raise ResourceNotFoundError(str(exc)) from exc
         payload = await self._call(
             "GET",
-            f"/api/v1/biomes/{self._segment(biome_id)}"
-            f"/upgrade-runs/{self._segment(run_id)}",
+            f"/api/v1/biomes/{self._segment(biome_id)}" f"/upgrade-runs/{self._segment(run_id)}",
             ctx,
             f"get upgrade run {raw_id}",
         )

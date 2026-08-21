@@ -12,7 +12,6 @@ only checks the happy paths passes just as well against ``^/`` for everything.
 from __future__ import annotations
 
 import pytest
-
 from app.adapters.base import PRODUCT_SCOPE_NAMESPACE, RouteRule, product_scope
 from app.adapters.gough import GOUGH_ROUTE_ALLOWLIST, PRODUCT_TYPE, SCOPES
 from app.adapters.gough.routes import _INT_ID, _UUID_ID
@@ -154,9 +153,7 @@ class TestDeniedRoutes:
     """Deny-by-default, asserted where it matters most."""
 
     @pytest.mark.parametrize(("method", "path", "reason"), DENIED)
-    def test_route_is_not_allowlisted(
-        self, method: str, path: str, reason: str
-    ) -> None:
+    def test_route_is_not_allowlisted(self, method: str, path: str, reason: str) -> None:
         """No rule admits this request."""
         assert _match(method, path) is None, f"{method} {path} allowed but {reason}"
 
@@ -177,7 +174,7 @@ class TestTraversalAndAnchoring:
         ],
     )
     def test_traversal_and_control_characters_match_nothing(self, path: str) -> None:
-        """``^/api/v1/nodes/[^/]+\\Z`` alone would admit some of these.
+        r"""``^/api/v1/nodes/[^/]+\\Z`` alone would admit some of these.
 
         ``RouteRule.matches`` normalises first and a path that fails
         normalisation matches no rule, so traversal is refused rather than
@@ -186,7 +183,7 @@ class TestTraversalAndAnchoring:
         assert _match("GET", path) is None
 
     def test_every_rule_is_fully_anchored(self) -> None:
-        """Enforced at construction; asserted here so the property is visible.
+        r"""Enforced at construction; asserted here so the property is visible.
 
         ``\\Z`` rather than ``$``: ``$`` also matches before a trailing
         newline, so ``^/healthz$`` would admit ``/healthz\\n``.
@@ -267,7 +264,7 @@ class TestTraversalAndAnchoring:
             assert rule.required_scope == expected, f"{rule.method} {rule.path_regex}"
 
     def test_no_rule_admits_the_product_auth_surface(self) -> None:
-        """Structural version of the auth denials above.
+        r"""Structural version of the auth denials above.
 
         A future rule like ``^/api/v1/(auth|agents)/.*\\Z`` would pass every
         individual case in DENIED that nobody thought to add. This asserts the

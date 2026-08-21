@@ -40,8 +40,9 @@ so the two paths agree by construction rather than by convention.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Any, Awaitable, Callable, Final, ParamSpec, TypeVar
+from typing import Any, Final, ParamSpec, TypeVar
 
 from quart import g
 
@@ -136,7 +137,7 @@ def current_scopes() -> list[str]:
     raw = claims.get("scope", [])
     if isinstance(raw, str):
         return raw.split()
-    if isinstance(raw, (list, tuple)):
+    if isinstance(raw, list | tuple):
         return [str(item) for item in raw]
     return []
 

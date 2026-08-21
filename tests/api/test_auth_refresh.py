@@ -30,9 +30,7 @@ async def _register_and_login(client: Any) -> tuple[int, dict[str, Any]]:
     assert register.status_code in (200, 201), await register.get_json()
     user_id = int((await register.get_json())["user"]["id"])
 
-    login = await client.post(
-        "/api/v1/auth/login", json={"email": email, "password": PASSWORD}
-    )
+    login = await client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
     assert login.status_code == 200, await login.get_json()
     body: dict[str, Any] = await login.get_json()
     return user_id, body
@@ -74,9 +72,7 @@ async def test_refreshed_access_token_is_usable(client: Any) -> None:
     )
     new_access = (await refreshed.get_json())["access_token"]
 
-    me = await client.get(
-        "/api/v1/auth/me", headers={"Authorization": f"Bearer {new_access}"}
-    )
+    me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {new_access}"})
     assert me.status_code == 200
 
 
@@ -104,9 +100,7 @@ async def test_rotated_successor_still_works(client: Any) -> None:
     )
     second_token = (await first.get_json())["refresh_token"]
 
-    second = await client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": second_token}
-    )
+    second = await client.post("/api/v1/auth/refresh", json={"refresh_token": second_token})
     assert second.status_code == 200
     assert (await second.get_json())["refresh_token"] not in (
         login["refresh_token"],
@@ -129,9 +123,7 @@ async def test_expired_refresh_token_is_rejected(app: Any, client: Any) -> None:
             expires_at=datetime.now(UTC) - timedelta(days=1),
         )
 
-    response = await client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": expired_token}
-    )
+    response = await client.post("/api/v1/auth/refresh", json={"refresh_token": expired_token})
     assert response.status_code == 401
 
 
@@ -157,9 +149,7 @@ async def test_refresh_requires_a_token(client: Any) -> None:
 async def test_refresh_rejection_does_not_disclose_token_state(client: Any) -> None:
     """Unknown, revoked and expired tokens are indistinguishable to a caller."""
     _, login = await _register_and_login(client)
-    await client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": login["refresh_token"]}
-    )
+    await client.post("/api/v1/auth/refresh", json={"refresh_token": login["refresh_token"]})
 
     replayed = await client.post(
         "/api/v1/auth/refresh", json={"refresh_token": login["refresh_token"]}
@@ -233,9 +223,7 @@ async def test_revoked_session_cannot_refresh(client: Any) -> None:
     listed = await client.get("/api/v1/auth/sessions", headers=headers)
     session_id = (await listed.get_json())["sessions"][0]["id"]
 
-    revoke = await client.delete(
-        f"/api/v1/auth/sessions/{session_id}", headers=headers
-    )
+    revoke = await client.delete(f"/api/v1/auth/sessions/{session_id}", headers=headers)
     assert revoke.status_code == 200
 
     after = await client.post(
@@ -245,9 +233,7 @@ async def test_revoked_session_cannot_refresh(client: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_token_is_not_stored_in_plaintext(
-    app: Any, client: Any
-) -> None:
+async def test_refresh_token_is_not_stored_in_plaintext(app: Any, client: Any) -> None:
     """Only the digest is persisted — a DB read cannot recover a usable token."""
     user_id, login = await _register_and_login(client)
     raw = login["refresh_token"]

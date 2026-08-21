@@ -1,8 +1,6 @@
-"""
-gRPC client implementation for Killkrill receiver communication.
-"""
+"""gRPC client implementation for Killkrill receiver communication."""
 
-from typing import Any, List
+from typing import Any
 
 import grpc
 import structlog
@@ -16,8 +14,7 @@ class GRPCSubmitter:
     """Handles gRPC submissions to Killkrill receivers."""
 
     def __init__(self, grpc_url: str, jwt_token: str) -> None:
-        """
-        Initialize gRPC submitter.
+        """Initialize gRPC submitter.
 
         Args:
             grpc_url: gRPC endpoint URL (host:port)
@@ -30,8 +27,7 @@ class GRPCSubmitter:
         self._connected = False
 
     def connect(self) -> bool:
-        """
-        Establish gRPC connection.
+        """Establish gRPC connection.
 
         Returns:
             True if connection successful, False otherwise
@@ -65,8 +61,7 @@ class GRPCSubmitter:
             logger.info("grpc_connection_closed", url=self.grpc_url)
 
     def health_check(self) -> bool:
-        """
-        Check gRPC connection health.
+        """Check gRPC connection health.
 
         Returns:
             True if healthy, False otherwise
@@ -86,9 +81,8 @@ class GRPCSubmitter:
             logger.warning("grpc_health_check_failed", url=self.grpc_url, error=str(e))
             return False
 
-    def submit_logs(self, logs: List[dict[str, Any]]) -> bool:
-        """
-        Submit logs via gRPC.
+    def submit_logs(self, logs: list[dict[str, Any]]) -> bool:
+        """Submit logs via gRPC.
 
         Args:
             logs: List of log entries
@@ -114,11 +108,10 @@ class GRPCSubmitter:
 
         except grpc.RpcError as e:
             logger.error("grpc_log_submission_failed", error=str(e), code=e.code())
-            raise SubmissionError(f"gRPC log submission failed: {e.details()}")
+            raise SubmissionError(f"gRPC log submission failed: {e.details()}") from e
 
-    def submit_metrics(self, metrics: List[dict[str, Any]]) -> bool:
-        """
-        Submit metrics via gRPC.
+    def submit_metrics(self, metrics: list[dict[str, Any]]) -> bool:
+        """Submit metrics via gRPC.
 
         Args:
             metrics: List of metric entries
@@ -144,7 +137,7 @@ class GRPCSubmitter:
 
         except grpc.RpcError as e:
             logger.error("grpc_metric_submission_failed", error=str(e), code=e.code())
-            raise SubmissionError(f"gRPC metric submission failed: {e.details()}")
+            raise SubmissionError(f"gRPC metric submission failed: {e.details()}") from e
 
     def __enter__(self) -> "GRPCSubmitter":
         """Context manager entry."""

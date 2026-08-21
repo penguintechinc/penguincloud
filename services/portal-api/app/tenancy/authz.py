@@ -81,9 +81,7 @@ async def may_switch_to_tenant(user_id: int, tenant_id: int) -> bool:
     return await resolve_effective_role(user_id, tenant_id) is not None
 
 
-async def may_bind_tenant(
-    user_id: int, scope_tenant_id: int, target_tenant_id: int
-) -> bool:
+async def may_bind_tenant(user_id: int, scope_tenant_id: int, target_tenant_id: int) -> bool:
     """True when a write authorized against one tenant may name another.
 
     Endpoints that authorize against a resource's owning tenant
@@ -220,9 +218,7 @@ PRODUCT_SCOPE_ACTIONS: Final[tuple[str, ...]] = ("read", "manage")
 #: would forge a scope string with a different shape than it appears to have
 #: (`x:manage` -> `products:x:manage:read`). Restricting the charset means a
 #: derived scope always has exactly three segments.
-_PRODUCT_TYPE_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"\A[a-z0-9][a-z0-9_-]{0,31}\Z"
-)
+_PRODUCT_TYPE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\A[a-z0-9][a-z0-9_-]{0,31}\Z")
 
 
 def product_scope(product_type: str, action: str) -> str:

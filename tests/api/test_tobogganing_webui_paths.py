@@ -36,7 +36,6 @@ from pathlib import Path
 from typing import Final
 
 import pytest
-
 from app.adapters.tobogganing.mapping import (
     COLLECTION_ENVELOPE_KEYS,
     KIND_BLOCK_PAGE,
@@ -170,8 +169,7 @@ def test_webui_path_matches_the_adapter_constant(key: str) -> None:
         "/"
     ), f"webui path for {key!r} must be proxy-relative, got {webui!r}"
     assert f"/{webui}" == _EXPECTED_PATHS[key], (
-        f"webui sends {webui!r} but the adapter builds "
-        f"{_EXPECTED_PATHS[key]!r} for {key!r}"
+        f"webui sends {webui!r} but the adapter builds " f"{_EXPECTED_PATHS[key]!r} for {key!r}"
     )
 
 
@@ -261,10 +259,7 @@ def test_block_page_item_paths_are_allowlisted() -> None:
     page_id = "3f1b8a2e-9c4d-4f7a-8b21-0d5e6c7a8b90"
     pages = f"/{_webui_collection_paths()['blockPages']}"
 
-    assert any(
-        rule.matches("PUT", f"{pages}/{page_id}")
-        for rule in TOBOGGANING_ROUTE_ALLOWLIST
-    )
+    assert any(rule.matches("PUT", f"{pages}/{page_id}") for rule in TOBOGGANING_ROUTE_ALLOWLIST)
     for segment in (SEGMENT_PREVIEW, SEGMENT_PUBLISH):
         assert any(
             rule.matches("POST", f"{pages}/{page_id}/{segment}")
@@ -292,8 +287,7 @@ def test_a_path_shaped_page_id_is_refused() -> None:
     pages = f"/{_webui_collection_paths()['blockPages']}"
 
     assert not any(
-        rule.matches("PUT", f"{pages}/../../auth/login")
-        for rule in TOBOGGANING_ROUTE_ALLOWLIST
+        rule.matches("PUT", f"{pages}/../../auth/login") for rule in TOBOGGANING_ROUTE_ALLOWLIST
     )
 
 
@@ -307,9 +301,7 @@ def test_the_blockpage_builder_agrees_with_the_webui_shape() -> None:
     pages = _webui_collection_paths()["blockPages"]
 
     assert f"/{pages}/{page_id}" == blockpage_path(page_id)
-    assert f"/{pages}/{page_id}/{SEGMENT_PUBLISH}" == blockpage_path(
-        page_id, SEGMENT_PUBLISH
-    )
+    assert f"/{pages}/{page_id}/{SEGMENT_PUBLISH}" == blockpage_path(page_id, SEGMENT_PUBLISH)
 
 
 def test_no_machine_plane_path_reached_the_webui() -> None:

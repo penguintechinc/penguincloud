@@ -20,19 +20,18 @@ import time
 from typing import Any
 
 import pytest
-
 from app.tenancy.resolver import (
     LOCAL_CACHE_TTL_SECONDS,
     MAX_HIERARCHY_DEPTH,
     UnsupportedParamstyleError,
+    _cache_get,
+    _cache_set,
     bind_query,
     build_ancestors_query,
     build_descendants_query,
     clear_local_cache,
     get_paramstyle,
     subtree_cache_key,
-    _cache_get,
-    _cache_set,
 )
 
 
@@ -76,15 +75,13 @@ class TestDialectAwarePlaceholders:
         assert postgres_bound.params == (7, MAX_HIERARCHY_DEPTH)
 
         # Only the placeholders differ; the query itself is one definition.
-        assert sqlite_bound.sql.replace("?", "@") == postgres_bound.sql.replace(
-            "$1", "@"
-        ).replace("$2", "@")
+        assert sqlite_bound.sql.replace("?", "@") == postgres_bound.sql.replace("$1", "@").replace(
+            "$2", "@"
+        )
 
     def test_named_paramstyle_binds_a_dict(self) -> None:
         """pyformat/named drivers get a mapping, not a tuple."""
-        bound = bind_query(
-            "SELECT {a} + {b}", "pyformat", {"a": 1, "b": 2}
-        )
+        bound = bind_query("SELECT {a} + {b}", "pyformat", {"a": 1, "b": 2})
 
         assert bound.sql == "SELECT %(a)s + %(b)s"
         assert bound.params == {"a": 1, "b": 2}
@@ -140,6 +137,7 @@ class TestLocalCacheTTL:
     """The in-process cache expires; it is not a permanent memo."""
 
     def test_cache_entry_is_returned_before_expiry(self) -> None:
+        """A freshly written entry is served without waiting for the TTL."""
         clear_local_cache()
         key = subtree_cache_key(999_001)
         _cache_set(key, {1, 2, 3})
@@ -167,6 +165,7 @@ class TestLocalCacheTTL:
         assert _cache_get(key) is None
 
     def test_clear_local_cache_empties_everything(self) -> None:
+        """``clear_local_cache`` drops every entry, not just the expired ones."""
         _cache_set(subtree_cache_key(999_003), {6})
         clear_local_cache()
 

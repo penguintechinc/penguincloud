@@ -244,9 +244,7 @@ class ActionResultResponse:
             accepted=result.accepted,
             operations=[OperationView.of(item) for item in result.operations],
             resource=(
-                ActionResourceView.of(result.resource)
-                if result.resource is not None
-                else None
+                ActionResourceView.of(result.resource) if result.resource is not None else None
             ),
             message=result.message,
         )
@@ -364,15 +362,11 @@ async def list_operations(product_id: int) -> tuple[Any, int]:
     )
 
 
-@operations_bp.route(
-    "/<int:product_id>/operations/<kind>/<operation_id>", methods=["GET"]
-)
+@operations_bp.route("/<int:product_id>/operations/<kind>/<operation_id>", methods=["GET"])
 @auth_required
 @tenancy_aware
 @validate_response(OperationView)
-async def get_operation(
-    product_id: int, kind: str, operation_id: str
-) -> tuple[Any, int]:
+async def get_operation(product_id: int, kind: str, operation_id: str) -> tuple[Any, int]:
     """Poll one operation. This is the route the UI's refetch loop calls."""
     ctx, product_type, error = await resolve_product_context(product_id, ACTION_READ)
     if error is not None or ctx is None or product_type is None:
@@ -387,15 +381,11 @@ async def get_operation(
     return OperationView.of(operation), 200
 
 
-@operations_bp.route(
-    "/<int:product_id>/operations/<kind>/<operation_id>/cancel", methods=["POST"]
-)
+@operations_bp.route("/<int:product_id>/operations/<kind>/<operation_id>/cancel", methods=["POST"])
 @auth_required
 @tenancy_aware
 @validate_response(OperationView)
-async def cancel_operation(
-    product_id: int, kind: str, operation_id: str
-) -> tuple[Any, int]:
+async def cancel_operation(product_id: int, kind: str, operation_id: str) -> tuple[Any, int]:
     """Request cancellation and return the operation's resulting state.
 
     Requires ``products:manage``: cancelling a deploy mid-flight changes what
@@ -414,15 +404,11 @@ async def cancel_operation(
     return OperationView.of(operation), 200
 
 
-@operations_bp.route(
-    "/<int:product_id>/operations/<kind>/<operation_id>/logs", methods=["GET"]
-)
+@operations_bp.route("/<int:product_id>/operations/<kind>/<operation_id>/logs", methods=["GET"])
 @auth_required
 @tenancy_aware
 @validate_response(OperationLogsResponse)
-async def operation_logs(
-    product_id: int, kind: str, operation_id: str
-) -> tuple[Any, int]:
+async def operation_logs(product_id: int, kind: str, operation_id: str) -> tuple[Any, int]:
     """Return an operation's log lines, oldest first.
 
     ``since`` lets the DetailDrawer's log tab fetch only what is new on each
@@ -448,9 +434,7 @@ async def operation_logs(
 
     adapter = get_adapter(product_type, ctx)
     try:
-        lines = await adapter.operation_logs(
-            kind, operation_id, ctx, since=since, tail=tail
-        )
+        lines = await adapter.operation_logs(kind, operation_id, ctx, since=since, tail=tail)
     except AdapterError as exc:
         return adapter_failure(exc, product_id, "operation_logs")
 

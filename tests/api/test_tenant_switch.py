@@ -1,10 +1,9 @@
 """Tests for tenant switching and the issued JWT claim structure."""
 
 import uuid
-
-import jwt
 from typing import Any
 
+import jwt
 import pytest
 from quart import Quart
 
@@ -36,9 +35,7 @@ class TestTenantSwitch:
                 teams=["1", "2", "3"],
             )
 
-        payload = jwt.decode(
-            token_set["access_token"], options={"verify_signature": False}
-        )
+        payload = jwt.decode(token_set["access_token"], options={"verify_signature": False})
 
         assert payload["sub"] == "123"
         assert payload["iss"] == app.config["JWT_ISSUER"]
@@ -87,9 +84,7 @@ class TestTenantSwitch:
                 user_id=123, tenant_id="", role="viewer", teams=[]
             )
 
-        payload = jwt.decode(
-            token_set["access_token"], options={"verify_signature": False}
-        )
+        payload = jwt.decode(token_set["access_token"], options={"verify_signature": False})
         assert payload["tenant"] == UNSCOPED_TENANT
 
     @pytest.mark.asyncio
@@ -97,7 +92,6 @@ class TestTenantSwitch:
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:
         """Tenant switch returns a new token scoped to the target tenant."""
-
         # Create a tenant for this user
         response = await client.post(
             "/api/v1/tenants",
@@ -140,9 +134,7 @@ class TestTenantSwitch:
         assert switch_data["tenant_role"] == "owner"
 
     @pytest.mark.asyncio
-    async def test_tenant_required_decorator_uses_correct_claim(
-        self, app: Quart
-    ) -> None:
+    async def test_tenant_required_decorator_uses_correct_claim(self, app: Quart) -> None:
         """tenant_required gates on the verified `tenant` claim.
 
         No production endpoint is currently wrapped with @tenant_required —
@@ -196,9 +188,7 @@ class TestTenantSwitch:
         auth_headers = {"Authorization": f"Bearer {login_body['access_token']}"}
 
         # A token with only the unscoped sentinel tenant must be rejected
-        no_tenant_response = await client.get(
-            "/api/v1/_test/tenant-gated", headers=auth_headers
-        )
+        no_tenant_response = await client.get("/api/v1/_test/tenant-gated", headers=auth_headers)
         assert no_tenant_response.status_code == 400
 
         # Create a tenant and switch to it to mint a token carrying a real

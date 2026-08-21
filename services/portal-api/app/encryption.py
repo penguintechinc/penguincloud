@@ -2,8 +2,9 @@
 
 import base64
 import hashlib
-import os
 import logging
+import os
+
 from cryptography.fernet import Fernet, InvalidToken
 
 logger = logging.getLogger(__name__)
@@ -59,10 +60,10 @@ def decrypt_value(ciphertext: str) -> str:
     f = _get_fernet()
     try:
         return f.decrypt(ciphertext.encode()).decode()
-    except InvalidToken:
+    except InvalidToken as exc:
         logger.error("Failed to decrypt value — invalid token or key")
         msg = "Decryption failed: invalid token or wrong encryption key"
-        raise ValueError(msg)
+        raise ValueError(msg) from exc
 
 
 def generate_encryption_key() -> str:

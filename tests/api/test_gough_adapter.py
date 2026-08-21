@@ -27,9 +27,6 @@ from typing import Any
 
 import httpx
 import pytest
-from werkzeug.exceptions import MethodNotAllowed, NotFound
-from werkzeug.routing import Map, RequestRedirect, Rule
-
 from app.adapters.base import (
     AdapterCapabilityError,
     AdapterContext,
@@ -48,6 +45,8 @@ from app.adapters.gough.mapping import (
     upgrade_operation_id,
 )
 from app.adapters.transport import Transport
+from werkzeug.exceptions import MethodNotAllowed, NotFound
+from werkzeug.routing import Map, RequestRedirect, Rule
 
 BASE_URL = "https://gough.invalid"
 
@@ -79,9 +78,7 @@ def _ctx(**overrides: Any) -> AdapterContext:
 
 def _envelope(data: Any, meta: dict[str, Any] | None = None) -> httpx.Response:
     """Gough's ``envelope_success`` shape."""
-    return httpx.Response(
-        200, json={"status": "success", "data": data, "meta": meta or {}}
-    )
+    return httpx.Response(200, json={"status": "success", "data": data, "meta": meta or {}})
 
 
 def _error(status: int, code: str, message: str, **details: Any) -> httpx.Response:
@@ -429,8 +426,7 @@ class TestAuthentication:
         await GoughAdapter().list_resources("nodes", _ctx())
 
         sent = " ".join(
-            f"{request.headers.get('authorization', '')} {request.url}"
-            for request in fake.requests
+            f"{request.headers.get('authorization', '')} {request.url}" for request in fake.requests
         )
         assert SERVICE_PASSWORD not in sent
         # The login carries it in the BODY, which is where Gough wants it.
@@ -476,9 +472,7 @@ class TestAuthentication:
         as an upstream auth problem (502) rather than the portal caller's own
         401, which would tell the browser to re-login and fix nothing.
         """
-        fake = FakeGough(
-            {("GET", "/api/v1/nodes/"): httpx.Response(401, json={"error": "nope"})}
-        )
+        fake = FakeGough({("GET", "/api/v1/nodes/"): httpx.Response(401, json={"error": "nope"})})
         _wire(fake, monkeypatch)
 
         with pytest.raises(UpstreamAuthError):
@@ -544,9 +538,7 @@ class TestResourceReads:
         assert page.next_cursor == "cur-2"
         assert page.has_more is True
 
-    async def test_last_page_reports_no_more(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_last_page_reports_no_more(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Gough sends ``next_cursor: null`` rather than omitting the key."""
         fake = FakeGough(
             {
@@ -562,9 +554,7 @@ class TestResourceReads:
         assert page.next_cursor is None
         assert page.has_more is False
 
-    async def test_agents_come_back_unenveloped(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_agents_come_back_unenveloped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Gough's agent routes predate its envelope and return a bare object."""
         fake = FakeGough(
             {
@@ -577,9 +567,7 @@ class TestResourceReads:
 
         page = await GoughAdapter().list_resources("agents", _ctx())
 
-        assert [agent.id for agent in page.items] == [
-            "5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
-        ]
+        assert [agent.id for agent in page.items] == ["5c1d9e2f-4a6b-4c8d-9e0f-1a2b3c4d5e6f"]
         assert page.items[0].name == "agent-3"
         assert page.items[0].status == "active"
 
@@ -643,9 +631,7 @@ class TestResourceReads:
 class TestCapabilityGaps:
     """Absences that must be declared, never faked as an empty result."""
 
-    async def test_clusters_cannot_be_listed(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_clusters_cannot_be_listed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Gough registers no ``GET /api/v1/clusters``.
 
         An empty Page would read as "this deployment has no clusters", which
@@ -721,9 +707,7 @@ class TestCapabilityGaps:
         _wire(fake, monkeypatch)
 
         with pytest.raises(AdapterCapabilityError, match="no action"):
-            await GoughAdapter().perform_action(
-                "nodes", "12", "../../../etc/passwd", None, _ctx()
-            )
+            await GoughAdapter().perform_action("nodes", "12", "../../../etc/passwd", None, _ctx())
         assert fake.requests == []
 
     async def test_hostile_resource_id_never_reaches_a_url(
@@ -750,9 +734,7 @@ class TestWritesAndActions:
         fake = FakeGough({("POST", "/api/v1/biomes/"): _envelope(BIOME_ROW)})
         _wire(fake, monkeypatch)
 
-        biome = await GoughAdapter().create_resource(
-            "biomes", {"name": "k8s-control"}, _ctx()
-        )
+        biome = await GoughAdapter().create_resource("biomes", {"name": "k8s-control"}, _ctx())
 
         assert biome.id == "5"
         assert biome.status == "active"
@@ -824,9 +806,7 @@ class TestWritesAndActions:
         await GoughAdapter().perform_action("nodes", "12", "deploy", {}, _ctx())
 
         deploy = fake.requests[-1]
-        assert deploy.headers.get("X-Idempotency-Key", "").startswith(
-            "portal-deploy-12"
-        )
+        assert deploy.headers.get("X-Idempotency-Key", "").startswith("portal-deploy-12")
 
     async def test_one_deploy_returns_every_operation_it_started(
         self, monkeypatch: pytest.MonkeyPatch
@@ -904,9 +884,7 @@ class TestOperations:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``in_progress`` must be RUNNING so the poll loop keeps going."""
-        fake = FakeGough(
-            {("GET", "/api/v1/biomes/deployments/dep-77"): _envelope(DEPLOYMENT_ROW)}
-        )
+        fake = FakeGough({("GET", "/api/v1/biomes/deployments/dep-77"): _envelope(DEPLOYMENT_ROW)})
         _wire(fake, monkeypatch)
 
         op = await GoughAdapter().get_operation(OP_DEPLOYMENT, "dep-77", _ctx())
@@ -921,9 +899,7 @@ class TestOperations:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Gough reports ``phase`` with no maximum — a fraction would be fiction."""
-        fake = FakeGough(
-            {("GET", "/api/v1/biomes/deployments/dep-77"): _envelope(DEPLOYMENT_ROW)}
-        )
+        fake = FakeGough({("GET", "/api/v1/biomes/deployments/dep-77"): _envelope(DEPLOYMENT_ROW)})
         _wire(fake, monkeypatch)
 
         op = await GoughAdapter().get_operation(OP_DEPLOYMENT, "dep-77", _ctx())
@@ -1025,9 +1001,7 @@ class TestOperations:
         assert op.state.is_terminal is True
         assert op.completed_at is not None
 
-    async def test_cancel_rereads_the_operation(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_cancel_rereads_the_operation(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Gough's cancel response omits the timestamps the caller's view needs."""
         fake = FakeGough(
             {
@@ -1066,9 +1040,7 @@ class TestOperations:
         with pytest.raises(ResourceConflictError):
             await GoughAdapter().cancel_operation(OP_DEPLOYMENT, "dep-77", _ctx())
 
-    async def test_upgrade_runs_cannot_be_cancelled(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_upgrade_runs_cannot_be_cancelled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Declared gap: Gough rolls an upgrade back under its own orchestration."""
         fake = FakeGough()
         _wire(fake, monkeypatch)
@@ -1105,9 +1077,7 @@ class TestOperations:
         )
         _wire(fake, monkeypatch)
 
-        lines = await GoughAdapter().operation_logs(
-            OP_DEPLOYMENT, "dep-77", _ctx(), tail=50
-        )
+        lines = await GoughAdapter().operation_logs(OP_DEPLOYMENT, "dep-77", _ctx(), tail=50)
 
         assert [line.message for line in lines] == ["starting", "pull failed"]
         assert lines[1].level == "error"
@@ -1127,9 +1097,7 @@ class TestOperations:
         )
         _wire(fake, monkeypatch)
 
-        page = await GoughAdapter().list_operations(
-            _ctx(), state=OperationState.RUNNING
-        )
+        page = await GoughAdapter().list_operations(_ctx(), state=OperationState.RUNNING)
 
         assert [op.id for op in page.items] == ["dep-77"]
         assert fake.requests[-1].url.params.get("status") == "in_progress"
@@ -1148,9 +1116,7 @@ class TestOperations:
 class TestTransportBehaviour:
     """Timeouts, retries and throttling, exercised through the adapter."""
 
-    async def test_5xx_is_retried_and_succeeds(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_5xx_is_retried_and_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A GET is idempotent, so the shared transport retries it."""
         fake = FakeGough(
             {
@@ -1186,9 +1152,7 @@ class TestTransportBehaviour:
         """A retried deploy could provision the same hardware twice."""
         from app.adapters.base import UpstreamError
 
-        fake = FakeGough(
-            {("POST", "/api/v1/biomes/"): httpx.Response(500, text="boom")}
-        )
+        fake = FakeGough({("POST", "/api/v1/biomes/"): httpx.Response(500, text="boom")})
         _wire(fake, monkeypatch)
 
         with pytest.raises(UpstreamError):
@@ -1210,9 +1174,7 @@ class TestTransportBehaviour:
         with pytest.raises(httpx.ReadTimeout):
             await GoughAdapter().list_resources("nodes", _ctx())
 
-    async def test_rate_limit_carries_retry_after(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_rate_limit_carries_retry_after(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """429 is a throttle to back off from, not an outage."""
         fake = FakeGough(
             {
@@ -1286,9 +1248,7 @@ class TestTransportBehaviour:
         transport = await GoughAdapter()._transport()
 
         with pytest.raises(CredentialEgressError):
-            await transport.request(
-                "GET", "https://attacker.invalid/api/v1/nodes/", _ctx()
-            )
+            await transport.request("GET", "https://attacker.invalid/api/v1/nodes/", _ctx())
         assert fake.requests == []
 
 
@@ -1328,11 +1288,7 @@ class TestCollectionRouteShapes:
     ) -> None:
         """Create shares the same route shape, and shared the same bug."""
         fake = FakeGough(
-            {
-                ("POST", "/api/v1/biomes/groups"): _envelope(
-                    {"group": {"id": 3, "name": "edge"}}
-                )
-            }
+            {("POST", "/api/v1/biomes/groups"): _envelope({"group": {"id": 3, "name": "edge"}})}
         )
         _wire(fake, monkeypatch)
 
@@ -1380,9 +1336,7 @@ class TestCollectionRouteShapes:
     async def test_fake_reproduces_goughs_404_for_an_extra_slash(self) -> None:
         """The other direction: no redirect back, just a 404."""
         fake = FakeGough()
-        response = fake.handler(
-            httpx.Request("GET", "https://gough.test/api/v1/biomes/groups/")
-        )
+        response = fake.handler(httpx.Request("GET", "https://gough.test/api/v1/biomes/groups/"))
         assert response.status_code == 404
 
 
@@ -1441,18 +1395,14 @@ class TestSessionLockIsolation:
         adapter = GoughAdapter()
 
         stuck = asyncio.create_task(
-            adapter.list_resources(
-                "nodes", _ctx(connection_id=41, api_key="hang@penguintech.io")
-            )
+            adapter.list_resources("nodes", _ctx(connection_id=41, api_key="hang@penguintech.io"))
         )
         # Wait until A is provably inside its login, holding its lock.
         await asyncio.wait_for(a_is_hanging.wait(), timeout=2.0)
 
         # A different connection must complete while the first is still stuck.
         await asyncio.wait_for(
-            adapter.list_resources(
-                "nodes", _ctx(connection_id=99, api_key="other@penguintech.io")
-            ),
+            adapter.list_resources("nodes", _ctx(connection_id=99, api_key="other@penguintech.io")),
             timeout=2.0,
         )
 
@@ -1474,9 +1424,7 @@ class TestSessionLockIsolation:
         _wire(fake, monkeypatch)
         adapter = GoughAdapter()
 
-        await asyncio.gather(
-            *(adapter.list_resources("nodes", _ctx()) for _ in range(8))
-        )
+        await asyncio.gather(*(adapter.list_resources("nodes", _ctx()) for _ in range(8)))
 
         assert fake.login_count == 1
 
@@ -1579,9 +1527,7 @@ class TestKindTableParity:
         divergent = {"nodes": "x", "biomes": "y"}  # missing two kinds
         assert frozenset(divergent) != _KINDS
 
-    async def test_an_unknown_kind_is_501_not_500(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_an_unknown_kind_is_501_not_500(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The behaviour the parity guard protects, end to end."""
         fake = FakeGough()
         _wire(fake, monkeypatch)

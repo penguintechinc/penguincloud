@@ -59,15 +59,11 @@ async def setup_mfa() -> tuple[Any, int]:
     backup_codes = generate_backup_codes()
 
     # Store secret (not enabled yet)
-    await create_mfa_secret(
-        user_id, secret, format_backup_codes(backup_codes)
-    )
+    await create_mfa_secret(user_id, secret, format_backup_codes(backup_codes))
 
     # Generate QR code provisioning URI
     totp = pyotp.TOTP(secret)
-    provisioning_uri = totp.provisioning_uri(
-        name=user["email"], issuer_name="Project Template"
-    )
+    provisioning_uri = totp.provisioning_uri(name=user["email"], issuer_name="Project Template")
 
     return (
         jsonify(
@@ -151,9 +147,7 @@ async def disable_mfa_endpoint() -> tuple[Any, int]:
     current = await get_user_by_id(user_id)
     if not current:
         return jsonify({"error": "User not found"}), 404
-    verify_result = await verify_password_async(
-        password, current["password_hash"]
-    )
+    verify_result = await verify_password_async(password, current["password_hash"])
     if not verify_result:
         return jsonify({"error": "Invalid password"}), 401
 
@@ -221,9 +215,7 @@ async def regenerate_backup_codes() -> tuple[Any, int]:
 
     # Update in database via penguin-dal
     db = get_db()
-    await db(db.mfa_secrets.user_id == user_id).update(
-        backup_codes=format_backup_codes(new_codes)
-    )
+    await db(db.mfa_secrets.user_id == user_id).update(backup_codes=format_backup_codes(new_codes))
 
     return (
         jsonify({"message": "Backup codes regenerated", "backup_codes": new_codes}),

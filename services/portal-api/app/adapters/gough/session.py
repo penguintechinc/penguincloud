@@ -217,9 +217,7 @@ class GoughSession:
             expires_at=time.monotonic() + TOKEN_TTL_SECONDS,
         )
 
-    async def _refresh(
-        self, ctx: AdapterContext, cached: _CachedToken
-    ) -> _CachedToken | None:
+    async def _refresh(self, ctx: AdapterContext, cached: _CachedToken) -> _CachedToken | None:
         """Renew the access token, or return None to fall back to login.
 
         Returns None rather than raising on any failure: refresh is an

@@ -1,5 +1,4 @@
-"""
-Killkrill Receiver Client Module
+"""Killkrill Receiver Client Module.
 
 Provides unified client interface for submitting logs and metrics to Killkrill receivers
 with JWT authentication and automatic gRPC/REST protocol fallback.

@@ -16,7 +16,6 @@ from typing import Any
 
 import httpx
 import pytest
-
 from app.adapters.base import AdapterContext
 from app.adapters.transport import (
     BACKOFF_BASE,
@@ -26,9 +25,7 @@ from app.adapters.transport import (
 )
 
 
-def _ctx(
-    auth_type: str = "bearer", key: str = "secret-key", secret: str = ""
-) -> AdapterContext:
+def _ctx(auth_type: str = "bearer", key: str = "secret-key", secret: str = "") -> AdapterContext:
     """Build a context for a transport call.
 
     ``base_url`` matches the host every test below calls: the transport pins
@@ -307,7 +304,7 @@ class TestCredentialInjectionAndHeaders:
     """Auth headers are built from the context, per auth type."""
 
     async def test_bearer_auth_header(self) -> None:
-        """bearer -> Authorization: Bearer <key>."""
+        """Bearer -> Authorization: Bearer <key>."""
         recorder = _Recorder()
         transport = _transport(recorder)
 
@@ -326,7 +323,7 @@ class TestCredentialInjectionAndHeaders:
         assert "authorization" not in recorder.last.headers
 
     async def test_basic_auth_header_is_encoded(self) -> None:
-        """basic -> Authorization: Basic base64(key:secret)."""
+        """Basic -> Authorization: Basic base64(key:secret)."""
         import base64
 
         recorder = _Recorder()

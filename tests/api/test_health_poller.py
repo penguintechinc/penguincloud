@@ -219,23 +219,37 @@ async def test_semaphore_caps_concurrent_checks(
 ) -> None:
     """Requirement 1: asyncio.Semaphore(50) — proven at a smaller cap.
 
-    Nine connections, cap forced to 3: every health() call increments a
-    shared in-flight counter, sleeps briefly (so overlaps are actually
-    observable rather than resolving instantly), then decrements. The
-    tracked maximum must never exceed the cap.
+    Nine connections, cap forced to 3. Each fake health() call rendezvouses
+    on a 3-party ``asyncio.Barrier`` before returning: the barrier only
+    releases once exactly ``cap`` calls are concurrently blocked inside it,
+    so reaching ``max_in_flight == cap`` is deterministic — it depends on
+    the event loop eventually scheduling the other two parties, never on a
+    sleep duration racing CPU contention (the previous version of this test
+    used ``asyncio.sleep(0.05)`` as a stand-in for "long enough to
+    overlap", which is exactly the kind of wall-clock assumption a loaded
+    CI runner breaks). Nine is exactly three barrier cycles at cap 3, so
+    every wave completes cleanly with no leftover parties.
+
+    If the semaphore ever let a 4th call through concurrently, that call
+    would block on the barrier past the point the 3rd of its own wave
+    released it, holding a 4th `in_flight` slot open while the next wave's
+    first arrival also increments — surfacing as `max_in_flight > cap`
+    below, not as a hang.
     """
-    monkeypatch.setattr(health_poller, "MAX_CONCURRENT_CHECKS", 3)
+    cap = 3
+    monkeypatch.setattr(health_poller, "MAX_CONCURRENT_CHECKS", cap)
 
     in_flight = 0
     max_in_flight = 0
     lock = asyncio.Lock()
+    barrier = asyncio.Barrier(cap)
 
     async def tracked_health(self: Any, ctx: Any) -> HealthResult:
         nonlocal in_flight, max_in_flight
         async with lock:
             in_flight += 1
             max_in_flight = max(max_in_flight, in_flight)
-        await asyncio.sleep(0.05)
+        await barrier.wait()
         async with lock:
             in_flight -= 1
         return HealthResult(status="healthy", status_code=200, response_time_ms=1)
@@ -259,7 +273,7 @@ async def test_semaphore_caps_concurrent_checks(
     async with app.app_context():
         await health_poller.run_sweep()
 
-    assert max_in_flight == 3, f"observed concurrency {max_in_flight}, cap was 3"
+    assert max_in_flight == cap, f"observed concurrency {max_in_flight}, cap was {cap}"
 
 
 @pytest.mark.asyncio

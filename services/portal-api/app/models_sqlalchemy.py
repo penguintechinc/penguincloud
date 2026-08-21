@@ -119,24 +119,18 @@ class Tenant(Base):
     slug = Column(String(63), unique=True, nullable=False)
     display_name = Column(String(255))
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    plan_tier = Column(
-        String(50), default="free", server_default="free", nullable=False
-    )
+    plan_tier = Column(String(50), default="free", server_default="free", nullable=False)
     license_key = Column(String(255))
     # server_default, not just a Python-side default: penguin-dal issues its
     # own INSERTs at runtime and never applies SQLAlchemy's Python defaults,
     # so a Python-only default leaves these NULL and every quota comparison
     # (`count >= None`) raises TypeError.
     max_users = Column(Integer, default=10, server_default=text("10"), nullable=False)
-    max_products = Column(
-        Integer, default=5, server_default=text("5"), nullable=False
-    )
+    max_products = Column(Integer, default=5, server_default=text("5"), nullable=False)
     settings = Column(Text)
     is_active = Column(Boolean, default=True, server_default=text("1"), nullable=False)
     # Hierarchical tenancy columns
-    parent_tenant_id: Any = Column(
-        Integer, ForeignKey("tenants.id"), nullable=True
-    )
+    parent_tenant_id: Any = Column(Integer, ForeignKey("tenants.id"), nullable=True)
     kind: Any = Column(
         String(50),
         default="customer",
@@ -173,9 +167,7 @@ class TenantMember(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     role = Column(String(50), default="member", server_default="member", nullable=False)
     invited_by_id = Column(Integer, ForeignKey("users.id"))
-    joined_at = Column(
-        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
-    )
+    joined_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
 
 
 class ProductConnection(Base):
@@ -189,9 +181,7 @@ class ProductConnection(Base):
     base_url = Column(String(500), nullable=False)
     api_key = Column(Text)
     api_secret = Column(Text)
-    auth_type = Column(
-        String(50), default="bearer", server_default="bearer", nullable=False
-    )
+    auth_type = Column(String(50), default="bearer", server_default="bearer", nullable=False)
     health_endpoint = Column(String(255), default="/healthz")
     api_version = Column(String(20), default="v1")
     is_active = Column(Boolean, default=True, server_default=text("1"), nullable=False)
@@ -324,9 +314,7 @@ class ProductTenantMap(Base):
 
     __tablename__ = "product_tenant_map"
     id = Column(Integer, primary_key=True)
-    connection_id = Column(
-        Integer, ForeignKey("product_connections.id"), nullable=False
-    )
+    connection_id = Column(Integer, ForeignKey("product_connections.id"), nullable=False)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     external_kind: Any = Column(String(50), nullable=False)
     external_id = Column(String(255), nullable=False)

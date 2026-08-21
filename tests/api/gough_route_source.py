@@ -58,8 +58,8 @@ from typing import Any, Final
 
 from product_source_fixtures import (
     load_fixture,
-    provenance,
     method_map,
+    provenance,
     unmethod_map,
     write_fixture,
 )
@@ -191,9 +191,7 @@ def _blueprint_prefixes(tree: ast.AST) -> dict[str, str | None]:
             continue
         for target in node.targets:
             if isinstance(target, ast.Name):
-                prefixes[target.id] = _string_literal(
-                    _keyword(node.value, "url_prefix")
-                )
+                prefixes[target.id] = _string_literal(_keyword(node.value, "url_prefix"))
     return prefixes
 
 
@@ -227,7 +225,7 @@ def _declared_methods(call: ast.Call) -> frozenset[str]:
     methods_node = _keyword(call, "methods")
     if methods_node is None:
         return frozenset({"GET"})
-    if not isinstance(methods_node, (ast.List, ast.Tuple, ast.Set)):
+    if not isinstance(methods_node, ast.List | ast.Tuple | ast.Set):
         return frozenset()
     values = {
         literal.upper()
@@ -250,7 +248,7 @@ def _route_decorators(tree: ast.AST) -> list[tuple[str, str, frozenset[str]]]:
     """
     found: list[tuple[str, str, frozenset[str]]] = []
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         for decorator in node.decorator_list:
             if not isinstance(decorator, ast.Call):
@@ -288,9 +286,7 @@ def _route_module_paths(app_root: Path) -> list[Path]:
     """Every source file that can register a route, deduplicated and ordered."""
     paths: list[Path] = sorted((app_root / "api").glob("*.py"))
     paths.extend(
-        candidate
-        for name in _EXTRA_ROUTE_MODULES
-        if (candidate := app_root / name).is_file()
+        candidate for name in _EXTRA_ROUTE_MODULES if (candidate := app_root / name).is_file()
     )
     return paths
 
@@ -315,9 +311,7 @@ def gough_source_routes(root: Path | None = None) -> dict[str, frozenset[str]]:
 
     module_trees: list[ast.AST] = []
     for path in _route_module_paths(app_root):
-        module_trees.append(
-            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        )
+        module_trees.append(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
 
     constructor_prefixes: dict[str, str | None] = {}
     registrations: dict[str, str | None] = {}
