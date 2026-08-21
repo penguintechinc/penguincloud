@@ -13,7 +13,14 @@ const { chromium } = require(
   require.resolve('@playwright/test', { paths: [WEBUI_DIR] }),
 );
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+// Default target is the MSW-mocked Vite dev server (`npm run dev:client:mocks`,
+// port 5173) — the same "no backend required" mode services/webui's own
+// Playwright smoke suite uses (see playwright.config.ts / mocks/browser.ts).
+// There is no seeded Postgres/portal-api instance available to this script
+// (`make seed-mock-data` is an unimplemented stub — see Makefile), so the
+// dashboard/tenants/users/connections/health data below comes entirely from
+// the fixtures baked into src/client/mocks/fixtures.ts, not a live database.
+const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:5173';
 const OUTPUT_DIR = path.join(__dirname, '..', 'docs', 'screenshots');
 
 // Playwright's own debug artifacts (trace), not the deliverable screenshots
@@ -21,22 +28,49 @@ const OUTPUT_DIR = path.join(__dirname, '..', 'docs', 'screenshots');
 // every run, pass or fail, same as npm run test:e2e's outputDir handling.
 const ARTIFACTS_DIR = '/tmp/playwright-penguincloud';
 
-// The login page's email input is `type="email" pattern="[^\s@]+@[^\s@]+\.
-// [^\s@]+"` (LoginPageBuilder, @penguintechinc/react-libs) — a bare
-// "admin@localhost" (no TLD) fails that pattern and the browser silently
-// blocks submission before it ever reaches the mock. ".local" is a real TLD
-// suffix and is what the field's own placeholder/title suggest as an example.
-const TEST_EMAIL = 'admin@localhost.local';
-const TEST_PASSWORD = 'admin123';
+// Matches services/webui's own portal-smoke.spec.ts fixture credentials
+// (src/client/mocks/fixtures.ts / handlers.ts `/api/ui/login`) — any
+// email/password pair authenticates in mock mode except password==="wrong",
+// but using the same credentials as the tested e2e suite keeps this script
+// aligned with a path that is already known to work end-to-end.
+const TEST_EMAIL = 'admin@penguincloud.test';
+const TEST_PASSWORD = 'correct-horse';
 
-// Pages to capture - customize with your application routes
+// Customer tenant to switch into before capturing pages whose data depends
+// on the active tenant scope (Health, Connections). Per fixtures.ts, the
+// home tenant (Acme Corp, id 1) is a *provider* org with no products of its
+// own — only customer tenants 11 and 13 have MOCK_PRODUCTS_BY_TENANT entries.
+// Tenant 11 (Acme Production) has 3 connected products, the richest fixture.
+const CUSTOMER_TENANT_ID = 11;
+
+/**
+ * Pages captured against the MSW-mocked dev server. Each entry is verified
+ * against src/client/mocks/handlers.ts's actual endpoint coverage before
+ * being listed here — a page whose data-fetching hook has no matching
+ * handler is deliberately left off this list rather than shipped with a
+ * misleading empty/error state. See the capture run's own report for the
+ * specific gaps (audit logs, teams, tenant/user/connection detail routes,
+ * the generic product page, and the Gough/Nest/Tobogganing product-specific
+ * screens all need mock or real-backend coverage this script does not have).
+ */
 const pages = [
   { name: 'login', path: '/login', requiresAuth: false },
   { name: 'dashboard', path: '/' },
-  // Add your additional pages here:
-  // { name: 'products', path: '/products' },
-  // { name: 'orders', path: '/orders' },
-  // { name: 'settings', path: '/settings' },
+  { name: 'tenants', path: '/tenants' },
+  { name: 'tenants-new', path: '/tenants/new' },
+  { name: 'users', path: '/users' },
+  { name: 'profile', path: '/profile' },
+  { name: 'settings', path: '/settings' },
+  // Requires the tenant switch below — see requiresCustomerTenant.
+  { name: 'health', path: '/health', requiresCustomerTenant: true },
+  { name: 'connections', path: '/connections', requiresCustomerTenant: true },
+  // NOTE: /connections/new (Register Product Connection) is deliberately
+  // NOT captured here. Its step 1 lists selectable product types from
+  // GET /api/v1/products/types, which has no MSW handler — the wizard
+  // renders "Select the product type to connect:" followed by zero options,
+  // an empty step masquerading as a working flow. Per the screenshot skill's
+  // Step 4 checklist ("empty state standing in for what should be populated
+  // content"), this is not shipped; see the capture run's report instead.
 ];
 
 async function sleep(ms) {
@@ -54,6 +88,20 @@ async function removeOldScreenshots() {
       }
     });
   }
+}
+
+/**
+ * Switches the active tenant scope via the real sidebar UI (not a direct
+ * store/localStorage write) so the capture run exercises the same flow
+ * services/webui's portal-smoke.spec.ts already verifies end to end.
+ */
+async function switchToCustomerTenant(page) {
+  await page.getByTestId('tenant-switcher-button').click();
+  await page.getByTestId('tenant-switcher-search').waitFor({ state: 'visible' });
+  await page.getByTestId(`tenant-option-${CUSTOMER_TENANT_ID}`).click();
+  await page
+    .getByTestId('acting-as-banner')
+    .waitFor({ state: 'visible', timeout: 10000 });
 }
 
 async function captureScreenshots() {
@@ -76,6 +124,8 @@ async function captureScreenshots() {
   await context.tracing.start({ screenshots: true, snapshots: true });
   const page = await context.newPage();
 
+  let switchedToCustomerTenant = false;
+
   try {
     // Capture login page first (unauthenticated)
     console.log('Capturing login...');
@@ -84,21 +134,14 @@ async function captureScreenshots() {
     await page.screenshot({ path: path.join(OUTPUT_DIR, 'login.png') });
     console.log('  Saved login.png');
 
-    // Perform actual login through UI
+    // Perform actual login through UI, via the shared LoginPageBuilder's
+    // accessible labels rather than positional input selectors — matches
+    // services/webui/src/client/tests/e2e/portal-smoke.spec.ts.
     console.log(`Logging in with test credentials (${TEST_EMAIL})...`);
+    await page.getByLabel(/email/i).fill(TEST_EMAIL);
+    await page.getByLabel(/password/i).fill(TEST_PASSWORD);
+    await page.getByRole('button', { name: /sign in/i }).click();
 
-    // Find and fill login form - email field, password field
-    const inputCount = await page.locator('input').count();
-    console.log(`Found ${inputCount} input fields`);
-    if (inputCount >= 2) {
-      await page.locator('input').nth(0).fill(TEST_EMAIL); // Email field
-      await page.locator('input').nth(1).fill(TEST_PASSWORD); // Password field
-    }
-
-    // Click submit button
-    await page.click('button[type="submit"]');
-
-    // Wait for navigation to complete
     try {
       await page.waitForFunction(
         () => !window.location.pathname.includes('/login'),
@@ -120,8 +163,8 @@ async function captureScreenshots() {
 
     if (!isLoggedIn) {
       console.error('❌ Login failed! Cannot capture authenticated pages.');
-      console.error('   Ensure mock data is seeded and services are running.');
-      console.error('   Run: make seed-mock-data');
+      console.error('   Ensure the MSW-mocked dev server is running: BASE_URL should point');
+      console.error('   at `npm run dev:client:mocks` (services/webui), not a bare `npm run dev`.');
       return;
     }
     console.log('✓ Login successful!');
@@ -136,6 +179,14 @@ async function captureScreenshots() {
 
       try {
         console.log(`Capturing ${pageInfo.name}...`);
+
+        if (pageInfo.requiresCustomerTenant && !switchedToCustomerTenant) {
+          console.log(
+            `  Switching to customer tenant ${CUSTOMER_TENANT_ID} (Acme Production)...`,
+          );
+          await switchToCustomerTenant(page);
+          switchedToCustomerTenant = true;
+        }
 
         // Navigate to the page
         await page.goto(`${BASE_URL}${pageInfo.path}`, {
@@ -153,28 +204,22 @@ async function captureScreenshots() {
 
           // Try to re-login
           console.log('  Attempting re-login...');
-          const retryInputCount = await page.locator('input').count();
-          if (retryInputCount >= 2) {
-            await page.locator('input').nth(0).fill(TEST_EMAIL);
-            await page.locator('input').nth(1).fill(TEST_PASSWORD);
-            await page.click('button[type="submit"]');
-            await sleep(2000);
+          await page.getByLabel(/email/i).fill(TEST_EMAIL);
+          await page.getByLabel(/password/i).fill(TEST_PASSWORD);
+          await page.getByRole('button', { name: /sign in/i }).click();
+          await sleep(2000);
 
-            // Navigate back to the target page
-            await page.goto(`${BASE_URL}${pageInfo.path}`, {
-              waitUntil: 'networkidle',
-              timeout: 60000,
-            });
-            await sleep(2500);
+          // Navigate back to the target page
+          await page.goto(`${BASE_URL}${pageInfo.path}`, {
+            waitUntil: 'networkidle',
+            timeout: 60000,
+          });
+          await sleep(2500);
 
-            // Check again
-            const newUrl = page.url();
-            if (newUrl.includes('/login')) {
-              console.log(`  SKIP: Still redirected to login for ${pageInfo.name}`);
-              skipCount++;
-              continue;
-            }
-          } else {
+          // Check again
+          const newUrl = page.url();
+          if (newUrl.includes('/login')) {
+            console.log(`  SKIP: Still redirected to login for ${pageInfo.name}`);
             skipCount++;
             continue;
           }
@@ -187,6 +232,24 @@ async function captureScreenshots() {
         });
         console.log(`  ✓ Saved ${pageInfo.name}.png`);
         successCount++;
+
+        // The Dashboard's default "Overview" tab is thin for a provider
+        // tenant (a provider owns no products directly — only its customer
+        // tenants do), so it alone doesn't show the product's actual
+        // multi-tenant rollup value. Capture the "Customers" tab too, the
+        // same rollup-matrix view exercised by portal-smoke.spec.ts.
+        if (pageInfo.name === 'dashboard') {
+          console.log('Capturing dashboard-rollup (Customers tab)...');
+          await page.getByRole('button', { name: 'Customers' }).click();
+          await page.getByTestId('rollup-matrix').waitFor({ state: 'visible' });
+          await sleep(500);
+          await page.screenshot({
+            path: path.join(OUTPUT_DIR, 'dashboard-rollup.png'),
+            fullPage: false,
+          });
+          console.log('  ✓ Saved dashboard-rollup.png');
+          successCount++;
+        }
 
       } catch (error) {
         console.error(`  ✗ Error capturing ${pageInfo.name}: ${error.message}`);
