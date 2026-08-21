@@ -6,7 +6,7 @@
     "list_search_pools": "searchPools",
     "list_snapshots": "snapshots"
   },
-  "generated_on": "2026-08-09",
+  "generated_on": "2026-08-20",
   "path_count": 21,
   "routes": {
     "/api/v1/catalog": [
@@ -79,6 +79,7 @@
       "GET"
     ]
   },
-  "source_commit": "798f127cd186163f28ac1da483b18f9d0dc518d2",
+  "source_branch": "feature/imported-mode",
+  "source_commit": "2cf7d21ddc51ca4ca26771c8033926060d73befb",
   "source_root": "/home/penguin/code/nest"
 }

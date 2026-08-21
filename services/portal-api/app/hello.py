@@ -1,14 +1,34 @@
 """Hello World Endpoint - Example authenticated endpoint (async Quart)."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from quart import Blueprint
+from quart_schema import validate_response
 
 from .authz import SCOPE_PLATFORM_READ, require_scope
 from .middleware import auth_required, get_current_user
 
 hello_bp = Blueprint("hello", __name__)
+
+
+@dataclass(slots=True, frozen=True)
+class StatusResponse:
+    """Envelope for the public, unauthenticated GET /api/v1/status.
+
+    Attributes:
+        status: Liveness state — always "running" once the process is
+            serving requests.
+        service: Which service answered.
+        version: Deployed service version.
+        timestamp: When this response was generated, ISO-8601.
+    """
+
+    status: str
+    service: str
+    version: str
+    timestamp: str
 
 
 @hello_bp.route("/hello", methods=["GET"])
@@ -51,8 +71,7 @@ async def hello_protected() -> tuple[dict[str, Any], int]:
     return (
         {
             "message": (
-                f"Hello, {user.get('full_name') or user['email']}! "
-                "You have elevated access."
+                f"Hello, {user.get('full_name') or user['email']}! " "You have elevated access."
             ),
             "timestamp": datetime.now(UTC).isoformat(),
             "access_level": SCOPE_PLATFORM_READ,
@@ -63,14 +82,15 @@ async def hello_protected() -> tuple[dict[str, Any], int]:
 
 
 @hello_bp.route("/status", methods=["GET"])
-async def status() -> tuple[dict[str, Any], int]:
+@validate_response(StatusResponse)
+async def status() -> tuple[Any, int]:
     """Public status endpoint - no authentication required."""
     return (
-        {
-            "status": "running",
-            "service": "portal-api",
-            "version": "1.0.0",
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
+        StatusResponse(
+            status="running",
+            service="portal-api",
+            version="1.0.0",
+            timestamp=datetime.now(UTC).isoformat(),
+        ),
         200,
     )

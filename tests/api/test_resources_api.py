@@ -320,6 +320,10 @@ class TestCreate:
         )
 
         assert response.status_code == 501
+        # Every AdapterError response is marked, this subclass included —
+        # see adapters/base.py UPSTREAM_RESPONSE_HEADER on why it is not
+        # worth excepting the ones that happen not to carry upstream text.
+        assert response.headers.get("X-Portal-Upstream-Response") == "true"
 
 
 @pytest.mark.asyncio
@@ -359,6 +363,11 @@ class TestDelete:
         )
 
         assert response.status_code == 409
+        # This exact message is the concrete regression the header closes:
+        # the adapter's own raise_for_status interpolates Nest's response
+        # body into it (see adapters/nest/responses.py), so it must never
+        # be treated as portal-native by the webui client.
+        assert response.headers.get("X-Portal-Upstream-Response") == "true"
 
 
 @pytest.mark.asyncio

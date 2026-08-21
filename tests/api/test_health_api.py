@@ -176,6 +176,39 @@ async def test_reflects_what_the_poller_cached(
 
 
 @pytest.mark.asyncio
+async def test_response_is_marked_as_upstream(
+    app: Any, client: Any, admin_headers: dict[str, str], tenant_id: int
+) -> None:
+    """The endpoint's response carries the upstream-provenance marker.
+
+    Every entry's `error` is CachedHealth.error — Transport.health_check's
+    own str(exc) (adapters/transport.py), the same upstream-derived shape
+    adapter_failure and POST /products/<id>/test mark. No webui screen reads
+    this endpoint today, but the response is marked unconditionally so it is
+    not a second miss for whichever one does.
+    """
+    conn = await _register_connection(client, admin_headers, tenant_id)
+
+    async with app.app_context():
+        await set_health(
+            int(conn["id"]),
+            CachedHealth(
+                status="unhealthy",
+                latency_ms=0,
+                checked_at=datetime.now(UTC).isoformat(),
+                error="connection refused to 10.0.4.17",
+            ),
+        )
+
+    response = await client.get(
+        f"/api/v1/products/health?tenant_id={tenant_id}", headers=admin_headers
+    )
+
+    assert response.status_code == 200
+    assert response.headers.get("X-Portal-Upstream-Response") == "true"
+
+
+@pytest.mark.asyncio
 async def test_never_triggers_a_live_poll(
     client: Any,
     admin_headers: dict[str, str],

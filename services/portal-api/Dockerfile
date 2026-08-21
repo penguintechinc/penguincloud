@@ -64,6 +64,21 @@ EXPOSE 9090
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD ["python3", "-c", "import http.client; c = http.client.HTTPConnection('localhost', 8000); c.request('GET', '/healthz'); exit(0 if c.getresponse().status == 200 else 1)"]
 
-# Run with hypercorn (async ASGI server for Quart)
-CMD ["hypercorn", "--bind", "0.0.0.0:8000", "--workers", "1", \
-     "app:create_app()"]
+# Run with hypercorn (async ASGI server for Quart). Worker count is read
+# from HYPERCORN_WORKERS (default 1, matching the prior hardcoded value)
+# rather than a literal, and EXPORTED before hypercorn starts -- not just
+# substituted into hypercorn's own --workers flag -- so create_app()'s
+# app.config["HYPERCORN_WORKERS"] (app/config.py, read via os.getenv) sees
+# the SAME value hypercorn actually launched with. app/__init__.py's
+# _build_oidc_provider guard folds this into its process-count check
+# (round-1 I3: hypercorn --workers N calls create_app() once per OS
+# process, each building its own MemoryKeyStore if unguarded -- the
+# identical cross-verification failure the JWT keystore fix exists to
+# catch, on a single pod). A literal --workers flag with no matching env
+# var would let this count drift silently out of the guard's view again.
+#
+# "sh -c ... exec hypercorn ..." (not bare exec-form CMD) is required to
+# get env-var substitution into the --workers flag at all; the trailing
+# `exec` replaces the shell process so hypercorn becomes PID 1 and keeps
+# receiving signals directly, same as the previous exec-form CMD.
+CMD ["sh", "-c", "export HYPERCORN_WORKERS=${HYPERCORN_WORKERS:-1}; exec hypercorn --bind 0.0.0.0:8000 --workers \"$HYPERCORN_WORKERS\" app:create_app()"]

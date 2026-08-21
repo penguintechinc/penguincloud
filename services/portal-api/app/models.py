@@ -435,11 +435,19 @@ async def list_users(page: int = 1, per_page: int = 20) -> tuple[list[dict[str, 
     """List users with pagination (async)."""
     # NOTE: Client-side pagination; penguin-dal server-side support deferred
     db = get_db()
-    # Get all users (improved pagination in Phase 1b)
-    users_query: Any = db.users
-    rows: list[Any] = []
+    # penguin-dal's Rows, not list[Any] -- db(query).select() has a concrete
+    # return type, unlike the Any-typed bare-Table access this replaced.
+    rows: Any = []
     try:
-        rows = await users_query.select()
+        # penguin-dal's AsyncDB requires a Query, not a bare Table -- calling
+        # .select() directly on db.users resolves to a column-name lookup
+        # (AttributeError: Table 'users' has no column 'select'), which the
+        # broad except below silently turned into "no users", always, on
+        # every call. `id > 0` is the standard no-filter idiom (ids are
+        # auto-increment from 1), matching get_active_product_connections'
+        # is_active == SQL_TRUE just below for the same "select everything"
+        # need.
+        rows = await db(db.users.id > 0).select()
     except Exception:
         # Empty table or query error
         return [], 0
