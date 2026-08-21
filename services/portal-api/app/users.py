@@ -14,7 +14,7 @@ from typing import Any
 from quart import Blueprint, request
 from quart_schema import validate_response
 
-from . import devmode, quotas
+from . import devmode, quotas, ratelimit
 from .auth import hash_password_async, verify_password_async
 from .authz import (
     SCOPE_AUDIT_READ,
@@ -423,6 +423,7 @@ async def update_profile() -> tuple[dict[str, Any], int]:
 
 @users_bp.route("/me/password", methods=["PUT"])
 @auth_required
+@ratelimit.rate_limited("change_password", account_key_fn=ratelimit.user_account_key)
 async def change_password() -> tuple[dict[str, Any], int]:
     """Change own password."""
     user = get_current_user()
