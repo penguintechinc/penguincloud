@@ -80,5 +80,23 @@ convention = "google"
 # This repo went from 78% (a deliberately temporary regression floor, see
 # ci.yml's step comment) to 90% (measured, not aspirational) in the same
 # change that added this section -- do not lower it.
+#
+# This is LINE/STATEMENT coverage only (statement coverage IS line coverage
+# in coverage.py; the two are the same number here). critical-rules.md's
+# Coverage standard is four dimensions -- lines, branches, functions,
+# statements -- and this repo had never measured or gated branches before
+# this comment was added; a file could read 100% here while every
+# `if`/`else` it contains took only one path. Deliberately NOT adding
+# `branch = true` to a `[tool.coverage.run]` section here: coverage.py
+# blends lines+branches into one "Cover%" once branch measurement is on
+# (measured: 88.24% blended vs. 91.00% line-only), which would silently
+# redefine what this file's `fail_under = 90` enforces for every local
+# `pytest --cov=app` run instead of adding a second, honest dimension.
+# Branch coverage is measured and gated SEPARATELY, at its own honestly-set
+# floor (77%, not 90 -- not yet earned), in ci.yml's "Backend coverage
+# gate" step via `scripts/check-coverage-dimensions.py`. Python's
+# coverage.py has no native "function" coverage concept -- that dimension
+# is only tracked on the webui side (`services/webui/jest.config.js`'s
+# `coverageThreshold`).
 fail_under = 90
 show_missing = true

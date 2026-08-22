@@ -56,6 +56,16 @@ jobs:
         run: npm ci
         working-directory: services/webui
 
+      - name: Set up Python
+        # Makefile:584's venv-portal-api target shells out to `python3.13`
+        # by name -- GitHub-hosted ubuntu-latest runners don't ship that
+        # binary pre-installed, so without this step `make venv-portal-api`
+        # below fails immediately with "python3.13 not installed" (see the
+        # security job's identical step, the only job that already had it).
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.13'
+
       - name: Create the isolated portal-api venv
         # Also provides the exact pinned mypy (2.3.0) the local mypy hook
         # below runs against -- see .pre-commit-config.yaml's mypy hook
@@ -131,8 +141,14 @@ jobs:
         # hooks that need a binary already on PATH:
         #   - trivy: pinned to v0.69.3, security.md's stated cap for this
         #     tool (never the newest release without raising the cap).
-        #   - osv-scanner, trufflehog: no org-stated cap, pinned to latest
-        #     stable as of this writing.
+        #   - osv-scanner, trufflehog, kube-score: no org-stated cap, pinned
+        #     to latest stable as of this writing. kube-score was missing
+        #     from this list entirely -- scripts/hooks/run-k8s-checks.sh's
+        #     k8s-security-scan hook (`language: system`, same as the
+        #     others here) shelled out to a `kube-score` binary this job
+        #     never installed, so the hook failed "command not found" on
+        #     every chart/env combination the first time this pre-push
+        #     tier actually ran in CI (it never had before this workflow).
         #   - checkov, pip-audit: pip-installable, exact versions.
         run: |
           pip install --no-cache-dir pre-commit==4.6.1 checkov==3.3.13 pip-audit==2.10.1
@@ -151,9 +167,14 @@ jobs:
           tar -xzf /tmp/trufflehog.tar.gz -C /usr/local/bin trufflehog
           rm -f /tmp/trufflehog.tar.gz
 
+          curl -fsSL -o /usr/local/bin/kube-score \
+            https://github.com/zegl/kube-score/releases/download/v1.20.0/kube-score_1.20.0_linux_amd64
+          chmod +x /usr/local/bin/kube-score
+
           trivy --version
           osv-scanner --version
           trufflehog --version
+          kube-score version
           checkov --version
           pip-audit --version
         env:
@@ -173,6 +194,16 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           persist-credentials: false
+
+      - name: Set up Python
+        # Makefile:584's venv-portal-api target shells out to `python3.13`
+        # by name -- GitHub-hosted ubuntu-latest runners don't ship that
+        # binary pre-installed, so without this step `make venv-portal-api`
+        # below fails immediately with "python3.13 not installed" (see the
+        # security job's identical step, the only job that already had it).
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.13'
 
       - name: Create the isolated portal-api venv
         # Deliberately uncached -- see the lint job's equivalent step for
@@ -216,10 +247,70 @@ jobs:
         # 90` mirrors this so a local `pytest --cov=app` enforces the same
         # floor without repeating the flag; the CLI flag below is still
         # authoritative in CI. Do not lower this number.
+        #
+        # `--cov-branch` was added here (json report only) because
+        # coverage.py blends lines+branches into ONE "Cover%" once
+        # branch=True -- leaving `--cov-fail-under=90` on the CLI with
+        # `--cov-branch` on would silently redefine what "90%" means
+        # (measured locally: blended 88.24%, below the line-only 91.00%
+        # this repo has actually earned) instead of adding a second,
+        # independent dimension. critical-rules.md's Coverage section
+        # requires lines, branches, functions and statements -- Python's
+        # coverage.py has no native "function" concept (that's a
+        # jest/istanbul dimension, see jest.config.js's
+        # coverageThreshold), and statement coverage IS line coverage for
+        # this tool, so the two enforceable Python dimensions are
+        # line/statement (gated below at 90, unchanged) and branch (gated
+        # below, separately).
+        #
+        # `--cov-fail-under=0` below is NOT "no gate" -- it is required to
+        # stop coverage.py falling back to pyproject.toml's `[tool.coverage.
+        # report] fail_under = 90`, which still applies to whatever this
+        # run measures (the blended 88.24%) whenever no CLI flag is given.
+        # Discovered the hard way: the first version of this step omitted
+        # the flag entirely, assuming that meant "no pytest-cov-level
+        # enforcement here, scripts/check-coverage-dimensions.py is the
+        # sole gate" -- pytest-cov printed "FAIL Required test coverage of
+        # 90.0% not reached. Total coverage: 88.23%" and exited 1 anyway,
+        # gating the exact blended metric this comment says not to use.
+        # scripts/check-coverage-dimensions.py (below) is the real gate for
+        # both dimensions now.
+        #
+        # Branch floor is 77, not 90: measured locally at exactly 77.54%
+        # (1450/1870 branches, 1787 passed/22 skipped/18 xfailed/0 failed --
+        # unchanged from the line-only run above, confirming --cov-branch
+        # only adds measurement, it does not change what runs). This repo
+        # has never gated branch coverage before -- 77 is a measured floor,
+        # not an aspiration, using the exact same reasoning that set the
+        # line gate to 78 before 90 was earned (see the paragraph above).
+        # Known, evidenced path to raising it: ~27 `if not user: return 401`
+        # branches in app/teams.py and app/products.py (0/12 and 0/12
+        # pragma'd) plus one straggler in app/tenants.py (12/13 pragma'd)
+        # are structurally unreachable -- middleware.py's auth_required is
+        # the ONLY place in the entire app that assigns `g.current_user`
+        # (grep confirms), and it always sets it to a truthy, active user
+        # before calling the wrapped view, on every success path, with
+        # every failure path returning before reaching the view. app/
+        # discovery.py, app/dashboard_api.py and 12/13 of app/tenants.py's
+        # occurrences already carry `# pragma: no cover - auth_required
+        # guarantees a user` for this exact reason; app/teams.py, app/
+        # products.py, app/audit.py (0/2) and that one app/tenants.py
+        # straggler do not yet. Excluding them (not this job's file scope --
+        # see the coverage-audit task) would mechanically raise measured
+        # branch coverage from 77.54% to roughly 78.68% (1450/1843) without
+        # a single new test, since they are proven dead, not merely
+        # untested.
         run: |
           .venv/bin/python -m pytest tests/ -q -rs \
-            --cov=app --cov-report=xml:coverage-backend.xml --cov-report=term-missing \
-            --cov-fail-under=90 | tee pytest-backend.log
+            --cov=app --cov-branch \
+            --cov-report=xml:coverage-backend.xml \
+            --cov-report=json:coverage-backend.json \
+            --cov-report=term-missing \
+            --cov-fail-under=0 \
+            | tee pytest-backend.log
+
+          .venv/bin/python scripts/check-coverage-dimensions.py \
+            coverage-backend.json --min-lines 90 --min-branches 77
 
       - name: Surface skipped tests in the job summary
         # Known gap: TestAgainstLiveNest (tests/api/test_nest_adapter.py)
@@ -324,6 +415,16 @@ jobs:
           repository: penguintechinc/tobogganing
           persist-credentials: false
           path: product-source/tobogganing
+
+      - name: Set up Python
+        # Makefile:584's venv-portal-api target shells out to `python3.13`
+        # by name -- GitHub-hosted ubuntu-latest runners don't ship that
+        # binary pre-installed, so without this step `make venv-portal-api`
+        # below fails immediately with "python3.13 not installed" (see the
+        # security job's identical step, the only job that already had it).
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.13'
 
       - name: Create the isolated portal-api venv
         # Deliberately uncached -- see the lint job's equivalent step for
