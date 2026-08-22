@@ -56,6 +56,16 @@ jobs:
         run: npm ci
         working-directory: services/webui
 
+      - name: Set up Python
+        # Makefile:584's venv-portal-api target shells out to `python3.13`
+        # by name -- GitHub-hosted ubuntu-latest runners don't ship that
+        # binary pre-installed, so without this step `make venv-portal-api`
+        # below fails immediately with "python3.13 not installed" (see the
+        # security job's identical step, the only job that already had it).
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.13'
+
       - name: Create the isolated portal-api venv
         # Also provides the exact pinned mypy (2.3.0) the local mypy hook
         # below runs against -- see .pre-commit-config.yaml's mypy hook
@@ -131,8 +141,14 @@ jobs:
         # hooks that need a binary already on PATH:
         #   - trivy: pinned to v0.69.3, security.md's stated cap for this
         #     tool (never the newest release without raising the cap).
-        #   - osv-scanner, trufflehog: no org-stated cap, pinned to latest
-        #     stable as of this writing.
+        #   - osv-scanner, trufflehog, kube-score: no org-stated cap, pinned
+        #     to latest stable as of this writing. kube-score was missing
+        #     from this list entirely -- scripts/hooks/run-k8s-checks.sh's
+        #     k8s-security-scan hook (`language: system`, same as the
+        #     others here) shelled out to a `kube-score` binary this job
+        #     never installed, so the hook failed "command not found" on
+        #     every chart/env combination the first time this pre-push
+        #     tier actually ran in CI (it never had before this workflow).
         #   - checkov, pip-audit: pip-installable, exact versions.
         run: |
           pip install --no-cache-dir pre-commit==4.6.1 checkov==3.3.13 pip-audit==2.10.1
@@ -151,9 +167,14 @@ jobs:
           tar -xzf /tmp/trufflehog.tar.gz -C /usr/local/bin trufflehog
           rm -f /tmp/trufflehog.tar.gz
 
+          curl -fsSL -o /usr/local/bin/kube-score \
+            https://github.com/zegl/kube-score/releases/download/v1.20.0/kube-score_1.20.0_linux_amd64
+          chmod +x /usr/local/bin/kube-score
+
           trivy --version
           osv-scanner --version
           trufflehog --version
+          kube-score version
           checkov --version
           pip-audit --version
         env:
@@ -173,6 +194,16 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           persist-credentials: false
+
+      - name: Set up Python
+        # Makefile:584's venv-portal-api target shells out to `python3.13`
+        # by name -- GitHub-hosted ubuntu-latest runners don't ship that
+        # binary pre-installed, so without this step `make venv-portal-api`
+        # below fails immediately with "python3.13 not installed" (see the
+        # security job's identical step, the only job that already had it).
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.13'
 
       - name: Create the isolated portal-api venv
         # Deliberately uncached -- see the lint job's equivalent step for
@@ -324,6 +355,16 @@ jobs:
           repository: penguintechinc/tobogganing
           persist-credentials: false
           path: product-source/tobogganing
+
+      - name: Set up Python
+        # Makefile:584's venv-portal-api target shells out to `python3.13`
+        # by name -- GitHub-hosted ubuntu-latest runners don't ship that
+        # binary pre-installed, so without this step `make venv-portal-api`
+        # below fails immediately with "python3.13 not installed" (see the
+        # security job's identical step, the only job that already had it).
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.13'
 
       - name: Create the isolated portal-api venv
         # Deliberately uncached -- see the lint job's equivalent step for
