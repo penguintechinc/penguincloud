@@ -28,10 +28,8 @@ void main() {
 
   Widget buildTestWidget() {
     return ChangeNotifierProvider(
-      create: (_) => AuthProvider(
-        secureStorage: mockStorage,
-        apiClient: mockApiClient,
-      ),
+      create: (_) =>
+          AuthProvider(secureStorage: mockStorage, apiClient: mockApiClient),
       child: MaterialApp(
         theme: ThemeData.dark().copyWith(
           extensions: const [ElderThemeData.dark],

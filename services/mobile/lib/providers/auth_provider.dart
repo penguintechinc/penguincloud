@@ -10,12 +10,12 @@ class AuthProvider extends ChangeNotifier {
   AuthProvider({
     required SecureStorage secureStorage,
     required ApiClient apiClient,
-  })  : _secureStorage = secureStorage,
-        _apiClient = apiClient,
-        _authService = AuthService(
-          apiClient: apiClient,
-          secureStorage: secureStorage,
-        ) {
+  }) : _secureStorage = secureStorage,
+       _apiClient = apiClient,
+       _authService = AuthService(
+         apiClient: apiClient,
+         secureStorage: secureStorage,
+       ) {
     _apiClient.onUnauthorized = _handleUnauthorized;
   }
 

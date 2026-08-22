@@ -97,11 +97,7 @@ Widget _buildLoginBuilder(BuildContext context) {
     apiConfig: LoginApiConfig(loginUrl: Environment.loginUrl),
     branding: const BrandingConfig(
       appName: Environment.appName,
-      logo: Icon(
-        Icons.rocket_launch,
-        size: 48,
-        color: Color(0xFFFBBF24),
-      ),
+      logo: Icon(Icons.rocket_launch, size: 48, color: Color(0xFFFBBF24)),
       tagline: Environment.appTagline,
     ),
     mfaConfig: const MFAConfig(enabled: true),

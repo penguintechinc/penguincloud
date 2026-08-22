@@ -16,10 +16,9 @@ void main() {
 
   runApp(
     ChangeNotifierProvider(
-      create: (_) => AuthProvider(
-        secureStorage: secureStorage,
-        apiClient: apiClient,
-      )..initialize(),
+      create: (_) =>
+          AuthProvider(secureStorage: secureStorage, apiClient: apiClient)
+            ..initialize(),
       child: const _AppWithVersionLogging(),
     ),
   );

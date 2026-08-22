@@ -95,6 +95,11 @@ setup-node: ## Setup - Install Node.js dependencies and tools
 setup-flutter: ## Setup - Install Flutter dependencies
 	@echo "$(BLUE)Setting up Flutter dependencies...$(RESET)"
 	@flutter --version || (echo "$(RED)Flutter not installed$(RESET)" && exit 1)
+	@installed=$$(flutter --version --no-version-check 2>/dev/null | head -1 | awk '{print $$2}'); \
+	if [ "$$installed" != "$(FLUTTER_VERSION)" ]; then \
+		echo "$(RED)Flutter $(FLUTTER_VERSION) required (services/mobile/.flutter-version), found $$installed$(RESET)"; \
+		exit 1; \
+	fi
 	@cd services/mobile && flutter pub get
 
 # Development Commands
@@ -276,12 +281,14 @@ openapi-lint: ## API - Lint openapi/v1.yaml with spectral
 # `--severity=warning` on shellcheck and the $(PORTAL_API_VENV) exclusion
 # match the pre-commit hook exactly, so this and the real gate agree.
 #
-# eslint(web)/eslint(root)/flutter analyze below keep `|| true` on purpose:
-# those are gated on `[ -f/-d ]`, not `command -v`, so they're not the same
-# bug (a missing dir just means "nothing to lint", not "tool not found").
-# flutter analyze in particular has ~700 pre-existing findings in
-# services/mobile — turning that into a hard gate here is a separate,
-# much bigger cleanup, not part of this fix.
+# eslint(web)/eslint(root) below keep `|| true` on purpose: those are gated
+# on `[ -f/-d ]`, not `command -v`, so they're not the same bug (a missing
+# dir just means "nothing to lint", not "tool not found"). flutter
+# analyze/format are a real hard gate — services/mobile was committed
+# without pubspec.yaml (never `git add`ed), so `flutter pub get` had never
+# once succeeded and every symbol from every package import read as
+# undefined; restoring pubspec.yaml took analyze to 0 issues, so the
+# `|| true` here would now just be hiding a gate that already passes.
 lint: venv-portal-api ## Code Quality - Run linting for all languages
 	@echo "$(BLUE)=== Linting ===$(RESET)"
 	@$(MAKE) --no-print-directory lint-python
@@ -305,7 +312,8 @@ lint: venv-portal-api ## Code Quality - Run linting for all languages
 	fi
 	@if [ -f "web/package.json" ]; then echo "$(YELLOW)-- eslint (web) --$(RESET)"; cd web && npm run lint || true; fi
 	@if [ -f "package.json" ]; then echo "$(YELLOW)-- eslint (root) --$(RESET)"; npm run lint || true; fi
-	@if [ -d "services/mobile" ]; then echo "$(YELLOW)-- flutter analyze --$(RESET)"; cd services/mobile && flutter analyze || true; fi
+	@if [ -d "services/mobile" ]; then echo "$(YELLOW)-- flutter analyze --$(RESET)"; cd services/mobile && flutter analyze; fi
+	@if [ -d "services/mobile" ]; then echo "$(YELLOW)-- dart format --set-exit-if-changed --$(RESET)"; cd services/mobile && dart format --output=none --set-exit-if-changed .; fi
 	@$(MAKE) --no-print-directory openapi-lint
 
 lint-go: ## Code Quality - Run Go linting
@@ -331,6 +339,7 @@ lint-node: ## Code Quality - Run Node.js linting
 lint-flutter: ## Code Quality - Run Flutter analysis
 	@echo "$(BLUE)Analyzing Flutter code...$(RESET)"
 	@cd services/mobile && flutter analyze
+	@cd services/mobile && dart format --output=none --set-exit-if-changed .
 
 format: ## Code Quality - Format code for all languages
 	@echo "$(BLUE)Formatting code...$(RESET)"

@@ -12,21 +12,20 @@ class User {
   final List<String> roles;
 
   factory User.fromJson(Map<String, dynamic> json) => User(
-        id: json['id'] as String,
-        email: json['email'] as String,
-        name: json['name'] as String?,
-        roles: (json['roles'] as List<dynamic>?)
-                ?.map((e) => e as String)
-                .toList() ??
-            const [],
-      );
+    id: json['id'] as String,
+    email: json['email'] as String,
+    name: json['name'] as String?,
+    roles:
+        (json['roles'] as List<dynamic>?)?.map((e) => e as String).toList() ??
+        const [],
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'email': email,
-        if (name != null) 'name': name,
-        'roles': roles,
-      };
+    'id': id,
+    'email': email,
+    if (name != null) 'name': name,
+    'roles': roles,
+  };
 
   bool hasRole(String role) => roles.contains(role);
 
