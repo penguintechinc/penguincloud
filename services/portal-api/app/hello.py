@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from quart import Blueprint
+from quart import Blueprint, current_app
 from quart_schema import validate_response
 
 from .authz import SCOPE_PLATFORM_READ, require_scope
@@ -29,6 +29,18 @@ class StatusResponse:
     service: str
     version: str
     timestamp: str
+
+
+@dataclass(slots=True, frozen=True)
+class RegistrationStatusResponse:
+    """Envelope for the public, unauthenticated GET /api/v1/registration-status.
+
+    Attributes:
+        self_registration_enabled: Whether ``Config.ALLOW_SELF_REGISTRATION``
+            is currently on for this deployment.
+    """
+
+    self_registration_enabled: bool
 
 
 @hello_bp.route("/hello", methods=["GET"])
@@ -91,6 +103,36 @@ async def status() -> tuple[Any, int]:
             service="portal-api",
             version="1.0.0",
             timestamp=datetime.now(UTC).isoformat(),
+        ),
+        200,
+    )
+
+
+@hello_bp.route("/registration-status", methods=["GET"])
+@validate_response(RegistrationStatusResponse)
+async def registration_status() -> tuple[Any, int]:
+    """Public: whether this deployment currently allows self-service signup.
+
+    Deliberately unauthenticated, and deliberately the ONLY thing this route
+    reports. ``Config.ALLOW_SELF_REGISTRATION`` closed by default is correct
+    (app/auth.py's ``register`` checks it before anything else runs) — but a
+    visitor deciding whether to look for a sign-up button has no token by
+    definition, so the one place that already answers "what is on for this
+    deployment" (``GET /api/v1/features``) cannot be the one that answers
+    this: it is auth-gated on purpose, for the same reason the full OpenAPI
+    document is (app/openapi.py) — publishing the whole commercial/flag
+    surface to an anonymous caller is reconnaissance, not a feature.
+
+    This route is the narrow exception, not a second unauthenticated
+    features endpoint: it names exactly one boolean, never anything else a
+    future flag or licensed capability might add to ``/features``. Whether a
+    caller can currently self-register is not secret — the sign-up button's
+    presence or absence would tell an anonymous visitor the same thing — so
+    the risk here is scope creep on THIS route, not disclosure.
+    """
+    return (
+        RegistrationStatusResponse(
+            self_registration_enabled=bool(current_app.config.get("ALLOW_SELF_REGISTRATION", False))
         ),
         200,
     )
