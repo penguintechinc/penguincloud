@@ -247,10 +247,55 @@ jobs:
         # 90` mirrors this so a local `pytest --cov=app` enforces the same
         # floor without repeating the flag; the CLI flag below is still
         # authoritative in CI. Do not lower this number.
+        #
+        # `--cov-branch` was added here (json report only, no CLI
+        # `--cov-fail-under`) because coverage.py blends lines+branches into
+        # ONE "Cover%" once branch=True -- passing `--cov-fail-under=90`
+        # with `--cov-branch` on would silently redefine what "90%" means
+        # (measured locally: blended 88.24%, below the line-only 91.00% this
+        # repo has actually earned) instead of adding a second, independent
+        # dimension. critical-rules.md's Coverage section requires lines,
+        # branches, functions and statements -- Python's coverage.py has no
+        # native "function" concept (that's a jest/istanbul dimension, see
+        # jest.config.js's coverageThreshold), and statement coverage IS
+        # line coverage for this tool, so the two enforceable Python
+        # dimensions are line/statement (gated above at 90, unchanged) and
+        # branch (gated below, separately).
+        #
+        # Branch floor is 77, not 90: measured locally at exactly 77.54%
+        # (1450/1870 branches, 1787 passed/22 skipped/18 xfailed/0 failed --
+        # unchanged from the line-only run above, confirming --cov-branch
+        # only adds measurement, it does not change what runs). This repo
+        # has never gated branch coverage before -- 77 is a measured floor,
+        # not an aspiration, using the exact same reasoning that set the
+        # line gate to 78 before 90 was earned (see the paragraph above).
+        # Known, evidenced path to raising it: ~27 `if not user: return 401`
+        # branches in app/teams.py and app/products.py (0/12 and 0/12
+        # pragma'd) plus one straggler in app/tenants.py (12/13 pragma'd)
+        # are structurally unreachable -- middleware.py's auth_required is
+        # the ONLY place in the entire app that assigns `g.current_user`
+        # (grep confirms), and it always sets it to a truthy, active user
+        # before calling the wrapped view, on every success path, with
+        # every failure path returning before reaching the view. app/
+        # discovery.py, app/dashboard_api.py and 12/13 of app/tenants.py's
+        # occurrences already carry `# pragma: no cover - auth_required
+        # guarantees a user` for this exact reason; app/teams.py, app/
+        # products.py, app/audit.py (0/2) and that one app/tenants.py
+        # straggler do not yet. Excluding them (not this job's file scope --
+        # see the coverage-audit task) would mechanically raise measured
+        # branch coverage from 77.54% to roughly 78.68% (1450/1843) without
+        # a single new test, since they are proven dead, not merely
+        # untested.
         run: |
           .venv/bin/python -m pytest tests/ -q -rs \
-            --cov=app --cov-report=xml:coverage-backend.xml --cov-report=term-missing \
-            --cov-fail-under=90 | tee pytest-backend.log
+            --cov=app --cov-branch \
+            --cov-report=xml:coverage-backend.xml \
+            --cov-report=json:coverage-backend.json \
+            --cov-report=term-missing \
+            | tee pytest-backend.log
+
+          .venv/bin/python scripts/check-coverage-dimensions.py \
+            coverage-backend.json --min-lines 90 --min-branches 77
 
       - name: Surface skipped tests in the job summary
         # Known gap: TestAgainstLiveNest (tests/api/test_nest_adapter.py)
