@@ -401,14 +401,23 @@ async def create_oauth_connection(
     access_token: str,
     refresh_token: str | None = None,
 ) -> int | None:
-    """Create OAuth connection (async)."""
+    """Create OAuth connection (async).
+
+    Unused by app.oauth (which calls store_oauth_connection, the
+    insert-or-update variant) -- kept for parity with the runtime insert
+    path so a future caller doesn't rediscover the plaintext-token gap
+    store_oauth_connection just closed. Same Fernet-encryption contract,
+    see its docstring.
+    """
+    from .encryption import encrypt_value
+
     db = get_db()
     new_id: int | None = await db.oauth_connections.async_insert(
         user_id=user_id,
         provider=provider,
         provider_user_id=provider_user_id,
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=encrypt_value(access_token) if access_token else "",
+        refresh_token=encrypt_value(refresh_token) if refresh_token else None,
     )
     return new_id
 
@@ -740,7 +749,13 @@ async def create_audit_log(
 
 
 async def get_oauth_connection(user_id: int, provider: str) -> dict[str, Any] | None:
-    """Get OAuth connection for user and provider (async)."""
+    """Get OAuth connection for user and provider (async).
+
+    access_token/refresh_token come back as Fernet ciphertext -- see
+    store_oauth_connection. app.oauth's connections-list endpoint pops
+    both before the row reaches a response body; any future caller that
+    needs the plaintext must call app.encryption.decrypt_value explicitly.
+    """
     db = get_db()
     row = await db(
         (db.oauth_connections.user_id == user_id) & (db.oauth_connections.provider == provider)
@@ -751,7 +766,10 @@ async def get_oauth_connection(user_id: int, provider: str) -> dict[str, Any] | 
 async def get_oauth_connection_by_provider_id(
     provider: str, provider_user_id: str
 ) -> dict[str, Any] | None:
-    """Get OAuth connection by provider and provider user ID (async)."""
+    """Get OAuth connection by provider and provider user ID (async).
+
+    Ciphertext contract identical to get_oauth_connection.
+    """
     db = get_db()
     row = await db(
         (db.oauth_connections.provider == provider)
@@ -768,8 +786,23 @@ async def store_oauth_connection(
     refresh_token: str | None = None,
     expires_at: Any = None,
 ) -> int | None:
-    """Store or update OAuth connection (async)."""
+    """Store or update OAuth connection (async).
+
+    access_token/refresh_token are third-party SSO provider credentials --
+    a database read or backup leak yields live Google/Microsoft/Okta
+    credentials for every SSO user, so both are Fernet-encrypted (see
+    app.encryption) before ever reaching the DB, matching
+    product_connections.api_key/api_secret. Callers that read a connection
+    back (get_oauth_connection, get_oauth_connection_by_provider_id)
+    receive ciphertext; a future token-refresh flow decrypts explicitly
+    with app.encryption.decrypt_value, same contract as
+    get_product_connection_raw.
+    """
+    from .encryption import encrypt_value
+
     db = get_db()
+    encrypted_access_token = encrypt_value(access_token) if access_token else ""
+    encrypted_refresh_token = encrypt_value(refresh_token) if refresh_token else None
     existing = await get_oauth_connection(user_id, provider)
     if existing:
         # Update existing connection
@@ -777,8 +810,8 @@ async def store_oauth_connection(
             (db.oauth_connections.user_id == user_id) & (db.oauth_connections.provider == provider)
         ).update(
             provider_user_id=provider_user_id,
-            access_token=access_token,
-            refresh_token=refresh_token,
+            access_token=encrypted_access_token,
+            refresh_token=encrypted_refresh_token,
             expires_at=expires_at,
         )
         return existing.get("id")
@@ -788,8 +821,8 @@ async def store_oauth_connection(
             user_id=user_id,
             provider=provider,
             provider_user_id=provider_user_id,
-            access_token=access_token,
-            refresh_token=refresh_token,
+            access_token=encrypted_access_token,
+            refresh_token=encrypted_refresh_token,
             expires_at=expires_at,
         )
         return new_id
