@@ -237,7 +237,13 @@ class TeamMember(Base):
 
 
 class OAuthConnection(Base):
-    """OAuth provider connection."""
+    """OAuth provider connection.
+
+    access_token/refresh_token are stored as Fernet ciphertext (see
+    app/encryption.py) -- app/models.py encrypts before every write. The
+    column type stays Text; encryption is a value-level concern, not a
+    schema-level one, matching product_connections.api_key/api_secret.
+    """
 
     __tablename__ = "oauth_connections"
     id = Column(Integer, primary_key=True)
@@ -246,6 +252,18 @@ class OAuthConnection(Base):
     provider_user_id = Column(String(255), nullable=False)
     access_token = Column(Text)
     refresh_token = Column(Text)
+    # Nullable: not every provider token response includes expires_in, so
+    # app/oauth.py only sets this when the provider reports one. Consumed
+    # by a future token-refresh flow (refresh_token exists precisely to
+    # renew an expired access_token, which requires knowing when it
+    # expires) and surfaced read-only via GET /auth/oauth/connections.
+    # Previously accepted as a kwarg by models.store_oauth_connection with
+    # no backing column -- SQLAlchemy's compiler raised "Unconsumed column
+    # names: expires_at" on every insert/update, 500ing every OAuth
+    # sign-in that reached this call (new user, email-linked, or
+    # provider-id-linked). This column, plus alembic/versions/
+    # b3f2a9d1e6c4, closes that gap.
+    expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
