@@ -1,0 +1,33 @@
+name: mobile
+description: PenguinCloud mobile client (Flutter) — springboard, auth, and profile screens for the unified portal.
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: '>=3.10.3 <4.0.0'
+  flutter: '>=3.38.4'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: 5.9.1
+  flutter_libs:
+    git:
+      url: https://github.com/penguintechinc/penguin-libs.git
+      path: packages/flutter_libs
+      ref: 029f921b551a01e23ff83504c7b8719002d50a09
+  flutter_secure_storage: 9.2.4
+  go_router: 14.8.1
+  local_auth: 2.3.0
+  provider: 6.1.5+1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: 5.0.0
+  mocktail: 1.0.4
+
+flutter:
+  uses-material-design: true

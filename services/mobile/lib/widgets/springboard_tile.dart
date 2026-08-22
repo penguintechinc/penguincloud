@@ -4,11 +4,7 @@ import 'package:flutter_libs/flutter_libs.dart';
 import '../models/springboard_item.dart';
 
 class SpringboardTile extends StatelessWidget {
-  const SpringboardTile({
-    super.key,
-    required this.item,
-    required this.onTap,
-  });
+  const SpringboardTile({super.key, required this.item, required this.onTap});
 
   final SpringboardItem item;
   final VoidCallback onTap;
@@ -21,9 +17,7 @@ class SpringboardTile extends StatelessWidget {
       color: elder?.cardBackground ?? const Color(0xFF1E293B),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: elder?.cardBorder ?? const Color(0xFF334155),
-        ),
+        side: BorderSide(color: elder?.cardBorder ?? const Color(0xFF334155)),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),

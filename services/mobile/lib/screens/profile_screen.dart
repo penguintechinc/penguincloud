@@ -136,29 +136,26 @@ class _ProfileContent extends StatelessWidget {
       children: [
         _ProfileHeader(),
         const SizedBox(height: 24),
-        _buildSection(
-            'Account Information',
-            [
-              _buildInfoTile(
-                context,
-                icon: Icons.email,
-                label: 'Email',
-                value: user?.email ?? 'N/A',
-              ),
-              _buildInfoTile(
-                context,
-                icon: Icons.badge,
-                label: 'Roles',
-                value: user?.roles.join(', ') ?? 'None',
-              ),
-              _buildInfoTile(
-                context,
-                icon: Icons.fingerprint,
-                label: 'User ID',
-                value: user?.id ?? 'N/A',
-              ),
-            ],
-            elder),
+        _buildSection('Account Information', [
+          _buildInfoTile(
+            context,
+            icon: Icons.email,
+            label: 'Email',
+            value: user?.email ?? 'N/A',
+          ),
+          _buildInfoTile(
+            context,
+            icon: Icons.badge,
+            label: 'Roles',
+            value: user?.roles.join(', ') ?? 'None',
+          ),
+          _buildInfoTile(
+            context,
+            icon: Icons.fingerprint,
+            label: 'User ID',
+            value: user?.id ?? 'N/A',
+          ),
+        ], elder),
         const SizedBox(height: 32),
         SizedBox(
           width: double.infinity,

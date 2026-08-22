@@ -6,7 +6,7 @@ import '../utils/constants.dart';
 
 class SecureStorage {
   SecureStorage({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _storage;
 
@@ -21,10 +21,8 @@ class SecureStorage {
   Future<String?> getRefreshToken() =>
       _storage.read(key: AppConstants.refreshTokenKey);
 
-  Future<void> saveUserData(Map<String, dynamic> userData) => _storage.write(
-        key: AppConstants.userKey,
-        value: jsonEncode(userData),
-      );
+  Future<void> saveUserData(Map<String, dynamic> userData) =>
+      _storage.write(key: AppConstants.userKey, value: jsonEncode(userData));
 
   Future<Map<String, dynamic>?> getUserData() async {
     final data = await _storage.read(key: AppConstants.userKey);
