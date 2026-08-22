@@ -309,4 +309,71 @@ describe("platform endpoints", () => {
     await helloApi.getProtected();
     expect(mockApi.get).toHaveBeenCalledWith("/hello/protected");
   });
+
+  describe("registrationStatus", () => {
+    it("hits the unauthenticated status route and decodes the flag", async () => {
+      mockApi.get.mockResolvedValue({
+        data: { self_registration_enabled: true },
+      });
+
+      const status = await helloApi.registrationStatus();
+
+      expect(mockApi.get).toHaveBeenCalledWith("/registration-status");
+      expect(status).toEqual({ selfRegistrationEnabled: true });
+    });
+
+    it("decodes a closed deployment the same way", async () => {
+      mockApi.get.mockResolvedValue({
+        data: { self_registration_enabled: false },
+      });
+
+      await expect(helloApi.registrationStatus()).resolves.toEqual({
+        selfRegistrationEnabled: false,
+      });
+    });
+
+    it("refuses to treat a missing key as a default", async () => {
+      // Same rule decodeFeatures enforces: an absent key is a shape this
+      // client was not written against, never silently "false".
+      mockApi.get.mockResolvedValue({ data: {} });
+
+      await expect(helloApi.registrationStatus()).rejects.toThrow(
+        /self_registration_enabled/,
+      );
+    });
+
+    it("refuses a null envelope", async () => {
+      mockApi.get.mockResolvedValue({ data: null });
+
+      await expect(helloApi.registrationStatus()).rejects.toThrow(
+        /no registration-status envelope/,
+      );
+    });
+
+    it("refuses a non-object envelope", async () => {
+      mockApi.get.mockResolvedValue({ data: "not an object" });
+
+      await expect(helloApi.registrationStatus()).rejects.toThrow(
+        /no registration-status envelope/,
+      );
+    });
+
+    it("refuses an array envelope", async () => {
+      mockApi.get.mockResolvedValue({ data: [] });
+
+      await expect(helloApi.registrationStatus()).rejects.toThrow(
+        /no registration-status envelope/,
+      );
+    });
+
+    it("refuses a non-boolean value", async () => {
+      mockApi.get.mockResolvedValue({
+        data: { self_registration_enabled: "true" },
+      });
+
+      await expect(helloApi.registrationStatus()).rejects.toThrow(
+        /not a boolean/,
+      );
+    });
+  });
 });

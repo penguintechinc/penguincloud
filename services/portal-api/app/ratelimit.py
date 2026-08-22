@@ -75,15 +75,18 @@ What this cannot see
   ``.strip().lower()`` the login/register routes already apply before
   comparing against the stored account, so this is bounded to genuine
   case/whitespace variants, not open-ended.
-* Clearing an in-progress lockout today means restarting the affected
-  worker (drops the local counter) or evicting the Valkey key by hand
-  (``ratelimit:acct:{bucket}:{sha256(email)[:32]}`` /
-  ``ratelimit:ip:{bucket}:{ip}}``) — there is no authenticated admin route
-  for it yet. Every window is bounded (60s-3600s; see the tables below),
-  so the worst case is a wait, not a permanent lock. :func:`rate_limit_reset`
-  exists as the primitive a future admin endpoint or ops script calls;
-  the WARNING log line and :data:`RATE_LIMIT_REJECTIONS` Prometheus
-  counter (labelled ``bucket``/``scope``) are the observability half.
+* Clearing an in-progress lockout no longer requires restarting the
+  affected worker or evicting the Valkey key by hand:
+  ``POST /api/v1/users/<user_id>/rate-limit-reset``
+  (app/users.py::reset_user_rate_limit) calls :func:`rate_limit_reset`
+  behind ``members:manage`` in the target's tenant, audit-logged, and
+  itself rate limited via the ``admin_ratelimit_reset`` bucket above. Every
+  window is still bounded (60s-3600s; see the tables below) even without
+  that route, so the worst case was always a wait, not a permanent lock —
+  the route exists for operator convenience and auditability, not to close
+  a hole. The WARNING log line and :data:`RATE_LIMIT_REJECTIONS`
+  Prometheus counter (labelled ``bucket``/``scope``) remain the
+  observability half.
 """
 
 from __future__ import annotations
@@ -128,6 +131,14 @@ _IP_WINDOWS: Final[dict[str, _Window]] = {
     "mfa_disable": _Window(max_attempts=20, seconds=60),
     "mfa_backup_regenerate": _Window(max_attempts=20, seconds=60),
     "change_password": _Window(max_attempts=20, seconds=60),
+    # Not a credential-verification route itself — see
+    # app/users.py::reset_user_rate_limit. It exists so the admin clear
+    # primitive below cannot become the hole in the protection it manages:
+    # unthrottled, it would let a caller who already holds members:manage
+    # authority repeatedly clear a target's lockout as fast as the target
+    # can exhaust it, which defeats the account-scoped windows above just
+    # as completely as not having them.
+    "admin_ratelimit_reset": _Window(max_attempts=30, seconds=60),
 }
 
 #: Account-scoped windows. Narrower on purpose — see module docstring for
@@ -143,6 +154,22 @@ _ACCOUNT_WINDOWS: Final[dict[str, _Window]] = {
     "mfa_disable": _Window(max_attempts=5, seconds=300),
     "mfa_backup_regenerate": _Window(max_attempts=5, seconds=300),
     "change_password": _Window(max_attempts=5, seconds=300),
+    # Keyed on the ADMIN caller's own id (`user_account_key`), not on the
+    # target being unlocked — a compromised or over-eager admin account is
+    # the threat this narrows against, independent of how many different
+    # users' lockouts it is clearing.
+    "admin_ratelimit_reset": _Window(max_attempts=15, seconds=60),
+}
+
+#: Bucket names a locked-out END USER can be identified by — the valid
+#: values for the ``bucket`` field of an admin lockout-clear request (see
+#: app/users.py::reset_user_rate_limit). Derived from ``_ACCOUNT_WINDOWS``
+#: rather than hand-listed a second time, minus ``admin_ratelimit_reset``
+#: itself: that entry protects the ADMIN action, not a credential path, so
+#: it is not something the admin route can be asked to "clear" — there is
+#: no user on the other end of it to unlock.
+CLEARABLE_ACCOUNT_BUCKETS: Final[frozenset[str]] = frozenset(_ACCOUNT_WINDOWS) - {
+    "admin_ratelimit_reset"
 }
 
 #: Requests refused, by bucket and which table refused them. The

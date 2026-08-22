@@ -18,6 +18,7 @@ from . import devmode, quotas, ratelimit
 from .auth import hash_password_async, verify_password_async
 from .authz import (
     SCOPE_AUDIT_READ,
+    SCOPE_MEMBERS_MANAGE,
     SCOPE_TENANTS_MANAGE,
     SCOPE_USERS_MANAGE,
     SCOPE_USERS_READ,
@@ -28,10 +29,12 @@ from .license import require_feature
 from .middleware import auth_required, get_current_tenant_id, get_current_user
 from .models import (
     VALID_ROLES,
+    create_audit_log,
     create_user,
     delete_user,
     get_user_by_email,
     get_user_by_id,
+    get_user_tenant_role,
     list_users,
     update_user,
 )
@@ -565,3 +568,117 @@ async def get_audit_logs_endpoint() -> tuple[dict[str, Any], int]:
     # get_audit_logs is async — see list_api_keys above.
     logs = await get_audit_logs(tenant_id, min(limit, 1000))
     return {"logs": logs}, 200
+
+
+@dataclass(slots=True, frozen=True)
+class RateLimitResetResponse:
+    """Envelope for POST /api/v1/users/<user_id>/rate-limit-reset.
+
+    Attributes:
+        message: Human-readable confirmation.
+        user_id: The user whose lockout bucket was cleared.
+        bucket: Which credential bucket was cleared.
+    """
+
+    message: str
+    user_id: int
+    bucket: str
+
+
+@users_bp.route("/<int:user_id>/rate-limit-reset", methods=["POST"])
+@auth_required
+@ratelimit.rate_limited("admin_ratelimit_reset", account_key_fn=ratelimit.user_account_key)
+@validate_response(RateLimitResetResponse)
+async def reset_user_rate_limit(user_id: int) -> tuple[Any, int]:
+    """Clear one credential-lockout bucket for a user (holders of members:manage).
+
+    An operator-facing escape hatch for app.ratelimit's account-scoped
+    windows: without it, a locked-out user waits out the TTL (up to 1h) or
+    an operator opens a Python shell against production to call
+    :func:`app.ratelimit.rate_limit_reset` by hand — see that module's
+    docstring.
+
+    ``tenant_id`` is REQUIRED in the body, not derived from the target
+    user, and the caller's authority is checked against exactly that
+    tenant — the same shape ``GET /api/v1/users/audit-logs`` uses, and for
+    the same reason: that route used to read ``db(db.audit_logs.id > 0)``,
+    every row in the deployment, behind a scope check with no tenant
+    predicate. The check below closes the same class of leak here: naming
+    a tenant the caller genuinely administers is not enough on its own — the
+    membership lookup a few lines down also requires ``user_id`` to be a
+    MEMBER of that exact tenant, so a delegated admin of tenant A cannot
+    reach a user who only exists in tenant B by naming A. Scope is checked
+    BEFORE that membership lookup runs, so a caller with no authority over
+    ``tenant_id`` at all learns nothing about who is or is not a member of
+    it — the 403 and the 404 never depend on each other's timing or
+    presence.
+
+    Clears BOTH key shapes app.ratelimit's account-scoped buckets can use
+    (the submitted email for ``login``/``forgot_password``, and
+    ``user:<id>`` for the MFA/change-password buckets) rather than
+    hand-mapping which bucket uses which — deleting a key that was never
+    set is a no-op, and a hand-maintained bucket->key-shape table is
+    exactly the kind of parallel structure that drifts silently the day a
+    new bucket is added and only one side of it is updated.
+    """
+    admin = get_current_user()
+    if not admin:  # pragma: no cover - auth_required guarantees a user
+        return {"error": "User not authenticated"}, 401
+
+    data = await request.get_json(silent=True) or {}
+    tenant_id = data.get("tenant_id")
+    bucket = data.get("bucket")
+
+    # `isinstance(tenant_id, bool)` guard: bool is an int subclass, and
+    # `True` would otherwise resolve to tenant 1 (see
+    # app.authz._coerce_tenant_id, which guards the same trap).
+    if not isinstance(tenant_id, int) or isinstance(tenant_id, bool):
+        return {"error": "tenant_id required"}, 400
+    if bucket not in ratelimit.CLEARABLE_ACCOUNT_BUCKETS:
+        return {
+            "error": "Invalid bucket. Must be one of: "
+            + ", ".join(sorted(ratelimit.CLEARABLE_ACCOUNT_BUCKETS))
+        }, 400
+
+    # Authority over the NAMED tenant, checked before anything about the
+    # target user is looked up — see docstring.
+    denied = await require_tenant_scope(admin["id"], tenant_id, SCOPE_MEMBERS_MANAGE)
+    if denied:
+        return denied
+
+    # Direct membership only, deliberately (see app.tenants
+    # add_tenant_member_endpoint for the same reasoning): this is what
+    # stops "name a tenant I administer" from being sufficient to reach a
+    # user who is not actually in it. A nonexistent user_id and a real
+    # user_id who simply isn't a member of tenant_id are answered
+    # identically — neither leaks which case occurred.
+    if await get_user_tenant_role(user_id, tenant_id) is None:
+        return {"error": "User not found"}, 404
+
+    target = await get_user_by_id(user_id)
+    if not target:  # pragma: no cover - membership row implies the user exists
+        return {"error": "User not found"}, 404
+
+    email = str(target.get("email") or "").strip().lower()
+    if email:
+        await ratelimit.rate_limit_reset(bucket, account_key=email)
+    await ratelimit.rate_limit_reset(bucket, account_key=f"user:{user_id}")
+
+    await create_audit_log(
+        user_id=admin["id"],
+        tenant_id=tenant_id,
+        action="user.ratelimit.reset",
+        resource_type="user",
+        resource_id=str(user_id),
+        changes=bucket,
+        ip_address=request.remote_addr or "unknown",
+    )
+
+    return (
+        RateLimitResetResponse(
+            message="Rate limit cleared",
+            user_id=user_id,
+            bucket=bucket,
+        ),
+        200,
+    )

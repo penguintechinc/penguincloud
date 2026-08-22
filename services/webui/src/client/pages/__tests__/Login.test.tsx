@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { useNavigate, useLocation } from "react-router";
 import Login, { LOGIN_ENDPOINT } from "../Login";
 import { useAuthStore } from "../../hooks/useAuth";
+import { helloApi } from "../../api/resources/platform";
 
 const establishSession = jest.fn(() => Promise.resolve());
 const navigate = jest.fn();
@@ -69,6 +70,51 @@ describe("Login", () => {
 
     expect(screen.queryByText(/forgot password/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/sign up/i)).not.toBeInTheDocument();
+  });
+
+  describe("self-registration status", () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("shows the sign-up button once the deployment reports it enabled", async () => {
+      jest
+        .spyOn(helloApi, "registrationStatus")
+        .mockResolvedValue({ selfRegistrationEnabled: true });
+
+      render(<Login />);
+
+      expect(await screen.findByText(/sign up/i)).toBeInTheDocument();
+    });
+
+    it("keeps the sign-up button hidden when the deployment reports it disabled", async () => {
+      jest
+        .spyOn(helloApi, "registrationStatus")
+        .mockResolvedValue({ selfRegistrationEnabled: false });
+
+      render(<Login />);
+
+      await waitFor(() =>
+        expect(helloApi.registrationStatus).toHaveBeenCalled(),
+      );
+      expect(screen.queryByText(/sign up/i)).not.toBeInTheDocument();
+    });
+
+    it("fails CLOSED when the status endpoint is unreachable", async () => {
+      // Deliberate choice: an outage must never be MORE permissive than the
+      // deployment's own closed-by-default setting (see
+      // useSelfRegistrationEnabled's docstring).
+      jest
+        .spyOn(helloApi, "registrationStatus")
+        .mockRejectedValue(new Error("network error"));
+
+      render(<Login />);
+
+      await waitFor(() =>
+        expect(helloApi.registrationStatus).toHaveBeenCalled(),
+      );
+      expect(screen.queryByText(/sign up/i)).not.toBeInTheDocument();
+    });
   });
 
   it("submits credentials to the BFF adapter endpoint", async () => {
