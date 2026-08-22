@@ -239,7 +239,12 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Register new user (creates viewer role by default + personal team). */
+    /**
+     * Register new user (creates viewer role by default + personal team).
+     * @description Closed by default (Config.ALLOW_SELF_REGISTRATION) — checked before
+     *     anything else runs, including request-body validation, so a closed
+     *     deployment never even parses an anonymous caller's payload.
+     */
     post: operations["post_register"];
     delete?: never;
     options?: never;
@@ -983,6 +988,41 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/registration-status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Public: whether this deployment currently allows self-service signup.
+     * @description Deliberately unauthenticated, and deliberately the ONLY thing this route
+     *     reports. ``Config.ALLOW_SELF_REGISTRATION`` closed by default is correct
+     *     (app/auth.py's ``register`` checks it before anything else runs) — but a
+     *     visitor deciding whether to look for a sign-up button has no token by
+     *     definition, so the one place that already answers "what is on for this
+     *     deployment" (``GET /api/v1/features``) cannot be the one that answers
+     *     this: it is auth-gated on purpose, for the same reason the full OpenAPI
+     *     document is (app/openapi.py) — publishing the whole commercial/flag
+     *     surface to an anonymous caller is reconnaissance, not a feature.
+     *
+     *     This route is the narrow exception, not a second unauthenticated
+     *     features endpoint: it names exactly one boolean, never anything else a
+     *     future flag or licensed capability might add to ``/features``. Whether a
+     *     caller can currently self-register is not secret — the sign-up button's
+     *     presence or absence would tell an anonymous visitor the same thing — so
+     *     the risk here is scope creep on THIS route, not disclosure.
+     */
+    get: operations["get_registration_status"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/status": {
     parameters: {
       query?: never;
@@ -1452,6 +1492,53 @@ export interface paths {
     post?: never;
     /** Delete user by ID (Admin only). */
     delete: operations["delete_delete_existing_user"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/users/{user_id}/rate-limit-reset": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Clear one credential-lockout bucket for a user (holders of members:manage).
+     * @description An operator-facing escape hatch for app.ratelimit's account-scoped
+     *     windows: without it, a locked-out user waits out the TTL (up to 1h) or
+     *     an operator opens a Python shell against production to call
+     *     :func:`app.ratelimit.rate_limit_reset` by hand — see that module's
+     *     docstring.
+     *
+     *     ``tenant_id`` is REQUIRED in the body, not derived from the target
+     *     user, and the caller's authority is checked against exactly that
+     *     tenant — the same shape ``GET /api/v1/users/audit-logs`` uses, and for
+     *     the same reason: that route used to read ``db(db.audit_logs.id > 0)``,
+     *     every row in the deployment, behind a scope check with no tenant
+     *     predicate. The check below closes the same class of leak here: naming
+     *     a tenant the caller genuinely administers is not enough on its own — the
+     *     membership lookup a few lines down also requires ``user_id`` to be a
+     *     MEMBER of that exact tenant, so a delegated admin of tenant A cannot
+     *     reach a user who only exists in tenant B by naming A. Scope is checked
+     *     BEFORE that membership lookup runs, so a caller with no authority over
+     *     ``tenant_id`` at all learns nothing about who is or is not a member of
+     *     it — the 403 and the 404 never depend on each other's timing or
+     *     presence.
+     *
+     *     Clears BOTH key shapes app.ratelimit's account-scoped buckets can use
+     *     (the submitted email for ``login``/``forgot_password``, and
+     *     ``user:<id>`` for the MFA/change-password buckets) rather than
+     *     hand-mapping which bucket uses which — deleting a key that was never
+     *     set is a no-op, and a hand-maintained bucket->key-shape table is
+     *     exactly the kind of parallel structure that drifts silently the day a
+     *     new bucket is added and only one side of it is updated.
+     */
+    post: operations["post_reset_user_rate_limit"];
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -3614,6 +3701,35 @@ export interface operations {
       };
     };
   };
+  get_registration_status: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Envelope for the public, unauthenticated GET /api/v1/registration-status.
+       *
+       *     Attributes:
+       *         self_registration_enabled: Whether ``Config.ALLOW_SELF_REGISTRATION``
+       *             is currently on for this deployment.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Self Registration Enabled */
+            self_registration_enabled: boolean;
+          };
+        };
+      };
+    };
+  };
   get_status: {
     parameters: {
       query?: never;
@@ -4514,6 +4630,42 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  post_reset_user_rate_limit: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        user_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Envelope for POST /api/v1/users/<user_id>/rate-limit-reset.
+       *
+       *     Attributes:
+       *         message: Human-readable confirmation.
+       *         user_id: The user whose lockout bucket was cleared.
+       *         bucket: Which credential bucket was cleared.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Bucket */
+            bucket: string;
+            /** Message */
+            message: string;
+            /** User Id */
+            user_id: number;
+          };
+        };
       };
     };
   };
