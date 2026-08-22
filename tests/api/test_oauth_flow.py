@@ -36,28 +36,19 @@ def _sso_entitled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(LicenseManager, "is_feature_enabled", lambda self, feature: True)
 
 
-# app.models.store_oauth_connection (models.py) unconditionally passes
-# expires_at=... to BOTH db.oauth_connections.async_insert(...) and the
-# update() branch, but app.models_sqlalchemy.OAuthConnection defines no
-# expires_at column (id, user_id, provider, provider_user_id, access_token,
-# refresh_token, created_at, updated_at only). SQLAlchemy's compiler raises
-# `CompileError: Unconsumed column names: expires_at` for BOTH the insert
-# and the update path -- verified directly by calling store_oauth_connection
-# in isolation, not just through these routes. That makes this a genuine,
-# previously-undiscovered defect (not a test setup issue): every real
-# Google/Microsoft/Okta sign-in that reaches this call -- new user, existing
-# user linked by email, or a repeat sign-in linked by provider id -- 500s
-# today, and so does every call to get_oauth_connections/disconnect_oauth
-# once a connection exists. This surface had 0% test coverage before this
-# file, which is how it went uncaught. Fixing app/models_sqlalchemy.py is
-# outside this change's file set (tests/api/, pytest config, ci.yml only).
-REASON_OAUTH_CONNECTIONS_MISSING_EXPIRES_AT_COLUMN = (
-    "store_oauth_connection (models.py) always passes expires_at to "
-    "db.oauth_connections insert/update, but OAuthConnection "
-    "(models_sqlalchemy.py) declares no expires_at column -- raises "
-    "sqlalchemy.exc.CompileError: 'Unconsumed column names: expires_at' "
-    "for every OAuth connection store, whether newly inserted or updated"
-)
+# Previously: app.models.store_oauth_connection (models.py) unconditionally
+# passed expires_at=... to BOTH db.oauth_connections.async_insert(...) and
+# the update() branch, but app.models_sqlalchemy.OAuthConnection declared no
+# expires_at column. SQLAlchemy's compiler raised `CompileError: Unconsumed
+# column names: expires_at` for BOTH the insert and the update path, so
+# every real Google/Microsoft/Okta sign-in that reached this call -- new
+# user, existing user linked by email, or a repeat sign-in linked by
+# provider id -- 500'd, and so did every call to
+# get_oauth_connections/disconnect_oauth once a connection existed. Fixed by
+# alembic/versions/b3f2a9d1e6c4 (adds the column) + models_sqlalchemy.py.
+# The five tests that documented this with xfail below are un-xfailed as
+# part of that fix -- an xfail whose bug is fixed is a test that has
+# silently stopped running.
 
 
 @pytest.fixture
@@ -344,12 +335,22 @@ class TestOAuthCallback:
         assert response.status_code == 500
         assert (await response.get_json())["error"] == "Failed to complete OAuth flow"
 
-    @pytest.mark.xfail(reason=REASON_OAUTH_CONNECTIONS_MISSING_EXPIRES_AT_COLUMN, strict=False)
     @pytest.mark.asyncio
     async def test_new_user_created_from_provider_info(
-        self, client: Any, google_provider: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+        self,
+        client: Any,
+        app: Quart,
+        google_provider: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """New user created from provider info."""
+        """New user created from provider info.
+
+        Regression: the whole callback path -- state-signed session,
+        provider token+userinfo exchange, user creation, and the
+        store_oauth_connection insert that used to 500 on every real
+        sign-in (models.py passed expires_at to a column that didn't
+        exist) -- must complete end-to-end, not just stop raising.
+        """
         provider_sub = f"g-{uuid.uuid4().hex[:8]}"
         email = f"sso-{uuid.uuid4().hex[:8]}@example.com"
         _install_fake_exchange(
@@ -373,7 +374,25 @@ class TestOAuthCallback:
         assert data["token_type"] == "Bearer"
         assert data["access_token"]
 
-    @pytest.mark.xfail(reason=REASON_OAUTH_CONNECTIONS_MISSING_EXPIRES_AT_COLUMN, strict=False)
+        # The insert this test exercises is exactly the one that used to
+        # raise CompileError: 'Unconsumed column names: expires_at' --
+        # assert the column actually persisted the value, not just that
+        # the insert stopped raising.
+        async with app.app_context():
+            from app.encryption import decrypt_value
+            from app.models import get_oauth_connection
+
+            connection = await get_oauth_connection(int(data["user"]["id"]), "google")
+        assert connection is not None
+        assert connection["expires_at"] is not None
+        # access_token/refresh_token must be Fernet ciphertext at rest, not
+        # the plaintext the fake provider returned -- see security.md
+        # at-rest encryption + app.models.store_oauth_connection.
+        assert connection["access_token"] != "at1"
+        assert connection["refresh_token"] != "rt1"
+        assert decrypt_value(connection["access_token"]) == "at1"
+        assert decrypt_value(connection["refresh_token"]) == "rt1"
+
     @pytest.mark.asyncio
     async def test_existing_email_links_instead_of_creating(
         self,
@@ -415,7 +434,6 @@ class TestOAuthCallback:
             connection = await get_oauth_connection(existing_user_id, "google")
         assert connection is not None
 
-    @pytest.mark.xfail(reason=REASON_OAUTH_CONNECTIONS_MISSING_EXPIRES_AT_COLUMN, strict=False)
     @pytest.mark.asyncio
     async def test_existing_oauth_connection_links_by_provider_id(
         self,
@@ -494,6 +512,82 @@ class TestOAuthCallback:
         assert "dev" in body["error"].lower() or "dev" in str(body).lower()
 
 
+class TestOAuthConnectionTokenEncryption:
+    """Direct model-layer coverage of the at-rest encryption contract.
+
+    Tokens must never land in the DB as plaintext, on either the insert or
+    the update branch of store_oauth_connection, nor via the
+    unused-but-shipped create_oauth_connection.
+    """
+
+    @pytest.mark.asyncio
+    async def test_update_branch_reencrypts_the_new_token(self, app: Quart) -> None:
+        """A repeat store_oauth_connection call re-encrypts, not overwrites in the clear."""
+        from app.encryption import decrypt_value
+        from app.models import create_user, get_oauth_connection, store_oauth_connection
+
+        async with app.app_context():
+            user = await create_user(
+                email=f"reenc-{uuid.uuid4().hex[:8]}@example.com",
+                password_hash="hash",
+                full_name="Reenc User",
+                role="viewer",
+            )
+            assert user is not None
+            user_id = int(user["id"])
+
+            await store_oauth_connection(
+                user_id=user_id,
+                provider="google",
+                provider_user_id="g-reenc",
+                access_token="first-token",
+            )
+            # Second call for the same (user_id, provider) takes the update
+            # branch inside store_oauth_connection, not the insert branch.
+            await store_oauth_connection(
+                user_id=user_id,
+                provider="google",
+                provider_user_id="g-reenc",
+                access_token="second-token",
+            )
+            connection = await get_oauth_connection(user_id, "google")
+
+        assert connection is not None
+        assert connection["access_token"] != "second-token"
+        assert decrypt_value(connection["access_token"]) == "second-token"
+
+    @pytest.mark.asyncio
+    async def test_create_oauth_connection_also_encrypts(self, app: Quart) -> None:
+        """The unused insert-only sibling function carries the same contract."""
+        from app.encryption import decrypt_value
+        from app.models import create_oauth_connection, create_user, get_oauth_connection
+
+        async with app.app_context():
+            user = await create_user(
+                email=f"createoauth-{uuid.uuid4().hex[:8]}@example.com",
+                password_hash="hash",
+                full_name="Create OAuth User",
+                role="viewer",
+            )
+            assert user is not None
+            user_id = int(user["id"])
+
+            await create_oauth_connection(
+                user_id=user_id,
+                provider="microsoft",
+                provider_user_id="m-created",
+                access_token="direct-token",
+                refresh_token="direct-refresh",
+            )
+            connection = await get_oauth_connection(user_id, "microsoft")
+
+        assert connection is not None
+        assert connection["access_token"] != "direct-token"
+        assert connection["refresh_token"] != "direct-refresh"
+        assert decrypt_value(connection["access_token"]) == "direct-token"
+        assert decrypt_value(connection["refresh_token"]) == "direct-refresh"
+
+
 @pytest.mark.usefixtures("_sso_entitled")
 class TestOAuthConnectionsList:
     """O Auth Connections List."""
@@ -507,7 +601,6 @@ class TestOAuthConnectionsList:
         assert response.status_code == 200
         assert (await response.get_json())["connections"] == []
 
-    @pytest.mark.xfail(reason=REASON_OAUTH_CONNECTIONS_MISSING_EXPIRES_AT_COLUMN, strict=False)
     @pytest.mark.asyncio
     async def test_connection_present_hides_tokens(
         self, client: Any, app: Quart, auth_headers: dict[str, str]
@@ -545,7 +638,6 @@ class TestOAuthConnectionsList:
 class TestDisconnectOAuth:
     """Disconnect O Auth."""
 
-    @pytest.mark.xfail(reason=REASON_OAUTH_CONNECTIONS_MISSING_EXPIRES_AT_COLUMN, strict=False)
     @pytest.mark.asyncio
     async def test_disconnect_removes_the_connection(
         self, client: Any, app: Quart, auth_headers: dict[str, str]
