@@ -248,19 +248,33 @@ jobs:
         # floor without repeating the flag; the CLI flag below is still
         # authoritative in CI. Do not lower this number.
         #
-        # `--cov-branch` was added here (json report only, no CLI
-        # `--cov-fail-under`) because coverage.py blends lines+branches into
-        # ONE "Cover%" once branch=True -- passing `--cov-fail-under=90`
-        # with `--cov-branch` on would silently redefine what "90%" means
-        # (measured locally: blended 88.24%, below the line-only 91.00% this
-        # repo has actually earned) instead of adding a second, independent
-        # dimension. critical-rules.md's Coverage section requires lines,
-        # branches, functions and statements -- Python's coverage.py has no
-        # native "function" concept (that's a jest/istanbul dimension, see
-        # jest.config.js's coverageThreshold), and statement coverage IS
-        # line coverage for this tool, so the two enforceable Python
-        # dimensions are line/statement (gated above at 90, unchanged) and
-        # branch (gated below, separately).
+        # `--cov-branch` was added here (json report only) because
+        # coverage.py blends lines+branches into ONE "Cover%" once
+        # branch=True -- leaving `--cov-fail-under=90` on the CLI with
+        # `--cov-branch` on would silently redefine what "90%" means
+        # (measured locally: blended 88.24%, below the line-only 91.00%
+        # this repo has actually earned) instead of adding a second,
+        # independent dimension. critical-rules.md's Coverage section
+        # requires lines, branches, functions and statements -- Python's
+        # coverage.py has no native "function" concept (that's a
+        # jest/istanbul dimension, see jest.config.js's
+        # coverageThreshold), and statement coverage IS line coverage for
+        # this tool, so the two enforceable Python dimensions are
+        # line/statement (gated below at 90, unchanged) and branch (gated
+        # below, separately).
+        #
+        # `--cov-fail-under=0` below is NOT "no gate" -- it is required to
+        # stop coverage.py falling back to pyproject.toml's `[tool.coverage.
+        # report] fail_under = 90`, which still applies to whatever this
+        # run measures (the blended 88.24%) whenever no CLI flag is given.
+        # Discovered the hard way: the first version of this step omitted
+        # the flag entirely, assuming that meant "no pytest-cov-level
+        # enforcement here, scripts/check-coverage-dimensions.py is the
+        # sole gate" -- pytest-cov printed "FAIL Required test coverage of
+        # 90.0% not reached. Total coverage: 88.23%" and exited 1 anyway,
+        # gating the exact blended metric this comment says not to use.
+        # scripts/check-coverage-dimensions.py (below) is the real gate for
+        # both dimensions now.
         #
         # Branch floor is 77, not 90: measured locally at exactly 77.54%
         # (1450/1870 branches, 1787 passed/22 skipped/18 xfailed/0 failed --
@@ -292,6 +306,7 @@ jobs:
             --cov-report=xml:coverage-backend.xml \
             --cov-report=json:coverage-backend.json \
             --cov-report=term-missing \
+            --cov-fail-under=0 \
             | tee pytest-backend.log
 
           .venv/bin/python scripts/check-coverage-dimensions.py \
