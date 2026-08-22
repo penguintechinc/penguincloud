@@ -40,12 +40,14 @@ void main() {
     });
 
     test('initialize loads user from storage', () async {
-      when(() => mockStorage.getUserData()).thenAnswer((_) async => {
-            'id': 'user-1',
-            'email': 'test@example.com',
-            'name': 'Test',
-            'roles': ['viewer'],
-          });
+      when(() => mockStorage.getUserData()).thenAnswer(
+        (_) async => {
+          'id': 'user-1',
+          'email': 'test@example.com',
+          'name': 'Test',
+          'roles': ['viewer'],
+        },
+      );
 
       await authProvider.initialize();
 
@@ -63,18 +65,16 @@ void main() {
 
     test('logout clears current user', () async {
       // Setup: first initialize with a user
-      when(() => mockStorage.getUserData()).thenAnswer((_) async => {
-            'id': 'user-1',
-            'email': 'test@example.com',
-            'roles': [],
-          });
+      when(() => mockStorage.getUserData()).thenAnswer(
+        (_) async => {'id': 'user-1', 'email': 'test@example.com', 'roles': []},
+      );
       await authProvider.initialize();
       expect(authProvider.isAuthenticated, isTrue);
 
       // Mock Dio.post to throw DioException (server unreachable)
-      when(() => mockDio.post(any())).thenThrow(
-        DioException(requestOptions: RequestOptions()),
-      );
+      when(
+        () => mockDio.post(any()),
+      ).thenThrow(DioException(requestOptions: RequestOptions()));
       when(() => mockStorage.clearAll()).thenAnswer((_) async {});
 
       await authProvider.logout();

@@ -14,14 +14,9 @@ void main() {
 
   Widget buildTestWidget({VoidCallback? onTap}) {
     return MaterialApp(
-      theme: ThemeData.dark().copyWith(
-        extensions: const [ElderThemeData.dark],
-      ),
+      theme: ThemeData.dark().copyWith(extensions: const [ElderThemeData.dark]),
       home: Scaffold(
-        body: SpringboardTile(
-          item: testItem,
-          onTap: onTap ?? () {},
-        ),
+        body: SpringboardTile(item: testItem, onTap: onTap ?? () {}),
       ),
     );
   }
@@ -54,17 +49,16 @@ void main() {
         icon: Icons.settings,
         route: '/settings',
       );
-      await tester.pumpWidget(MaterialApp(
-        theme: ThemeData.dark().copyWith(
-          extensions: const [ElderThemeData.dark],
-        ),
-        home: Scaffold(
-          body: SpringboardTile(
-            item: noDescItem,
-            onTap: () {},
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark().copyWith(
+            extensions: const [ElderThemeData.dark],
+          ),
+          home: Scaffold(
+            body: SpringboardTile(item: noDescItem, onTap: () {}),
           ),
         ),
-      ));
+      );
 
       expect(find.text('Settings'), findsOneWidget);
     });

@@ -32,26 +32,26 @@ void main() {
   group('AuthService', () {
     group('login', () {
       test('stores token and returns user on success', () async {
-        when(() => mockDio.post(
-              any(),
-              data: any(named: 'data'),
-            )).thenAnswer((_) async => Response(
-              requestOptions: RequestOptions(),
-              statusCode: 200,
-              data: {
-                'token': 'test-token',
-                'refreshToken': 'test-refresh',
-                'user': {
-                  'id': 'user-1',
-                  'email': 'test@example.com',
-                  'name': 'Test User',
-                  'roles': ['admin'],
-                },
+        when(() => mockDio.post(any(), data: any(named: 'data'))).thenAnswer(
+          (_) async => Response(
+            requestOptions: RequestOptions(),
+            statusCode: 200,
+            data: {
+              'token': 'test-token',
+              'refreshToken': 'test-refresh',
+              'user': {
+                'id': 'user-1',
+                'email': 'test@example.com',
+                'name': 'Test User',
+                'roles': ['admin'],
               },
-            ));
+            },
+          ),
+        );
         when(() => mockStorage.saveToken(any())).thenAnswer((_) async {});
-        when(() => mockStorage.saveRefreshToken(any()))
-            .thenAnswer((_) async {});
+        when(
+          () => mockStorage.saveRefreshToken(any()),
+        ).thenAnswer((_) async {});
         when(() => mockStorage.saveUserData(any())).thenAnswer((_) async {});
 
         final user = await authService.login('test@example.com', 'password');
@@ -65,14 +65,13 @@ void main() {
       });
 
       test('returns null when no user in response', () async {
-        when(() => mockDio.post(
-              any(),
-              data: any(named: 'data'),
-            )).thenAnswer((_) async => Response(
-              requestOptions: RequestOptions(),
-              statusCode: 200,
-              data: {'token': 'test-token'},
-            ));
+        when(() => mockDio.post(any(), data: any(named: 'data'))).thenAnswer(
+          (_) async => Response(
+            requestOptions: RequestOptions(),
+            statusCode: 200,
+            data: {'token': 'test-token'},
+          ),
+        );
         when(() => mockStorage.saveToken(any())).thenAnswer((_) async {});
 
         final user = await authService.login('test@example.com', 'password');
@@ -83,10 +82,10 @@ void main() {
 
     group('logout', () {
       test('clears storage', () async {
-        when(() => mockDio.post(any())).thenAnswer((_) async => Response(
-              requestOptions: RequestOptions(),
-              statusCode: 200,
-            ));
+        when(() => mockDio.post(any())).thenAnswer(
+          (_) async =>
+              Response(requestOptions: RequestOptions(), statusCode: 200),
+        );
         when(() => mockStorage.clearAll()).thenAnswer((_) async {});
 
         await authService.logout();
@@ -95,9 +94,9 @@ void main() {
       });
 
       test('clears storage even on API error', () async {
-        when(() => mockDio.post(any())).thenThrow(
-          DioException(requestOptions: RequestOptions()),
-        );
+        when(
+          () => mockDio.post(any()),
+        ).thenThrow(DioException(requestOptions: RequestOptions()));
         when(() => mockStorage.clearAll()).thenAnswer((_) async {});
 
         await authService.logout();
@@ -108,8 +107,9 @@ void main() {
 
     group('isAuthenticated', () {
       test('returns true when token exists', () async {
-        when(() => mockStorage.getToken())
-            .thenAnswer((_) async => 'some-token');
+        when(
+          () => mockStorage.getToken(),
+        ).thenAnswer((_) async => 'some-token');
 
         final result = await authService.isAuthenticated();
 
@@ -127,12 +127,14 @@ void main() {
 
     group('getCurrentUser', () {
       test('returns user from storage', () async {
-        when(() => mockStorage.getUserData()).thenAnswer((_) async => {
-              'id': 'user-1',
-              'email': 'test@example.com',
-              'name': 'Test User',
-              'roles': ['admin'],
-            });
+        when(() => mockStorage.getUserData()).thenAnswer(
+          (_) async => {
+            'id': 'user-1',
+            'email': 'test@example.com',
+            'name': 'Test User',
+            'roles': ['admin'],
+          },
+        );
 
         final user = await authService.getCurrentUser();
 

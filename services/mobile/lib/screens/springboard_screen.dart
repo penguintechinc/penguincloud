@@ -41,18 +41,9 @@ class _PhoneSpringboard extends StatelessWidget {
         unselectedItemColor: const Color(0xFF94A3B8),
         backgroundColor: const Color(0xFF1E293B),
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.apps),
-            label: 'Apps',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.apps), label: 'Apps'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
     );
@@ -107,16 +98,8 @@ class _TabletSpringboard extends StatelessWidget {
               MenuCategory(
                 header: 'Navigation',
                 items: [
-                  MenuItem(
-                    name: 'Home',
-                    href: '/home',
-                    icon: Icons.home,
-                  ),
-                  MenuItem(
-                    name: 'Apps',
-                    href: '/apps',
-                    icon: Icons.apps,
-                  ),
+                  MenuItem(name: 'Home', href: '/home', icon: Icons.home),
+                  MenuItem(name: 'Apps', href: '/apps', icon: Icons.apps),
                   MenuItem(
                     name: 'Profile',
                     href: '/profile',
@@ -174,10 +157,10 @@ class SpringboardGrid extends StatelessWidget {
       builder: (context, constraints) {
         final crossAxisCount =
             constraints.maxWidth >= AppConstants.tabletLandscapeBreakpoint
-                ? AppConstants.tabletLandscapeGridColumns
-                : constraints.maxWidth >= AppConstants.phoneBreakpoint
-                    ? AppConstants.tabletGridColumns
-                    : AppConstants.phoneGridColumns;
+            ? AppConstants.tabletLandscapeGridColumns
+            : constraints.maxWidth >= AppConstants.phoneBreakpoint
+            ? AppConstants.tabletGridColumns
+            : AppConstants.phoneGridColumns;
 
         return GridView.builder(
           padding: const EdgeInsets.all(AppConstants.gridSpacing),
@@ -214,7 +197,8 @@ class SpringboardHomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final elder = Theme.of(context).extension<ElderThemeData>();
     final authProvider = context.watch<AuthProvider>();
-    final userName = authProvider.currentUser?.name ??
+    final userName =
+        authProvider.currentUser?.name ??
         authProvider.currentUser?.email ??
         'User';
 

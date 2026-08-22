@@ -7,10 +7,7 @@ import 'api_client.dart';
 import 'secure_storage.dart';
 
 class AuthService {
-  AuthService({
-    required this.apiClient,
-    required this.secureStorage,
-  });
+  AuthService({required this.apiClient, required this.secureStorage});
 
   final ApiClient apiClient;
   final SecureStorage secureStorage;
