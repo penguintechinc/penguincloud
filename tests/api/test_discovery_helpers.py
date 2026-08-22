@@ -40,7 +40,10 @@ class TestRejectReason:
     @pytest.mark.parametrize(
         ("literal", "expected_fragment"),
         [
-            ("0.0.0.0", "unspecified"),  # noqa: S104 -- asserting REJECTION, not a bind target
+            # Asserting REJECTION of this literal, not a bind target -- ruff's
+            # own suppression (noqa) must stay on the flagged line, same as
+            # bandit's (nosec); see the line below.
+            ("0.0.0.0", "unspecified"),  # noqa: S104  # nosec B104
             ("224.0.0.1", "multicast"),
             ("240.0.0.1", "reserved"),
         ],

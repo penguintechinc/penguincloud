@@ -1,0 +1,75 @@
+# Codecov configuration. Two independent upload flags -- see
+# .github/workflows/ci.yml's "Upload backend/webui coverage to Codecov"
+# steps for what produces each report and why they are never blended into
+# one number:
+#   backend -- services/portal-api's coverage-backend.xml (pytest-cov,
+#              Python line + branch data; --cov-branch is on, so this
+#              report's own percentage is a blended lines+branches figure)
+#   webui   -- services/webui's lcov.info (jest, TS lines/branches/
+#              functions/statements)
+#
+# require_ci_to_pass: only score a commit Codecov actually saw tests run
+# for -- a coverage upload from a run whose tests failed is not a number
+# worth gating on.
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+
+  status:
+    # default: false -- no single blended "everything" project check. Each
+    # flag gets its own status below instead (see critical-rules.md
+    # Coverage: lines, branches, functions, statements all matter, and a
+    # merged Python+TS number would hide which one moved).
+    project:
+      default: false
+
+      backend:
+        flags:
+          - backend
+        target: 90%
+        threshold: 0%
+        # EXPECTED RED right now, and that is correct, not a
+        # misconfiguration -- do not lower this target to make it green.
+        # coverage-backend.xml is branch-blended (see header above);
+        # measured today at 90.98% line / 77.54% branch, so the blended
+        # number this check evaluates sits below 90% until branch coverage
+        # (currently gated at a separate, honest 77% floor in ci.yml) is
+        # raised to match. That's the coverage ratchet working as intended.
+        informational: false
+
+      webui:
+        flags:
+          - webui
+        target: 90%
+        threshold: 0%
+        # jest.config.js's own coverageThreshold already gates this exact
+        # figure at 90% (branches/functions/lines/statements) on the same
+        # collectCoverageFrom scope, so this check is redundant-by-design
+        # confirmation, not a second independent bar.
+        informational: false
+
+    patch:
+      default:
+        target: 90%
+        threshold: 0%
+        # New/changed lines only -- keeps a single low-coverage legacy file
+        # from blocking an unrelated PR while still holding new code to the
+        # org floor (critical-rules.md Coverage).
+
+flags:
+  backend:
+    paths:
+      - services/portal-api/app/
+    carryforward: false
+  webui:
+    paths:
+      - services/webui/src/client/
+    carryforward: false
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: false

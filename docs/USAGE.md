@@ -13,7 +13,7 @@
 ## Helm
 
 
-## Teraform 
+## Teraform
 
 # Storage / Persistence
 ## Required Volumes for Persistence

@@ -343,6 +343,49 @@ jobs:
           path: coverage-backend.xml
           retention-days: 14
 
+      - name: Upload backend coverage to Codecov
+        # coverage-backend.xml comes from the step above, which runs with
+        # --cov-branch -- its Cobertura branch-rate is populated, so the
+        # percentage Codecov computes from it is a BLENDED lines+branches
+        # figure, not the 90%-gated line-only number CI enforces (see that
+        # step's own comment on why --cov-branch blends). At today's
+        # measured 90.98% line / 77.54% branch, the blended figure is well
+        # under codecov.yml's 90% backend project target -- red on this
+        # target now is the branch-coverage ratchet (critical-rules.md
+        # Coverage) working as intended, not a broken gate. Do not "fix"
+        # this by lowering codecov.yml's target or dropping --cov-branch
+        # from the run above; raise branch coverage instead (see that
+        # step's known-gap paragraph).
+        #
+        # if: always() to upload on a failing run too, same reasoning as
+        # the artifact upload above -- Codecov's trend is only meaningful
+        # if a red run still reports its real number.
+        #
+        # continue-on-error (step-level, GitHub-native) + fail_ci_if_error:
+        # true (action-level) together: the action must not swallow a real
+        # upload failure and exit 0 (that would be a gate that can never
+        # fail -- see critical-rules.md Verification Integrity), but a
+        # Codecov outage is not this repo's code defect and must not fail
+        # the job. continue-on-error keeps the step's own red X visible in
+        # the Actions UI/job summary even though it doesn't block merge --
+        # a permanently-red step gets noticed; fail_ci_if_error: false
+        # would not.
+        #
+        # CODECOV_TOKEN: no such secret exists yet in this repo (`gh secret
+        # list` returned zero entries) -- v4+ needs it for reliable upload,
+        # tokenless is flaky even on public repos. Referencing the secret
+        # now means upload starts working the moment it's added, with no
+        # further workflow change; until then this step is expected to show
+        # red (see continue-on-error above) rather than silently no-op.
+        if: always()
+        continue-on-error: true
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage-backend.xml
+          flags: backend
+          fail_ci_if_error: true
+
   test-webui:
     name: WebUI tests (jest, 90% threshold per jest.config.js)
     runs-on: ubuntu-latest
@@ -368,6 +411,34 @@ jobs:
       - name: Jest (coverage gate enforced via jest.config.js coverageThreshold)
         run: npm run test:coverage
         working-directory: services/webui
+
+      - name: Upload webui coverage to Codecov
+        # `jest --coverage` (via test:coverage above) writes lcov.info to
+        # jest's default coverageDirectory, "coverage/" relative to
+        # jest.config.js's rootDir (services/webui) -- see
+        # services/webui/.gitignore's coverage/ entry. jest's own
+        # coverageThreshold already gates this at 90% branches/functions/
+        # lines/statements on the same collectCoverageFrom scope (kit
+        # components, api, lib, mutationErrorStore), so this number should
+        # already be green whenever the job reaches this step.
+        #
+        # Separate `backend`/`webui` flags (not one blended upload) so
+        # Codecov reports two meaningful numbers instead of one that
+        # conflates a Python line/branch metric with a TS lines/branches/
+        # functions/statements one -- see the backend upload step's own
+        # comment for why blending is exactly the failure mode this repo
+        # keeps finding.
+        #
+        # if: always() / continue-on-error / fail_ci_if_error / missing
+        # CODECOV_TOKEN: identical reasoning to the backend upload step.
+        if: always()
+        continue-on-error: true
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: services/webui/coverage/lcov.info
+          flags: webui
+          fail_ci_if_error: true
 
   test-product-source:
     name: Backend tests against real Gough/Nest/Tobogganing checkouts

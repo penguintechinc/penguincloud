@@ -107,6 +107,18 @@ repos:
         entry: scripts/hooks/run-mypy.sh
         language: script
         types: [python]
+        # Without this, pre-commit partitions the file list across
+        # target_concurrency() parallel processes (see xargs.py) that all
+        # write to the same .mypy_cache/ by default. That race is exactly
+        # what "INTERNAL ERROR" under `pre-commit run --all-files` reproduces
+        # to -- confirmed locally: 166 tracked .py files in one invocation
+        # type-check clean, but partitioned into concurrent batches sharing
+        # a cache dir, one batch reliably crashes. The official
+        # mirrors-mypy hook sets this for the identical reason (mypy's
+        # incremental cache is not safe for concurrent writers). This is a
+        # scope fix, not a suppression: mypy still checks every file, just
+        # as a single serial process.
+        require_serial: true
         stages: [pre-commit]
 
   # Node/TS (webui) — matches old hook's services/webui-only scope. `files:`
