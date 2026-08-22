@@ -259,7 +259,7 @@ Check back soon for full iOS build documentation and scripts.
 
 ---
 
-**Last Updated**: 2026-02-02  
-**Flutter Version**: 3.16.0+  
-**Android SDK**: API 34 (minimum 21)  
+**Last Updated**: 2026-02-02
+**Flutter Version**: 3.16.0+
+**Android SDK**: API 34 (minimum 21)
 **For issues or questions**: Refer to [docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md) and [docs/TESTING.md](../../docs/TESTING.md)
