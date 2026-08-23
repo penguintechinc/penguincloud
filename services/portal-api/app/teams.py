@@ -39,7 +39,7 @@ def generate_invitation_token() -> str:
 async def create_team_endpoint() -> tuple[dict[str, Any], int]:
     """Create new team (authenticated users)."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     data = await request.get_json()
 
@@ -85,7 +85,7 @@ async def create_team_endpoint() -> tuple[dict[str, Any], int]:
 async def list_user_teams() -> tuple[dict[str, Any], int]:
     """List user's teams."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     teams = await get_user_teams(user["id"])
     return {"teams": teams, "count": len(teams)}, 200
@@ -96,7 +96,7 @@ async def list_user_teams() -> tuple[dict[str, Any], int]:
 async def get_team_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
     """Get team details (team members only)."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     team = await get_team_by_id(team_id)
 
@@ -115,7 +115,7 @@ async def get_team_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
 async def update_team_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
     """Update team (team admin only)."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
     if denied:
@@ -158,7 +158,7 @@ async def update_team_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
 async def delete_team_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
     """Delete team (owner only)."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     team = await get_team_by_id(team_id)
 
@@ -180,7 +180,7 @@ async def delete_team_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
 async def list_team_members(team_id: int) -> tuple[dict[str, Any], int]:
     """List team members."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_READ)
     if denied:
@@ -195,7 +195,7 @@ async def list_team_members(team_id: int) -> tuple[dict[str, Any], int]:
 async def add_team_member_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
     """Add member to team (team admin only)."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
     if denied:
@@ -235,7 +235,7 @@ async def add_team_member_endpoint(team_id: int) -> tuple[dict[str, Any], int]:
 async def update_member_role(team_id: int, member_user_id: int) -> tuple[dict[str, Any], int]:
     """Update member role (team admin only)."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
     if denied:
@@ -268,7 +268,7 @@ async def update_member_role(team_id: int, member_user_id: int) -> tuple[dict[st
 async def remove_team_member(team_id: int, member_user_id: int) -> tuple[dict[str, Any], int]:
     """Remove member from team (team admin only)."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
     if denied:
@@ -291,7 +291,7 @@ async def remove_team_member(team_id: int, member_user_id: int) -> tuple[dict[st
 async def send_invitation(team_id: int) -> tuple[dict[str, Any], int]:
     """Send team invitation via email."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
     if denied:
@@ -352,7 +352,7 @@ async def send_invitation(team_id: int) -> tuple[dict[str, Any], int]:
 async def accept_invitation(token: str) -> tuple[dict[str, Any], int]:
     """Accept team invitation."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     db = get_db()
 
@@ -390,7 +390,7 @@ async def accept_invitation(token: str) -> tuple[dict[str, Any], int]:
 async def cancel_invitation(team_id: int, invite_id: int) -> tuple[dict[str, Any], int]:
     """Cancel team invitation (team admin only)."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
     if denied:
