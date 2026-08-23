@@ -13,9 +13,17 @@ select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
 # assertions to satisfy it would make the suite worse, not safer.
 #
 # Without this, `ruff` fails on any commit that stages a test file, so no
-# test in this repo could be changed at all. The repo already draws exactly
-# this boundary for the same class of rule: the bandit hook is invoked as
-# `-ll -r` over the app tree, never over tests.
+# test in this repo could be changed at all.
+#
+# This ignore is ruff-only. The bandit pre-push hook (.pre-commit-config.yaml)
+# has no path restriction and DOES scan tests/ -- confirmed by a real B104
+# finding at tests/api/test_discovery_helpers.py's parametrize table, fixed
+# with bandit's own `# nosec B104` (not `# noqa`, which is ruff's mechanism
+# and does nothing for bandit). That's deliberate, not a gap to close: S101's
+# assert-detected pattern is uniquely and universally a pytest false positive
+# (see above), but bandit's other checks can still catch a genuine issue in
+# test setup code, so bandit keeps scanning the whole tree and individual
+# findings get suppressed at the line, not the tree.
 #
 # Deliberately narrow — one rule, one tree. Everything else in `select`
 # still applies to tests.

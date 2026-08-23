@@ -31,15 +31,20 @@ RUN curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/st
 # Accept Android licenses
 RUN yes | flutter doctor --android-licenses 2>/dev/null || true
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash appuser && \
+# Create non-root user. Explicit numeric UID/GID (1000) rather than an
+# unqualified name: matches devops-kubernetes.md's securityContext
+# (runAsUser: 1000) and resolves on host systems that can't look a named
+# user up (hadolint DL3066) -- same convention as services/portal-api and
+# services/webui.
+RUN groupadd -g 1000 appuser && \
+    useradd --create-home --shell /bin/bash -u 1000 -g appuser appuser && \
     chown -R appuser:appuser /opt/flutter
 
 # Set working directory
 WORKDIR /app
 RUN chown -R appuser:appuser /app
 
-USER appuser
+USER 1000
 
 # --- Dependencies stage ---
 FROM base AS deps
