@@ -340,7 +340,7 @@ async def update_existing_user(user_id: int) -> tuple[dict[str, Any], int]:
 async def delete_existing_user(user_id: int) -> tuple[dict[str, Any], int]:
     """Delete user by ID (Admin only)."""
     current_user = get_current_user()
-    if not current_user:
+    if not current_user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     # Prevent self-deletion
@@ -380,7 +380,7 @@ async def get_roles() -> tuple[dict[str, Any], int]:
 async def get_profile() -> tuple[dict[str, Any], int]:
     """Get own profile."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     user.pop("password_hash", None)
@@ -392,7 +392,7 @@ async def get_profile() -> tuple[dict[str, Any], int]:
 async def update_profile() -> tuple[dict[str, Any], int]:
     """Update own profile."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     data = await request.get_json()
@@ -430,7 +430,7 @@ async def update_profile() -> tuple[dict[str, Any], int]:
 async def change_password() -> tuple[dict[str, Any], int]:
     """Change own password."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     data = await request.get_json()
@@ -457,7 +457,7 @@ async def list_api_keys() -> tuple[dict[str, Any], int]:
     from .auth_features import get_user_api_keys
 
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     # get_user_api_keys is async; to_thread would build the coroutine in a
@@ -474,7 +474,7 @@ async def create_api_key_endpoint() -> tuple[dict[str, Any], int]:
     from .auth_features import create_api_key
 
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     data = await request.get_json()
@@ -504,7 +504,7 @@ async def delete_api_key(key_id: int) -> tuple[dict[str, Any], int]:
     from .auth_features import revoke_api_key
 
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     # revoke_api_key is async. Wrapped in to_thread it produced an un-awaited

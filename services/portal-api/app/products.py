@@ -119,7 +119,7 @@ async def list_product_types() -> tuple[dict[str, Any], int]:
 async def register_product() -> tuple[dict[str, Any], int]:
     """Register a new product connection (manual)."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     data = await request.get_json()
 
@@ -217,7 +217,7 @@ async def register_product() -> tuple[dict[str, Any], int]:
 async def list_products() -> tuple[Any, int]:
     """List connected products for current tenant."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     tenant_id = await _get_tenant_id_from_request()
 
@@ -239,7 +239,7 @@ async def list_products() -> tuple[Any, int]:
 async def get_product(product_id: int) -> tuple[dict[str, Any], int]:
     """Get product connection details."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     conn = await get_product_connection_by_id(product_id)
 
@@ -259,7 +259,7 @@ async def get_product(product_id: int) -> tuple[dict[str, Any], int]:
 async def update_product(product_id: int) -> tuple[dict[str, Any], int]:
     """Update product connection config."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     conn = await get_product_connection_by_id(product_id)
 
@@ -313,7 +313,7 @@ async def update_product(product_id: int) -> tuple[dict[str, Any], int]:
 async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
     """Remove product connection."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     conn = await get_product_connection_by_id(product_id)
 
@@ -346,7 +346,7 @@ async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
 async def test_product_connection(product_id: int) -> tuple[Any, int]:
     """Test a product connection."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     conn_masked = await get_product_connection_by_id(product_id)
 
@@ -422,7 +422,7 @@ async def test_product_connection(product_id: int) -> tuple[Any, int]:
 async def get_product_health(product_id: int) -> tuple[dict[str, Any], int]:
     """Get latest health status for a product."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     conn = await get_product_connection_by_id(product_id)
 
@@ -446,7 +446,7 @@ async def get_product_health(product_id: int) -> tuple[dict[str, Any], int]:
 async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
     """Get management schema (available actions) for a product."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     conn = await get_product_connection_by_id(product_id)
 
@@ -534,7 +534,7 @@ def _validate_external_kind(product_type: str) -> tuple[str, bool]:
 async def get_product_tenant_mapping(product_id: int, tenant_id: int) -> tuple[Any, int]:
     """Get product tenant external mapping."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     conn = await get_product_connection_by_id(product_id)
@@ -580,7 +580,7 @@ async def set_product_tenant_mapping(
 ) -> tuple[Any, int]:
     """Set product tenant external mapping."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return ({"error": "User not authenticated"}, 401)
 
     conn = await get_product_connection_by_id(product_id)
@@ -650,7 +650,7 @@ async def update_product_tenant_mapping(
 ) -> tuple[Any, int]:
     """Update product tenant external mapping."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return ({"error": "User not authenticated"}, 401)
 
     conn = await get_product_connection_by_id(product_id)
@@ -722,7 +722,7 @@ async def delete_product_tenant_mapping(
 ) -> tuple[dict[str, Any], int]:
     """Delete product tenant external mapping."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     conn = await get_product_connection_by_id(product_id)

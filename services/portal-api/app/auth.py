@@ -459,7 +459,7 @@ async def refresh() -> tuple[Any, int]:
 async def logout() -> tuple[Any, int]:
     """Logout endpoint - revokes all refresh tokens for user."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     # Revoke all user's refresh tokens
@@ -480,7 +480,7 @@ async def logout() -> tuple[Any, int]:
 async def get_me() -> tuple[Any, int]:
     """Get current user profile."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     return (

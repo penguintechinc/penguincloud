@@ -343,7 +343,7 @@ async def create_tenant_endpoint() -> tuple[dict[str, Any], int]:
     existence, caller authority, and depth before any row is written.
     """
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
     data = await request.get_json()
 

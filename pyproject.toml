@@ -101,8 +101,10 @@ convention = "google"
 # redefine what this file's `fail_under = 90` enforces for every local
 # `pytest --cov=app` run instead of adding a second, honest dimension.
 # Branch coverage is measured and gated SEPARATELY, at its own honestly-set
-# floor (77%, not 90 -- not yet earned), in ci.yml's "Backend coverage
-# gate" step via `scripts/check-coverage-dimensions.py`. Python's
+# floor (86%, not 90 -- not yet earned; raised from a first-ever 77% by a
+# real-test + proven-dead-branch push, see scripts/check-coverage-dimensions.py's
+# module docstring for the breakdown of what remains and why), in ci.yml's
+# "Backend coverage gate" step via `scripts/check-coverage-dimensions.py`. Python's
 # coverage.py has no native "function" coverage concept -- that dimension
 # is only tracked on the webui side (`services/webui/jest.config.js`'s
 # `coverageThreshold`).

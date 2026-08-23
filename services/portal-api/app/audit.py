@@ -63,7 +63,7 @@ class AuditLogsResponse:
 async def get_audit_logs() -> tuple[Any, int]:
     """Get audit logs with filtering and pagination."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     tenant_id = request.args.get("tenant_id", type=int)
@@ -127,7 +127,7 @@ async def get_audit_logs() -> tuple[Any, int]:
 async def export_audit_logs() -> tuple[dict[str, Any], int] | dict[str, Any] | Response:
     """Export audit logs as CSV or JSON."""
     user = get_current_user()
-    if not user:
+    if not user:  # pragma: no cover - auth_required guarantees a user
         return {"error": "User not authenticated"}, 401
 
     tenant_id = request.args.get("tenant_id", type=int)
