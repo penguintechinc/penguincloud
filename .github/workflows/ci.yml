@@ -310,7 +310,7 @@ jobs:
             | tee pytest-backend.log
 
           .venv/bin/python scripts/check-coverage-dimensions.py \
-            coverage-backend.json --min-lines 90 --min-branches 77
+            coverage-backend.json --min-lines 90 --min-branches 86
 
       - name: Surface skipped tests in the job summary
         # Known gap: TestAgainstLiveNest (tests/api/test_nest_adapter.py)
