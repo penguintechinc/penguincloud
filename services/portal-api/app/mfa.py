@@ -46,7 +46,7 @@ def parse_backup_codes(codes_json: str) -> list[str]:
 async def setup_mfa() -> tuple[Any, int]:
     """Generate TOTP secret and QR code for 2FA setup."""
     user = get_current_user()
-    if user is None:
+    if user is None:  # pragma: no cover - auth_required guarantees a user
         return jsonify({"error": "Unauthorized"}), 401
     user_id = user["id"]
 
@@ -85,7 +85,7 @@ async def setup_mfa() -> tuple[Any, int]:
 async def verify_mfa() -> tuple[Any, int]:
     """Verify TOTP code and enable MFA."""
     user = get_current_user()
-    if user is None:
+    if user is None:  # pragma: no cover - auth_required guarantees a user
         return jsonify({"error": "Unauthorized"}), 401
     user_id = user["id"]
     data = await request.get_json()
@@ -127,7 +127,7 @@ async def verify_mfa() -> tuple[Any, int]:
 async def disable_mfa_endpoint() -> tuple[Any, int]:
     """Disable MFA (requires password and TOTP verification)."""
     user = get_current_user()
-    if user is None:
+    if user is None:  # pragma: no cover - auth_required guarantees a user
         return jsonify({"error": "Unauthorized"}), 401
     user_id = user["id"]
     data = await request.get_json()
@@ -172,7 +172,7 @@ async def disable_mfa_endpoint() -> tuple[Any, int]:
 async def get_backup_codes() -> tuple[Any, int]:
     """View backup codes."""
     user = get_current_user()
-    if user is None:
+    if user is None:  # pragma: no cover - auth_required guarantees a user
         return jsonify({"error": "Unauthorized"}), 401
     user_id = user["id"]
 
@@ -190,7 +190,7 @@ async def get_backup_codes() -> tuple[Any, int]:
 async def regenerate_backup_codes() -> tuple[Any, int]:
     """Regenerate backup codes."""
     user = get_current_user()
-    if user is None:
+    if user is None:  # pragma: no cover - auth_required guarantees a user
         return jsonify({"error": "Unauthorized"}), 401
     user_id = user["id"]
     data = await request.get_json()
