@@ -11,6 +11,20 @@ no native "function" dimension (that is a jest/istanbul concept -- see
 ``services/webui/jest.config.js``'s ``coverageThreshold`` for the webui
 side of that same four-dimension standard).
 
+Branch floor history: 77% (1450/1870, the first-ever measurement) -> 86%
+(1554/1798, measured after a real-test + proven-dead-branch push covering
+mfa.py, users.py, teams.py, products.py, tenants.py, dashboard_api.py and
+auth.py -- see git history on this file's neighboring test additions).
+86%, not 90: the remaining gap is concentrated in branches that are either
+structurally unreachable through a normal caller (scope-resolution denies
+before a view body's own existence check runs -- an established pattern
+documented in test_tenants_validation.py) or blocked on an unrelated
+product bug (app/teams.py's invitation endpoints touch a `team_invitations`
+table that `models.py` never defines -- see test_teams.py's own xfail
+docstrings), not on missing tests. 86 is what CI's ``--min-branches`` value
+should be raised to; this script does not hardcode it (see ``--min-branches``
+below), so ``.github/workflows/ci.yml`` needs the matching update.
+
 Run via CI only today; no ``make`` target yet (first use -- see
 ``general.md`` Repeatable Task Migration: a second call site is the trigger
 to add one).
