@@ -236,6 +236,31 @@ class TeamMember(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class TeamInvitation(Base):
+    """Pending team invitation, resolved by token.
+
+    Was referenced at runtime by app.teams (send_invitation/accept_
+    invitation/cancel_invitation via db.team_invitations) with no backing
+    table anywhere in this schema, so every call raised AttributeError --
+    see the fix/team-invitations branch. Shape mirrors PasswordResetToken/
+    EmailConfirmationToken's token+expiry+resolved-at pattern; accepted_at
+    plays the role used_at/confirmed_at play there.
+    """
+
+    __tablename__ = "team_invitations"
+    id = Column(Integer, primary_key=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False)
+    email = Column(String(255), nullable=False)
+    role = Column(String(50), default="member", server_default="member", nullable=False)
+    token = Column(String(255), unique=True, nullable=False)
+    invited_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    accepted_at = Column(DateTime)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
+
+
 class OAuthConnection(Base):
     """OAuth provider connection.
 
