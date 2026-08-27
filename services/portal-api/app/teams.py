@@ -364,7 +364,21 @@ async def accept_invitation(token: str) -> tuple[dict[str, Any], int]:
     if invite.get("accepted_at"):
         return {"error": "Invitation already accepted"}, 409
 
-    if datetime.now(UTC) > invite["expires_at"]:
+    # penguin-dal/SQLite (and MySQL) round-trip DATETIME columns as
+    # timezone-naive, unlike the tz-aware value this row was written with
+    # (datetime.now(UTC) at send_invitation) -- comparing the two directly
+    # raises TypeError: can't compare offset-naive and offset-aware
+    # datetimes on every single call, which made this check crash rather
+    # than enforce, on every backend where the column isn't tz-aware.
+    # Other expiry checks in this codebase (auth_features.py,
+    # models.is_refresh_token_valid) push the comparison into the SQL
+    # WHERE clause instead, which sidesteps this; accept_invitation can't
+    # do that because it must distinguish "expired" (410) from "not found"
+    # (404) and "already accepted" (409) with different responses.
+    expires_at = invite["expires_at"]
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if datetime.now(UTC) > expires_at:
         return {"error": "Invitation expired"}, 410
 
     if invite["email"] != user["email"]:
