@@ -335,7 +335,14 @@ async def get_tenant_by_id(tenant_id: int) -> dict[str, Any] | None:
 
 
 async def create_team(name: str, slug: str, owner_id: int) -> dict[str, Any] | None:
-    """Create a new team (async).
+    """Create a new team and enrol the owner as a member (async).
+
+    The owner row in team_members is what get_user_team_role() reads, so
+    without it the creator cannot manage (or even read, past the initial
+    create response) the team they just made -- every scope-gated endpoint
+    (send_invitation, update_team, list members, ...) requires
+    team_scopes() to resolve a role, and a non-member resolves to none.
+    Mirrors create_tenant()'s owner-enrolment (models.py, tenant_members).
 
     Enforces the licensed team limit before inserting. This backstop exists
     because it was already breached: ``POST /api/v1/auth/register`` creates
@@ -349,10 +356,13 @@ async def create_team(name: str, slug: str, owner_id: int) -> dict[str, Any] | N
 
     db = get_db()
     team_id = await db.teams.async_insert(name=name, slug=slug, owner_id=owner_id)
-    if team_id:
-        row = await db(db.teams.id == team_id).select()
-        return dict(row[0]) if row else None
-    return None
+    if not team_id:
+        return None
+
+    await db.team_members.async_insert(team_id=team_id, user_id=owner_id, role="owner")
+
+    row = await db(db.teams.id == team_id).select()
+    return dict(row[0]) if row else None
 
 
 async def get_team_by_id(team_id: int) -> dict[str, Any] | None:
