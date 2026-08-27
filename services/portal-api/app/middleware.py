@@ -346,14 +346,26 @@ def setup_request_logging(app: Quart) -> None:
     async def after_request(response: Response) -> Response:
         # Log request in ECS format
         duration_ms = (time.time() - g.start_time) * 1000
+        # A path *parameter* literally named "token" (accept_invitation's
+        # POST /teams/invitations/<token>/accept, confirm_email's POST
+        # /auth/confirm-email/<token>) is a bearer credential embedded in
+        # the URL itself -- unlike a query string or body value, logging
+        # `request.path` verbatim would put it in plaintext on every call.
+        # Masked before it reaches killkrill_manager.log rather than only
+        # at the invitation route, since the same risk applies anywhere a
+        # single-use token is a route segment rather than a body field.
+        logged_path = request.path
+        if request.view_args and "token" in request.view_args:
+            raw_token = str(request.view_args["token"])
+            logged_path = logged_path.replace(raw_token, "***")
         killkrill_manager.log(
             "info",
-            f"{request.method} {request.path}",
+            f"{request.method} {logged_path}",
             http={
                 "method": request.method,
                 "status_code": response.status_code,
             },
-            url={"path": request.path},
+            url={"path": logged_path},
             event={"duration": int(duration_ms)},
             user={"id": str(g.user_id)} if g.user_id else None,
             team={"id": str(g.team_id)} if g.team_id else None,
