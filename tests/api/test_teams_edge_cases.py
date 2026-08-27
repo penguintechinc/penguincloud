@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from app.teams import validate_team_slug
 from quart import Quart
-from test_team_membership_management import _make_owned_team
+from test_team_membership_management import _make_owned_team, _new_member
 
 
 class TestValidateTeamSlug:
@@ -126,10 +126,10 @@ class TestGetTeamDenial:
     async def test_non_member_is_denied(self, client: Any, auth_headers: dict[str, str]) -> None:
         """A real team, a real caller, but no membership row -> 403, not 404.
 
-        create_team_endpoint does not enrol the creator as a member either
-        (see REASON_OWNER_NOT_AUTO_MEMBER in test_teams.py), so even the
-        team's own creator is denied here -- this documents that behaviour
-        directly rather than relying on a second, unrelated user.
+        create_team_endpoint now enrols its own creator as an "owner"
+        team_members row (Phase 1B / fix/team-invitations), so the creator
+        itself can no longer stand in for "no membership row" -- this uses
+        a genuinely separate, unrelated user to reach the denial branch.
         enterprise_license only lifts the team-count wall so this SECOND
         create (registration already consumed the Free-tier quota with a
         personal team) can succeed at all.
@@ -142,7 +142,8 @@ class TestGetTeamDenial:
         assert created.status_code == 201
         team_id = (await created.get_json())["id"]
 
-        response = await client.get(f"/api/v1/teams/{team_id}", headers=auth_headers)
+        outsider_headers, _outsider_id = await _new_member(client)
+        response = await client.get(f"/api/v1/teams/{team_id}", headers=outsider_headers)
         assert response.status_code == 403
 
 

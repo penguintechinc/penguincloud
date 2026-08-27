@@ -1,21 +1,24 @@
-"""Team membership, role and lifecycle coverage independent of Phase 1B.
+"""Team membership, role and lifecycle coverage.
 
-test_teams.py documents (via REASON_OWNER_NOT_AUTO_MEMBER) that
-create_team() never inserts a team_members row for its own creator, so
-every membership-gated endpoint 403s a team's own creator today. This file
-works around that gap the same way a real caller eventually will -- by
-granting membership directly through app.models.add_team_member inside an
-app context -- so the substantial, already-correct business logic in
-teams.py (member listing/add/update/remove, team update/delete, and the
-invitation endpoints' pre-checks that never touch the missing
-team_invitations table) gets real, assertion-backed coverage instead of
-sitting behind a bug in an unrelated code path.
+Originally written as a workaround for create_team() not enrolling its own
+creator as a team_members row (every membership-gated endpoint 403s a
+team's own creator without it) -- see git history / tests/api/test_teams.py
+for the pre-fix/team-invitations shape. Phase 1B closed that gap directly
+in create_team(), and added the team_invitations table those "not
+exercised here" endpoints (send_invitation's success path,
+accept_invitation, cancel_invitation's success path) needed. This file's
+_make_owned_team helper now only ASSERTS the auto-granted owner row exists
+(regression coverage against that gap reopening) rather than granting it
+itself -- granting it again here would insert a second team_members row for
+the same (team_id, owner_id) pair, since there is no uniqueness constraint
+on that pair, which would silently double every member-count assertion in
+this file.
 
-Endpoints that actually touch `db.team_invitations` (send_invitation's
-success path, accept_invitation, cancel_invitation's success path) are
-deliberately NOT exercised here -- models.py has no team_invitations table
-defined, so those calls raise AttributeError, which is exactly what
-test_teams.py's xfail tests for that gap already document.
+TestInvitationValidationPreChecks below still documents its class as
+"pre-checks", but its scope is historical, not a live constraint --
+tests/api/test_teams.py and tests/api/test_team_invitation_flow.py now
+cover the success paths (send -> accept -> membership, expiry, cancel)
+those pre-checks used to sit in front of.
 """
 
 from __future__ import annotations
@@ -30,11 +33,12 @@ from quart import Quart
 async def _make_owned_team(
     client: Any, app: Quart, owner_headers: dict[str, str], *, slug: str
 ) -> tuple[int, int]:
-    """Create a team and grant its creator genuine 'owner' membership.
+    """Create a team and return it along with its creator's genuine 'owner' membership.
 
-    Mirrors what Phase 1B's auto-membership will eventually do at creation
-    time -- done here explicitly so tests exercise the real membership-gated
-    logic rather than a permanently-403 endpoint.
+    create_team_endpoint -> app.models.create_team now enrols the creator
+    as an "owner" team_members row itself (Phase 1B), so this only asserts
+    that row exists rather than granting it a second time -- see the module
+    docstring for why a second insert here would be actively wrong.
 
     Returns (team_id, owner_user_id). The owner id is read back from
     ``/api/v1/users/me`` rather than taken from a separately-registered
@@ -54,10 +58,10 @@ async def _make_owned_team(
     owner_id = int((await profile.get_json())["id"])
 
     async with app.app_context():
-        from app.models import add_team_member
+        from app.models import get_user_team_role
 
-        member_id = await add_team_member(team_id, owner_id, "owner")
-        assert member_id is not None
+        role = await get_user_team_role(owner_id, team_id)
+        assert role == "owner", "create_team did not auto-enrol its creator as owner"
 
     return team_id, owner_id
 

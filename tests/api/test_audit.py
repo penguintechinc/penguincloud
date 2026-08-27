@@ -8,16 +8,9 @@ from typing import Any
 
 import pytest
 
-# create_team() (models.py:1028) never adds the creator as a team_members
-# row — see tests/api/test_teams.py's REASON_OWNER_NOT_AUTO_MEMBER for the
-# verified root cause. Reproduced here (not imported) to keep this file's
-# xfail reasons self-contained and independently greppable.
-REASON_OWNER_NOT_AUTO_MEMBER = (
-    "create_team() does not add the creator as a team_members row "
-    "(models.py:1028) — role checks (get_user_team_role) return no "
-    "membership for a team's own creator until Phase 1B adds owner "
-    "auto-membership on creation"
-)
+# Phase 1B (fix/team-invitations) added the team_members owner-enrolment
+# create_team() was missing — see tests/api/test_teams.py's module comment
+# for the fix. The xfail this file carried against that gap is retired.
 
 
 class TestAuditLogCreation:
@@ -305,8 +298,10 @@ class TestAuditLogEvents:
         # Password change should be audited
         assert response.status_code in [200, 401]
 
-    @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_audit_log_team_member_added(
         self, client: Any, auth_headers: dict[str, str]
     ) -> None:

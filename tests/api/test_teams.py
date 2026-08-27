@@ -7,19 +7,13 @@ from typing import Any
 
 import pytest
 
-# create_team() (models.py:1028) only inserts into the `teams` table — it
-# never adds the creator as a `team_members` row. Every endpoint that gates
-# on team membership/role (get_user_team_role, get_user_teams) therefore
-# treats a team's own creator as a non-member until Phase 1B adds owner
-# auto-membership on creation. Verified directly: models.create_team's body
-# is `db.teams.insert(...)` only, no db.team_members.insert call anywhere in
-# the creation path.
-REASON_OWNER_NOT_AUTO_MEMBER = (
-    "create_team() does not add the creator as a team_members row "
-    "(models.py:1028) — role checks (get_user_team_role/get_user_teams) "
-    "return no membership for a team's own creator until Phase 1B adds "
-    "owner auto-membership on creation"
-)
+# Phase 1B (fix/team-invitations): create_team() now inserts a team_members
+# row with role="owner" for the creator (models.py, mirrors create_tenant's
+# tenant_members enrolment), and the team_invitations table is defined in
+# app.models_sqlalchemy + alembic/versions/f4358cd0f8de_add_team_invitations.py.
+# REASON_OWNER_NOT_AUTO_MEMBER and the team_invitations-table gap this
+# module previously xfailed against are both closed; the tests below run
+# for real instead of documenting the gap.
 
 
 class TestTeamCreation:
@@ -110,8 +104,10 @@ class TestTeamCreation:
 class TestTeamListing:
     """Test team listing endpoints."""
 
-    @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates three more, which is a paid shape.
     async def test_list_user_teams(
         self, client: Any, auth_headers: dict[str, str], user_id: int
     ) -> None:
@@ -131,8 +127,10 @@ class TestTeamListing:
         assert len(data["teams"]) >= 3
         assert data["count"] >= 3
 
-    @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_get_team_details(self, client: Any, auth_headers: dict[str, str]) -> None:
         """Test getting team details."""
         # Create team
@@ -174,8 +172,10 @@ class TestTeamListing:
 class TestTeamManagement:
     """Test team update and deletion."""
 
-    @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_update_team(self, client: Any, auth_headers: dict[str, str]) -> None:
         """Test updating team."""
         # Create team
@@ -225,8 +225,10 @@ class TestTeamManagement:
 class TestTeamMembers:
     """Test team member management."""
 
-    @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_list_team_members(self, client: Any, auth_headers: dict[str, str]) -> None:
         """Test listing team members."""
         # Create team
@@ -272,17 +274,10 @@ class TestTeamMembers:
 class TestTeamInvitations:
     """Test team invitation flow."""
 
-    @pytest.mark.xfail(
-        reason=(
-            REASON_OWNER_NOT_AUTO_MEMBER
-            + "; additionally, even with membership fixed, send_invitation "
-            "would then raise AttributeError — the `team_invitations` "
-            "table is never defined in models.py's schema "
-            "(db.define_table), only referenced via db.team_invitations"
-        ),
-        strict=False,
-    )
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_send_invitation(self, client: Any, auth_headers: dict[str, str]) -> None:
         """Test sending team invitation."""
         # Create team
@@ -306,15 +301,10 @@ class TestTeamInvitations:
         assert "token" in data
         assert "expires_at" in data
 
-    @pytest.mark.xfail(
-        reason=(
-            REASON_OWNER_NOT_AUTO_MEMBER
-            + "; send_invitation 403s on the admin-access check before "
-            "ever reaching the already-member lookup"
-        ),
-        strict=False,
-    )
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_invite_existing_member(self, client: Any, auth_headers: dict[str, str]) -> None:
         """Test inviting user already in team."""
         # auth_headers registers a UUID-based unique email (see
@@ -340,16 +330,6 @@ class TestTeamInvitations:
 
         assert response.status_code == 409  # Conflict
 
-    @pytest.mark.xfail(
-        reason=(
-            "the `team_invitations` table is never defined in models.py's "
-            "schema (no db.define_table('team_invitations', ...)) — "
-            "accept_invitation's `db.team_invitations.token == token` "
-            "raises AttributeError: 'DAL' object has no attribute "
-            "'team_invitations'"
-        ),
-        strict=False,
-    )
     @pytest.mark.asyncio
     async def test_accept_invitation(self, client: Any, auth_headers: dict[str, str]) -> None:
         """Test accepting team invitation."""
@@ -362,15 +342,17 @@ class TestTeamInvitations:
             json={"email": "user@example.com"},
         )
 
-        # Will fail with invalid token
-        assert response.status_code in [400, 404]
+        # Invalid/unknown token — not found.
+        assert response.status_code == 404
 
 
 class TestTeamRoles:
     """Test team role management."""
 
-    @pytest.mark.xfail(reason=REASON_OWNER_NOT_AUTO_MEMBER, strict=False)
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
+    # Free licences one team, and registration already consumed it for a
+    # personal team. This test creates a second, which is a paid shape.
     async def test_team_role_hierarchy(self, client: Any, auth_headers: dict[str, str]) -> None:
         """Test team role permission hierarchy."""
         # Create team
