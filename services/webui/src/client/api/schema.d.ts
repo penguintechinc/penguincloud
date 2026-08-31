@@ -303,6 +303,29 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/console/manifests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Every product this tenant is connected to that has a committed manifest.
+     * @description Pruned by (in order): flag, membership+per-product-scope+licence+
+     *     deactivation (all via :func:`resolve_product_context`), and finally the
+     *     subtract-only ``capabilities()`` overlay. See the module docstring for
+     *     why there is no separate top-level membership check.
+     */
+    get: operations["get_list_console_manifests"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/dashboard/activity": {
     parameters: {
       query?: never;
@@ -1604,6 +1627,47 @@ export interface components {
       status: string | null;
     };
     /**
+     * ActionSpec
+     * @description One non-CRUD verb offered on a resource row.
+     *
+     *     ``starts_operations`` is the field :func:`validate_manifest` and Design
+     *     §3.3 both key off: an action that starts pollable work returns
+     *     ``ActionResult.operations``, which is unreachable through the byte
+     *     proxy by construction, so the owning :class:`ResourceDescriptor` MUST
+     *     be ``transport == "typed"`` whenever any of its actions sets this True.
+     */
+    ActionSpec: {
+      /** Confirm */
+      confirm?: string | null;
+      /** Enabled When Field */
+      enabled_when_field?: string | null;
+      /**
+       * Enabled When In
+       * @default []
+       */
+      enabled_when_in: string[];
+      form?: components["schemas"]["FormSpec"] | null;
+      /** Label */
+      label: string;
+      /**
+       * Requires
+       * @default manage
+       */
+      requires: string;
+      /**
+       * Starts Operations
+       * @default false
+       */
+      starts_operations: boolean;
+      /**
+       * Variant
+       * @default default
+       */
+      variant: string;
+      /** Verb */
+      verb: string;
+    };
+    /**
      * AuditRecord
      * @description One entry in a tenant's audit trail.
      *
@@ -1666,6 +1730,94 @@ export interface components {
       role: string;
     };
     /**
+     * BooleanLabels
+     * @description Display text for a ``boolean`` cell's two states.
+     */
+    BooleanLabels: {
+      /** False Label */
+      false_label: string;
+      /** True Label */
+      true_label: string;
+    };
+    /**
+     * CellSpec
+     * @description How one column's value is rendered — a CLOSED union, see :data:`CELL_KINDS`.
+     *
+     *     Only the fields a given ``kind`` actually uses are meaningful; the rest
+     *     stay at their default. Validated together so a ``money`` cell with no
+     *     ``currency_field`` or a ``link`` cell with no ``to_kind`` fails at
+     *     manifest construction, not when a renderer tries to draw the first row.
+     */
+    CellSpec: {
+      /** Currency Field */
+      currency_field?: string | null;
+      /** Id Field */
+      id_field?: string | null;
+      /** Kind */
+      kind: string;
+      labels?: components["schemas"]["BooleanLabels"] | null;
+      /**
+       * Relative
+       * @default false
+       */
+      relative: boolean;
+      /**
+       * Styles
+       * @default []
+       */
+      styles: components["schemas"]["EnumStyle"][];
+      /** To Kind */
+      to_kind?: string | null;
+      /** Unit */
+      unit?: string | null;
+    };
+    /**
+     * ColumnSpec
+     * @description One column of a resource's list/detail table.
+     */
+    ColumnSpec: {
+      /** Absent As */
+      absent_as?: string | null;
+      cell: components["schemas"]["CellSpec"];
+      /** Field */
+      field: string;
+      /** Label */
+      label: string;
+      /**
+       * Sortable
+       * @default false
+       */
+      sortable: boolean;
+    };
+    /**
+     * ConsoleManifest
+     * @description The complete descriptor for one product's console screens.
+     *
+     *     Composed once, at import time, by each product's own ``manifest.py``
+     *     (never assembled from live data — see the module docstring). Immediately
+     *     passed to :func:`validate_manifest` by its own module before being
+     *     exposed via :data:`app.adapters.MANIFEST_REGISTRY` — an invalid manifest
+     *     therefore fails at import, not at the first request that reaches it.
+     */
+    ConsoleManifest: {
+      /** Display Name */
+      display_name: string;
+      /**
+       * Extensions
+       * @default []
+       */
+      extensions: components["schemas"]["ExtensionSlot"][];
+      /** Manifest Version */
+      manifest_version: number;
+      metrics?: components["schemas"]["MetricsSpec"] | null;
+      nav: components["schemas"]["NavSpec"];
+      operations?: components["schemas"]["OperationsSpec"] | null;
+      /** Product Type */
+      product_type: string;
+      /** Resources */
+      resources: components["schemas"]["ResourceDescriptor"][];
+    };
+    /**
      * DashboardStats
      * @description Aggregate counters for the overview's stats block.
      *
@@ -1685,6 +1837,134 @@ export interface components {
       total_members: number;
       /** Total Products */
       total_products: number;
+    };
+    /**
+     * DeleteSpec
+     * @description Delete affordance for a resource. ``confirm`` is mandatory copy.
+     */
+    DeleteSpec: {
+      /** Confirm */
+      confirm: string;
+      /**
+       * Requires
+       * @default manage
+       */
+      requires: string;
+    };
+    /**
+     * DetailSpec
+     * @description Tab layout for a resource's detail view. Empty means a single pane.
+     */
+    DetailSpec: {
+      /**
+       * Tabs
+       * @default []
+       */
+      tabs: string[];
+    };
+    /**
+     * EnumStyle
+     * @description One ``enum_badge`` value -> style-name mapping, e.g. ``("healthy", "success")``.
+     *
+     *     A named object rather than a bare 2-tuple: pydantic/quart-schema renders
+     *     a fixed-length tuple as a JSON Schema ``prefixItems`` array with no
+     *     sibling ``items``, which ``spectral``'s ``array-items`` rule (run over
+     *     ``openapi/v1.yaml`` in CI) refuses — a real, caught-in-review defect,
+     *     not a hypothetical one. An object with named fields sidesteps the whole
+     *     class of problem and is more self-documenting besides.
+     */
+    EnumStyle: {
+      /** Style */
+      style: string;
+      /** Value */
+      value: string;
+    };
+    /**
+     * ExtensionSlot
+     * @description A named escape hatch — Design §4.1. NEVER carries code, only a name.
+     *
+     *     The console resolves ``"{product_type}.{id}"`` against a
+     *     lazily-imported registry in ``components/extensions/``; a slot with no
+     *     matching registry entry degrades to a generic fallback, per Design §3.4.
+     */
+    ExtensionSlot: {
+      /** Id */
+      id: string;
+      /** Label */
+      label: string;
+      /**
+       * Position
+       * @default 0
+       */
+      position: number;
+      /** Resource */
+      resource?: string | null;
+      /** Slot */
+      slot: string;
+    };
+    /**
+     * FieldAlias
+     * @description One portal-facing -> product-facing form field rename. See :class:`FormSpec`.
+     */
+    FieldAlias: {
+      /** Portal Name */
+      portal_name: string;
+      /** Product Name */
+      product_name: string;
+    };
+    /**
+     * FormField
+     * @description One field of a create form.
+     *
+     *     Mirrors ``@penguintechinc/react-libs``' ``FormField`` shape closely
+     *     enough to serialise straight into it; the renderer step is what proves
+     *     the fields line up exactly. Kept intentionally minimal for Step 3, since
+     *     nothing consumes this yet — see the module docstring.
+     */
+    FormField: {
+      /** Default */
+      default?: string | null;
+      /**
+       * Field Type
+       * @default text
+       */
+      field_type: string;
+      /** Label */
+      label: string;
+      /** Name */
+      name: string;
+      /**
+       * Options
+       * @default []
+       */
+      options: string[];
+      /** Placeholder */
+      placeholder?: string | null;
+      /**
+       * Required
+       * @default false
+       */
+      required: boolean;
+    };
+    /**
+     * FormSpec
+     * @description A create form: its fields, and the rename a create payload needs.
+     *
+     *     ``field_aliases`` is Design §3.3's Nest finding: a create handler that
+     *     *reads* ``type``/``class`` but *serialises* ``resourceType``/
+     *     ``storageClass`` needs the portal-facing name mapped to the
+     *     product-facing one, or a form posting what it read gets a 400.
+     */
+    FormSpec: {
+      /**
+       * Field Aliases
+       * @default []
+       */
+      field_aliases: components["schemas"]["FieldAlias"][];
+      /** Fields */
+      fields: components["schemas"]["FormField"][];
+      /** Submit Label */
+      submit_label: string;
     };
     /**
      * HealthCounts
@@ -1735,6 +2015,27 @@ export interface components {
       product_type: string | null;
     };
     /**
+     * ListSpec
+     * @description Where a resource's collection lives and how it paginates.
+     *
+     *     ``path_bytes`` MUST be byte-equal to the adapter's own route constant
+     *     (e.g. ``app.adapters.gough.adapter._COLLECTION_ROUTES[kind]``), trailing
+     *     slash included — see the module docstring on
+     *     ``tests/api/test_gough_webui_paths.py`` for the defect this exists to
+     *     prevent. Never re-type this string; import the constant.
+     */
+    ListSpec: {
+      /** Envelope Key */
+      envelope_key: string;
+      /**
+       * Pagination
+       * @default cursor
+       */
+      pagination: string;
+      /** Path Bytes */
+      path_bytes: string;
+    };
+    /**
      * MetricPointView
      * @description One sample in a series.
      */
@@ -1757,6 +2058,45 @@ export interface components {
       points: components["schemas"]["MetricPointView"][];
       /** Unit */
       unit: string;
+    };
+    /**
+     * MetricsSpec
+     * @description Presence + display config for the product's metrics tile.
+     */
+    MetricsSpec: {
+      /**
+       * Label
+       * @default Metrics
+       */
+      label: string;
+    };
+    /**
+     * NavItem
+     * @description One entry in the product's nav menu.
+     */
+    NavItem: {
+      /** Icon */
+      icon?: string | null;
+      /** Kind */
+      kind: string;
+      /** Label */
+      label: string;
+    };
+    /**
+     * NavSpec
+     * @description The product's nav menu, derived into ``MENU_ITEM_ROUTES`` by the console.
+     *
+     *     Deliberately no non-empty check here: :func:`apply_capabilities_overlay`
+     *     can legitimately reconstruct one with zero items when a live connection's
+     *     ``capabilities()`` has dropped every listable resource, and that must
+     *     degrade the served manifest to "no nav", not raise and take the whole
+     *     tenant's console response down with it. A COMMITTED manifest with an
+     *     empty nav is still a reviewable-in-PR authoring choice, not a structural
+     *     impossibility this module needs to police.
+     */
+    NavSpec: {
+      /** Items */
+      items: components["schemas"]["NavItem"][];
     };
     /**
      * OperationLogLineView
@@ -1811,6 +2151,22 @@ export interface components {
       status: string;
       /** Updated At */
       updated_at: string | null;
+    };
+    /**
+     * OperationsSpec
+     * @description Presence + display config for the product's operations panel.
+     */
+    OperationsSpec: {
+      /**
+       * Label
+       * @default Operations
+       */
+      label: string;
+      /**
+       * Poll Interval Seconds
+       * @default 5
+       */
+      poll_interval_seconds: number;
     };
     /**
      * Pagination
@@ -1916,6 +2272,86 @@ export interface components {
       status: string;
       /** Tenant Id */
       tenant_id: number;
+    };
+    /**
+     * ProductManifestEntry
+     * @description One product's overlaid manifest plus the connection it came from.
+     */
+    ProductManifestEntry: {
+      manifest: components["schemas"]["ConsoleManifest"];
+      /** Product Id */
+      product_id: number;
+      /** Product Type */
+      product_type: string;
+    };
+    /**
+     * RelationshipSpec
+     * @description A parent/child edge between two resource kinds in this manifest.
+     */
+    RelationshipSpec: {
+      /** Child Kind */
+      child_kind: string;
+      /** Parent Field */
+      parent_field: string;
+    };
+    /**
+     * ResourceDescriptor
+     * @description One resource kind: its shape, its columns, and how it is reached.
+     *
+     *     ``transport`` governs the TYPED-MUTATION surface (create/delete, and
+     *     whether an operation-starting action is reachable), never reads. Every
+     *     read in this schema version — list AND detail — goes through the byte
+     *     proxy; that is the only read path this codebase has (see
+     *     ``app/resources_api.py``'s module docstring: "Reads are not here").
+     *     ``transport == "proxy"`` means "no typed mutation backing": this schema
+     *     version declares no mechanism for a proxy-transport resource to carry a
+     *     typed create/delete, or an action whose result the portal must
+     *     interpret (``starts_operations=True``) — both enforced below. A
+     *     proxy-transport resource MAY still declare a plain action reachable
+     *     through the ordinary allowlisted proxy POST (Gough's own
+     *     ``evacuate``/``reject``/``suspend``/``resume`` all qualify).
+     *
+     *     ``list`` is ``None`` for a resource with no collection endpoint at all
+     *     (Gough's ``clusters`` — see ``adapters/gough/manifest.py`` for why it is
+     *     NOT expressed as a ``ResourceDescriptor`` in this step; a schema finding,
+     *     not a workaround). A resource descriptor that DOES declare ``list`` is
+     *     assumed reachable at ``{list.path_bytes}{id}`` by nothing in THIS
+     *     module — that derivation is deliberately not attempted here; see the
+     *     same docstring.
+     */
+    ResourceDescriptor: {
+      /**
+       * Actions
+       * @default []
+       */
+      actions: components["schemas"]["ActionSpec"][];
+      /** Columns */
+      columns: components["schemas"]["ColumnSpec"][];
+      create?: components["schemas"]["FormSpec"] | null;
+      delete?: components["schemas"]["DeleteSpec"] | null;
+      detail?: components["schemas"]["DetailSpec"];
+      /** Empty State */
+      empty_state: string;
+      /** Error State */
+      error_state: string;
+      /** Id Field */
+      id_field: string;
+      /** Kind */
+      kind: string;
+      /** Label */
+      label: string;
+      list?: components["schemas"]["ListSpec"] | null;
+      /** Name Field */
+      name_field: string;
+      /** Plural Label */
+      plural_label: string;
+      /**
+       * Relationships
+       * @default []
+       */
+      relationships: components["schemas"]["RelationshipSpec"][];
+      /** Transport */
+      transport: string;
     };
     /**
      * RollupEntry
@@ -2481,6 +2917,31 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  get_list_console_manifests: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Envelope for ``GET /api/v1/console/manifests``. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Count */
+            count: number;
+            /** Manifests */
+            manifests: components["schemas"]["ProductManifestEntry"][];
+          };
+        };
       };
     };
   };

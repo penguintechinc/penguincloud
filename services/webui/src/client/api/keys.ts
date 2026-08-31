@@ -56,6 +56,31 @@ export const queryKeys = {
   // Product type catalogue (global, not tenant-scoped)
   productTypes: () => [...queryKeys.all(), "product-types"] as const,
 
+  // Console manifests (Phase 8 Design §3) — the descriptor document behind
+  // the `penguincloud.declarative_console` flag. Tenant-scoped like every
+  // other fetched-per-tenant key here: the endpoint answers per `tenant_id`
+  // query param, so a tenant switch without the id in the key would reuse
+  // the previous tenant's connected-product list under an identical key.
+  consoleManifests: () => [...queryKeys.all(), "console-manifests"] as const,
+  consoleManifestsByTenant: (tenantId: number | undefined) =>
+    [...queryKeys.consoleManifests(), tenantId] as const,
+  // `useProductResource`'s own key already appends [tenantId, productId,
+  // kind] to whatever prefix it is given (see `components/kit/
+  // useProductResource.ts`), so this prefix only needs to name the product
+  // type — kind and tenant/product scoping happen once, centrally, there.
+  consoleManifestResource: (productType: string) =>
+    [...queryKeys.consoleManifests(), "resource", productType] as const,
+  consoleManifestOperations: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+  ) =>
+    [
+      ...queryKeys.consoleManifests(),
+      "operations",
+      tenantId,
+      productId,
+    ] as const,
+
   // Gough resources, reached through the proxy.
   //
   // Keyed by tenant AND connection id. The connection id alone would look
