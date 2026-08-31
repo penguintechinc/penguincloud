@@ -174,6 +174,20 @@ class GoughAdapter(HealthOnlyAdapter):
     #: per-adapter attribute the manifest module reads explicitly.
     SENSITIVE_FIELDS: Final[frozenset[str]] = frozenset()
 
+    #: Whether at least one operation kind :meth:`list_operations` actually
+    #: returns supports :meth:`cancel_operation` / :meth:`operation_logs`.
+    #: Both True for Gough: :meth:`list_operations` only ever surfaces
+    #: ``OP_DEPLOYMENT`` rows (upgrade runs have no collection endpoint —
+    #: see that method's docstring), and both :meth:`cancel_operation` and
+    #: :meth:`operation_logs` implement exactly ``OP_DEPLOYMENT`` — so the
+    #: whole-manifest operations panel can honestly offer cancel and logs
+    #: for everything it ever lists. Read by :func:`~app.adapters.manifest.
+    #: validate_manifest` via the caller-supplied conformance input (see
+    #: that function's docstring for why this is not part of the Adapter
+    #: Protocol — same reasoning as :attr:`SENSITIVE_FIELDS`).
+    SUPPORTS_OPERATION_CANCEL: Final[bool] = True
+    SUPPORTS_OPERATION_LOGS: Final[bool] = True
+
     async def capabilities(self, ctx: AdapterContext) -> list[str]:
         """Report the operations this adapter actually implements."""
         return [
