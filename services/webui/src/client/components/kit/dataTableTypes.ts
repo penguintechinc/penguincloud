@@ -27,4 +27,17 @@ export interface DataTableProps<T extends { id?: string }> {
   onRetry?: () => void;
   pageSize?: number;
   caption?: string;
+  /**
+   * Overrides `DataTableEmpty`'s generic "No data available" copy.
+   * Optional and additive — every existing caller keeps today's copy.
+   * Added for the manifest-driven renderer, which must honour a resource's
+   * own `empty_state` text rather than a generic fallback.
+   */
+  emptyMessage?: string;
+  /**
+   * Overrides `DataTableError`'s generic "Error loading data" heading. The
+   * detail line underneath (`describeQueryError(error)`) is unaffected —
+   * this only replaces the headline, same reasoning as `emptyMessage`.
+   */
+  errorTitle?: string;
 }

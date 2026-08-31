@@ -29,6 +29,8 @@ export function DataTable<T extends { id?: string }>({
   onRetry,
   pageSize = 25,
   caption = "Data table with sorting and pagination",
+  emptyMessage,
+  errorTitle,
 }: DataTableProps<T>) {
   const [sortColumn, setSortColumn] = useState<keyof T | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -94,10 +96,13 @@ export function DataTable<T extends { id?: string }>({
   // `components/kit/__tests__/DataTable.test.tsx` for the injection proof
   // that this precedence — error-with-no-data before empty — is real.
   if (error && data.length === 0) {
-    return <DataTableError error={error} onRetry={onRetry} />;
+    return (
+      <DataTableError error={error} onRetry={onRetry} title={errorTitle} />
+    );
   }
 
-  if (paginatedData.length === 0) return <DataTableEmpty />;
+  if (paginatedData.length === 0)
+    return <DataTableEmpty message={emptyMessage} />;
 
   return (
     <div data-testid="datatable" className="w-full">
