@@ -139,6 +139,27 @@ _IP_WINDOWS: Final[dict[str, _Window]] = {
     # can exhaust it, which defeats the account-scoped windows above just
     # as completely as not having them.
     "admin_ratelimit_reset": _Window(max_attempts=30, seconds=60),
+    # RFC 8628 device authorization grant (app/device_auth.py). Mints a new
+    # device_code/user_code pair -- no account signal exists pre-approval,
+    # so IP is the only floor available, same shape as `register`.
+    "device_authorize": _Window(max_attempts=20, seconds=3600),
+    # Polled repeatedly and LEGITIMATELY by design (every
+    # DEVICE_POLL_INTERVAL, default 5s, for up to DEVICE_CODE_TTL, default
+    # 600s -- config.py). This window is deliberately generous relative to
+    # the others in this table: it exists to bound outright abuse (hammering
+    # many random device_codes) without false-throttling several genuine
+    # concurrent device-flow logins behind one NAT/corporate egress IP. The
+    # per-device_code `slow_down` enforcement (app.device_auth, keyed on the
+    # stored `last_polled_at` column, never the client's claimed cadence) is
+    # the control that actually matters for a single flow; this bucket is
+    # the floor underneath it.
+    "device_token": _Window(max_attempts=300, seconds=60),
+    # Guards BOTH .../device/approve and .../device/deny -- both are
+    # "attempts against a user_code" from the SAME authenticated caller, so
+    # they must share one bucket. Two separate buckets would double the
+    # guessing budget (approve once, deny once, repeat) for exactly zero
+    # extra cost to a real user, who only ever calls one or the other.
+    "device_approve": _Window(max_attempts=20, seconds=60),
 }
 
 #: Account-scoped windows. Narrower on purpose — see module docstring for
@@ -159,6 +180,13 @@ _ACCOUNT_WINDOWS: Final[dict[str, _Window]] = {
     # the threat this narrows against, independent of how many different
     # users' lockouts it is clearing.
     "admin_ratelimit_reset": _Window(max_attempts=15, seconds=60),
+    # The control that actually matters for .../device/approve and
+    # .../device/deny (see the IP table above for why they share this
+    # name): user_code is short and human-typeable by design (RFC 8628
+    # S5.1), so it is guessable, and this is what turns that into an
+    # infeasible number of guesses per approving account -- same shape and
+    # same numbers as mfa_verify's TOTP-guessing defence.
+    "device_approve": _Window(max_attempts=5, seconds=300),
 }
 
 #: Bucket names a locked-out END USER can be identified by — the valid

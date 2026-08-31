@@ -44,6 +44,22 @@ PRODUCT_EXTERNAL_KINDS: tuple[str, ...] = (
     "namespace",
 )
 
+#: Allowed values for device_authorizations.status (RFC 8628 device
+#: authorization grant -- see app.device_auth module docstring). "expired"
+#: is deliberately NOT a stored value: expiry is derived from `expires_at`
+#: at read time, the same convention refresh_tokens/password_reset_tokens
+#: already use, so a status column enumerating it would need a background
+#: job to keep it truthful. State machine: pending -(approve)-> approved
+#: -(poll)-> consumed, or pending -(deny)-> denied. Terminal states never
+#: transition again -- enforced by a conditional UPDATE ... WHERE status =
+#: '<expected>' at every write (app.models), not by this CHECK alone.
+DEVICE_AUTHORIZATION_STATUSES: tuple[str, ...] = (
+    "pending",
+    "approved",
+    "denied",
+    "consumed",
+)
+
 
 def _in_values(column: str, values: tuple[str, ...]) -> str:
     """Render an IN (...) CHECK expression for an enumerated text column."""
@@ -93,6 +109,50 @@ class RefreshToken(Base):
     revoked = Column(Boolean, default=False, server_default=text("0"), nullable=False)
     created_at = Column(
         DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
+
+
+class DeviceAuthorization(Base):
+    """RFC 8628 device authorization grant -- pending/resolved CLI login.
+
+    device_code_hash stores a SHA-256 digest, never the raw device_code --
+    same reasoning as RefreshToken.token_hash (see app.auth.
+    hash_refresh_token): a DB read cannot recover a usable secret.
+    user_code is stored as the operator-facing plaintext value on purpose
+    (the task brief's own spec: "device_code hash, user_code") -- it is
+    short and human-typeable by design, so hashing it buys nothing a DB
+    dump couldn't already get from guessing, and the real defence is the
+    account-scoped rate limit + single-use + short TTL on the approve
+    endpoint (app.ratelimit's "device_approve" bucket), not secrecy at
+    rest.
+
+    tenant_id is always NULL today -- app.auth.login carries the same
+    unscoped-tenant limitation (see its own "TODO: get from user's current
+    tenant"), so a device grant mirrors login's token exactly rather than
+    inventing tenant selection UX login itself doesn't have yet. The
+    column exists so a future tenant-scoped login and a tenant-scoped
+    device grant are the same migration, not two.
+    """
+
+    __tablename__ = "device_authorizations"
+    id = Column(Integer, primary_key=True)
+    device_code_hash = Column(String(64), unique=True, nullable=False)
+    user_code = Column(String(16), unique=True, nullable=False)
+    status = Column(String(20), default="pending", server_default="pending", nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    last_polled_at = Column(DateTime, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            _in_values("status", DEVICE_AUTHORIZATION_STATUSES),
+            name="ck_device_authorizations_status",
+        ),
     )
 
 

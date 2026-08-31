@@ -685,18 +685,29 @@ PASSWORD_RESET_DELIVERY_ERRORS_COUNTER = Counter(
 )
 
 
-def _build_reset_link(token: str) -> str:
-    """Build the reset-password URL the token is delivered inside.
+def build_absolute_url(path: str) -> str:
+    """Build an absolute https URL on this deployment's own configured host.
 
     Reuses licensing.configured_host() — the same operator-set BASE_URL /
     SERVER_NAME this service already trusts as its own address (never a
     request Host header; see that function's docstring) — rather than
-    inventing a second "what is my own hostname" source of truth.
+    inventing a second "what is my own hostname" source of truth. Public
+    (unlike _build_reset_link below, which now delegates to it) so
+    app.device_auth's verification_uri/verification_uri_complete (RFC 8628)
+    can reuse it without importing licensing directly and needing its own
+    app/tests/architecture/test_layer_boundaries.py exception — device_auth
+    is the same "auth" layer as this module, so calling a function here
+    costs it nothing new.
     """
     from .licensing import configured_host
 
     host = configured_host() or "localhost"
-    return f"https://{host}/reset-password?token={token}"
+    return f"https://{host}{path}"
+
+
+def _build_reset_link(token: str) -> str:
+    """Build the reset-password URL the token is delivered inside."""
+    return build_absolute_url(f"/reset-password?token={token}")
 
 
 def _send_password_reset_email_sync(*, to_addr: str, link: str, expires_at: datetime) -> None:
