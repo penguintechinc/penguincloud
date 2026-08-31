@@ -153,3 +153,39 @@ export function describeMutationError(error: unknown): string {
 export function describeQueryError(error: unknown): string {
   return describeRequestError(error, GENERIC_QUERY_ERROR_MESSAGE);
 }
+
+/** Shown for an operation-failure reason too long to trust — see below. */
+export const GENERIC_OPERATION_ERROR_MESSAGE =
+  "This operation failed. Try again, or contact support if this continues.";
+
+/**
+ * Sanitizes an `Operation.error` field
+ * (`services/portal-api/app/adapters/base.py`) for display in an
+ * operations panel.
+ *
+ * This is deliberately NOT `describeRequestError` under another name, and
+ * cannot reuse its provenance check: that function decides safety from
+ * whether the AXIOS RESPONSE carries `UPSTREAM_RESPONSE_HEADER` — a
+ * transport-level marker on a REJECTED request. An operation's `error` is a
+ * plain string field inside an already-successful, schema-validated 200
+ * response (`OperationView`); there is no header to inspect, and by the
+ * dataclass's own contract (`Operation.error`'s doc comment: "the product's
+ * reason") the field is ALWAYS product-derived when present — there is no
+ * "portal-native" case to trust the way a validation message is trusted.
+ *
+ * What still applies is the length guard `isDisplayable` already uses: a
+ * short, structured reason (`"nest.migrate.source_unreachable"`) is exactly
+ * the kind of thing a product is expected to report and is safe to show,
+ * while a long one is the shape of a raw exception dump — see
+ * `adapters/transport.py`'s `error=str(e)`, which stringifies a connection
+ * failure complete with hostname and port. The cap catches that dump
+ * without needing to enumerate what a leak looks like, the same lesson
+ * `describeRequestError`'s own history already taught (see its doc
+ * comment above).
+ */
+export function describeOperationError(
+  error: string | null | undefined,
+): string | null {
+  if (error == null) return null;
+  return isDisplayable(error) ? error : GENERIC_OPERATION_ERROR_MESSAGE;
+}
