@@ -101,6 +101,21 @@ jobs:
       - name: Lint OpenAPI spec (spectral)
         run: make openapi-lint
 
+      - name: Layer dependency guard (portal-api)
+        # Phase 8, §11.2: mechanically enforce app/'s layer dependency
+        # direction (floor <- auth/tenancy <- licensing/proxy <- health <-
+        # routes) so the next sideways/upward import fails CI instead of
+        # shipping as another locally-justified step -- see
+        # tests/architecture/test_layer_boundaries.py's module docstring
+        # for the full rule and why it walks the entire AST, not just
+        # module-scope imports. A pytest module rather than a separate
+        # tool: it also runs as part of `make test-api` in the
+        # test-backend job below, but this dedicated step gives a
+        # sub-second, explicitly named signal here in lint rather than
+        # waiting on the full ~9-minute backend suite for a pure static
+        # check with no app/DB bootstrap.
+        run: .venv/bin/python -m pytest tests/architecture/test_layer_boundaries.py -v
+
   security:
     name: Security scans (pre-push tier)
     runs-on: ubuntu-latest
