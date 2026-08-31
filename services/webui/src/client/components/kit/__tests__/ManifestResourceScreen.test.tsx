@@ -4,7 +4,7 @@
  * off a resource's OWN `id_field` (not hardcoded `"id"` — Gough addresses
  * agents by `agent_id`).
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createAppQueryClient } from "../../../lib/queryClient";
 import { ManifestResourceScreen } from "../ManifestResourceScreen";
@@ -31,9 +31,13 @@ jest.mock("../../../api/resources/products", () => ({
 }));
 
 const mockApiGet = jest.fn();
+const mockApiPost = jest.fn();
 jest.mock("../../../lib/api", () => ({
   __esModule: true,
-  default: { get: (...args: unknown[]) => mockApiGet(...args) },
+  default: {
+    get: (...args: unknown[]) => mockApiGet(...args),
+    post: (...args: unknown[]) => mockApiPost(...args),
+  },
 }));
 
 function baseResource(
@@ -64,9 +68,10 @@ function baseResource(
     error_state: "Unable to load agents.",
     list: {
       path_bytes: "/api/v1/agents/",
-      envelope_key: "agents",
+      envelope: { keys: ["agents"] },
       pagination: "none",
     },
+    item_path: null,
     detail: { tabs: [] },
     actions: [],
     relationships: [],
@@ -138,7 +143,7 @@ it("renders a no-list message rather than crashing when the resource has no coll
   expect(mockProxyRequest).not.toHaveBeenCalled();
 });
 
-it("renders the operations panel, read-only, when the manifest declares operations", async () => {
+it("renders the operations panel read-only when the manifest declares cancel_allowed=false", async () => {
   mockProxyRequest.mockResolvedValue({ agents: [] });
   mockApiGet.mockResolvedValue({
     data: {
@@ -163,6 +168,8 @@ it("renders the operations panel, read-only, when the manifest declares operatio
         manifest={manifest(resource, {
           label: "Operations",
           poll_interval_seconds: 5,
+          cancel_allowed: false,
+          show_logs: false,
         })}
         resource={resource}
       />
@@ -173,10 +180,64 @@ it("renders the operations panel, read-only, when the manifest declares operatio
     await screen.findByTestId("gough-manifest-agents-operations"),
   ).toBeInTheDocument();
   expect(mockApiGet).toHaveBeenCalledWith("/products/7/operations");
-  // Read-only: no cancel control, since OperationsSpec has no cancelAllowed field.
+  // Read-only: OperationsSpec.cancel_allowed is false.
   expect(
     screen.queryByTestId("gough-manifest-agents-operation-cancel-op-1"),
   ).not.toBeInTheDocument();
+  expect(
+    screen.queryByTestId("gough-manifest-agents-operation-logs-toggle-op-1"),
+  ).not.toBeInTheDocument();
+});
+
+it("wires a real cancel control when the manifest declares cancel_allowed=true", async () => {
+  mockProxyRequest.mockResolvedValue({ agents: [] });
+  mockApiGet.mockResolvedValue({
+    data: {
+      operations: [
+        {
+          id: "op-1",
+          kind: "suspend",
+          state: "running",
+          status: "running",
+          is_terminal: false,
+        },
+      ],
+    },
+  });
+  const resource = baseResource();
+
+  render(
+    <QueryClientProvider client={createAppQueryClient()}>
+      <ManifestResourceScreen
+        productType="gough"
+        productLabel="Gough"
+        manifest={manifest(resource, {
+          label: "Operations",
+          poll_interval_seconds: 5,
+          cancel_allowed: true,
+          show_logs: true,
+        })}
+        resource={resource}
+      />
+    </QueryClientProvider>,
+  );
+
+  const cancelButton = await screen.findByTestId(
+    "gough-manifest-agents-operation-cancel-op-1",
+  );
+  fireEvent.click(cancelButton);
+  await waitFor(() =>
+    expect(mockApiPost).toHaveBeenCalledWith(
+      "/products/7/operations/suspend/op-1/cancel",
+    ),
+  );
+
+  // Opening the log disclosure exercises the injected useOperationLogs hook.
+  mockApiGet.mockResolvedValue({ data: { logs: [{ message: "queued" }] } });
+  fireEvent.click(
+    screen.getByTestId("gough-manifest-agents-operation-logs-toggle-op-1"),
+  );
+  expect(await screen.findByText("queued")).toBeInTheDocument();
 });
 
 it("stays hidden when the manifest declares no operations", async () => {
@@ -196,4 +257,118 @@ it("stays hidden when the manifest declares no operations", async () => {
 
   await waitFor(() => expect(mockProxyRequest).toHaveBeenCalled());
   expect(mockApiGet).not.toHaveBeenCalled();
+});
+
+it("renders a row-open button and detail drawer when the resource declares item_path", async () => {
+  mockProxyRequest.mockResolvedValue({
+    agents: [{ agent_id: "3f2b-aa", hostname: "agent-1" }],
+  });
+  const resource = baseResource({
+    item_path: { prefix: "/api/v1/agents", sample_id: "1" },
+  });
+
+  render(
+    <QueryClientProvider client={createAppQueryClient()}>
+      <ManifestResourceScreen
+        productType="gough"
+        productLabel="Gough"
+        manifest={manifest(resource)}
+        resource={resource}
+      />
+    </QueryClientProvider>,
+  );
+
+  const openButton = await screen.findByTestId(
+    "gough-manifest-agents-open-3f2b-aa",
+  );
+  openButton.click();
+
+  expect(
+    await screen.findByTestId("gough-manifest-agents-drawer"),
+  ).toBeInTheDocument();
+  expect(screen.getByTestId("gough-manifest-agents-facts")).toBeInTheDocument();
+});
+
+it("renders no row-open button when the resource declares no item_path", async () => {
+  mockProxyRequest.mockResolvedValue({
+    agents: [{ agent_id: "3f2b-aa", hostname: "agent-1" }],
+  });
+  const resource = baseResource({ item_path: null });
+
+  render(
+    <QueryClientProvider client={createAppQueryClient()}>
+      <ManifestResourceScreen
+        productType="gough"
+        productLabel="Gough"
+        manifest={manifest(resource)}
+        resource={resource}
+      />
+    </QueryClientProvider>,
+  );
+
+  await waitFor(() => expect(screen.getByText("agent-1")).toBeInTheDocument());
+  expect(
+    screen.queryByTestId("gough-manifest-agents-open-3f2b-aa"),
+  ).not.toBeInTheDocument();
+});
+
+it("renders the create-form open button when the resource declares create", async () => {
+  mockProxyRequest.mockResolvedValue({ agents: [] });
+  const resource = baseResource({
+    create: {
+      fields: [
+        {
+          name: "name",
+          label: "Name",
+          field_type: "text",
+          required: true,
+          options: [],
+        },
+      ],
+      submit_label: "Create Agent",
+      field_aliases: [],
+    },
+  });
+
+  render(
+    <QueryClientProvider client={createAppQueryClient()}>
+      <ManifestResourceScreen
+        productType="gough"
+        productLabel="Gough"
+        manifest={manifest(resource)}
+        resource={resource}
+      />
+    </QueryClientProvider>,
+  );
+
+  expect(
+    await screen.findByTestId("gough-manifest-agents-create"),
+  ).toBeInTheDocument();
+});
+
+it("retries a failed load from the DataTable's own retry control", async () => {
+  mockProxyRequest.mockRejectedValueOnce(new Error("boom"));
+  const resource = baseResource();
+
+  render(
+    <QueryClientProvider client={createAppQueryClient()}>
+      <ManifestResourceScreen
+        productType="gough"
+        productLabel="Gough"
+        manifest={manifest(resource)}
+        resource={resource}
+      />
+    </QueryClientProvider>,
+  );
+
+  const retryButton = await screen.findByRole("button", {
+    name: "Retry loading data",
+  });
+  mockProxyRequest.mockResolvedValueOnce({
+    agents: [{ agent_id: "3f2b-aa", hostname: "agent-1" }],
+  });
+  fireEvent.click(retryButton);
+
+  await waitFor(() => expect(screen.getByText("agent-1")).toBeInTheDocument());
+  expect(mockProxyRequest).toHaveBeenCalledTimes(2);
 });

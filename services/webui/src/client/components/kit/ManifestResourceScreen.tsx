@@ -5,37 +5,39 @@
  * copy all read from the manifest instead of a hand-written column file.
  *
  * Behind the `penguincloud.declarative_console` flag, run ALONGSIDE the
- * hand-written product screens — Phase 8 Step 3 does not convert or delete
- * any of them (see the module doc on `pages/products/gough/NodesPage.tsx`).
- * `__tests__/ManifestResourceScreen.equivalence.test.tsx` is the
- * falsification test proving this component reproduces `NodesPage`'s
- * rendered table for Gough's `nodes` resource.
+ * hand-written product screens — this step does not convert or delete any
+ * of them (see the module doc on `pages/products/gough/NodesPage.tsx`).
+ * `__tests__/ManifestResourceScreen.equivalence.test.tsx` proves this
+ * component reproduces `NodesPage`'s (and, where practical, `BiomesPage`'s/
+ * `AgentsPage`'s) rendered table exactly.
  *
- * Deliberately does NOT render row actions, a detail drawer, or a create
- * form:
- * - Row actions / detail need an ITEM path (`{list.path_bytes}{id}`), which
- *   `ResourceDescriptor`'s own docstring says this schema version does NOT
- *   derive and does not declare a field for — see the Step 3 report's
- *   "item-path" finding. String-munging one here would reproduce exactly
- *   the trailing-slash defect class `goughPaths.ts` exists to prevent
- *   (`biome_groups`' collection path has no trailing slash;
- *   `{path}{id}` concatenation would silently produce `.../groups42`).
- * - Create needs `FormSpec` bound to a real `@penguintechinc/react-libs`
- *   `FieldConfig` — see the shape mismatch documented at the bottom of
- *   `manifestTypes.ts`.
- *
- * Both are deferred to a follow-up step, not guessed at here.
+ * Schema v2 lets this component render what schema v1 explicitly deferred:
+ * - **Detail + row-actions** (`ManifestResourceDetail.tsx`) — gated on
+ *   `resource.item_path`, schema v2's proof that this resource kind has a
+ *   real, individually addressable item route.
+ * - **Create** (`ManifestCreateForm.tsx`) — `resource.create` bound to
+ *   react-libs' real `FormBuilder`, not an approximation.
+ * - **Operations cancel/logs** — `manifest.operations.cancel_allowed`/
+ *   `.show_logs`, both server-verified against the adapter's real
+ *   capabilities by `validate_manifest`.
  */
 import { useMemo } from "react";
 import { ProductScreen } from "./ProductScreen";
 import { DataTable, type ColumnConfig } from "./DataTable";
 import { OperationsPanel } from "./OperationsPanel";
 import { useProductResource } from "./useProductResource";
-import { useManifestOperations } from "./useManifestOperations";
+import {
+  useCancelManifestOperation,
+  useManifestOperationLogs,
+  useManifestOperations,
+} from "./useManifestOperations";
 import { renderCell, type ManifestRow } from "./manifestCells";
 import { buildManifestListFetcher } from "./manifestListFetcher";
+import { ManifestResourceDetail } from "./ManifestResourceDetail";
+import { ManifestCreateForm } from "./ManifestCreateForm";
 import { queryKeys } from "../../api/keys";
 import type { ConsoleManifest, ResourceDescriptor } from "./manifestTypes";
+import type { OperationLike } from "./operationsPanelTypes";
 
 export interface ManifestResourceScreenProps {
   /** Drives the feature/connection gate and every generated test id — the
@@ -103,6 +105,13 @@ export function ManifestResourceScreen({
     operationsSpec !== null && operationsSpec !== undefined,
     (operationsSpec?.poll_interval_seconds ?? 5) * 1000,
   );
+  const cancelOperation = useCancelManifestOperation(tenantId, productId);
+  const useOperationLogsForResource = (
+    kind: string,
+    operationId: string,
+    options: { enabled: boolean; isTerminal: boolean },
+  ) =>
+    useManifestOperationLogs(tenantId, productId, kind, operationId, options);
 
   const rows = (data ?? []).map((row) => withStringId(row, resource.id_field));
 
@@ -117,20 +126,33 @@ export function ManifestResourceScreen({
       noConnectionReason={`manage its ${resource.plural_label.toLowerCase()}.`}
     >
       {operationsSpec && (
-        <OperationsPanel
+        <OperationsPanel<OperationLike>
           operations={operations.data ?? []}
           isLoading={operations.isLoading}
           spec={{
             title: operationsSpec.label,
             testIdPrefix: `${productType}-manifest-${resource.kind}`,
-            // Neither capability is expressible on OperationsSpec yet — see
-            // this file's module doc and `useManifestOperations.ts`.
-            cancelAllowed: false,
-            showLogs: false,
+            cancelAllowed: operationsSpec.cancel_allowed,
+            showLogs: operationsSpec.show_logs,
             pollIntervalMs: operationsSpec.poll_interval_seconds * 1000,
           }}
+          onCancel={(operation) =>
+            cancelOperation.mutate({
+              kind: operation.kind,
+              operationId: operation.id,
+            })
+          }
+          isCancelling={() => cancelOperation.isPending}
+          useOperationLogs={useOperationLogsForResource}
         />
       )}
+
+      <ManifestCreateForm
+        productType={productType}
+        tenantId={tenantId}
+        productId={productId}
+        resource={resource}
+      />
 
       {list ? (
         <DataTable<ManifestRow & { id: string }>
@@ -151,6 +173,14 @@ export function ManifestResourceScreen({
           {resource.label} has no list endpoint in this manifest version.
         </p>
       )}
+
+      <ManifestResourceDetail
+        productType={productType}
+        tenantId={tenantId}
+        productId={productId}
+        resource={resource}
+        rows={rows}
+      />
     </ProductScreen>
   );
 }

@@ -1,6 +1,7 @@
 /**
  * TypeScript mirror of the backend's console-manifest schema
- * (`services/portal-api/app/adapters/manifest.py`, Phase 8 Design §3).
+ * (`services/portal-api/app/adapters/manifest.py`, Phase 8 Design §3,
+ * schema v2).
  *
  * Why hand-written rather than read off `api/schema.d.ts`
  * =========================================================
@@ -13,23 +14,60 @@
  * against that type could not catch a missing renderer at compile time —
  * exactly the "renders blank" failure Design §3.4 exists to prevent. This
  * file re-derives the handful of fields the backend's OWN `__post_init__`
- * validates as a closed set (`CellSpec.kind`, `ResourceDescriptor.transport`,
- * `ListSpec.pagination`, `ActionSpec`/`DeleteSpec.requires`,
- * `ExtensionSlot.slot`) as real TS unions, and leaves every field the
- * backend itself leaves open (`ActionSpec.variant`, `FormField.field_type`)
- * as `string` — this mirror is exactly as strict as the dataclasses it
- * copies, never stricter.
+ * validates as a closed set (`CellSpec.kind`, `FormField.field_type`,
+ * `ResourceDescriptor.transport`, `ListSpec.pagination`,
+ * `ActionSpec`/`DeleteSpec.requires`, `ExtensionSlot.slot`) as real TS
+ * unions, and leaves every field the backend itself leaves open
+ * (`ActionSpec.variant`) as `string` — this mirror is exactly as strict as
+ * the dataclasses it copies, never stricter.
  *
  * `CELL_KINDS` is the one set this module does not trust to stay in sync by
  * hand: `__tests__/manifestTypes.contract.test.ts` reads
  * `app/adapters/manifest.py`'s `CELL_KINDS` frozenset as TEXT (the same
  * technique `tests/api/test_webui_portal_paths.py` already uses in the other
  * direction — parsing the sibling language's source rather than executing
- * it) and fails if the two sets disagree.
+ * it) and fails if the two sets disagree. `FIELD_TYPES` gets the same
+ * treatment for the same reason.
  *
  * Field names, required-ness and nesting below are hand-verified against
  * `openapi/v1.yaml`'s generated schema (regenerate via `npm run
  * generate:api` — see `api/schema.d.ts`), not merely assumed.
+ *
+ * Schema v2 -- FormField now binds to react-libs' REAL FieldConfig
+ * ===================================================================
+ * Schema v1's `ManifestFormField` was a faithful mirror of the backend's
+ * then-current `FormField` dataclass, whose OWN docstring claimed to
+ * "mirror `@penguintechinc/react-libs`' `FormField` shape closely enough to
+ * serialise straight into it" — unverified at the time, per that docstring,
+ * and wrong on inspection of the actually-published package
+ * (`@penguintechinc/react-libs@1.3.4`, pinned in `package.json` —
+ * `node_modules/@penguintechinc/react-libs/dist/components/FormBuilder/`,
+ * confirmed BYTE-EQUAL to the `~/code/penguin-libs` monorepo checkout of the
+ * same file at the pinned version):
+ *
+ * 1. react-libs exports NO data type named `FormField` at all in the
+ *    `FormBuilder` family — `FormField` there is a React component
+ *    (`React.FC<FormFieldProps>`, `components/FormBuilder/FormField.tsx`).
+ *    (A DIFFERENT, unrelated `FormField` data type does exist, exported by
+ *    the OLDER `FormModalBuilder` component — see
+ *    `manifestFormFields.ts`'s module doc for why this schema binds to
+ *    `FormBuilder`/`FieldConfig` instead.) The data shape a caller actually
+ *    builds for `FormBuilder` is `FieldConfig`, consumed as
+ *    `FormConfig.fields: FieldConfig[]`. This module keeps the name
+ *    `ManifestFormField` for the backend-mirrored type — `FormField` would
+ *    collide with the real component import.
+ * 2. `field_type` is now the closed {@link FieldType} union, byte-exact with
+ *    `FieldConfig.type` — a manifest naming a type `FormBuilder` does not
+ *    recognise now refuses to load server-side (`FormField.__post_init__`)
+ *    instead of parsing fine and rendering blank.
+ * 3. `options` is now `SelectOption[]` (`{value, label, disabled?}`),
+ *    matching `FieldConfig.options: SelectOption[]` exactly — no more
+ *    `options.map(o => ({value: o, label: o}))` synthesis step.
+ * 4. `default_value` matches react-libs' own `defaultValue` in meaning (the
+ *    rename from schema v1's `default` avoids shadowing the JS keyword).
+ *
+ * See `manifestFormFields.ts` for the (now near-trivial) `FieldConfig`
+ * binding this alignment makes possible.
  */
 
 /** The CLOSED set of cell kinds this schema version recognises — mirrors
@@ -56,6 +94,34 @@ const CELL_KIND_SET: ReadonlySet<string> = new Set(CELL_KINDS);
 /** Type guard narrowing a wire `kind` string to the closed {@link CellKind} union. */
 export function isCellKind(value: string): value is CellKind {
   return CELL_KIND_SET.has(value);
+}
+
+/** The CLOSED set of form field types this schema version recognises —
+ * mirrors `FIELD_TYPES` in `app/adapters/manifest.py`, byte-exact with
+ * react-libs' own `FieldConfig.type` union (see this module's doc). */
+export const FIELD_TYPES = [
+  "text",
+  "email",
+  "password",
+  "number",
+  "textarea",
+  "select",
+  "checkbox",
+  "radio",
+  "date",
+  "time",
+  "datetime-local",
+  "tel",
+  "url",
+] as const;
+
+export type FieldType = (typeof FIELD_TYPES)[number];
+
+const FIELD_TYPE_SET: ReadonlySet<string> = new Set(FIELD_TYPES);
+
+/** Type guard narrowing a wire `field_type` string to the closed {@link FieldType} union. */
+export function isFieldType(value: string): value is FieldType {
+  return FIELD_TYPE_SET.has(value);
 }
 
 /** One `enum_badge` value -> style-name mapping. */
@@ -108,6 +174,20 @@ export interface ColumnSpec {
 }
 
 /**
+ * The exact unwrap path from a proxied collection's RAW body to its array —
+ * mirrors `EnvelopeSpec` in `app/adapters/manifest.py`. Schema v2 retypes
+ * `ListSpec.envelope_key: string` to `ListSpec.envelope: EnvelopeSpec` for
+ * exactly the reason that module's docstring gives: a single key cannot
+ * express Gough's real wire shapes (`("data", "nodes")` for the enveloped
+ * routes vs the bare `("groups",)` for `biome_groups`). See
+ * `manifestListFetcher.ts`'s `readManifestEnvelope` for the ordered walk
+ * this drives.
+ */
+export interface EnvelopeSpec {
+  keys: string[];
+}
+
+/**
  * Where a resource's collection lives and how it paginates.
  *
  * `path_bytes` starts with `/` (`ListSpec.__post_init__` refuses otherwise)
@@ -118,8 +198,23 @@ export interface ColumnSpec {
  */
 export interface ListSpec {
   path_bytes: string;
-  envelope_key: string;
+  envelope: EnvelopeSpec;
   pagination: "offset" | "cursor" | "none";
+}
+
+/**
+ * The item-level route for one resource — distinct from `ListSpec`, and
+ * never derived from it. Mirrors `ItemPathSpec` in
+ * `app/adapters/manifest.py`: `prefix` is the adapter's own item-route base
+ * (no trailing slash), and the real item path for one id is always
+ * `` `${prefix}/${id}` `` — see `manifestItemPath.ts`'s `buildManifestItemPath`,
+ * the one place that concatenation happens. `sample_id` is a
+ * backend-only probe value (see the Python docstring); the renderer never
+ * reads it.
+ */
+export interface ItemPathSpec {
+  prefix: string;
+  sample_id: string;
 }
 
 /** Tab layout for a resource's detail view. Empty means a single pane. */
@@ -133,14 +228,22 @@ export interface RelationshipSpec {
   parent_field: string;
 }
 
+/** One selectable choice for a `select`/`radio` field — mirrors react-libs'
+ * own `SelectOption` (`FormBuilder/types.ts`) exactly. */
+export interface SelectOption {
+  value: string;
+  label: string;
+  disabled: boolean;
+}
+
 /**
- * One field of a create form.
+ * One field of a create form — binds to react-libs' real `FieldConfig`, not
+ * a lookalike. See this module's doc for the schema v1 -> v2 finding.
  *
  * Named `ManifestFormField`, not `FormField` — `@penguintechinc/react-libs`
- * already exports a component named `FormField`
- * (`components/FormBuilder/FormField.tsx`), and this is DATA, not a
- * component. See the module doc at the bottom of this file for the shape
- * mismatch this finding surfaces against react-libs' real `FieldConfig`.
+ * exports both a `FormField` COMPONENT (`FormBuilder` family) and an
+ * unrelated `FormField` DATA type (`FormModalBuilder` family); this is
+ * neither, so it keeps its own name rather than colliding with either.
  */
 export interface ManifestFormField {
   name: string;
@@ -148,8 +251,8 @@ export interface ManifestFormField {
   field_type: string;
   required: boolean;
   placeholder?: string | null;
-  options: string[];
-  default?: string | null;
+  options: SelectOption[];
+  default_value?: string | null;
 }
 
 /** One portal-facing -> product-facing form field rename. */
@@ -187,11 +290,11 @@ export interface DeleteSpec {
 /**
  * One resource kind: its shape, its columns, and how it is reached.
  *
- * `list` is `null` for a resource with no collection endpoint at all. A
- * resource descriptor that DOES declare `list` carries no field this schema
- * version uses to derive an ITEM path for detail/row actions — see the
- * "item-path" finding in the Step 3 report; the renderer must not
- * string-concatenate one.
+ * `list` is `null` for a resource with no collection endpoint at all.
+ * `item_path` is `null` for a resource with no item-level route either
+ * (schema v2 — see `ItemPathSpec`'s Python doc for Gough's `clusters`, the
+ * case in point). Never derive one from `list.path_bytes` — see
+ * `manifestItemPath.ts`.
  */
 export interface ResourceDescriptor {
   kind: string;
@@ -204,6 +307,7 @@ export interface ResourceDescriptor {
   empty_state: string;
   error_state: string;
   list?: ListSpec | null;
+  item_path?: ItemPathSpec | null;
   detail: DetailSpec;
   actions: ActionSpec[];
   create?: FormSpec | null;
@@ -223,10 +327,18 @@ export interface NavSpec {
   items: NavItem[];
 }
 
-/** Presence + display config for the product's operations panel. */
+/**
+ * Presence + display config for the product's operations panel.
+ *
+ * Schema v2 adds `cancel_allowed`/`show_logs` — see this field's Python
+ * doc (`OperationsSpec` in `app/adapters/manifest.py`) for why schema v1
+ * could only ever render a read-only panel and what closes that gap.
+ */
 export interface OperationsSpec {
   label: string;
   poll_interval_seconds: number;
+  cancel_allowed: boolean;
+  show_logs: boolean;
 }
 
 /** Presence + display config for the product's metrics tile. */
@@ -275,37 +387,3 @@ export function findResource(
 ): ResourceDescriptor | undefined {
   return manifest.resources.find((resource) => resource.kind === kind);
 }
-
-/*
- * Schema finding — FormSpec vs react-libs' real FieldConfig
- * ===========================================================
- * `ManifestFormField` above is a faithful mirror of the backend's
- * `FormField` dataclass, which its OWN docstring says was written to
- * "mirror `@penguintechinc/react-libs`' `FormField` shape closely enough to
- * serialise straight into it" — unverified at the time, per that docstring.
- * It does not, on inspection of the installed package
- * (`node_modules/@penguintechinc/react-libs/dist/components/FormBuilder/`):
- *
- * 1. react-libs exports NO data type named `FormField` at all — `FormField`
- *    there is a `React.FC<FormFieldProps>` (a component). The data shape a
- *    caller actually builds is `FieldConfig` (`FormBuilder/types.d.ts`),
- *    consumed as `FormConfig.fields: FieldConfig[]`.
- * 2. `ManifestFormField.field_type: string` is unvalidated free text on the
- *    backend, but `FieldConfig.type: FieldType` is a CLOSED union
- *    (`'text'|'email'|'password'|'number'|'textarea'|'select'|'checkbox'|
- *    'radio'|'date'|'time'|'datetime-local'|'tel'|'url'`). A manifest
- *    author can emit a `field_type` react-libs' own component would reject
- *    at the type level.
- * 3. `ManifestFormField.options: string[]` (bare strings) vs
- *    `FieldConfig.options: SelectOption[]` (`{value, label, disabled?}`
- *    objects) — a real shape mismatch, not just a naming one. Binding a
- *    manifest create-form to `FormBuilder` needs a mapping step
- *    (`options.map(o => ({value: o, label: o}))`) that does not exist
- *    anywhere yet.
- * 4. `default` (backend) vs `defaultValue` (react-libs) — a rename, cheap
- *    but real.
- *
- * None of this blocks list/detail rendering, which is what Step 3 ships.
- * Binding `ResourceDescriptor.create` to a real `FormBuilder` is deferred —
- * see the Step 3 report for the precise follow-up this leaves.
- */
