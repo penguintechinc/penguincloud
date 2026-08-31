@@ -39,7 +39,7 @@ it. That covers every write Nest has, so none of them is proxied.
 
 Deletes answer ``204`` and would be safe to proxy by that rule, but they are
 typed here too: ``delete_resource`` maps Nest's ``409`` onto
-:class:`~app.adapters.base.ResourceConflictError` so a confirm dialog can
+:class:`~app.adapter_errors.ResourceConflictError` so a confirm dialog can
 tell "still referenced" from "gone", which a proxied 409 body cannot.
 
 The practical effect is that Nest proxies no mutating verb at all, so the

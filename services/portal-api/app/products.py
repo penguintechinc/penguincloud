@@ -9,12 +9,9 @@ from quart import Blueprint, jsonify, request
 from quart_schema import validate_request, validate_response
 
 from . import flags, quotas
+from .adapter_errors import UPSTREAM_RESPONSE_HEADER, AdapterCapabilityError
 from .adapters import get_adapter, get_all_product_types
-from .adapters.base import (
-    UPSTREAM_RESPONSE_HEADER,
-    AdapterCapabilityError,
-    AdapterContext,
-)
+from .adapters.base import AdapterContext
 from .authz import (
     SCOPE_PRODUCTS_MANAGE,
     SCOPE_PRODUCTS_READ,

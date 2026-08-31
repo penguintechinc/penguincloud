@@ -21,7 +21,7 @@ from typing import Any, Final
 
 import httpx
 
-from ..base import (
+from ...adapter_errors import (
     AdapterError,
     RateLimitedError,
     ResourceConflictError,

@@ -26,9 +26,9 @@ from typing import Any, Final
 
 import httpx
 
+from ...adapter_errors import AdapterCapabilityError, ResourceNotFoundError, UpstreamError
 from ..base import (
     ActionResult,
-    AdapterCapabilityError,
     AdapterContext,
     HealthOnlyAdapter,
     MetricsSummary,
@@ -37,10 +37,8 @@ from ..base import (
     OperationState,
     Page,
     Resource,
-    ResourceNotFoundError,
     RouteRule,
     TimeRange,
-    UpstreamError,
 )
 from ..transport import Transport, get_transport
 from . import mapping
