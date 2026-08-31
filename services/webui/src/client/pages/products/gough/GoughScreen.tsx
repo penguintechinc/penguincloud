@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { EmptyState } from "../../../components/kit";
-import { useProductEnabled } from "../../../lib/featureGates";
+import { ProductScreen } from "../../../components/kit";
 
 interface GoughScreenProps {
   title: string;
@@ -11,65 +10,24 @@ interface GoughScreenProps {
 }
 
 /**
- * Shell shared by every Gough screen: gate, then connection, then content.
+ * Gough's instance of the shared `ProductScreen` shell: flag gate, then
+ * connection gate, then header, then content. The gating behaviour itself —
+ * what each gate checks, the copy, the generated `gough-*` test ids — lives
+ * in `ProductScreen`; this wrapper supplies only Gough's product identity.
  *
- * Both gates are applied here rather than in each page so a new screen cannot
- * ship with one of them missing — the failure mode is a page that renders
- * product data for a tenant that has no such product, or with the feature
- * flag off, and neither is visible by looking at the page that forgot.
- *
- * The flag is checked client-side for navigation only. It is not the security
- * control: the portal refuses a proxy call for a connection the tenant does
- * not own regardless of what the browser believes, and `products:gough:*`
- * scopes are only minted for tenants actually connected to Gough.
+ * The flag is checked client-side for navigation only. It is not the
+ * security control: the portal refuses a proxy call for a connection the
+ * tenant does not own regardless of what the browser believes, and
+ * `products:gough:*` scopes are only minted for tenants actually connected
+ * to Gough.
  */
-export function GoughScreen({
-  title,
-  description,
-  productId,
-  isConnectionLoading,
-  children,
-}: GoughScreenProps) {
-  // Hook call hoisted out of the `if` so it is unconditional at the top of
-  // the component — rules-of-hooks, and it reads better besides.
-  const isEnabled = useProductEnabled("gough");
-
-  if (!isEnabled) {
-    return (
-      <EmptyState
-        title="Gough is not enabled"
-        description="This product category is behind a feature flag that is currently off."
-        dataTestId="gough-disabled"
-      />
-    );
-  }
-
-  if (isConnectionLoading) {
-    return (
-      <div
-        className="animate-pulse h-48 bg-slate-700 rounded"
-        data-testid="gough-loading"
-      />
-    );
-  }
-
-  if (productId === undefined) {
-    return (
-      <EmptyState
-        title="No Gough connection"
-        description="Register a Gough connection for this tenant to manage its fleet."
-        dataTestId="gough-no-connection"
-      />
-    );
-  }
-
+export function GoughScreen(props: GoughScreenProps) {
   return (
-    <div data-testid="gough-screen">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-amber-400">{title}</h1>
-        <p className="text-slate-400 text-sm mt-1">{description}</p>
-      </header>
-      {children}
-    </div>
+    <ProductScreen
+      productType="gough"
+      productLabel="Gough"
+      noConnectionReason="manage its fleet."
+      {...props}
+    />
   );
 }
