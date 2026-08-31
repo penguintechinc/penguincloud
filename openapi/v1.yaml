@@ -410,6 +410,35 @@ components:
         - style
       title: EnumStyle
       type: object
+    EnvelopeSpec:
+      description: "The exact unwrap path from a proxied collection's RAW body to its array.\n\
+        \nSchema v2 finding: a single ``envelope_key`` string cannot express\nGough's real wire\
+        \ shapes. ``keys`` is the ordered sequence of keys to\ndescend through the raw HTTP\
+        \ body the BROWSER receives via the byte\nproxy (not the adapter's own already-unwrapped\
+        \ ``GoughResponse`` —\nthose are different documents; see\n:mod:`app.adapters.gough.responses`'s\
+        \ module docstring) to reach the\nitem array:\n\n* ``(\"data\", \"nodes\")`` for Gough\
+        \ nodes — ``list_nodes`` answers via\n  ``_helpers.envelope_success``, which wraps the\
+        \ array inside an outer\n  ``data`` key: ``{\"status\": \"success\", \"data\": {\"nodes\"\
+        : [...]},\n  \"meta\": {...}}``.\n* ``(\"groups\",)`` for Gough biome_groups — BARE,\
+        \ despite\n  ``list_biome_groups`` living in the same blueprint MODULE as\n  ``list_biomes``.\
+        \ It answers ``jsonify({\"groups\": [...], \"total\":\n  ...})`` directly, never ``envelope_success``.\
+        \ Verified by reading\n  Gough's own source (``services/api-manager/app/api/biomes.py``)\
+        \ at\n  ``~/code/gough``, not guessed by analogy with the enveloped\n  ``biomes`` route\
+        \ it sits beside — that analogy is exactly the trap\n  this field exists to close off.\n\
+        \nNever derive one resource's envelope from a sibling's shape. Two\nresources declared\
+        \ in the same source module can answer differently,\nand only the product's own handler\
+        \ code says which."
+      properties:
+        keys:
+          items:
+            type: string
+          maxItems: 10000
+          title: Keys
+          type: array
+      required:
+        - keys
+      title: EnvelopeSpec
+      type: object
     ExtensionSlot:
       description: 'A named escape hatch — Design §4.1. NEVER carries code, only a name.
 
@@ -459,22 +488,33 @@ components:
       title: FieldAlias
       type: object
     FormField:
-      description: 'One field of a create form.
-
-
-        Mirrors ``@penguintechinc/react-libs``'' ``FormField`` shape closely
-
-        enough to serialise straight into it; the renderer step is what proves
-
-        the fields line up exactly. Kept intentionally minimal for Step 3, since
-
-        nothing consumes this yet — see the module docstring.'
+      description: "One field of a create form — a real react-libs ``FieldConfig``, not a lookalike.\n\
+        \nSchema v2 finding: schema v1's docstring here claimed to mirror\n``@penguintechinc/react-libs``'\
+        \ \"``FormField`` shape closely enough to\nserialise straight into it\" — unverified\
+        \ at the time, per that\ndocstring, and wrong on inspection of the actual checkout\n\
+        (``~/code/penguin-libs/packages/react-libs/src/components/FormBuilder/\ntypes.ts``):\n\
+        \n1. react-libs exports NO data type named ``FormField`` at all —\n   ``FormField``\
+        \ there is a React component\n   (``React.FC<FormFieldProps>``). The data shape a caller\
+        \ actually\n   builds is ``FieldConfig``, consumed as ``FormConfig.fields:\n   FieldConfig[]``.\
+        \ This class keeps the name ``FormField`` anyway —\n   unlike its TypeScript mirror\
+        \ (``ManifestFormField`` in\n   ``manifestTypes.ts``), there is no Python symbol it\
+        \ would collide\n   with, so the rename that file needed is not needed here.\n2. ``field_type``\
+        \ is now closed (:data:`FIELD_TYPES`, byte-exact with\n   react-libs' own ``FieldType``\
+        \ union) rather than free text — a\n   manifest naming a type ``FormBuilder`` does not\
+        \ recognise used to\n   pass validation and then be silently unrenderable; refused at\n\
+        \   construction instead.\n3. ``options`` is ``tuple[SelectOption, ...]``, matching\n\
+        \   ``FieldConfig.options: SelectOption[]`` — NOT the bare\n   ``tuple[str, ...]`` schema\
+        \ v1 shipped, which cannot express a\n   value/label split (react-libs' ``SelectOption``\
+        \ always has both) and\n   would need a synthetic ``options.map(o => ({value: o, label:\
+        \ o}))``\n   mapping step at the renderer that does not exist anywhere.\n4. ``default_value``\
+        \ renames schema v1's ``default`` to match react-libs'\n   own ``defaultValue`` — cheap,\
+        \ but a real field name a caller would\n   otherwise get wrong binding this to ``FormBuilder``."
       properties:
-        default:
+        default_value:
           anyOf:
             - type: string
             - type: 'null'
-          title: Default
+          title: Default Value
         field_type:
           default: text
           title: Field Type
@@ -488,7 +528,7 @@ components:
         options:
           default: []
           items:
-            type: string
+            $ref: '#/components/schemas/SelectOption'
           maxItems: 10000
           title: Options
           type: array
@@ -607,6 +647,73 @@ components:
         - base_url
       title: HealthMatrixEntry
       type: object
+    ItemPathSpec:
+      description: 'The item-level route for one resource — distinct from ``list.path_bytes``.
+
+
+        Schema v2 finding: the renderer cannot safely derive an item path from
+
+        ``list.path_bytes`` by string-munging. Gough''s own item-route base
+
+        (``_COLLECTIONS[kind]``, no trailing slash) and its LIST route
+
+        (``_COLLECTION_ROUTES[kind]``, used by :attr:`ListSpec.path_bytes`) are
+
+        DIFFERENT strings for three of four resources — ``biome_groups``'' list
+
+        route (``/api/v1/biomes/groups``, no trailing slash) and item-route
+
+        base (also ``/api/v1/biomes/groups``, also no trailing slash) happen to
+
+        be identical, while nodes/biomes/agents'' list routes carry a trailing
+
+        slash their item-route bases do not. Concatenating ``list.path_bytes``
+
+        directly with an id therefore works for three resources and silently
+
+        produces ``/api/v1/biomes/groups42`` for the fourth — the exact defect
+
+        named in ``adapters/gough/manifest.py``''s module docstring. This class
+
+        exists so the renderer never has to make that derivation at all.
+
+
+        ``prefix`` is byte-equal to the adapter''s own item-route base constant
+
+        (e.g. ``app.adapters.gough.adapter._COLLECTIONS[kind]``) — never
+
+        re-typed; import the constant. The real item path for one id is always
+
+        ``f"{prefix}/{id}"``: ``prefix`` never carries a trailing slash, and an
+
+        id is never embedded inside it.
+
+
+        ``sample_id`` is a representative id matching the SHAPE of a real id for
+
+        this resource (e.g. ``"1"`` for an integer id, a real UUID string for a
+
+        UUID id) — used ONLY by :func:`validate_manifest` to prove
+
+        ``f"{prefix}/{sample_id}"`` is admitted by the adapter''s own
+
+        ``route_allowlist``, the same proof :func:`validate_manifest` already
+
+        performs for ``list.path_bytes``. It is never rendered and never sent
+
+        to the product; it is a probe value, not data.'
+      properties:
+        prefix:
+          title: Prefix
+          type: string
+        sample_id:
+          title: Sample Id
+          type: string
+      required:
+        - prefix
+        - sample_id
+      title: ItemPathSpec
+      type: object
     ListSpec:
       description: 'Where a resource''s collection lives and how it paginates.
 
@@ -621,9 +728,8 @@ components:
 
         prevent. Never re-type this string; import the constant.'
       properties:
-        envelope_key:
-          title: Envelope Key
-          type: string
+        envelope:
+          $ref: '#/components/schemas/EnvelopeSpec'
         pagination:
           default: cursor
           title: Pagination
@@ -633,7 +739,7 @@ components:
           type: string
       required:
         - path_bytes
-        - envelope_key
+        - envelope
       title: ListSpec
       type: object
     MetricPointView:
@@ -844,8 +950,48 @@ components:
       title: OperationView
       type: object
     OperationsSpec:
-      description: Presence + display config for the product's operations panel.
+      description: 'Presence + display config for the product''s operations panel.
+
+
+        Schema v2 finding: schema v1 carried only ``label`` and
+
+        ``poll_interval_seconds``, so ``ManifestResourceScreen`` had no field to
+
+        read a real capability from and always rendered a READ-ONLY panel
+
+        (``cancelAllowed: false``, ``showLogs: false``) regardless of what the
+
+        product actually supports — see ``useManifestOperations.ts``''s module
+
+        doc for that gap named precisely. ``cancel_allowed``/``show_logs`` close
+
+        it, matching the webui''s own ``OperationsPanelSpec`` socket
+
+        (``components/kit/operationsPanelTypes.ts``) field for field; ``title``
+
+        and ``pollIntervalMs`` there are already served by ``label`` and
+
+        ``poll_interval_seconds`` × 1000, and ``testIdPrefix`` is computed by
+
+        the renderer per resource, not carried on the manifest.
+
+
+        Both new fields are checked by :func:`validate_manifest` against the
+
+        caller-supplied ``supports_cancel``/``supports_operation_logs`` —
+
+        ``True`` here is a claim about the adapter''s real behaviour, not a
+
+        display preference, so an adapter with no cancellable operation kind
+
+        must refuse a manifest that claims one exists, the same way an unknown
+
+        action verb already refuses to load.'
       properties:
+        cancel_allowed:
+          default: false
+          title: Cancel Allowed
+          type: boolean
         label:
           default: Operations
           title: Label
@@ -854,6 +1000,10 @@ components:
           default: 5
           title: Poll Interval Seconds
           type: integer
+        show_logs:
+          default: false
+          title: Show Logs
+          type: boolean
       title: OperationsSpec
       type: object
     Pagination:
@@ -1080,13 +1230,33 @@ components:
 
         NOT expressed as a ``ResourceDescriptor`` in this step; a schema finding,
 
-        not a workaround). A resource descriptor that DOES declare ``list`` is
+        not a workaround). Schema v1 left the item path undeclared entirely — "a
 
-        assumed reachable at ``{list.path_bytes}{id}`` by nothing in THIS
+        resource descriptor that DOES declare list is assumed reachable at
 
-        module — that derivation is deliberately not attempted here; see the
+        ``{list.path_bytes}{id}`` by nothing in THIS module — that derivation is
 
-        same docstring.'
+        deliberately not attempted here." Schema v2 closes that gap explicitly:
+
+        ``item_path`` (:class:`ItemPathSpec` or ``None``) is the resource''s own
+
+        declared item route, never derived by concatenating ``list.path_bytes``
+
+        with an id — see :class:`ItemPathSpec`''s docstring for the exact defect
+
+        that derivation produces. ``None`` means "this resource genuinely has no
+
+        item endpoint" (Gough''s ``clusters``, whose single-item route is the
+
+        irregular ``/api/v1/clusters/{id}/lxd/status``, not
+
+        ``{collection}/{id}``, would be the case in point — clusters stays
+
+        unexpressed as a resource in this schema version regardless) — an
+
+        explicit fact a manifest states, never a default a caller''s omission
+
+        falls into.'
       properties:
         actions:
           default: []
@@ -1120,6 +1290,10 @@ components:
         id_field:
           title: Id Field
           type: string
+        item_path:
+          anyOf:
+            - $ref: '#/components/schemas/ItemPathSpec'
+            - type: 'null'
         kind:
           title: Kind
           type: string
@@ -1196,6 +1370,33 @@ components:
         - product
         - status
       title: RollupProduct
+      type: object
+    SelectOption:
+      description: 'One selectable choice — mirrors react-libs'' own ``SelectOption`` exactly.
+
+
+        ``value`` is ``str`` here even though react-libs types it
+
+        ``string | number``: nothing in this schema has a numeric select option
+
+        yet, and widening to ``str | int`` is a decision to make when a real one
+
+        shows up, not before.'
+      properties:
+        disabled:
+          default: false
+          title: Disabled
+          type: boolean
+        label:
+          title: Label
+          type: string
+        value:
+          title: Value
+          type: string
+      required:
+        - value
+        - label
+      title: SelectOption
       type: object
     TenantDetail:
       description: The projection a member (or delegated admin) may see.

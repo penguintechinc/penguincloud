@@ -72,8 +72,10 @@ from ..manifest import (
     ConsoleManifest,
     DeleteSpec,
     DetailSpec,
+    EnvelopeSpec,
     FormField,
     FormSpec,
+    ItemPathSpec,
     ListSpec,
     MetricsSpec,
     NavItem,
@@ -82,7 +84,7 @@ from ..manifest import (
     ResourceDescriptor,
     validate_manifest,
 )
-from .adapter import _ACTIONS, _COLLECTION_ROUTES, _ITEM_KEYS, GoughAdapter
+from .adapter import _ACTIONS, _COLLECTION_ROUTES, _COLLECTIONS, _ITEM_KEYS, GoughAdapter
 
 __all__ = ["GOUGH_MANIFEST"]
 
@@ -96,6 +98,31 @@ __all__ = ["GOUGH_MANIFEST"]
 #: checks that subset relationship at import time).
 _ACTION_VERBS: Final[dict[str, frozenset[str]]] = {
     kind: frozenset(verbs) for kind, verbs in _ACTIONS.items()
+}
+
+#: Resource kinds whose LIST route wraps its array inside Gough's outer
+#: ``data`` envelope (``_helpers.envelope_success``). Verified by reading
+#: Gough's own source at ``~/code/gough`` — NOT guessed by analogy:
+#:
+#: * ``list_nodes`` (``api/nodes.py``) and ``list_biomes`` (``api/biomes.py``)
+#:   both ``return envelope_success({...})``, so the wire body is
+#:   ``{"status": "success", "data": {"nodes"|"biomes": [...]}, "meta": {...}}``.
+#: * ``list_biome_groups`` (also ``api/biomes.py``, the SAME module as
+#:   ``list_biomes``) returns ``jsonify({"groups": [...], "total": ...})``
+#:   directly — bare, no envelope, despite living beside the enveloped
+#:   ``biomes`` route. Assuming it followed its neighbour would have been
+#:   wrong; this set exists so nothing has to assume.
+#: * ``list_agents`` (``api/agents.py``) likewise returns bare
+#:   ``jsonify({"agents": [...], "count": ...})``.
+_ENVELOPED_KINDS: Final[frozenset[str]] = frozenset({"nodes", "biomes"})
+
+#: Per-kind :class:`~app.adapters.manifest.EnvelopeSpec` key path, handed to
+#: :func:`~app.adapters.manifest.validate_manifest` as ``envelope_paths`` —
+#: derived from :data:`_ITEM_KEYS` and :data:`_ENVELOPED_KINDS` rather than
+#: hand-typed per resource, so the two tables cannot silently drift apart.
+_ENVELOPE_PATHS: Final[dict[str, tuple[str, ...]]] = {
+    kind: (("data", item_key) if kind in _ENVELOPED_KINDS else (item_key,))
+    for kind, item_key in _ITEM_KEYS.items()
 }
 
 # ---------------------------------------------------------------------------
@@ -132,9 +159,14 @@ _NODES: Final[ResourceDescriptor] = ResourceDescriptor(
     error_state="Unable to load nodes.",
     list=ListSpec(
         path_bytes=_COLLECTION_ROUTES["nodes"],
-        envelope_key=_ITEM_KEYS["nodes"],
+        envelope=EnvelopeSpec(keys=_ENVELOPE_PATHS["nodes"]),
         pagination="cursor",
     ),
+    # Item-route base is `_COLLECTIONS["nodes"]` ("/api/v1/nodes", no
+    # trailing slash) -- NOT `_COLLECTION_ROUTES["nodes"]` ("/api/v1/nodes/",
+    # the LIST path) -- see `ItemPathSpec`'s docstring for why the two
+    # differ and why conflating them is the trap this field exists to close.
+    item_path=ItemPathSpec(prefix=_COLLECTIONS["nodes"], sample_id="1"),
     detail=DetailSpec(tabs=("Overview", "Tags", "Biomes")),
     actions=(
         ActionSpec(
@@ -207,9 +239,10 @@ _BIOMES: Final[ResourceDescriptor] = ResourceDescriptor(
     error_state="Unable to load biomes.",
     list=ListSpec(
         path_bytes=_COLLECTION_ROUTES["biomes"],
-        envelope_key=_ITEM_KEYS["biomes"],
+        envelope=EnvelopeSpec(keys=_ENVELOPE_PATHS["biomes"]),
         pagination="cursor",
     ),
+    item_path=ItemPathSpec(prefix=_COLLECTIONS["biomes"], sample_id="1"),
     detail=DetailSpec(tabs=("Overview", "Eligibility")),
     actions=(
         ActionSpec(
@@ -269,9 +302,16 @@ _BIOME_GROUPS: Final[ResourceDescriptor] = ResourceDescriptor(
     error_state="Unable to load biome groups.",
     list=ListSpec(
         path_bytes=_COLLECTION_ROUTES["biome_groups"],
-        envelope_key=_ITEM_KEYS["biome_groups"],
+        envelope=EnvelopeSpec(keys=_ENVELOPE_PATHS["biome_groups"]),
         pagination="none",
     ),
+    # `_COLLECTIONS["biome_groups"]` and `_COLLECTION_ROUTES["biome_groups"]`
+    # happen to be the SAME string ("/api/v1/biomes/groups", no trailing
+    # slash on either) -- the one case among these four where list path and
+    # item-route base coincide. Still declared via `_COLLECTIONS`, never
+    # `_COLLECTION_ROUTES`, so this line stays correct if that coincidence
+    # ever stops holding.
+    item_path=ItemPathSpec(prefix=_COLLECTIONS["biome_groups"], sample_id="1"),
     detail=DetailSpec(tabs=("Overview",)),
     actions=(),
     create=FormSpec(
@@ -326,8 +366,14 @@ _AGENTS: Final[ResourceDescriptor] = ResourceDescriptor(
     error_state="Unable to load agents.",
     list=ListSpec(
         path_bytes=_COLLECTION_ROUTES["agents"],
-        envelope_key=_ITEM_KEYS["agents"],
+        envelope=EnvelopeSpec(keys=_ENVELOPE_PATHS["agents"]),
         pagination="none",
+    ),
+    # Agent ids are UUIDs (`_UUID_ID` in routes.py) -- the sample must have
+    # that SHAPE for the allowlist probe in validate_manifest to mean
+    # anything; an int-shaped sample would falsely pass by accident.
+    item_path=ItemPathSpec(
+        prefix=_COLLECTIONS["agents"], sample_id="11111111-1111-1111-1111-111111111111"
     ),
     detail=DetailSpec(tabs=("Overview",)),
     actions=(
@@ -354,7 +400,7 @@ _AGENTS: Final[ResourceDescriptor] = ResourceDescriptor(
 # ---------------------------------------------------------------------------
 
 GOUGH_MANIFEST: Final[ConsoleManifest] = ConsoleManifest(
-    manifest_version=1,
+    manifest_version=2,
     product_type=GoughAdapter.PRODUCT_TYPE,
     display_name=GoughAdapter.DISPLAY_NAME,
     nav=NavSpec(
@@ -365,7 +411,14 @@ GOUGH_MANIFEST: Final[ConsoleManifest] = ConsoleManifest(
         )
     ),
     resources=(_NODES, _BIOMES, _BIOME_GROUPS, _AGENTS),
-    operations=OperationsSpec(label="Operations", poll_interval_seconds=5),
+    # cancel_allowed/show_logs=True is honest, not aspirational: Gough's own
+    # hand-written OperationsPanel.tsx (pages/products/gough/OperationsPanel.tsx)
+    # already declares both True, and list_operations() only ever surfaces
+    # OP_DEPLOYMENT rows (see that method's docstring) -- the one operation
+    # kind cancel_operation and operation_logs both actually implement.
+    operations=OperationsSpec(
+        label="Operations", poll_interval_seconds=5, cancel_allowed=True, show_logs=True
+    ),
     metrics=MetricsSpec(label="Fleet Metrics"),
     extensions=(),
 )
@@ -377,4 +430,7 @@ validate_manifest(
     GoughAdapter,
     action_verbs=_ACTION_VERBS,
     sensitive_fields=GoughAdapter.SENSITIVE_FIELDS,
+    envelope_paths=_ENVELOPE_PATHS,
+    supports_cancel=GoughAdapter.SUPPORTS_OPERATION_CANCEL,
+    supports_operation_logs=GoughAdapter.SUPPORTS_OPERATION_LOGS,
 )
