@@ -209,13 +209,16 @@ export interface DiscoveredProduct {
   unconfirmed?: boolean;
 }
 
+/**
+ * Shape of GET /products/{id}/schema, mirrored from
+ * portal-api's get_product_schema. `capabilities` is a flat list of
+ * capability names the adapter reports — there is no `sections`/`endpoint`
+ * structure; the portal has no per-capability route to call yet.
+ * `schema_status` distinguishes "the adapter genuinely has nothing to
+ * report" (ok/unsupported) from "the adapter couldn't be reached"
+ * (unavailable), which is not otherwise visible from an empty array.
+ */
 export interface ProductManagementSchema {
-  product_type: string;
-  display_name: string;
-  sections: Array<{
-    id: string;
-    label: string;
-    type?: string;
-    endpoint?: string;
-  }>;
+  capabilities: string[];
+  schema_status: "ok" | "unsupported" | "unavailable";
 }

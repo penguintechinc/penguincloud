@@ -1,55 +1,56 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router";
-import { productsApi, proxyApi } from "../../hooks/useApi";
+import { productsApi } from "../../hooks/useApi";
 import Card from "../../components/Card";
-import TabNavigation from "../../components/TabNavigation";
-import type { ProductConnection, ProductManagementSchema } from "../../types";
+import ProductCapabilities, { type SchemaState } from "./ProductCapabilities";
+import type { ProductConnection } from "../../types";
 
+/**
+ * Generic fallback screen for any connected product without a dedicated,
+ * manifest-driven set of management screens (gough/nest/tobogganing have
+ * their own). Renders the product's own health/info plus an honest state for
+ * its capabilities — never an empty tab list that could be mistaken for a
+ * product with no capabilities to show.
+ */
 export default function ProductPage() {
   const { id } = useParams<{ id: string }>();
   const productId = Number(id);
   const [product, setProduct] = useState<ProductConnection | null>(null);
-  const [schema, setSchema] = useState<ProductManagementSchema | null>(null);
-  const [activeTab, setActiveTab] = useState("overview");
-  const [proxyData, setProxyData] = useState<Record<string, unknown> | null>(
-    null,
-  );
   const [isLoading, setIsLoading] = useState(true);
+  const [schemaState, setSchemaState] = useState<SchemaState>({
+    status: "loading",
+  });
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const [prod, mgmtSchema] = await Promise.all([
-          productsApi.get(productId),
-          productsApi.schema(productId).catch(() => null),
-        ]);
-        setProduct(prod);
-        setSchema(mgmtSchema);
-      } catch (err) {
-        console.error("Failed to fetch product:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchData();
-  }, [productId]);
+    let cancelled = false;
+    setIsLoading(true);
+    setSchemaState({ status: "loading" });
 
-  const tabs = [
-    { id: "overview", label: "Overview" },
-    ...(schema?.sections?.map((s) => ({ id: s.id, label: s.label })) || []),
-  ];
-
-  const handleProxyFetch = async (method: string, path: string) => {
-    try {
-      const result = await proxyApi.request(productId, method, path);
-      setProxyData(result as Record<string, unknown>);
-    } catch (err) {
-      setProxyData({
-        error: err instanceof Error ? err.message : "Request failed",
+    productsApi
+      .get(productId)
+      .then((prod) => {
+        if (!cancelled) setProduct(prod);
+      })
+      .catch(() => {
+        console.error("[ProductPage] Failed to fetch product", { productId });
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
       });
-    }
-  };
+
+    productsApi
+      .schema(productId)
+      .then((schema) => {
+        if (!cancelled) setSchemaState({ status: "loaded", schema });
+      })
+      .catch(() => {
+        if (!cancelled) setSchemaState({ status: "error" });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
 
   if (isLoading)
     return <div className="animate-pulse h-64 bg-slate-700 rounded" />;
@@ -78,102 +79,39 @@ export default function ProductPage() {
         </p>
       </div>
 
-      <TabNavigation
-        tabs={tabs}
-        activeTab={activeTab}
-        onChange={setActiveTab}
-      />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card title="Product Info">
+          <dl className="space-y-2">
+            <div className="flex justify-between">
+              <dt className="text-slate-400">Type</dt>
+              <dd className="text-slate-200">{product.product_type}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-slate-400">Base URL</dt>
+              <dd className="text-slate-200 truncate ml-4">
+                {product.base_url}
+              </dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-slate-400">Health</dt>
+              <dd className={statusColor[product.health_status]}>
+                {product.health_status}
+              </dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-slate-400">Last Check</dt>
+              <dd className="text-slate-200">
+                {product.last_health_check
+                  ? new Date(product.last_health_check).toLocaleString()
+                  : "Never"}
+              </dd>
+            </div>
+          </dl>
+        </Card>
 
-      <div className="mt-6">
-        {activeTab === "overview" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card title="Product Info">
-              <dl className="space-y-2">
-                <div className="flex justify-between">
-                  <dt className="text-slate-400">Type</dt>
-                  <dd className="text-slate-200">{product.product_type}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-slate-400">Base URL</dt>
-                  <dd className="text-slate-200 truncate ml-4">
-                    {product.base_url}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-slate-400">Health</dt>
-                  <dd className={statusColor[product.health_status]}>
-                    {product.health_status}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-slate-400">Last Check</dt>
-                  <dd className="text-slate-200">
-                    {product.last_health_check
-                      ? new Date(product.last_health_check).toLocaleString()
-                      : "Never"}
-                  </dd>
-                </div>
-              </dl>
-            </Card>
-
-            {/*
-              Renders the sections the adapter actually advertises. This block
-              previously read `schema.capabilities`, which no adapter has ever
-              returned (see get_management_schema: product_type, display_name,
-              sections only) — it would have thrown on the first schema that
-              loaded successfully.
-            */}
-            {schema && schema.sections.length > 0 && (
-              <Card title="Capabilities">
-                <div className="flex flex-wrap gap-2">
-                  {schema.sections.map((section) => (
-                    <span
-                      key={section.id}
-                      className="px-2 py-1 bg-slate-800 rounded text-sm text-slate-300"
-                    >
-                      {section.label}
-                    </span>
-                  ))}
-                </div>
-              </Card>
-            )}
-          </div>
-        )}
-
-        {/* Dynamic schema-driven sections */}
-        {schema?.sections
-          ?.filter((s) => s.id === activeTab)
-          .map((section) => {
-            // Bound to a local so the truthiness check below narrows it to
-            // `string` inside the click handler — no non-null assertion.
-            const { endpoint } = section;
-
-            return (
-              <Card key={section.id} title={section.label}>
-                <p className="text-slate-400 mb-4">{`Manage ${section.label}`}</p>
-                {/*
-                  A section carries at most ONE endpoint (`endpoint?: string`).
-                  The previous code mapped over `section.endpoints` reading
-                  `.method`/`.path`/`.label` — a shape no adapter returns, so no
-                  action button ever rendered. GET: every section endpoint is a
-                  read.
-                */}
-                {endpoint && (
-                  <button
-                    onClick={() => handleProxyFetch("GET", endpoint)}
-                    className="btn btn-secondary btn-sm mr-2 mb-2"
-                  >
-                    {`Fetch ${section.label}`}
-                  </button>
-                )}
-                {proxyData && (
-                  <pre className="mt-4 p-3 bg-slate-800 rounded text-sm text-slate-300 overflow-auto max-h-96">
-                    {JSON.stringify(proxyData, null, 2)}
-                  </pre>
-                )}
-              </Card>
-            );
-          })}
+        <Card title="Capabilities">
+          <ProductCapabilities schemaState={schemaState} />
+        </Card>
       </div>
     </div>
   );
