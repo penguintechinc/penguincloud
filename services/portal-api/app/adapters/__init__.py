@@ -26,11 +26,14 @@ from typing import Any, Final
 from .base import Adapter, AdapterContext
 from .generic_adapter import GenericAdapter
 from .gough import GoughAdapter
+from .gough.manifest import GOUGH_MANIFEST
+from .manifest import ConsoleManifest
 from .nest import NestAdapter
 from .tobogganing import TobogganingAdapter
 
 __all__ = [
     "ADAPTER_REGISTRY",
+    "MANIFEST_REGISTRY",
     "PLANNED_PRODUCTS",
     "STATUS_ACTIVE",
     "STATUS_PLANNED",
@@ -53,6 +56,21 @@ ADAPTER_REGISTRY: dict[str, type[Adapter]] = {
     # operator can register and monitor an endpoint the portal has no
     # specific integration for, without that endpoint becoming proxyable.
     "generic": GenericAdapter,
+}
+
+#: product_type -> committed console manifest — Design §3, Approach B.
+#:
+#: Deliberately a SEPARATE, smaller registry than :data:`ADAPTER_REGISTRY`
+#: rather than an optional attribute bolted onto it: an active adapter with
+#: no manifest entry here is a product the typed proxy/adapter surface
+#: supports but the declarative console does not yet describe — a real,
+#: expected state during migration (Design §7), not an error. Importing
+#: ``gough.manifest`` here (rather than lazily, on first request) is what
+#: makes an invalid manifest a deployment-time import failure instead of a
+#: first-request one — see that module's own fail-closed
+#: ``validate_manifest`` call at the bottom of the file.
+MANIFEST_REGISTRY: dict[str, ConsoleManifest] = {
+    "gough": GOUGH_MANIFEST,
 }
 
 #: Products with no adapter. Catalogue entries only — get_adapter() raises
