@@ -8,6 +8,8 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   nextPollInterval,
+  useCancelManifestOperation,
+  useManifestOperationLogs,
   useManifestOperations,
 } from "../useManifestOperations";
 import api from "../../../lib/api";
@@ -15,10 +17,10 @@ import type { OperationLike } from "../operationsPanelTypes";
 
 jest.mock("../../../lib/api", () => ({
   __esModule: true,
-  default: { get: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn() },
 }));
 
-const mockedApi = api as unknown as { get: jest.Mock };
+const mockedApi = api as unknown as { get: jest.Mock; post: jest.Mock };
 
 function client(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -118,5 +120,77 @@ describe("nextPollInterval", () => {
         5000,
       ),
     ).toBe(false);
+  });
+});
+
+describe("useCancelManifestOperation", () => {
+  it("posts to the generic typed cancel route and invalidates the operations query", async () => {
+    mockedApi.post.mockResolvedValue({ data: {} });
+    const qc = client();
+    const invalidateSpy = jest.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(() => useCancelManifestOperation(42, 7), {
+      wrapper: wrapper(qc),
+    });
+
+    result.current.mutate({ kind: "deployment", operationId: "op-1" });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedApi.post).toHaveBeenCalledWith(
+      "/products/7/operations/deployment/op-1/cancel",
+    );
+    expect(invalidateSpy).toHaveBeenCalled();
+  });
+
+  it("refuses to fire without a resolved product id", async () => {
+    const qc = client();
+    const { result } = renderHook(
+      () => useCancelManifestOperation(42, undefined),
+      {
+        wrapper: wrapper(qc),
+      },
+    );
+
+    result.current.mutate({ kind: "deployment", operationId: "op-1" });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(mockedApi.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("useManifestOperationLogs", () => {
+  it("fetches through the generic typed logs route when enabled", async () => {
+    mockedApi.get.mockResolvedValue({
+      data: { logs: [{ message: "started" }] },
+    });
+    const qc = client();
+    const { result } = renderHook(
+      () =>
+        useManifestOperationLogs(42, 7, "deployment", "op-1", {
+          enabled: true,
+          isTerminal: false,
+        }),
+      { wrapper: wrapper(qc) },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([{ message: "started" }]);
+    expect(mockedApi.get).toHaveBeenCalledWith(
+      "/products/7/operations/deployment/op-1/logs",
+    );
+  });
+
+  it("does not fire until enabled — an operator has not opened the disclosure yet", () => {
+    const qc = client();
+    const { result } = renderHook(
+      () =>
+        useManifestOperationLogs(42, 7, "deployment", "op-1", {
+          enabled: false,
+          isTerminal: false,
+        }),
+      { wrapper: wrapper(qc) },
+    );
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(mockedApi.get).not.toHaveBeenCalled();
   });
 });

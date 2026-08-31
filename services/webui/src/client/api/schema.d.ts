@@ -60,6 +60,90 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/auth/device/approve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Bind a pending device authorization to the CALLING user. RFC 8628 SS3.3.
+     * @description The approving user's identity comes ENTIRELY from their own already-
+     *     verified JWT (get_current_user, via @auth_required) -- user_code
+     *     selects WHICH pending authorization to resolve, never WHO it resolves
+     *     to. There is deliberately no tenant selection here: see
+     *     app.models_sqlalchemy.DeviceAuthorization's docstring for why the
+     *     resulting grant mirrors login's own current unscoped-tenant shape.
+     */
+    post: operations["post_device_approve"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/device/authorize": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Mint a device_code/user_code pair. Unauthenticated. RFC 8628 SS3.1/3.2. */
+    post: operations["post_device_authorize"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/device/deny": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Reject a pending device authorization. The next poll gets access_denied. */
+    post: operations["post_device_deny"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/device/token": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Poll for a token. Unauthenticated. RFC 8628 SS3.4/3.5.
+     * @description Order of checks is deliberate: expiry is checked BEFORE slow_down (an
+     *     expired code must never yield a token no matter how it is polled), and
+     *     slow_down is enforced UNIFORMLY across every status (including
+     *     "approved") before branching on status -- a client that ignores
+     *     `interval` gets throttled the same way regardless of how close the
+     *     flow is to finishing.
+     */
+    post: operations["post_device_token"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/auth/forgot-password": {
     parameters: {
       query?: never;
@@ -1880,6 +1964,39 @@ export interface components {
       value: string;
     };
     /**
+     * EnvelopeSpec
+     * @description The exact unwrap path from a proxied collection's RAW body to its array.
+     *
+     *     Schema v2 finding: a single ``envelope_key`` string cannot express
+     *     Gough's real wire shapes. ``keys`` is the ordered sequence of keys to
+     *     descend through the raw HTTP body the BROWSER receives via the byte
+     *     proxy (not the adapter's own already-unwrapped ``GoughResponse`` —
+     *     those are different documents; see
+     *     :mod:`app.adapters.gough.responses`'s module docstring) to reach the
+     *     item array:
+     *
+     *     * ``("data", "nodes")`` for Gough nodes — ``list_nodes`` answers via
+     *       ``_helpers.envelope_success``, which wraps the array inside an outer
+     *       ``data`` key: ``{"status": "success", "data": {"nodes": [...]},
+     *       "meta": {...}}``.
+     *     * ``("groups",)`` for Gough biome_groups — BARE, despite
+     *       ``list_biome_groups`` living in the same blueprint MODULE as
+     *       ``list_biomes``. It answers ``jsonify({"groups": [...], "total":
+     *       ...})`` directly, never ``envelope_success``. Verified by reading
+     *       Gough's own source (``services/api-manager/app/api/biomes.py``) at
+     *       ``~/code/gough``, not guessed by analogy with the enveloped
+     *       ``biomes`` route it sits beside — that analogy is exactly the trap
+     *       this field exists to close off.
+     *
+     *     Never derive one resource's envelope from a sibling's shape. Two
+     *     resources declared in the same source module can answer differently,
+     *     and only the product's own handler code says which.
+     */
+    EnvelopeSpec: {
+      /** Keys */
+      keys: string[];
+    };
+    /**
      * ExtensionSlot
      * @description A named escape hatch — Design §4.1. NEVER carries code, only a name.
      *
@@ -1914,16 +2031,41 @@ export interface components {
     };
     /**
      * FormField
-     * @description One field of a create form.
+     * @description One field of a create form — a real react-libs ``FieldConfig``, not a lookalike.
      *
-     *     Mirrors ``@penguintechinc/react-libs``' ``FormField`` shape closely
-     *     enough to serialise straight into it; the renderer step is what proves
-     *     the fields line up exactly. Kept intentionally minimal for Step 3, since
-     *     nothing consumes this yet — see the module docstring.
+     *     Schema v2 finding: schema v1's docstring here claimed to mirror
+     *     ``@penguintechinc/react-libs``' "``FormField`` shape closely enough to
+     *     serialise straight into it" — unverified at the time, per that
+     *     docstring, and wrong on inspection of the actual checkout
+     *     (``~/code/penguin-libs/packages/react-libs/src/components/FormBuilder/
+     *     types.ts``):
+     *
+     *     1. react-libs exports NO data type named ``FormField`` at all —
+     *        ``FormField`` there is a React component
+     *        (``React.FC<FormFieldProps>``). The data shape a caller actually
+     *        builds is ``FieldConfig``, consumed as ``FormConfig.fields:
+     *        FieldConfig[]``. This class keeps the name ``FormField`` anyway —
+     *        unlike its TypeScript mirror (``ManifestFormField`` in
+     *        ``manifestTypes.ts``), there is no Python symbol it would collide
+     *        with, so the rename that file needed is not needed here.
+     *     2. ``field_type`` is now closed (:data:`FIELD_TYPES`, byte-exact with
+     *        react-libs' own ``FieldType`` union) rather than free text — a
+     *        manifest naming a type ``FormBuilder`` does not recognise used to
+     *        pass validation and then be silently unrenderable; refused at
+     *        construction instead.
+     *     3. ``options`` is ``tuple[SelectOption, ...]``, matching
+     *        ``FieldConfig.options: SelectOption[]`` — NOT the bare
+     *        ``tuple[str, ...]`` schema v1 shipped, which cannot express a
+     *        value/label split (react-libs' ``SelectOption`` always has both) and
+     *        would need a synthetic ``options.map(o => ({value: o, label: o}))``
+     *        mapping step at the renderer that does not exist anywhere.
+     *     4. ``default_value`` renames schema v1's ``default`` to match react-libs'
+     *        own ``defaultValue`` — cheap, but a real field name a caller would
+     *        otherwise get wrong binding this to ``FormBuilder``.
      */
     FormField: {
-      /** Default */
-      default?: string | null;
+      /** Default Value */
+      default_value?: string | null;
       /**
        * Field Type
        * @default text
@@ -1937,7 +2079,7 @@ export interface components {
        * Options
        * @default []
        */
-      options: string[];
+      options: components["schemas"]["SelectOption"][];
       /** Placeholder */
       placeholder?: string | null;
       /**
@@ -2015,6 +2157,44 @@ export interface components {
       product_type: string | null;
     };
     /**
+     * ItemPathSpec
+     * @description The item-level route for one resource — distinct from ``list.path_bytes``.
+     *
+     *     Schema v2 finding: the renderer cannot safely derive an item path from
+     *     ``list.path_bytes`` by string-munging. Gough's own item-route base
+     *     (``_COLLECTIONS[kind]``, no trailing slash) and its LIST route
+     *     (``_COLLECTION_ROUTES[kind]``, used by :attr:`ListSpec.path_bytes`) are
+     *     DIFFERENT strings for three of four resources — ``biome_groups``' list
+     *     route (``/api/v1/biomes/groups``, no trailing slash) and item-route
+     *     base (also ``/api/v1/biomes/groups``, also no trailing slash) happen to
+     *     be identical, while nodes/biomes/agents' list routes carry a trailing
+     *     slash their item-route bases do not. Concatenating ``list.path_bytes``
+     *     directly with an id therefore works for three resources and silently
+     *     produces ``/api/v1/biomes/groups42`` for the fourth — the exact defect
+     *     named in ``adapters/gough/manifest.py``'s module docstring. This class
+     *     exists so the renderer never has to make that derivation at all.
+     *
+     *     ``prefix`` is byte-equal to the adapter's own item-route base constant
+     *     (e.g. ``app.adapters.gough.adapter._COLLECTIONS[kind]``) — never
+     *     re-typed; import the constant. The real item path for one id is always
+     *     ``f"{prefix}/{id}"``: ``prefix`` never carries a trailing slash, and an
+     *     id is never embedded inside it.
+     *
+     *     ``sample_id`` is a representative id matching the SHAPE of a real id for
+     *     this resource (e.g. ``"1"`` for an integer id, a real UUID string for a
+     *     UUID id) — used ONLY by :func:`validate_manifest` to prove
+     *     ``f"{prefix}/{sample_id}"`` is admitted by the adapter's own
+     *     ``route_allowlist``, the same proof :func:`validate_manifest` already
+     *     performs for ``list.path_bytes``. It is never rendered and never sent
+     *     to the product; it is a probe value, not data.
+     */
+    ItemPathSpec: {
+      /** Prefix */
+      prefix: string;
+      /** Sample Id */
+      sample_id: string;
+    };
+    /**
      * ListSpec
      * @description Where a resource's collection lives and how it paginates.
      *
@@ -2025,8 +2205,7 @@ export interface components {
      *     prevent. Never re-type this string; import the constant.
      */
     ListSpec: {
-      /** Envelope Key */
-      envelope_key: string;
+      envelope: components["schemas"]["EnvelopeSpec"];
       /**
        * Pagination
        * @default cursor
@@ -2155,8 +2334,32 @@ export interface components {
     /**
      * OperationsSpec
      * @description Presence + display config for the product's operations panel.
+     *
+     *     Schema v2 finding: schema v1 carried only ``label`` and
+     *     ``poll_interval_seconds``, so ``ManifestResourceScreen`` had no field to
+     *     read a real capability from and always rendered a READ-ONLY panel
+     *     (``cancelAllowed: false``, ``showLogs: false``) regardless of what the
+     *     product actually supports — see ``useManifestOperations.ts``'s module
+     *     doc for that gap named precisely. ``cancel_allowed``/``show_logs`` close
+     *     it, matching the webui's own ``OperationsPanelSpec`` socket
+     *     (``components/kit/operationsPanelTypes.ts``) field for field; ``title``
+     *     and ``pollIntervalMs`` there are already served by ``label`` and
+     *     ``poll_interval_seconds`` × 1000, and ``testIdPrefix`` is computed by
+     *     the renderer per resource, not carried on the manifest.
+     *
+     *     Both new fields are checked by :func:`validate_manifest` against the
+     *     caller-supplied ``supports_cancel``/``supports_operation_logs`` —
+     *     ``True`` here is a claim about the adapter's real behaviour, not a
+     *     display preference, so an adapter with no cancellable operation kind
+     *     must refuse a manifest that claims one exists, the same way an unknown
+     *     action verb already refuses to load.
      */
     OperationsSpec: {
+      /**
+       * Cancel Allowed
+       * @default false
+       */
+      cancel_allowed: boolean;
       /**
        * Label
        * @default Operations
@@ -2167,6 +2370,11 @@ export interface components {
        * @default 5
        */
       poll_interval_seconds: number;
+      /**
+       * Show Logs
+       * @default false
+       */
+      show_logs: boolean;
     };
     /**
      * Pagination
@@ -2314,10 +2522,20 @@ export interface components {
      *     ``list`` is ``None`` for a resource with no collection endpoint at all
      *     (Gough's ``clusters`` — see ``adapters/gough/manifest.py`` for why it is
      *     NOT expressed as a ``ResourceDescriptor`` in this step; a schema finding,
-     *     not a workaround). A resource descriptor that DOES declare ``list`` is
-     *     assumed reachable at ``{list.path_bytes}{id}`` by nothing in THIS
-     *     module — that derivation is deliberately not attempted here; see the
-     *     same docstring.
+     *     not a workaround). Schema v1 left the item path undeclared entirely — "a
+     *     resource descriptor that DOES declare list is assumed reachable at
+     *     ``{list.path_bytes}{id}`` by nothing in THIS module — that derivation is
+     *     deliberately not attempted here." Schema v2 closes that gap explicitly:
+     *     ``item_path`` (:class:`ItemPathSpec` or ``None``) is the resource's own
+     *     declared item route, never derived by concatenating ``list.path_bytes``
+     *     with an id — see :class:`ItemPathSpec`'s docstring for the exact defect
+     *     that derivation produces. ``None`` means "this resource genuinely has no
+     *     item endpoint" (Gough's ``clusters``, whose single-item route is the
+     *     irregular ``/api/v1/clusters/{id}/lxd/status``, not
+     *     ``{collection}/{id}``, would be the case in point — clusters stays
+     *     unexpressed as a resource in this schema version regardless) — an
+     *     explicit fact a manifest states, never a default a caller's omission
+     *     falls into.
      */
     ResourceDescriptor: {
       /**
@@ -2336,6 +2554,7 @@ export interface components {
       error_state: string;
       /** Id Field */
       id_field: string;
+      item_path?: components["schemas"]["ItemPathSpec"] | null;
       /** Kind */
       kind: string;
       /** Label */
@@ -2376,6 +2595,26 @@ export interface components {
       product: string;
       /** Status */
       status: string;
+    };
+    /**
+     * SelectOption
+     * @description One selectable choice — mirrors react-libs' own ``SelectOption`` exactly.
+     *
+     *     ``value`` is ``str`` here even though react-libs types it
+     *     ``string | number``: nothing in this schema has a numeric select option
+     *     yet, and widening to ``str | int`` is a decision to make when a real one
+     *     shows up, not before.
+     */
+    SelectOption: {
+      /**
+       * Disabled
+       * @default false
+       */
+      disabled: boolean;
+      /** Label */
+      label: string;
+      /** Value */
+      value: string;
     };
     /**
      * TenantDetail
@@ -2578,6 +2817,183 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  post_device_approve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": {
+          /** User Code */
+          user_code: string;
+        };
+      };
+    };
+    responses: {
+      /**
+       * @description Envelope for POST .../device/approve and .../device/deny.
+       *
+       *     Attributes:
+       *         status: "approved" or "denied".
+       *         user_code: Echoes the resolved code back, formatted, for the
+       *             browser page's own confirmation display.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Status */
+            status: string;
+            /** User Code */
+            user_code: string;
+          };
+        };
+      };
+    };
+  };
+  post_device_authorize: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Envelope for POST /api/v1/auth/device/authorize (RFC 8628 SS3.2).
+       *
+       *     Attributes:
+       *         device_code: High-entropy opaque secret; the CLI polls
+       *             /device/token with this. Never displayed to the user.
+       *         user_code: Short, human-typeable code; the CLI displays this and
+       *             the user enters it at verification_uri.
+       *         verification_uri: Where the user goes to enter user_code.
+       *         verification_uri_complete: Same, with user_code pre-filled --
+       *             lets a CLI print one clickable link.
+       *         expires_in: Seconds until device_code/user_code both expire.
+       *         interval: Minimum seconds the CLI must wait between polls.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Device Code */
+            device_code: string;
+            /** Expires In */
+            expires_in: number;
+            /** Interval */
+            interval: number;
+            /** User Code */
+            user_code: string;
+            /** Verification Uri */
+            verification_uri: string;
+            /** Verification Uri Complete */
+            verification_uri_complete: string;
+          };
+        };
+      };
+    };
+  };
+  post_device_deny: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": {
+          /** User Code */
+          user_code: string;
+        };
+      };
+    };
+    responses: {
+      /**
+       * @description Envelope for POST .../device/approve and .../device/deny.
+       *
+       *     Attributes:
+       *         status: "approved" or "denied".
+       *         user_code: Echoes the resolved code back, formatted, for the
+       *             browser page's own confirmation display.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Status */
+            status: string;
+            /** User Code */
+            user_code: string;
+          };
+        };
+      };
+    };
+  };
+  post_device_token: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": {
+          /** Device Code */
+          device_code: string;
+        };
+      };
+    };
+    responses: {
+      /**
+       * @description Envelope for POST /api/v1/auth/login.
+       *
+       *     No ``id_token``: id tokens are OIDC "who is this" material, not bearer
+       *     credentials — TestTokenTypeConfusion (tests/api/test_auth.py) requires
+       *     penguin-aaa's id token to be REFUSED on every protected route, so
+       *     returning one alongside the access token here would hand the client a
+       *     value it is equally likely to just replay as a bearer.
+       *
+       *     Attributes:
+       *         access_token: Bearer token for subsequent requests.
+       *         refresh_token: Opaque token to exchange for a new pair via
+       *             /api/v1/auth/refresh.
+       *         token_type: Always "Bearer".
+       *         expires_in: Seconds until access_token expires.
+       *         user: The authenticated caller's profile.
+       */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Access Token */
+            access_token: string;
+            /** Expires In */
+            expires_in: number;
+            /** Refresh Token */
+            refresh_token: string;
+            /** Token Type */
+            token_type: string;
+            user: components["schemas"]["AuthenticatedUser"];
+          };
+        };
       };
     };
   };

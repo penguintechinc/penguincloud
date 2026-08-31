@@ -129,8 +129,14 @@ _ENVELOPE_PATHS: Final[dict[str, tuple[str, ...]]] = {
 # nodes
 # ---------------------------------------------------------------------------
 
+#: Phase 8 Step 8 alignment: byte-for-byte the same field set, order, and
+#: labels as the hand-written ``nodeColumns.tsx`` -- proven by
+#: ``ManifestResourceScreen.equivalence.test.tsx``. Schema v1's columns here
+#: (``id``, ``created_at``) were never rendered by ``NodesPage`` at all, and
+#: the manifest omitted ``hardware_tags``, which it does render -- a content
+#: gap in the original Step 3 authoring, not a deliberate improvement, so it
+#: is closed here rather than defended.
 _NODES_COLUMNS: Final[tuple[ColumnSpec, ...]] = (
-    ColumnSpec(field="id", label="ID", cell=CellSpec(kind="text")),
     ColumnSpec(field="name", label="Name", cell=CellSpec(kind="text")),
     # Gough nodes have no `status` field -- `state` is the lifecycle column.
     # Left as `text` rather than `enum_badge`: this worktree does not check
@@ -139,11 +145,15 @@ _NODES_COLUMNS: Final[tuple[ColumnSpec, ...]] = (
     ColumnSpec(field="state", label="State", cell=CellSpec(kind="text"), absent_as="dash"),
     ColumnSpec(field="posture", label="Posture", cell=CellSpec(kind="text"), absent_as="dash"),
     ColumnSpec(field="ipv4", label="IPv4", cell=CellSpec(kind="text"), absent_as="dash"),
+    # `nodeColumns.tsx`'s own `tags` column -- an empty (but present) array
+    # is ALSO absent, matching the hand-written page's `tags.length === 0 ->
+    # absent` precedent (see `manifestCells.tsx`'s `tags` renderer).
     ColumnSpec(
-        field="created_at",
-        label="Enrolled",
-        cell=CellSpec(kind="timestamp", relative=True),
+        field="hardware_tags",
+        label="Tags",
+        cell=CellSpec(kind="tags"),
         absent_as="dash",
+        sortable=False,
     ),
 )
 
@@ -200,18 +210,31 @@ _NODES: Final[ResourceDescriptor] = ResourceDescriptor(
 # biomes
 # ---------------------------------------------------------------------------
 
+#: Phase 8 Step 8 alignment: byte-for-byte the same field set, order, and
+#: labels as the hand-written ``biomeColumns.tsx``. Two real mismatches
+#: closed here, not just a reshuffle:
+#:
+#: * The field was ``biome_type`` (label "Type"); the webui screen reads and
+#:   renders ``biome_kind`` (label "Kind"). Both are genuine raw keys Gough's
+#:   own ``mapping.py`` reads (see that module's ``map_biome``), but only
+#:   ``biome_kind`` is what any screen has ever shown an operator -- pointing
+#:   the manifest at ``biome_type`` would have reproduced a column the
+#:   hand-written page does not have and MISSED the one it does.
+#: * ``is_active``'s labels were ``"Active"``/``"Inactive"`` with
+#:   ``absent_as="literal:Unknown"``; ``biomeColumns.tsx`` renders lowercase
+#:   ``"active"``/``"inactive"`` and a plain dash (`absent`) for a null value,
+#:   never the word "Unknown".
 _BIOMES_COLUMNS: Final[tuple[ColumnSpec, ...]] = (
-    ColumnSpec(field="id", label="ID", cell=CellSpec(kind="text")),
     ColumnSpec(field="name", label="Name", cell=CellSpec(kind="text")),
     ColumnSpec(
         field="is_active",
         label="Active",
         cell=CellSpec(
-            kind="boolean", labels=BooleanLabels(true_label="Active", false_label="Inactive")
+            kind="boolean", labels=BooleanLabels(true_label="active", false_label="inactive")
         ),
-        absent_as="literal:Unknown",
+        absent_as="dash",
     ),
-    ColumnSpec(field="biome_type", label="Type", cell=CellSpec(kind="text"), absent_as="dash"),
+    ColumnSpec(field="biome_kind", label="Kind", cell=CellSpec(kind="text"), absent_as="dash"),
     ColumnSpec(
         field="workload_type",
         label="Workload",
@@ -219,12 +242,6 @@ _BIOMES_COLUMNS: Final[tuple[ColumnSpec, ...]] = (
         absent_as="dash",
     ),
     ColumnSpec(field="version", label="Version", cell=CellSpec(kind="text"), absent_as="dash"),
-    ColumnSpec(
-        field="created_at",
-        label="Created",
-        cell=CellSpec(kind="timestamp", relative=True),
-        absent_as="dash",
-    ),
 )
 
 _BIOMES: Final[ResourceDescriptor] = ResourceDescriptor(
@@ -325,31 +342,35 @@ _BIOME_GROUPS: Final[ResourceDescriptor] = ResourceDescriptor(
 # agents
 # ---------------------------------------------------------------------------
 
+#: Phase 8 Step 8 alignment: byte-for-byte the same field set, order, and
+#: labels as the hand-written ``agentColumns.tsx``. ``agent_id``,
+#: ``capabilities`` and ``enrolled_at`` columns are dropped -- no screen has
+#: ever rendered them (`agent_id` is the row's identity, addressed via
+#: `id_field`/`item_path`, not a visible column). ``last_heartbeat`` changes
+#: from a relative `timestamp` cell to plain `text`: `agentColumns.tsx`
+#: renders the raw ISO string verbatim (`String(value)`), never "2h ago" --
+#: rendering it as a relative timestamp would be a real content difference,
+#: not a formatting nicety.
+#:
+#: One documented remaining gap, not fixed here: `agentColumns.tsx`'s
+#: `hostname` column falls back to `agent_id` then the row id when
+#: `hostname` is falsy (`String(value || row.agent_id || row.id)`). This
+#: schema has no field for "compute this cell from a different field when
+#: absent" -- a plain field-to-cell binding cannot express it, so a genuinely
+#: missing `hostname` renders a dash here instead of falling back. See the
+#: Step 8 report.
 _AGENTS_COLUMNS: Final[tuple[ColumnSpec, ...]] = (
-    ColumnSpec(field="agent_id", label="Agent ID", cell=CellSpec(kind="text")),
     ColumnSpec(field="hostname", label="Hostname", cell=CellSpec(kind="text")),
     # Real status vocabulary unverified (see module docstring) -- `text`,
     # not a fabricated `enum_badge` style mapping.
     ColumnSpec(field="status", label="Status", cell=CellSpec(kind="text"), absent_as="dash"),
     ColumnSpec(
-        field="ip_address", label="IP Address", cell=CellSpec(kind="text"), absent_as="dash"
-    ),
-    ColumnSpec(
-        field="capabilities",
-        label="Capabilities",
-        cell=CellSpec(kind="tags"),
-        absent_as="dash",
+        field="ip_address", label="IP address", cell=CellSpec(kind="text"), absent_as="dash"
     ),
     ColumnSpec(
         field="last_heartbeat",
-        label="Last Heartbeat",
-        cell=CellSpec(kind="timestamp", relative=True),
-        absent_as="dash",
-    ),
-    ColumnSpec(
-        field="enrolled_at",
-        label="Enrolled",
-        cell=CellSpec(kind="timestamp", relative=True),
+        label="Last heartbeat",
+        cell=CellSpec(kind="text"),
         absent_as="dash",
     ),
 )

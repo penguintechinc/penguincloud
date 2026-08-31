@@ -1,6 +1,6 @@
 /**
- * Drift guard: `CELL_KINDS` (this TS mirror) vs `CELL_KINDS` (the Python
- * source of truth, `app/adapters/manifest.py`).
+ * Drift guard: `CELL_KINDS`/`FIELD_TYPES` (this TS mirror) vs their Python
+ * source of truth in `app/adapters/manifest.py`.
  *
  * Reads the Python file as TEXT rather than executing it — the same
  * technique `tests/api/test_webui_portal_paths.py` already uses in the
@@ -15,7 +15,7 @@
 
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
-import { CELL_KINDS } from "../manifestTypes";
+import { CELL_KINDS, FIELD_TYPES } from "../manifestTypes";
 
 const MANIFEST_PY = resolve(
   __dirname,
@@ -33,17 +33,28 @@ const MANIFEST_PY = resolve(
 
 const CELL_KINDS_BLOCK_RE =
   /CELL_KINDS:\s*Final\[frozenset\[str\]\]\s*=\s*frozenset\(\s*\{([\s\S]*?)\}\s*\)/;
-const QUOTED_STRING_RE = /"([a-z_]+)"/g;
+// `[a-z0-9_-]` (not just `[a-z_]`) because `FIELD_TYPES` needs the same
+// parser and one of its members is `"datetime-local"` — a hyphen the
+// original CELL_KINDS-only pattern would silently drop.
+const QUOTED_STRING_RE = /"([a-z0-9_-]+)"/g;
 
-function pythonCellKinds(source: string): string[] {
-  const block = CELL_KINDS_BLOCK_RE.exec(source);
+function pythonFrozensetMembers(
+  source: string,
+  blockRe: RegExp,
+  name: string,
+): string[] {
+  const block = blockRe.exec(source);
   if (!block) {
     throw new Error(
-      "CELL_KINDS frozenset literal not found in manifest.py — update " +
-        "CELL_KINDS_BLOCK_RE, do not delete this assertion",
+      `${name} frozenset literal not found in manifest.py — update the ` +
+        `block regex, do not delete this assertion`,
     );
   }
   return [...block[1].matchAll(QUOTED_STRING_RE)].map((m) => m[1]);
+}
+
+function pythonCellKinds(source: string): string[] {
+  return pythonFrozensetMembers(source, CELL_KINDS_BLOCK_RE, "CELL_KINDS");
 }
 
 describe("CELL_KINDS <-> app/adapters/manifest.py", () => {
@@ -71,5 +82,28 @@ CELL_KINDS: Final[frozenset[str]] = frozenset(
 )
 `;
     expect(pythonCellKinds(fixture)).toEqual(["alpha", "beta"]);
+  });
+});
+
+const FIELD_TYPES_BLOCK_RE =
+  /FIELD_TYPES:\s*Final\[frozenset\[str\]\]\s*=\s*frozenset\(\s*\{([\s\S]*?)\}\s*\)/;
+
+function pythonFieldTypes(source: string): string[] {
+  return pythonFrozensetMembers(source, FIELD_TYPES_BLOCK_RE, "FIELD_TYPES");
+}
+
+describe("FIELD_TYPES <-> app/adapters/manifest.py", () => {
+  it("matches the Python FIELD_TYPES frozenset exactly", () => {
+    const source = readFileSync(MANIFEST_PY, "utf-8");
+    const pythonTypes = pythonFieldTypes(source);
+
+    expect(pythonTypes.length).toBeGreaterThan(0);
+    expect(new Set(FIELD_TYPES)).toEqual(new Set(pythonTypes));
+    expect(FIELD_TYPES.length).toBe(new Set(FIELD_TYPES).size);
+  });
+
+  it("includes the hyphenated member the CELL_KINDS-only pattern would have dropped", () => {
+    const source = readFileSync(MANIFEST_PY, "utf-8");
+    expect(pythonFieldTypes(source)).toContain("datetime-local");
   });
 });
