@@ -10,7 +10,9 @@
  */
 import {
   describeMutationError,
+  describeOperationError,
   GENERIC_MUTATION_ERROR_MESSAGE,
+  GENERIC_OPERATION_ERROR_MESSAGE,
 } from "../mutationError";
 
 /** A portal-native error response: no upstream-provenance marker. */
@@ -168,5 +170,53 @@ describe("describeMutationError — non-response errors", () => {
     expect(describeMutationError(undefined)).toBe(
       GENERIC_MUTATION_ERROR_MESSAGE,
     );
+  });
+});
+
+describe("describeOperationError", () => {
+  // `Operation.error` (services/portal-api/app/adapters/base.py) is ALWAYS
+  // product-derived when present — "the product's reason", per that field's
+  // own doc comment — so there is no header/provenance split to key off of
+  // the way describeRequestError has for a rejected request. The length cap
+  // is what stands in for it: a short, structured reason is exactly what a
+  // product is expected to report, while a long one is the shape of a raw
+  // exception dump — see adapters/transport.py's `error=str(e)`, which
+  // stringifies a connection failure complete with hostname and port.
+  it("shows a short, structured product reason verbatim", () => {
+    expect(describeOperationError("nest.migrate.source_unreachable")).toBe(
+      "nest.migrate.source_unreachable",
+    );
+  });
+
+  it("shows an ordinary short failure reason verbatim", () => {
+    expect(describeOperationError("rollback: readiness probe failed")).toBe(
+      "rollback: readiness probe failed",
+    );
+  });
+
+  it("replaces a message over the length cap with the generic message", () => {
+    // The shape of adapters/transport.py's `error=str(e)`: a stringified
+    // connection exception carrying the unreachable host and port.
+    const dumped =
+      "HTTPConnectionPool(host='gough-api-primary.penguincloud-prod.svc.cluster.local', " +
+      "port=8080): Max retries exceeded with url: /v1/nodes/42/deploy " +
+      "(Caused by NewConnectionError('<urllib3.connection.HTTPConnection object>: " +
+      "Failed to establish a new connection: [Errno 111] Connection refused'))";
+    expect(dumped.length).toBeGreaterThan(200);
+
+    const message = describeOperationError(dumped);
+    expect(message).toBe(GENERIC_OPERATION_ERROR_MESSAGE);
+    expect(message).not.toContain("gough-api-primary");
+    expect(message).not.toContain("penguincloud-prod");
+  });
+
+  it("returns null for no error rather than an empty string", () => {
+    expect(describeOperationError(null)).toBeNull();
+    expect(describeOperationError(undefined)).toBeNull();
+  });
+
+  it("replaces an empty or whitespace-only error with the generic message", () => {
+    expect(describeOperationError("")).toBe(GENERIC_OPERATION_ERROR_MESSAGE);
+    expect(describeOperationError("   ")).toBe(GENERIC_OPERATION_ERROR_MESSAGE);
   });
 });

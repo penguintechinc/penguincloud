@@ -22,4 +22,8 @@ describe("Kit exports", () => {
     expect(kit.FactList).toBeDefined();
     expect(kit.RowOpenButtons).toBeDefined();
   });
+
+  it("exports OperationsPanel — the generic Gough's and Nest's panels now share", () => {
+    expect(kit.OperationsPanel).toBeDefined();
+  });
 });
