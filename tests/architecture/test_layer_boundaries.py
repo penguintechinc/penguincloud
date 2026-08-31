@@ -151,6 +151,11 @@ LAYER_OF: Final[dict[str, str]] = {
     "products": "routes",
     "product_view": "routes",
     "resources_api": "routes",
+    # Phase 8 Step 3: GET /api/v1/console/manifests. Imports proxy
+    # (adapters/product_access), auth, tenancy, licensing/flags -- nothing
+    # above it, so it slots into "routes" like every other API-surface
+    # module in this table.
+    "console_manifests": "routes",
     "teams": "routes",
     "tenants": "routes",
     "users": "routes",

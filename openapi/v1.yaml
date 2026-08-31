@@ -34,6 +34,64 @@ components:
         - status
       title: ActionResourceView
       type: object
+    ActionSpec:
+      description: 'One non-CRUD verb offered on a resource row.
+
+
+        ``starts_operations`` is the field :func:`validate_manifest` and Design
+
+        §3.3 both key off: an action that starts pollable work returns
+
+        ``ActionResult.operations``, which is unreachable through the byte
+
+        proxy by construction, so the owning :class:`ResourceDescriptor` MUST
+
+        be ``transport == "typed"`` whenever any of its actions sets this True.'
+      properties:
+        confirm:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Confirm
+        enabled_when_field:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Enabled When Field
+        enabled_when_in:
+          default: []
+          items:
+            type: string
+          maxItems: 10000
+          title: Enabled When In
+          type: array
+        form:
+          anyOf:
+            - $ref: '#/components/schemas/FormSpec'
+            - type: 'null'
+        label:
+          title: Label
+          type: string
+        requires:
+          default: manage
+          title: Requires
+          type: string
+        starts_operations:
+          default: false
+          title: Starts Operations
+          type: boolean
+        variant:
+          default: default
+          title: Variant
+          type: string
+        verb:
+          title: Verb
+          type: string
+      required:
+        - verb
+        - label
+      title: ActionSpec
+      type: object
     AuditRecord:
       description: "One entry in a tenant's audit trail.\n\nAttributes:\n    id: Identifier\
         \ of this audit entry.\n    user_id: Identifier of the user who performed the action,\
@@ -125,6 +183,154 @@ components:
         - role
       title: AuthenticatedUser
       type: object
+    BooleanLabels:
+      description: Display text for a ``boolean`` cell's two states.
+      properties:
+        false_label:
+          title: False Label
+          type: string
+        true_label:
+          title: True Label
+          type: string
+      required:
+        - true_label
+        - false_label
+      title: BooleanLabels
+      type: object
+    CellSpec:
+      description: 'How one column''s value is rendered — a CLOSED union, see :data:`CELL_KINDS`.
+
+
+        Only the fields a given ``kind`` actually uses are meaningful; the rest
+
+        stay at their default. Validated together so a ``money`` cell with no
+
+        ``currency_field`` or a ``link`` cell with no ``to_kind`` fails at
+
+        manifest construction, not when a renderer tries to draw the first row.'
+      properties:
+        currency_field:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Currency Field
+        id_field:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Id Field
+        kind:
+          title: Kind
+          type: string
+        labels:
+          anyOf:
+            - $ref: '#/components/schemas/BooleanLabels'
+            - type: 'null'
+        relative:
+          default: false
+          title: Relative
+          type: boolean
+        styles:
+          default: []
+          items:
+            $ref: '#/components/schemas/EnumStyle'
+          maxItems: 10000
+          title: Styles
+          type: array
+        to_kind:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: To Kind
+        unit:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Unit
+      required:
+        - kind
+      title: CellSpec
+      type: object
+    ColumnSpec:
+      description: One column of a resource's list/detail table.
+      properties:
+        absent_as:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Absent As
+        cell:
+          $ref: '#/components/schemas/CellSpec'
+        field:
+          title: Field
+          type: string
+        label:
+          title: Label
+          type: string
+        sortable:
+          default: false
+          title: Sortable
+          type: boolean
+      required:
+        - field
+        - label
+        - cell
+      title: ColumnSpec
+      type: object
+    ConsoleManifest:
+      description: 'The complete descriptor for one product''s console screens.
+
+
+        Composed once, at import time, by each product''s own ``manifest.py``
+
+        (never assembled from live data — see the module docstring). Immediately
+
+        passed to :func:`validate_manifest` by its own module before being
+
+        exposed via :data:`app.adapters.MANIFEST_REGISTRY` — an invalid manifest
+
+        therefore fails at import, not at the first request that reaches it.'
+      properties:
+        display_name:
+          title: Display Name
+          type: string
+        extensions:
+          default: []
+          items:
+            $ref: '#/components/schemas/ExtensionSlot'
+          maxItems: 10000
+          title: Extensions
+          type: array
+        manifest_version:
+          title: Manifest Version
+          type: integer
+        metrics:
+          anyOf:
+            - $ref: '#/components/schemas/MetricsSpec'
+            - type: 'null'
+        nav:
+          $ref: '#/components/schemas/NavSpec'
+        operations:
+          anyOf:
+            - $ref: '#/components/schemas/OperationsSpec'
+            - type: 'null'
+        product_type:
+          title: Product Type
+          type: string
+        resources:
+          items:
+            $ref: '#/components/schemas/ResourceDescriptor'
+          maxItems: 10000
+          title: Resources
+          type: array
+      required:
+        - manifest_version
+        - product_type
+        - display_name
+        - nav
+        - resources
+      title: ConsoleManifest
+      type: object
     DashboardStats:
       description: "Aggregate counters for the overview's stats block.\n\nAttributes:\n    total_products:\
         \ Number of product connections in this tenant.\n    total_members: Number of members\
@@ -150,6 +356,188 @@ components:
         - health
         - categories
       title: DashboardStats
+      type: object
+    DeleteSpec:
+      description: Delete affordance for a resource. ``confirm`` is mandatory copy.
+      properties:
+        confirm:
+          title: Confirm
+          type: string
+        requires:
+          default: manage
+          title: Requires
+          type: string
+      required:
+        - confirm
+      title: DeleteSpec
+      type: object
+    DetailSpec:
+      description: Tab layout for a resource's detail view. Empty means a single pane.
+      properties:
+        tabs:
+          default: []
+          items:
+            type: string
+          maxItems: 10000
+          title: Tabs
+          type: array
+      title: DetailSpec
+      type: object
+    EnumStyle:
+      description: 'One ``enum_badge`` value -> style-name mapping, e.g. ``("healthy", "success")``.
+
+
+        A named object rather than a bare 2-tuple: pydantic/quart-schema renders
+
+        a fixed-length tuple as a JSON Schema ``prefixItems`` array with no
+
+        sibling ``items``, which ``spectral``''s ``array-items`` rule (run over
+
+        ``openapi/v1.yaml`` in CI) refuses — a real, caught-in-review defect,
+
+        not a hypothetical one. An object with named fields sidesteps the whole
+
+        class of problem and is more self-documenting besides.'
+      properties:
+        style:
+          title: Style
+          type: string
+        value:
+          title: Value
+          type: string
+      required:
+        - value
+        - style
+      title: EnumStyle
+      type: object
+    ExtensionSlot:
+      description: 'A named escape hatch — Design §4.1. NEVER carries code, only a name.
+
+
+        The console resolves ``"{product_type}.{id}"`` against a
+
+        lazily-imported registry in ``components/extensions/``; a slot with no
+
+        matching registry entry degrades to a generic fallback, per Design §3.4.'
+      properties:
+        id:
+          title: Id
+          type: string
+        label:
+          title: Label
+          type: string
+        position:
+          default: 0
+          title: Position
+          type: integer
+        resource:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource
+        slot:
+          title: Slot
+          type: string
+      required:
+        - slot
+        - id
+        - label
+      title: ExtensionSlot
+      type: object
+    FieldAlias:
+      description: One portal-facing -> product-facing form field rename. See :class:`FormSpec`.
+      properties:
+        portal_name:
+          title: Portal Name
+          type: string
+        product_name:
+          title: Product Name
+          type: string
+      required:
+        - portal_name
+        - product_name
+      title: FieldAlias
+      type: object
+    FormField:
+      description: 'One field of a create form.
+
+
+        Mirrors ``@penguintechinc/react-libs``'' ``FormField`` shape closely
+
+        enough to serialise straight into it; the renderer step is what proves
+
+        the fields line up exactly. Kept intentionally minimal for Step 3, since
+
+        nothing consumes this yet — see the module docstring.'
+      properties:
+        default:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Default
+        field_type:
+          default: text
+          title: Field Type
+          type: string
+        label:
+          title: Label
+          type: string
+        name:
+          title: Name
+          type: string
+        options:
+          default: []
+          items:
+            type: string
+          maxItems: 10000
+          title: Options
+          type: array
+        placeholder:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Placeholder
+        required:
+          default: false
+          title: Required
+          type: boolean
+      required:
+        - name
+        - label
+      title: FormField
+      type: object
+    FormSpec:
+      description: 'A create form: its fields, and the rename a create payload needs.
+
+
+        ``field_aliases`` is Design §3.3''s Nest finding: a create handler that
+
+        *reads* ``type``/``class`` but *serialises* ``resourceType``/
+
+        ``storageClass`` needs the portal-facing name mapped to the
+
+        product-facing one, or a form posting what it read gets a 400.'
+      properties:
+        field_aliases:
+          default: []
+          items:
+            $ref: '#/components/schemas/FieldAlias'
+          maxItems: 10000
+          title: Field Aliases
+          type: array
+        fields:
+          items:
+            $ref: '#/components/schemas/FormField'
+          maxItems: 10000
+          title: Fields
+          type: array
+        submit_label:
+          title: Submit Label
+          type: string
+      required:
+        - fields
+        - submit_label
+      title: FormSpec
       type: object
     HealthCounts:
       description: "Count of connections in each cached health state.\n\nAttributes:\n    healthy:\
@@ -219,6 +607,35 @@ components:
         - base_url
       title: HealthMatrixEntry
       type: object
+    ListSpec:
+      description: 'Where a resource''s collection lives and how it paginates.
+
+
+        ``path_bytes`` MUST be byte-equal to the adapter''s own route constant
+
+        (e.g. ``app.adapters.gough.adapter._COLLECTION_ROUTES[kind]``), trailing
+
+        slash included — see the module docstring on
+
+        ``tests/api/test_gough_webui_paths.py`` for the defect this exists to
+
+        prevent. Never re-type this string; import the constant.'
+      properties:
+        envelope_key:
+          title: Envelope Key
+          type: string
+        pagination:
+          default: cursor
+          title: Pagination
+          type: string
+        path_bytes:
+          title: Path Bytes
+          type: string
+      required:
+        - path_bytes
+        - envelope_key
+      title: ListSpec
+      type: object
     MetricPointView:
       description: One sample in a series.
       properties:
@@ -257,6 +674,62 @@ components:
         - unit
         - points
       title: MetricSeriesView
+      type: object
+    MetricsSpec:
+      description: Presence + display config for the product's metrics tile.
+      properties:
+        label:
+          default: Metrics
+          title: Label
+          type: string
+      title: MetricsSpec
+      type: object
+    NavItem:
+      description: One entry in the product's nav menu.
+      properties:
+        icon:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Icon
+        kind:
+          title: Kind
+          type: string
+        label:
+          title: Label
+          type: string
+      required:
+        - kind
+        - label
+      title: NavItem
+      type: object
+    NavSpec:
+      description: 'The product''s nav menu, derived into ``MENU_ITEM_ROUTES`` by the console.
+
+
+        Deliberately no non-empty check here: :func:`apply_capabilities_overlay`
+
+        can legitimately reconstruct one with zero items when a live connection''s
+
+        ``capabilities()`` has dropped every listable resource, and that must
+
+        degrade the served manifest to "no nav", not raise and take the whole
+
+        tenant''s console response down with it. A COMMITTED manifest with an
+
+        empty nav is still a reviewable-in-PR authoring choice, not a structural
+
+        impossibility this module needs to police.'
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/NavItem'
+          maxItems: 10000
+          title: Items
+          type: array
+      required:
+        - items
+      title: NavSpec
       type: object
     OperationLogLineView:
       description: Wire shape for one log line.
@@ -369,6 +842,19 @@ components:
         - updated_at
         - completed_at
       title: OperationView
+      type: object
+    OperationsSpec:
+      description: Presence + display config for the product's operations panel.
+      properties:
+        label:
+          default: Operations
+          title: Label
+          type: string
+        poll_interval_seconds:
+          default: 5
+          title: Poll Interval Seconds
+          type: integer
+      title: OperationsSpec
       type: object
     Pagination:
       description: "Page metadata shared by the portal's paginated list endpoints.\n\nAttributes:\n\
@@ -527,6 +1013,150 @@ components:
         - latency_ms
         - checked_at
       title: ProductHealthEntry
+      type: object
+    ProductManifestEntry:
+      description: One product's overlaid manifest plus the connection it came from.
+      properties:
+        manifest:
+          $ref: '#/components/schemas/ConsoleManifest'
+        product_id:
+          title: Product Id
+          type: integer
+        product_type:
+          title: Product Type
+          type: string
+      required:
+        - product_id
+        - product_type
+        - manifest
+      title: ProductManifestEntry
+      type: object
+    RelationshipSpec:
+      description: A parent/child edge between two resource kinds in this manifest.
+      properties:
+        child_kind:
+          title: Child Kind
+          type: string
+        parent_field:
+          title: Parent Field
+          type: string
+      required:
+        - child_kind
+        - parent_field
+      title: RelationshipSpec
+      type: object
+    ResourceDescriptor:
+      description: 'One resource kind: its shape, its columns, and how it is reached.
+
+
+        ``transport`` governs the TYPED-MUTATION surface (create/delete, and
+
+        whether an operation-starting action is reachable), never reads. Every
+
+        read in this schema version — list AND detail — goes through the byte
+
+        proxy; that is the only read path this codebase has (see
+
+        ``app/resources_api.py``''s module docstring: "Reads are not here").
+
+        ``transport == "proxy"`` means "no typed mutation backing": this schema
+
+        version declares no mechanism for a proxy-transport resource to carry a
+
+        typed create/delete, or an action whose result the portal must
+
+        interpret (``starts_operations=True``) — both enforced below. A
+
+        proxy-transport resource MAY still declare a plain action reachable
+
+        through the ordinary allowlisted proxy POST (Gough''s own
+
+        ``evacuate``/``reject``/``suspend``/``resume`` all qualify).
+
+
+        ``list`` is ``None`` for a resource with no collection endpoint at all
+
+        (Gough''s ``clusters`` — see ``adapters/gough/manifest.py`` for why it is
+
+        NOT expressed as a ``ResourceDescriptor`` in this step; a schema finding,
+
+        not a workaround). A resource descriptor that DOES declare ``list`` is
+
+        assumed reachable at ``{list.path_bytes}{id}`` by nothing in THIS
+
+        module — that derivation is deliberately not attempted here; see the
+
+        same docstring.'
+      properties:
+        actions:
+          default: []
+          items:
+            $ref: '#/components/schemas/ActionSpec'
+          maxItems: 10000
+          title: Actions
+          type: array
+        columns:
+          items:
+            $ref: '#/components/schemas/ColumnSpec'
+          maxItems: 10000
+          title: Columns
+          type: array
+        create:
+          anyOf:
+            - $ref: '#/components/schemas/FormSpec'
+            - type: 'null'
+        delete:
+          anyOf:
+            - $ref: '#/components/schemas/DeleteSpec'
+            - type: 'null'
+        detail:
+          $ref: '#/components/schemas/DetailSpec'
+        empty_state:
+          title: Empty State
+          type: string
+        error_state:
+          title: Error State
+          type: string
+        id_field:
+          title: Id Field
+          type: string
+        kind:
+          title: Kind
+          type: string
+        label:
+          title: Label
+          type: string
+        list:
+          anyOf:
+            - $ref: '#/components/schemas/ListSpec'
+            - type: 'null'
+        name_field:
+          title: Name Field
+          type: string
+        plural_label:
+          title: Plural Label
+          type: string
+        relationships:
+          default: []
+          items:
+            $ref: '#/components/schemas/RelationshipSpec'
+          maxItems: 10000
+          title: Relationships
+          type: array
+        transport:
+          title: Transport
+          type: string
+      required:
+        - kind
+        - label
+        - plural_label
+        - id_field
+        - name_field
+        - transport
+        - columns
+        - empty_state
+        - error_state
+      title: ResourceDescriptor
       type: object
     RollupEntry:
       description: Per-tenant rollup row.
@@ -1189,6 +1819,42 @@ paths:
             @validate_response annotation, so no schema is published for it; do not rely on
             a specific body until one is.
       summary: Revoke one of the authenticated user's sessions.
+  /api/v1/console/manifests:
+    get:
+      description: '
+
+        Pruned by (in order): flag, membership+per-product-scope+licence+
+
+        deactivation (all via :func:`resolve_product_context`), and finally the
+
+        subtract-only ``capabilities()`` overlay. See the module docstring for
+
+        why there is no separate top-level membership check.'
+      operationId: get_list_console_manifests
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for ``GET /api/v1/console/manifests``.
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  manifests:
+                    items:
+                      $ref: '#/components/schemas/ProductManifestEntry'
+                    maxItems: 10000
+                    title: Manifests
+                    type: array
+                required:
+                  - manifests
+                  - count
+                title: ConsoleManifestsResponse
+                type: object
+          description: Envelope for ``GET /api/v1/console/manifests``.
+      summary: Every product this tenant is connected to that has a committed manifest.
   /api/v1/dashboard/activity:
     get:
       description: ''
