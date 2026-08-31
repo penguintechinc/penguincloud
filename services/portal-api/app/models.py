@@ -73,6 +73,14 @@ __all__ = [
     "get_refresh_token_by_hash",
     "revoke_refresh_token",
     "revoke_all_user_tokens",
+    "create_device_authorization",
+    "get_device_authorization_by_device_code_hash",
+    "get_device_authorization_by_user_code",
+    "approve_device_authorization",
+    "deny_device_authorization",
+    "touch_device_authorization_poll",
+    "consume_device_authorization",
+    "DEVICE_AUTHORIZATION_STATUSES",
     "get_product_tenant_map",
     "set_product_tenant_map",
     "delete_product_tenant_map",
@@ -98,6 +106,9 @@ VALID_PLANS = ["free", "starter", "business", "enterprise"]
 VALID_TENANT_ROLES = ["owner", "admin", "member", "viewer"]
 VALID_AUTH_TYPES = ["bearer", "basic", "api_key", "none"]
 VALID_HEALTH_STATUSES = ["healthy", "degraded", "unhealthy", "unknown"]
+#: Mirrors app.models_sqlalchemy.DEVICE_AUTHORIZATION_STATUSES -- see that
+#: constant's docstring for the state machine.
+DEVICE_AUTHORIZATION_STATUSES = ["pending", "approved", "denied", "consumed"]
 PRODUCT_TYPES = [
     "marchproxy",
     "squawk",
@@ -248,6 +259,103 @@ async def revoke_all_user_tokens(user_id: int) -> int:
     db = get_db()
     revoked = await db(db.refresh_tokens.user_id == user_id).update(revoked=True)
     return int(revoked or 0)
+
+
+async def create_device_authorization(
+    device_code_hash: str, user_code: str, expires_at: Any
+) -> int | None:
+    """Insert a PENDING device authorization row (async). RFC 8628 SS3.2."""
+    db = get_db()
+    new_id: int | None = await db.device_authorizations.async_insert(
+        device_code_hash=device_code_hash,
+        user_code=user_code,
+        status="pending",
+        expires_at=expires_at,
+        created_at=datetime.now(UTC),
+    )
+    return new_id
+
+
+async def get_device_authorization_by_device_code_hash(
+    device_code_hash: str,
+) -> dict[str, Any] | None:
+    """Look up a device authorization by its device_code's hash, any status.
+
+    Deliberately unfiltered by status/expiry -- app.device_auth's poll
+    endpoint must distinguish "never existed" from "expired" from "already
+    consumed" to return the correct RFC 8628 error, the same reason
+    get_refresh_token_by_hash is unfiltered.
+    """
+    db = get_db()
+    rows = await db(db.device_authorizations.device_code_hash == device_code_hash).select()
+    return dict(rows[0]) if rows else None
+
+
+async def get_device_authorization_by_user_code(user_code: str) -> dict[str, Any] | None:
+    """Look up a device authorization by its human-entered user_code, any status.
+
+    Same "unfiltered, caller decides" shape as
+    get_device_authorization_by_device_code_hash -- app.device_auth's
+    approve/deny routes need to tell an unknown code apart from an
+    already-resolved or expired one only to reject both identically
+    (see that module's docstring: no oracle for a guessed user_code).
+    """
+    db = get_db()
+    rows = await db(db.device_authorizations.user_code == user_code).select()
+    return dict(rows[0]) if rows else None
+
+
+async def approve_device_authorization(auth_id: int, user_id: int) -> bool:
+    """Atomically resolve a PENDING authorization to APPROVED for `user_id`.
+
+    The WHERE clause re-checks status='pending' at the moment of the write,
+    not just at the earlier read -- closes the race where two concurrent
+    approve/deny calls (or a poll racing an approval) would otherwise both
+    believe they own the transition. Returns False on that race, on replay
+    of an already-resolved code, or on an unknown id; the caller treats all
+    three identically (see app.device_auth).
+    """
+    db = get_db()
+    affected = await db(
+        (db.device_authorizations.id == auth_id) & (db.device_authorizations.status == "pending")
+    ).update(status="approved", user_id=user_id, approved_at=datetime.now(UTC))
+    return bool(affected)
+
+
+async def deny_device_authorization(auth_id: int) -> bool:
+    """Atomically resolve a PENDING authorization to DENIED. See approve_device_authorization."""
+    db = get_db()
+    affected = await db(
+        (db.device_authorizations.id == auth_id) & (db.device_authorizations.status == "pending")
+    ).update(status="denied")
+    return bool(affected)
+
+
+async def touch_device_authorization_poll(auth_id: int, polled_at: Any) -> None:
+    """Record the timestamp of a poll attempt, regardless of its outcome.
+
+    Read back by app.device_auth on the NEXT poll to enforce `slow_down`
+    server-side (RFC 8628 SS3.5) -- the client's own claimed polling
+    cadence is never trusted, only what this column actually recorded.
+    """
+    db = get_db()
+    await db(db.device_authorizations.id == auth_id).update(last_polled_at=polled_at)
+
+
+async def consume_device_authorization(auth_id: int) -> bool:
+    """Atomically claim an APPROVED authorization as CONSUMED; single-use gate.
+
+    Same conditional-UPDATE race protection as approve_device_authorization,
+    on the APPROVED->CONSUMED edge instead: two concurrent token polls for
+    the same device_code must not both mint a token. Returns False when the
+    row is not currently APPROVED (already consumed, denied, still pending,
+    or unknown) -- app.device_auth maps that to `expired_token`.
+    """
+    db = get_db()
+    affected = await db(
+        (db.device_authorizations.id == auth_id) & (db.device_authorizations.status == "approved")
+    ).update(status="consumed")
+    return bool(affected)
 
 
 async def get_mfa_secret(user_id: int) -> dict[str, Any] | None:

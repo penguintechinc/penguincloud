@@ -443,6 +443,19 @@ READERS_WITHOUT_TENANT_PREDICATE: Final[frozenset[tuple[str, str]]] = frozenset(
         # see get_active_product_connections's docstring. Its only caller is
         # health_poller.py — never a per-tenant HTTP response.
         ("models.py", "get_active_product_connections"),
+        # LOAD-THEN-CHECK, narrower still: device_authorizations.tenant_id is
+        # NULL until app.device_auth's approve step sets it (RFC 8628 --
+        # see app.models_sqlalchemy.DeviceAuthorization's docstring for why
+        # it is always NULL today, mirroring app.auth.login's own unscoped
+        # tenant_id). Both readers look the row up by its OWN unique secret
+        # (device_code's hash, or the human-entered user_code) precisely
+        # because no tenant is known yet at that point in the flow -- there
+        # is no tenant_id to filter by until AFTER the row this call loads
+        # is read. Nothing downstream trusts row["tenant_id"] as an
+        # authorization boundary either: app.device_auth mints every grant
+        # with tenant_id="" (unscoped), never from this column.
+        ("models.py", "get_device_authorization_by_device_code_hash"),
+        ("models.py", "get_device_authorization_by_user_code"),
     }
 )
 

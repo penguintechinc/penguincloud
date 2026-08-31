@@ -157,6 +157,16 @@ class Config:
         "HYPERCORN_WORKERS", 1
     )
 
+    # Device authorization grant (RFC 8628) -- headless `pcli` CLI login.
+    # DEVICE_CODE_TTL bounds the WHOLE flow (authorize -> approve -> token),
+    # not just the browser step; app.device_auth checks it against every
+    # poll, not only at issuance. DEVICE_POLL_INTERVAL is the minimum gap
+    # between polls the token endpoint enforces from ITS OWN stored
+    # last_polled_at column -- never from what the client claims, see
+    # app.device_auth's slow_down handling.
+    DEVICE_CODE_TTL = int(os.getenv("DEVICE_CODE_TTL", "600"))
+    DEVICE_POLL_INTERVAL = int(os.getenv("DEVICE_POLL_INTERVAL", "5"))
+
     # Database - PyDAL compatible
     DB_TYPE = os.getenv("DB_TYPE", "postgres")
     DB_HOST = os.getenv("DB_HOST", "localhost")
