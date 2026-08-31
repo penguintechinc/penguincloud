@@ -421,6 +421,7 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     from .auth import auth_bp
     from .console_manifests import console_manifests_bp
     from .dashboard_api import dashboard_bp
+    from .device_auth import device_auth_bp
     from .discovery import discovery_bp
     from .features_api import features_bp
     from .health_api import health_api_bp
@@ -438,6 +439,10 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     from .users import users_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
+    # RFC 8628 device authorization grant (headless `pcli` CLI login) --
+    # its own blueprint/module (app/device_auth.py) rather than another
+    # route in auth.py, which is already this repo's largest auth module.
+    app.register_blueprint(device_auth_bp, url_prefix="/api/v1/auth/device")
     app.register_blueprint(users_bp, url_prefix="/api/v1/users")
     app.register_blueprint(hello_bp, url_prefix="/api/v1")
     app.register_blueprint(features_bp, url_prefix="/api/v1")
