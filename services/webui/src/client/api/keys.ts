@@ -80,6 +80,20 @@ export const queryKeys = {
       tenantId,
       productId,
     ] as const,
+  consoleManifestOperationLogs: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+    kind: string,
+    operationId: string,
+  ) =>
+    [
+      ...queryKeys.consoleManifests(),
+      "operation-logs",
+      tenantId,
+      productId,
+      kind,
+      operationId,
+    ] as const,
 
   // Gough resources, reached through the proxy.
   //

@@ -43,15 +43,33 @@ export type {
   UseOperationLogsResult,
 } from "./operationsPanelTypes";
 
-// Phase 8 Step 3 — manifest-driven console renderer (behind
+// Phase 8 — manifest-driven console renderer (behind
 // `penguincloud.declarative_console`, runs alongside the hand-written
 // product screens; see `ManifestResourceScreen.tsx`'s module doc).
 export {
   ManifestResourceScreen,
   type ManifestResourceScreenProps,
 } from "./ManifestResourceScreen";
+export {
+  ManifestResourceDetail,
+  type ManifestResourceDetailProps,
+} from "./ManifestResourceDetail";
+export {
+  ManifestCreateForm,
+  type ManifestCreateFormProps,
+} from "./ManifestCreateForm";
 export { useConsoleManifests } from "./useConsoleManifests";
-export { useManifestOperations } from "./useManifestOperations";
+export {
+  useManifestOperations,
+  useCancelManifestOperation,
+  useManifestOperationLogs,
+  nextPollInterval,
+} from "./useManifestOperations";
+export {
+  useCreateManifestResource,
+  useDeleteManifestResource,
+  usePerformManifestAction,
+} from "./manifestMutations";
 export {
   renderCell,
   resetUnknownCellKindWarnings,
@@ -62,11 +80,20 @@ export {
   readManifestEnvelope,
   toProxyPath,
 } from "./manifestListFetcher";
+export { manifestItemPathBytes, toProxyItemPath } from "./manifestItemPath";
+export {
+  toFieldConfig,
+  applyFieldAliases,
+  resetUnknownFieldTypeWarnings,
+} from "./manifestFormFields";
 export {
   CELL_KINDS,
   isCellKind,
+  FIELD_TYPES,
+  isFieldType,
   findResource,
   type CellKind,
+  type FieldType,
   type ConsoleManifest,
   type ConsoleManifestsResponse,
   type ProductManifestEntry,
@@ -74,6 +101,15 @@ export {
   type ColumnSpec,
   type CellSpec,
   type ListSpec,
+  type EnvelopeSpec,
+  type ItemPathSpec,
+  type SelectOption,
+  type ManifestFormField,
+  type FormSpec,
+  type FieldAlias,
+  type ActionSpec,
+  type DeleteSpec,
+  type OperationsSpec,
 } from "./manifestTypes";
 
 // Note: Breadcrumbs, TenantScopeSwitcher, and ActingAsBanner are exported from their own files

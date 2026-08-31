@@ -1,4 +1,4 @@
-import { findResource, isCellKind } from "../manifestTypes";
+import { findResource, isCellKind, isFieldType } from "../manifestTypes";
 import type { ConsoleManifest, ResourceDescriptor } from "../manifestTypes";
 
 function resource(kind: string): ResourceDescriptor {
@@ -64,5 +64,31 @@ describe("isCellKind", () => {
 
   it("refuses an unrecognised kind", () => {
     expect(isCellKind("sparkline")).toBe(false);
+  });
+});
+
+describe("isFieldType", () => {
+  it("accepts every documented field type, including the hyphenated one", () => {
+    for (const type of [
+      "text",
+      "email",
+      "password",
+      "number",
+      "textarea",
+      "select",
+      "checkbox",
+      "radio",
+      "date",
+      "time",
+      "datetime-local",
+      "tel",
+      "url",
+    ]) {
+      expect(isFieldType(type)).toBe(true);
+    }
+  });
+
+  it("refuses an unrecognised field type", () => {
+    expect(isFieldType("file")).toBe(false);
   });
 });
