@@ -13,11 +13,14 @@ today, silently wrong the day an eleventh route is added.
 
 The checked set is DERIVED, from two structural signals, unioned
 ============================================================================
-1. **Every unauthenticated route in auth_bp** (no ``@auth_required``) --
-   the front door: register, login, refresh, forgot-password,
-   reset-password, confirm-email. Any FUTURE unauthenticated route added to
-   auth_bp is automatically swept in, forcing a deliberate decision (rate
-   limit it, or name it in ``CREDENTIAL_ROUTES_INTENTIONALLY_UNLIMITED``
+1. **Every unauthenticated route in a FRONT_DOOR_BLUEPRINTS blueprint** (no
+   ``@auth_required``) -- the front door: register, login, refresh,
+   forgot-password, reset-password, confirm-email, plus RFC 8628's
+   device-authorize/device-token (app/device_auth.py, its own blueprint --
+   see FRONT_DOOR_BLUEPRINTS' own docstring for why this is a set, not a
+   second hardcoded string). Any FUTURE unauthenticated route added to
+   either blueprint is automatically swept in, forcing a deliberate decision
+   (rate limit it, or name it in ``CREDENTIAL_ROUTES_INTENTIONALLY_UNLIMITED``
    with a reason) rather than a silent gap.
 2. **Any route, in any blueprint, whose call graph reaches a credential-
    verification primitive** -- ``verify_password_async`` (bcrypt),
@@ -74,6 +77,20 @@ CREDENTIAL_VERIFICATION_PRIMITIVES: Final[frozenset[str]] = frozenset(
         "is_refresh_token_valid",
         "validate_password_reset_token",
         "validate_email_token",
+        # RFC 8628 device authorization grant (app/device_auth.py). Both
+        # .../device/approve and .../device/deny are AUTHENTICATED, so
+        # FRONT_DOOR_BLUEPRINTS below never sees them -- same shape as
+        # change_password, found by this signal and not the brief. Each
+        # looks up a device authorization by the human-guessable user_code
+        # (models.get_device_authorization_by_user_code) as its own
+        # credential-verification step before mutating anything.
+        "get_device_authorization_by_user_code",
+        # .../device/token is unauthenticated (covered by signal 1 via
+        # FRONT_DOOR_BLUEPRINTS), but named here too as defense in depth --
+        # this IS a credential-verification primitive (device_code compared
+        # by hash) independent of which blueprint currently declares the
+        # route that calls it.
+        "get_device_authorization_by_device_code_hash",
     }
 )
 
@@ -81,9 +98,13 @@ CREDENTIAL_VERIFICATION_PRIMITIVES: Final[frozenset[str]] = frozenset(
 #: transitively, is rate limited.
 RATE_LIMIT_GATE: Final[str] = "rate_limited"
 
-#: Blueprint whose UNAUTHENTICATED routes are, by definition, the front
-#: door -- see module docstring signal 1.
-FRONT_DOOR_BLUEPRINT: Final[str] = "auth_bp"
+#: Blueprints whose UNAUTHENTICATED routes are, by definition, the front
+#: door -- see module docstring signal 1. Was a single "auth_bp" string
+#: until app/device_auth.py (RFC 8628 device grant) added a second
+#: unauthenticated credential-minting blueprint (.../device/authorize,
+#: .../device/token) -- a set, not a second hardcoded name check, so a
+#: THIRD such blueprint is one line here rather than a second missed spot.
+FRONT_DOOR_BLUEPRINTS: Final[frozenset[str]] = frozenset({"auth_bp", "device_auth_bp"})
 
 #: Routes matching either signal that are deliberately NOT rate limited,
 #: each with a reason. Empty, and it should stay that way -- an entry here
@@ -191,7 +212,7 @@ class _Analysis:
         front_door = {
             name
             for name, info in self.routes.items()
-            if info["blueprint"] == FRONT_DOOR_BLUEPRINT
+            if info["blueprint"] in FRONT_DOOR_BLUEPRINTS
             and "auth_required" not in info["decorators"]
         }
         verifies_a_credential = {
@@ -264,11 +285,30 @@ class TestScannerSeesWhatItIsMeantToCheck:
         front_door = {
             name
             for name, info in analysis.routes.items()
-            if info["blueprint"] == FRONT_DOOR_BLUEPRINT
+            if info["blueprint"] in FRONT_DOOR_BLUEPRINTS
             and "auth_required" not in info["decorators"]
         }
         for known in ("login", "register", "refresh", "forgot_password", "reset_password"):
             assert known in front_door, sorted(front_door)
+
+    def test_the_front_door_signal_covers_the_device_authorization_routes(
+        self, analysis: _Analysis
+    ) -> None:
+        """RFC 8628's two unauthenticated routes are swept in by blueprint, not by name.
+
+        device_authorize/device_token are new; this pins that
+        FRONT_DOOR_BLUEPRINTS -- not a per-route exception -- is what finds
+        them, so a THIRD unauthenticated route added to device_auth_bp
+        later is covered without anyone touching this file again.
+        """
+        front_door = {
+            name
+            for name, info in analysis.routes.items()
+            if info["blueprint"] in FRONT_DOOR_BLUEPRINTS
+            and "auth_required" not in info["decorators"]
+        }
+        assert "device_authorize" in front_door, sorted(front_door)
+        assert "device_token" in front_door, sorted(front_door)
 
     def test_the_verification_signal_finds_the_known_routes(self, analysis: _Analysis) -> None:
         """Signal 2 (module docstring) must resolve to every known verifier, plus the bonus find."""

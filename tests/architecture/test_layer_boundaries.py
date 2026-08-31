@@ -123,6 +123,13 @@ LAYER_OF: Final[dict[str, str]] = {
     "auth": "auth",
     "auth_features": "auth",
     "mfa": "auth",
+    # RFC 8628 device authorization grant (Phase 8) -- only ever imports
+    # app.auth (same layer) for token issuance + the shared verification-
+    # URL helper, plus app.middleware/app.models/app.ratelimit (all floor
+    # or same-layer). See ALLOWED_EXCEPTIONS below: unlike app.auth this
+    # module needed no new exception, deliberately -- see
+    # app/device_auth.py's own docstring for why.
+    "device_auth": "auth",
     # tenancy
     "tenancy": "tenancy",
     # licensing
