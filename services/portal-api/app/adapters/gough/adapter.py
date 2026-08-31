@@ -160,6 +160,20 @@ class GoughAdapter(HealthOnlyAdapter):
     #: Real Gough routes this adapter must never admit. See routes.py.
     unexposed_routes: tuple[tuple[str, str], ...] = GOUGH_UNEXPOSED_ROUTES
 
+    #: Fields the console manifest (``adapters/gough/manifest.py``) must
+    #: never name in a :class:`~app.adapters.manifest.ColumnSpec` — Design
+    #: §3.3's ``databaseColumns.tsx`` finding: a sensitive field is refused
+    #: at manifest conformance, not merely left off by convention. Empty
+    #: today: nothing Gough returns for nodes/biomes/biome_groups/agents
+    #: carries credential material (verified against ``mapping.py`` — see
+    #: that module's docstring for the two known traps it guards against,
+    #: neither of which is a secret). Not part of the
+    #: :class:`~app.adapters.base.Adapter` Protocol — see
+    #: ``validate_manifest``'s docstring in ``app/adapters/manifest.py``
+    #: for why widening the Protocol was rejected in favour of a plain
+    #: per-adapter attribute the manifest module reads explicitly.
+    SENSITIVE_FIELDS: Final[frozenset[str]] = frozenset()
+
     async def capabilities(self, ctx: AdapterContext) -> list[str]:
         """Report the operations this adapter actually implements."""
         return [

@@ -419,6 +419,7 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     # Register blueprints
     from .audit import audit_bp
     from .auth import auth_bp
+    from .console_manifests import console_manifests_bp
     from .dashboard_api import dashboard_bp
     from .discovery import discovery_bp
     from .features_api import features_bp
@@ -467,6 +468,7 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     app.register_blueprint(discovery_bp, url_prefix="/api/v1/discovery")
     app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
     app.register_blueprint(audit_bp, url_prefix="/api/v1/audit")
+    app.register_blueprint(console_manifests_bp, url_prefix="/api/v1/console")
 
     # OpenAPI: public (login only) + authenticated (full). Registered
     # after the blueprints so the generated document sees every route.

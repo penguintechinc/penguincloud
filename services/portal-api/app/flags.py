@@ -164,6 +164,13 @@ FEATURE_FLAGS: Final[frozenset[str]] = frozenset(
         "advanced_analytics",
         "whitelabel",
         "multi_tenant",
+        # Phase 8 Step 3: the manifest-driven console endpoint
+        # (GET /api/v1/console/manifests, app/console_manifests.py). A
+        # genuinely NEW feature — general.md's "new flags default OFF" rule
+        # — not a licensed one, so it is intentionally absent from
+        # licensing.FEATURE_MIN_TIER; is_feature_available() already treats
+        # "not a licensed feature" as flag-alone-gates.
+        "declarative_console",
     }
 )
 
