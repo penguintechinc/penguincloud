@@ -16,14 +16,14 @@ middleware refused it, and both mean the same thing to the portal:
   (``:563-568``, ``:601``).
 
 Neither is a statement about the portal caller's own authorization, so both
-raise :class:`~app.adapters.base.UpstreamAuthError` (502) rather than a 401 that
+raise :class:`~app.adapter_errors.UpstreamAuthError` (502) rather than a 401 that
 would tell the browser to re-login and fix nothing. A 403 here is emphatically
 NOT "this operator may not do that" — the portal already enforced that with
 ``@require_scope`` before the adapter was reached.
 
 ``402`` is Tobogganing-specific: ``@require_feature`` answers it when a module
 is disabled by licence or feature flag. It maps to
-:class:`~app.adapters.base.AdapterCapabilityError` so the UI can say "not
+:class:`~app.adapter_errors.AdapterCapabilityError` so the UI can say "not
 enabled on this deployment" rather than "forbidden", which would send an
 operator to check permissions that are fine.
 """
@@ -35,7 +35,7 @@ from typing import Any, Final
 
 import httpx
 
-from ..base import (
+from ...adapter_errors import (
     AdapterCapabilityError,
     RateLimitedError,
     ResourceConflictError,

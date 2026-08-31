@@ -46,7 +46,7 @@ deletes both require ``manage``.
 
 ``kind`` is never interpolated into a product URL here — the adapter validates
 it against its own literal table and raises
-:class:`~app.adapters.base.AdapterCapabilityError` (501) for anything else.
+:class:`~app.adapter_errors.AdapterCapabilityError` (501) for anything else.
 
 ``resource_id`` reaches the adapter as an opaque value, and **the adapter**
 encodes it where it becomes a path segment
@@ -70,10 +70,10 @@ from typing import Any
 from quart import Blueprint, request
 from quart_schema import validate_response
 
+from .adapter_errors import AdapterError
 from .adapters import get_adapter
 from .adapters.base import (
     RESOURCE_OPERATION_ID_KEY,
-    AdapterError,
     Resource,
 )
 from .middleware import auth_required

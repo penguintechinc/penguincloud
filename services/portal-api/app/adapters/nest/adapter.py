@@ -31,7 +31,7 @@ of them are polled at ONE route, ``/tenants/{tid}/operations/{op_id}``, so
 Nest publishes no cancel route and no operation log stream on this service,
 and its list-operations route lives on ``nest-manager`` (unreachable, see
 above). Those three methods therefore raise
-:class:`~app.adapters.base.AdapterCapabilityError` (501) rather than
+:class:`~app.adapter_errors.AdapterCapabilityError` (501) rather than
 returning an empty result that would read as "no operations".
 """
 
@@ -39,10 +39,10 @@ from __future__ import annotations
 
 from typing import Any, Final
 
+from ...adapter_errors import AdapterCapabilityError, UpstreamError
 from ..base import (
     RESOURCE_OPERATION_ID_KEY,
     ActionResult,
-    AdapterCapabilityError,
     AdapterContext,
     HealthOnlyAdapter,
     Operation,
@@ -50,7 +50,6 @@ from ..base import (
     Page,
     Resource,
     RouteRule,
-    UpstreamError,
     quote_path_segment,
 )
 from ..transport import Transport, get_transport

@@ -20,13 +20,8 @@ from typing import Any, Final
 from quart import jsonify, request
 
 from . import flags
-from .adapters.base import (
-    UPSTREAM_RESPONSE_HEADER,
-    AdapterContext,
-    AdapterError,
-    adapter_error_status,
-    product_scope,
-)
+from .adapter_errors import UPSTREAM_RESPONSE_HEADER, AdapterError, adapter_error_status
+from .adapters.base import AdapterContext, product_scope
 from .authz import require_tenant_scope
 from .encryption import decrypt_value
 from .middleware import get_current_user

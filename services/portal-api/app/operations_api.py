@@ -45,7 +45,7 @@ coarse ``products:read`` / ``products:manage`` instead — as this module did
 originally — meant the model's motivating principal, an operator granted
 ``products:gough:manage`` and nothing else, was refused the ability to poll or
 cancel the very deploy they had just been authorised to start. The coarse
-scopes still work: :class:`~app.adapters.base.RBACEnforcer` treats them as
+scopes still work: :class:`~app.rbac.RBACEnforcer` treats them as
 satisfying the per-product form.
 
 A non-member gets **404, not 403** — see the oracle note in
@@ -68,10 +68,10 @@ from typing import Any
 from quart import Blueprint, request
 from quart_schema import validate_response
 
+from .adapter_errors import AdapterError
 from .adapters import get_adapter
 from .adapters.base import (
     ActionResult,
-    AdapterError,
     MetricPoint,
     MetricSeries,
     MetricsSummary,

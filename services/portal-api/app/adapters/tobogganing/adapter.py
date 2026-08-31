@@ -51,7 +51,7 @@ user-reachable surface has **no asynchronous operations at all** — no handler
 under ``hub_api/modules/sase``, ``hub_api/modules/sdwan/api`` or ``hub_api/api``
 returns ``202``; every mutation answers ``200``/``201`` with the resulting
 object. So ``list_operations``, ``get_operation``, ``cancel_operation`` and
-``operation_logs`` raise :class:`~app.adapters.base.AdapterCapabilityError`
+``operation_logs`` raise :class:`~app.adapter_errors.AdapterCapabilityError`
 (501) rather than returning an empty page that would read as "nothing running",
 and the SASE mutations are proxied rather than typed (see
 :mod:`app.adapters.tobogganing.routes`).
@@ -70,8 +70,8 @@ from __future__ import annotations
 
 from typing import Any, Final
 
+from ...adapter_errors import AdapterCapabilityError
 from ..base import (
-    AdapterCapabilityError,
     AdapterContext,
     HealthOnlyAdapter,
     Page,
@@ -230,7 +230,7 @@ class TobogganingAdapter(HealthOnlyAdapter):
         404 and read to the operator as "this resource does not exist" when
         the truth is "this product has no detail endpoint".
         """
-        from ..base import ResourceNotFoundError
+        from ...adapter_errors import ResourceNotFoundError
 
         path = self._require_kind(kind)
         response = await self._call("GET", path, ctx, f"get {kind} {resource_id}")

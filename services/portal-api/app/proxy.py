@@ -32,12 +32,11 @@ from urllib.parse import quote
 from quart import Blueprint, make_response, request
 
 from . import flags
+from .adapter_errors import UPSTREAM_RESPONSE_HEADER
 from .adapters import get_adapter
 from .adapters.base import (
-    UPSTREAM_RESPONSE_HEADER,
     AdapterContext,
     PathTraversalError,
-    RBACEnforcer,
     RouteRule,
     normalize_proxy_path,
 )
@@ -49,6 +48,7 @@ from .models import (
     get_product_connection_raw,
     get_product_tenant_map,
 )
+from .rbac import RBACEnforcer
 from .tenancy.authz import resolve_effective_role, resolve_scopes
 
 logger = logging.getLogger(__name__)

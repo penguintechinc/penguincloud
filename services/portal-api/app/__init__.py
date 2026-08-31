@@ -15,7 +15,7 @@ from quart_cors import cors
 from quart_schema import HttpSecurityScheme, Info, QuartSchema
 
 from . import devmode
-from .adapters.base import UPSTREAM_RESPONSE_HEADER
+from .adapter_errors import UPSTREAM_RESPONSE_HEADER
 from .background import get_background_manager
 from .config import (
     MIN_SECRET_KEY_LENGTH,

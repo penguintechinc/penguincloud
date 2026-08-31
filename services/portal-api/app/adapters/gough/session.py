@@ -28,7 +28,8 @@ import time
 from dataclasses import dataclass, replace
 from typing import Final
 
-from ..base import AdapterContext, UpstreamAuthError
+from ...adapter_errors import UpstreamAuthError
+from ..base import AdapterContext
 from ..transport import Transport
 from .responses import unwrap
 

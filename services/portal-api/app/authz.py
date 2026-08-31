@@ -8,7 +8,7 @@ module is the consuming half.
 
 Three entry points, one enforcement primitive
 ---------------------------------------------
-Everything below funnels through :class:`~app.adapters.base.RBACEnforcer`
+Everything below funnels through :class:`~app.rbac.RBACEnforcer`
 and :func:`~app.tenancy.authz.resolve_scopes` — the same pair the proxy's
 ``RouteRule`` allowlist uses — so a portal route and a proxied product route
 cannot drift into disagreeing about what a scope means.
@@ -46,8 +46,8 @@ from typing import Any, Final, ParamSpec, TypeVar
 
 from quart import g
 
-from .adapters.base import RBACEnforcer
 from .middleware import get_current_user
+from .rbac import RBACEnforcer
 from .tenancy.authz import resolve_scopes
 
 P = ParamSpec("P")

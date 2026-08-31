@@ -35,7 +35,7 @@ from the generic ``nest.internal`` 500s, so nothing here depends on it.
 
 ``code`` is the field worth surfacing: it is stable and machine-readable,
 whereas ``message`` is prose. It is carried into the raised
-:class:`~app.adapters.base.AdapterError` message so an operator reading a
+:class:`~app.adapter_errors.AdapterError` message so an operator reading a
 portal error can search Nest's docs for the same string.
 """
 
@@ -46,7 +46,7 @@ from typing import Any, Final
 
 import httpx
 
-from ..base import (
+from ...adapter_errors import (
     RateLimitedError,
     ResourceConflictError,
     ResourceNotFoundError,
@@ -162,7 +162,7 @@ def raise_for_status(response: httpx.Response, context: str) -> None:
     the token's ``tenant`` claim equals the tenant in the URL
     (``handlers/cost.py:48-58``). Neither is a statement about the portal
     caller's own authorization, so both raise
-    :class:`~app.adapters.base.UpstreamAuthError` (502) rather than a 401
+    :class:`~app.adapter_errors.UpstreamAuthError` (502) rather than a 401
     that would tell the browser to re-login and fix nothing.
     """
     status = response.status_code

@@ -113,6 +113,35 @@ from enum import Enum
 from typing import Any, Final, Generic, Protocol, TypeVar
 from urllib.parse import quote
 
+#: Likewise: the AdapterError taxonomy, adapter_error_status(), and
+#: UPSTREAM_RESPONSE_HEADER now live in :mod:`app.adapter_errors` — another
+#: floor-level module, so routes/health modules that only need the error
+#: vocabulary no longer read as reaching into the proxy/adapters layer.
+#: Re-imported here for the same backward-compatibility reason as
+#: ``RBACEnforcer`` above, and because ``AdapterCapabilityError`` is still
+#: raised by ``HealthOnlyAdapter`` below.
+from ..adapter_errors import (
+    UPSTREAM_RESPONSE_HEADER,
+    AdapterCapabilityError,
+    AdapterError,
+    RateLimitedError,
+    ResourceConflictError,
+    ResourceNotFoundError,
+    UpstreamAuthError,
+    UpstreamError,
+    UpstreamValidationError,
+    adapter_error_status,
+)
+
+#: Re-exported for backward compatibility only. ``RBACEnforcer`` is defined
+#: in :mod:`app.rbac` now — a floor-level module with no dependency on
+#: adapters — so foundational auth (``app.authz``) can depend on it directly.
+#: New code should import from :mod:`app.rbac`; every in-tree importer has
+#: been updated to do so. This re-export exists solely so callers outside
+#: ``app/`` that still spell it ``app.adapters.base.RBACEnforcer`` keep
+#: working without a second relocation pass.
+from ..rbac import RBACEnforcer
+
 __all__ = [
     "HealthResult",
     "Resource",
@@ -158,168 +187,13 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Error taxonomy
 # ---------------------------------------------------------------------------
-
-
-class AdapterError(Exception):
-    """Base for every failure an adapter is allowed to surface.
-
-    Phase 4 adapters raise one of the subclasses below rather than letting an
-    ``httpx.HTTPStatusError`` escape: a raw transport exception carries the
-    product's URL and headers into the portal's error path, and forces every
-    caller to re-derive what a given upstream status means.
-    """
-
-
-class AdapterCapabilityError(AdapterError):
-    """Raised when an adapter does not support a requested operation."""
-
-
-class ResourceNotFoundError(AdapterError):
-    """The product does not have the requested resource.
-
-    Distinct from :class:`AdapterCapabilityError`: "this portal cannot list
-    widgets" and "this product has no widget 7" are different answers, and
-    collapsing them makes a missing integration look like an empty account.
-    """
-
-
-class ResourceConflictError(AdapterError):
-    """The product refused the write as conflicting with current state.
-
-    Duplicate unique key, edit against a stale version, delete of something
-    still referenced. Retrying is pointless; the caller must re-read.
-    """
-
-
-class RateLimitedError(AdapterError):
-    """The product is rate-limiting the portal.
-
-    ``retry_after`` is seconds, taken from the product's header when it sent
-    one. Kept as its own class so callers can back off instead of treating a
-    throttle as an outage.
-    """
-
-    def __init__(self, message: str, retry_after: float | None = None) -> None:
-        """Record the message and the product's advertised retry delay."""
-        super().__init__(message)
-        self.retry_after = retry_after
-
-
-class UpstreamValidationError(AdapterError):
-    """The product rejected the payload as invalid, field by field.
-
-    Distinct from :class:`ResourceConflictError`, which is a disagreement with
-    *current state* and tells the caller to re-read. This is a disagreement
-    with the *payload*: re-reading changes nothing, the user must edit what
-    they typed.
-
-    It exists because the alternative was rendering Gough's 422
-    ``validation_failed`` envelope as 502, which tells an operator the product
-    is broken when in fact a form field is wrong — and hides the one piece of
-    information that would fix it. ``violations`` carries the product's own
-    per-field detail so a form can mark the offending inputs instead of
-    showing a single opaque banner.
-    """
-
-    def __init__(self, message: str, violations: list[dict[str, Any]] | None = None) -> None:
-        """Record the message and the product's per-field violations."""
-        super().__init__(message)
-        self.violations = violations or []
-
-
-class UpstreamAuthError(AdapterError):
-    """The product rejected the portal's *stored* credential.
-
-    Never a statement about the portal caller's own authorization — it means
-    the connection needs re-credentialing by an operator. Surfacing it as 401
-    would tell the browser to re-login, which fixes nothing.
-    """
-
-
-class UpstreamError(AdapterError):
-    """The product failed in a way with no more specific meaning."""
+#
+# AdapterError and its subclasses moved to app.adapter_errors — see the
+# re-export/comment near the top of this file.
 
 
 class PathTraversalError(ValueError):
     """A request path contained dot-segments or control characters."""
-
-
-#: How each taxonomy member renders at the portal's API boundary. Defined
-#: once so three Phase-4 adapters cannot each invent their own mapping.
-_ERROR_STATUS: Final[tuple[tuple[type[AdapterError], int], ...]] = (
-    (AdapterCapabilityError, 501),
-    (ResourceNotFoundError, 404),
-    (ResourceConflictError, 409),
-    (UpstreamValidationError, 422),
-    (RateLimitedError, 429),
-    (UpstreamAuthError, 502),
-    (UpstreamError, 502),
-)
-
-
-def adapter_error_status(exc: AdapterError) -> int:
-    """Map an adapter error onto the HTTP status the portal should return.
-
-    Falls back to 502 for an ``AdapterError`` subclass added without a
-    mapping: an unrecognised adapter failure is still an upstream failure,
-    never a 200 and never a 500 blamed on the portal.
-    """
-    for error_type, status in _ERROR_STATUS:
-        if isinstance(exc, error_type):
-            return status
-    return 502
-
-
-#: Set (to "true") on every response whose body was forwarded from, or built
-#: from, a connected product's own reply — never on a portal-generated body.
-#: The webui client (`lib/mutationError.ts`) trusts this header to decide
-#: whether a body is safe to show an operator verbatim: unmarked is assumed
-#: portal-native and shown as-is, marked is always replaced with a generic
-#: message regardless of content.
-#:
-#: This is the definition to update FIRST when adding a fifth writer, and
-#: the list below is deliberately exhaustive rather than "see the proxy" —
-#: the original version of this constant named only ``app.proxy`` as owning
-#: it, and that framing is what let ``app.product_access.adapter_failure``
-#: ship unmarked in the same round: a reader who trusted "the proxy is the
-#: one path" had no reason to go looking for a second one. Grep this
-#: constant's name for the current, authoritative list of writers; the four
-#: below are current as of this writing, not a promise the list stops here:
-#:
-#: - ``app.proxy`` — the raw forwarding path, sets it on the response built
-#:   directly from ``outbound_response.content``.
-#: - ``app.product_access.adapter_failure`` — every ``AdapterError`` message
-#:   reaching it was built by a product adapter's own ``raise_for_status``
-#:   (see e.g. ``adapters/nest/responses.py``), which interpolates the
-#:   product's OWN response body into ``f"{context}: {detail}"``. That
-#:   response never touches ``app.proxy`` at all — it is the "trusted,
-#:   typed adapter method" path this module's own docstring describes above
-#:   — so nothing else marks it. Every ``AdapterError`` subclass is treated
-#:   identically, including ``AdapterCapabilityError`` (portal-generated,
-#:   never carries upstream text today): a false positive here just shows
-#:   the generic message for a message that happened to be safe, which
-#:   costs a little detail; a false negative is the regression this exists
-#:   to close.
-#: - ``app.products.test_product_connection`` (``POST
-#:   /products/<id>/test``) — a LIVE call to the product
-#:   (``adapter.health()``), returned in the 200 body rather than raised as
-#:   an ``AdapterError``, so ``adapter_failure`` never sees it. Marked
-#:   unconditionally, same reasoning as above.
-#: - ``app.health_api.get_products_health`` (``GET /products/health``) —
-#:   reads ``CachedHealth.error``, written by ``health_poller.py``'s sweep
-#:   from the same ``Transport.health_check`` exception text. No webui
-#:   screen reads this endpoint today (latent, not a live leak), marked
-#:   anyway so it is not a second miss for whichever one does. Declares
-#:   ``@validate_response`` for its 200, so it sets this header by
-#:   returning a 3-tuple ``(model, status, headers)`` rather than a
-#:   pre-built ``Response`` — see the comment at that call site for why
-#:   returning a ``Response`` there raises ``ResponseHeadersValidationError``
-#:   instead of working.
-#:
-#: ``Operation.error`` and ``OperationLogLine.message`` (below) are a
-#: deliberate NON-writer: those fields are verbatim-by-contract, not
-#: upstream-marked, by design — see their own docstrings.
-UPSTREAM_RESPONSE_HEADER: Final[str] = "X-Portal-Upstream-Response"
 
 
 # ---------------------------------------------------------------------------
@@ -1367,63 +1241,3 @@ class HealthOnlyAdapter:
     async def invite_user(self, payload: dict[str, Any], ctx: AdapterContext) -> dict[str, Any]:
         """Unsupported; raises AdapterCapabilityError."""
         raise self._unsupported("invite_user()")
-
-
-class RBACEnforcer:
-    """Enforces role-based access control via scope matching.
-
-    Shared between portal routes (@require_scope decorator) and proxy
-    allowlist (RouteRule scope checks). Scopes are issued at token time
-    and stored in the JWT; enforcement is zero-cost at request time.
-
-    One implication is recognised, and only one: the coarse
-    ``products:{action}`` scope satisfies the per-product
-    ``products:{type}:{action}`` form. See "Per-product scopes" in the module
-    docstring for why the relation lives here rather than being expanded at
-    every call site.
-    """
-
-    def __init__(self, required_scopes: str | list[str]) -> None:
-        """Initialize with required scope(s).
-
-        Args:
-            required_scopes: Single scope string or list of scopes.
-                If list, ALL scopes in the list must be present (AND logic).
-        """
-        self.required_scopes = (
-            required_scopes if isinstance(required_scopes, list) else [required_scopes]
-        )
-
-    @staticmethod
-    def _satisfies(required: str, granted: set[str]) -> bool:
-        """True when a granted set satisfies one required scope.
-
-        Exact match, or the coarse product grant that implies it. The
-        implication is deliberately one-directional and shape-restricted:
-        only a three-segment ``products:`` scope has a coarse form, so no
-        other scope namespace gains an implication by accident.
-        """
-        if required in granted:
-            return True
-        namespace, _, remainder = required.partition(":")
-        if namespace != PRODUCT_SCOPE_NAMESPACE:
-            return False
-        product_type, sep, action = remainder.partition(":")
-        if not sep or not product_type or ":" in action:
-            return False
-        return f"{PRODUCT_SCOPE_NAMESPACE}:{action}" in granted
-
-    def enforce(self, granted_scopes: list[str]) -> bool:
-        """Check if granted scopes satisfy the requirement.
-
-        Returns True if every required scope is granted, directly or by the
-        coarse-implies-per-product relation in :meth:`_satisfies`.
-        """
-        granted_set = set(granted_scopes)
-        return all(self._satisfies(scope, granted_set) for scope in self.required_scopes)
-
-    def enforce_or_raise(self, granted_scopes: list[str]) -> None:
-        """Raise ValueError if granted scopes do not satisfy the requirement."""
-        if not self.enforce(granted_scopes):
-            missing = set(self.required_scopes) - set(granted_scopes)
-            raise ValueError(f"Missing required scopes: {missing}")

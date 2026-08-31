@@ -22,7 +22,7 @@ from typing import Any
 from quart import Blueprint, request
 from quart_schema import validate_response
 
-from .adapters.base import UPSTREAM_RESPONSE_HEADER
+from .adapter_errors import UPSTREAM_RESPONSE_HEADER
 from .authz import SCOPE_PRODUCTS_READ, SCOPE_TENANTS_MANAGE, has_tenant_scope, require_tenant_scope
 from .health_cache import get_health
 from .middleware import auth_required, get_current_tenant_id, get_current_user
