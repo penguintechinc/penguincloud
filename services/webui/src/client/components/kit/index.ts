@@ -35,6 +35,13 @@ export {
   type UseProductResourceOptions,
   type UseProductResourceResult,
 } from "./useProductResource";
+export { OperationsPanel, type OperationsPanelProps } from "./OperationsPanel";
+export type {
+  OperationLike,
+  OperationLogLine,
+  OperationsPanelSpec,
+  UseOperationLogsResult,
+} from "./operationsPanelTypes";
 
 // Note: Breadcrumbs, TenantScopeSwitcher, and ActingAsBanner are exported from their own files
 // directly, not through this barrel, since they have router/store dependencies
