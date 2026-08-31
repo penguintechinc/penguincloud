@@ -16,6 +16,7 @@ constant, trailing slash included) to every manifest resource with a
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Final
 
 import pytest
@@ -23,20 +24,36 @@ from app.adapters import ADAPTER_REGISTRY, MANIFEST_REGISTRY
 from app.adapters.gough.adapter import _ACTIONS as _GOUGH_ACTIONS
 from app.adapters.gough.adapter import _COLLECTION_ROUTES as _GOUGH_COLLECTION_ROUTES
 from app.adapters.gough.adapter import GoughAdapter
+from app.adapters.gough.manifest import _ENVELOPE_PATHS as _GOUGH_ENVELOPE_PATHS
 from app.adapters.manifest import _RouteSourceAdapter, apply_capabilities_overlay, validate_manifest
 
-#: Per-registered-product (adapter class, action-verb table, sensitive
-#: fields) that only that product's OWN module can supply — see
-#: ``validate_manifest``'s docstring for why these are not read off the
-#: Adapter Protocol generically. A future product's manifest adds one entry
-#: here; everything below it is already parametrised over the registry.
-_CONFORMANCE_INPUTS: Final[
-    dict[str, tuple[type[_RouteSourceAdapter], dict[str, frozenset[str]], frozenset[str]]]
-] = {
-    "gough": (
-        GoughAdapter,
-        {kind: frozenset(verbs) for kind, verbs in _GOUGH_ACTIONS.items()},
-        GoughAdapter.SENSITIVE_FIELDS,
+
+@dataclass(slots=True, frozen=True)
+class _ConformanceInputs:
+    """Per-registered-product inputs only that product's OWN module can supply.
+
+    See ``validate_manifest``'s docstring for why these are not read off the
+    Adapter Protocol generically. A future product's manifest adds one entry
+    to :data:`_CONFORMANCE_INPUTS`; everything below it is already
+    parametrised over the registry.
+    """
+
+    adapter_cls: type[_RouteSourceAdapter]
+    action_verbs: dict[str, frozenset[str]]
+    sensitive_fields: frozenset[str]
+    envelope_paths: dict[str, tuple[str, ...]]
+    supports_cancel: bool
+    supports_operation_logs: bool
+
+
+_CONFORMANCE_INPUTS: Final[dict[str, _ConformanceInputs]] = {
+    "gough": _ConformanceInputs(
+        adapter_cls=GoughAdapter,
+        action_verbs={kind: frozenset(verbs) for kind, verbs in _GOUGH_ACTIONS.items()},
+        sensitive_fields=GoughAdapter.SENSITIVE_FIELDS,
+        envelope_paths=_GOUGH_ENVELOPE_PATHS,
+        supports_cancel=GoughAdapter.SUPPORTS_OPERATION_CANCEL,
+        supports_operation_logs=GoughAdapter.SUPPORTS_OPERATION_LOGS,
     ),
 }
 
@@ -64,9 +81,15 @@ def test_every_registered_manifest_still_passes_validate_manifest(product_type: 
     whether someone edited the manifest after import-time validation ran.
     """
     manifest = MANIFEST_REGISTRY[product_type]
-    adapter_cls, action_verbs, sensitive_fields = _CONFORMANCE_INPUTS[product_type]
+    inputs = _CONFORMANCE_INPUTS[product_type]
     validate_manifest(
-        manifest, adapter_cls, action_verbs=action_verbs, sensitive_fields=sensitive_fields
+        manifest,
+        inputs.adapter_cls,
+        action_verbs=inputs.action_verbs,
+        sensitive_fields=inputs.sensitive_fields,
+        envelope_paths=inputs.envelope_paths,
+        supports_cancel=inputs.supports_cancel,
+        supports_operation_logs=inputs.supports_operation_logs,
     )
 
 
@@ -166,9 +189,9 @@ def test_every_gough_list_path_is_admitted_by_the_proxy_allowlist(kind: str) -> 
 def test_no_manifest_action_verb_is_unknown_to_its_adapter(product_type: str) -> None:
     """No manifest action verb is unknown to its adapter."""
     manifest = MANIFEST_REGISTRY[product_type]
-    _, action_verbs, _ = _CONFORMANCE_INPUTS[product_type]
+    inputs = _CONFORMANCE_INPUTS[product_type]
     for resource in manifest.resources:
-        allowed = action_verbs.get(resource.kind, frozenset())
+        allowed = inputs.action_verbs.get(resource.kind, frozenset())
         for action in resource.actions:
             assert action.verb in allowed, (
                 f"{product_type}/{resource.kind}: action verb {action.verb!r} is not "
@@ -179,10 +202,10 @@ def test_no_manifest_action_verb_is_unknown_to_its_adapter(product_type: str) ->
 def test_no_column_names_a_field_the_adapter_marks_sensitive(product_type: str) -> None:
     """No column names a field the adapter marks sensitive."""
     manifest = MANIFEST_REGISTRY[product_type]
-    _, _, sensitive_fields = _CONFORMANCE_INPUTS[product_type]
+    inputs = _CONFORMANCE_INPUTS[product_type]
     for resource in manifest.resources:
         for column in resource.columns:
-            assert column.field not in sensitive_fields, (
+            assert column.field not in inputs.sensitive_fields, (
                 f"{product_type}/{resource.kind}: column {column.field!r} names a "
                 f"field the adapter marks sensitive"
             )
