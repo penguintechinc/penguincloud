@@ -79,15 +79,19 @@ __all__ = [
     "MIN_MANIFEST_VERSION",
     "MAX_MANIFEST_VERSION",
     "CELL_KINDS",
+    "FIELD_TYPES",
     "ManifestError",
     "CellSpec",
     "EnumStyle",
     "BooleanLabels",
     "FieldAlias",
     "ColumnSpec",
+    "EnvelopeSpec",
     "ListSpec",
+    "ItemPathSpec",
     "DetailSpec",
     "RelationshipSpec",
+    "SelectOption",
     "FormField",
     "FormSpec",
     "ActionSpec",
@@ -106,7 +110,16 @@ __all__ = [
 #: The renderer-contract version this module implements. Bumped only on a
 #: schema change (a field added/removed/retyped in a way the renderer must
 #: know about), never on a manifest's own content changing.
-MANIFEST_VERSION: Final[int] = 1
+#:
+#: Bumped to 2 for the four gaps the generic renderer's falsification test
+#: found (see this module's other docstrings for each): ``ListSpec`` retypes
+#: ``envelope_key: str`` to ``envelope: EnvelopeSpec``; ``ResourceDescriptor``
+#: gains ``item_path``; ``FormField.options`` retypes from ``tuple[str, ...]``
+#: to ``tuple[SelectOption, ...]`` and ``field_type`` becomes a closed union;
+#: ``OperationsSpec`` gains ``cancel_allowed``/``show_logs``. Every one of
+#: these is a field the renderer must know about, not a manifest's own
+#: content changing — exactly what this constant exists to signal.
+MANIFEST_VERSION: Final[int] = 2
 
 #: Oldest/newest ``manifest_version`` this build of the schema will serve.
 #: Design §3.4: below MIN is refused explicitly (a named error, never an
@@ -114,8 +127,14 @@ MANIFEST_VERSION: Final[int] = 1
 #: taking a working product offline for a cosmetic addition. Both bounds are
 #: consumed by the serving route in :mod:`app.console_manifests`, not by
 #: this module — a manifest's own ``manifest_version`` is just data here.
-MIN_MANIFEST_VERSION: Final[int] = 1
-MAX_MANIFEST_VERSION: Final[int] = 1
+#:
+#: Both raised to 2 alongside :data:`MANIFEST_VERSION`: this module's
+#: dataclasses no longer accept schema v1's shape (``ListSpec.envelope_key``
+#: does not exist as a field any more), so a v1 manifest cannot even be
+#: constructed against this build — MIN=2 states that fact rather than
+#: leaving it implicit in a constructor signature.
+MIN_MANIFEST_VERSION: Final[int] = 2
+MAX_MANIFEST_VERSION: Final[int] = 2
 
 #: The CLOSED set of cell kinds a :class:`ColumnSpec` may declare. Closed
 #: deliberately — Design §3.4 says an unrecognised cell kind must fall back
@@ -135,6 +154,35 @@ CELL_KINDS: Final[frozenset[str]] = frozenset(
         "boolean",
         "link",
         "count",
+    }
+)
+
+#: The CLOSED set of field types a :class:`FormField` may declare. Byte-exact
+#: with react-libs' own ``FieldType`` union
+#: (``~/code/penguin-libs/packages/react-libs/src/components/FormBuilder/
+#: types.ts``), verified by inspecting that checkout directly rather than
+#: trusting the backend's own prior claim to mirror it (schema v1's
+#: ``FormField`` docstring said it did; it did not — see :class:`FormField`).
+#: Closed for the same reason :data:`CELL_KINDS` is: a manifest naming a
+#: ``field_type`` react-libs' ``FormBuilder`` does not recognise would pass
+#: schema-v1 validation and then be silently unrenderable — a "renders
+#: blank" failure identical to the one :data:`CELL_KINDS` already guards
+#: against for columns, now closed for form fields too.
+FIELD_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "text",
+        "email",
+        "password",
+        "number",
+        "textarea",
+        "select",
+        "checkbox",
+        "radio",
+        "date",
+        "time",
+        "datetime-local",
+        "tel",
+        "url",
     }
 )
 
@@ -294,6 +342,102 @@ class ColumnSpec:
 
 
 @dataclass(slots=True, frozen=True)
+class EnvelopeSpec:
+    """The exact unwrap path from a proxied collection's RAW body to its array.
+
+    Schema v2 finding: a single ``envelope_key`` string cannot express
+    Gough's real wire shapes. ``keys`` is the ordered sequence of keys to
+    descend through the raw HTTP body the BROWSER receives via the byte
+    proxy (not the adapter's own already-unwrapped ``GoughResponse`` —
+    those are different documents; see
+    :mod:`app.adapters.gough.responses`'s module docstring) to reach the
+    item array:
+
+    * ``("data", "nodes")`` for Gough nodes — ``list_nodes`` answers via
+      ``_helpers.envelope_success``, which wraps the array inside an outer
+      ``data`` key: ``{"status": "success", "data": {"nodes": [...]},
+      "meta": {...}}``.
+    * ``("groups",)`` for Gough biome_groups — BARE, despite
+      ``list_biome_groups`` living in the same blueprint MODULE as
+      ``list_biomes``. It answers ``jsonify({"groups": [...], "total":
+      ...})`` directly, never ``envelope_success``. Verified by reading
+      Gough's own source (``services/api-manager/app/api/biomes.py``) at
+      ``~/code/gough``, not guessed by analogy with the enveloped
+      ``biomes`` route it sits beside — that analogy is exactly the trap
+      this field exists to close off.
+
+    Never derive one resource's envelope from a sibling's shape. Two
+    resources declared in the same source module can answer differently,
+    and only the product's own handler code says which.
+    """
+
+    keys: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        """Refuse an empty path or a path containing an empty key."""
+        if not self.keys:
+            raise ManifestError(
+                "EnvelopeSpec.keys must not be empty — declare at least the "
+                "final array key, e.g. ('agents',) for a bare response or "
+                "('data', 'nodes') for one wrapped in an outer 'data' key"
+            )
+        if any(not key for key in self.keys):
+            raise ManifestError(f"EnvelopeSpec.keys must not contain an empty key: {self.keys!r}")
+
+
+@dataclass(slots=True, frozen=True)
+class ItemPathSpec:
+    """The item-level route for one resource — distinct from ``list.path_bytes``.
+
+    Schema v2 finding: the renderer cannot safely derive an item path from
+    ``list.path_bytes`` by string-munging. Gough's own item-route base
+    (``_COLLECTIONS[kind]``, no trailing slash) and its LIST route
+    (``_COLLECTION_ROUTES[kind]``, used by :attr:`ListSpec.path_bytes`) are
+    DIFFERENT strings for three of four resources — ``biome_groups``' list
+    route (``/api/v1/biomes/groups``, no trailing slash) and item-route
+    base (also ``/api/v1/biomes/groups``, also no trailing slash) happen to
+    be identical, while nodes/biomes/agents' list routes carry a trailing
+    slash their item-route bases do not. Concatenating ``list.path_bytes``
+    directly with an id therefore works for three resources and silently
+    produces ``/api/v1/biomes/groups42`` for the fourth — the exact defect
+    named in ``adapters/gough/manifest.py``'s module docstring. This class
+    exists so the renderer never has to make that derivation at all.
+
+    ``prefix`` is byte-equal to the adapter's own item-route base constant
+    (e.g. ``app.adapters.gough.adapter._COLLECTIONS[kind]``) — never
+    re-typed; import the constant. The real item path for one id is always
+    ``f"{prefix}/{id}"``: ``prefix`` never carries a trailing slash, and an
+    id is never embedded inside it.
+
+    ``sample_id`` is a representative id matching the SHAPE of a real id for
+    this resource (e.g. ``"1"`` for an integer id, a real UUID string for a
+    UUID id) — used ONLY by :func:`validate_manifest` to prove
+    ``f"{prefix}/{sample_id}"`` is admitted by the adapter's own
+    ``route_allowlist``, the same proof :func:`validate_manifest` already
+    performs for ``list.path_bytes``. It is never rendered and never sent
+    to the product; it is a probe value, not data.
+    """
+
+    prefix: str
+    sample_id: str
+
+    def __post_init__(self) -> None:
+        """Refuse a relative prefix, a trailing slash, or an empty sample id."""
+        if not self.prefix.startswith("/"):
+            raise ManifestError(
+                f"ItemPathSpec.prefix {self.prefix!r} must be an absolute path " f"(start with '/')"
+            )
+        if self.prefix.endswith("/"):
+            raise ManifestError(
+                f"ItemPathSpec.prefix {self.prefix!r} must not end with '/' — "
+                f"the item path is built as f'{{prefix}}/{{id}}', so a "
+                f"trailing slash here would double up"
+            )
+        if not self.sample_id:
+            raise ManifestError("ItemPathSpec.sample_id must not be empty")
+
+
+@dataclass(slots=True, frozen=True)
 class ListSpec:
     """Where a resource's collection lives and how it paginates.
 
@@ -305,9 +449,12 @@ class ListSpec:
     """
 
     path_bytes: str
-    #: Key inside the product's own JSON envelope holding the array — this
-    #: is the ONLY declared shape a proxied read has, per Design §6.4.
-    envelope_key: str
+    #: The unwrap path from the raw proxied body to the item array — see
+    #: :class:`EnvelopeSpec`. Schema v2 retypes this from a bare
+    #: ``envelope_key: str`` (Design §6.4's claim that a single key was "the
+    #: ONLY declared shape a proxied read has" — false of Gough's own wire
+    #: responses, see :class:`EnvelopeSpec`'s docstring).
+    envelope: EnvelopeSpec
     pagination: str = "cursor"
 
     def __post_init__(self) -> None:
@@ -318,8 +465,6 @@ class ListSpec:
                 f"path (start with '/') — it is matched against the proxy "
                 f"allowlist and built as the adapter's own route constant"
             )
-        if not self.envelope_key:
-            raise ManifestError("ListSpec.envelope_key must not be empty")
         if self.pagination not in _PAGINATION_STYLES:
             raise ManifestError(
                 f"ListSpec.pagination {self.pagination!r} is not one of "
@@ -348,13 +493,60 @@ class RelationshipSpec:
 
 
 @dataclass(slots=True, frozen=True)
-class FormField:
-    """One field of a create form.
+class SelectOption:
+    """One selectable choice — mirrors react-libs' own ``SelectOption`` exactly.
 
-    Mirrors ``@penguintechinc/react-libs``' ``FormField`` shape closely
-    enough to serialise straight into it; the renderer step is what proves
-    the fields line up exactly. Kept intentionally minimal for Step 3, since
-    nothing consumes this yet — see the module docstring.
+    ``value`` is ``str`` here even though react-libs types it
+    ``string | number``: nothing in this schema has a numeric select option
+    yet, and widening to ``str | int`` is a decision to make when a real one
+    shows up, not before.
+    """
+
+    value: str
+    label: str
+    disabled: bool = False
+
+    def __post_init__(self) -> None:
+        """Refuse an unvalued or unlabelled option."""
+        if not self.value:
+            raise ManifestError("SelectOption.value must not be empty")
+        if not self.label:
+            raise ManifestError(f"SelectOption {self.value!r} must declare a label")
+
+
+@dataclass(slots=True, frozen=True)
+class FormField:
+    """One field of a create form — a real react-libs ``FieldConfig``, not a lookalike.
+
+    Schema v2 finding: schema v1's docstring here claimed to mirror
+    ``@penguintechinc/react-libs``' "``FormField`` shape closely enough to
+    serialise straight into it" — unverified at the time, per that
+    docstring, and wrong on inspection of the actual checkout
+    (``~/code/penguin-libs/packages/react-libs/src/components/FormBuilder/
+    types.ts``):
+
+    1. react-libs exports NO data type named ``FormField`` at all —
+       ``FormField`` there is a React component
+       (``React.FC<FormFieldProps>``). The data shape a caller actually
+       builds is ``FieldConfig``, consumed as ``FormConfig.fields:
+       FieldConfig[]``. This class keeps the name ``FormField`` anyway —
+       unlike its TypeScript mirror (``ManifestFormField`` in
+       ``manifestTypes.ts``), there is no Python symbol it would collide
+       with, so the rename that file needed is not needed here.
+    2. ``field_type`` is now closed (:data:`FIELD_TYPES`, byte-exact with
+       react-libs' own ``FieldType`` union) rather than free text — a
+       manifest naming a type ``FormBuilder`` does not recognise used to
+       pass validation and then be silently unrenderable; refused at
+       construction instead.
+    3. ``options`` is ``tuple[SelectOption, ...]``, matching
+       ``FieldConfig.options: SelectOption[]`` — NOT the bare
+       ``tuple[str, ...]`` schema v1 shipped, which cannot express a
+       value/label split (react-libs' ``SelectOption`` always has both) and
+       would need a synthetic ``options.map(o => ({value: o, label: o}))``
+       mapping step at the renderer that does not exist anywhere.
+    4. ``default_value`` renames schema v1's ``default`` to match react-libs'
+       own ``defaultValue`` — cheap, but a real field name a caller would
+       otherwise get wrong binding this to ``FormBuilder``.
     """
 
     name: str
@@ -362,15 +554,26 @@ class FormField:
     field_type: str = "text"
     required: bool = False
     placeholder: str | None = None
-    options: tuple[str, ...] = ()
-    default: str | None = None
+    options: tuple[SelectOption, ...] = ()
+    default_value: str | None = None
 
     def __post_init__(self) -> None:
-        """Refuse an unnamed field."""
+        """Refuse an unnamed field, an unknown type, or select/radio with no options."""
         if not self.name:
             raise ManifestError("FormField.name must not be empty")
         if not self.label:
             raise ManifestError(f"FormField {self.name!r} must declare a label")
+        if self.field_type not in FIELD_TYPES:
+            raise ManifestError(
+                f"FormField {self.name!r}: field_type {self.field_type!r} is not in "
+                f"react-libs' closed FieldType union {sorted(FIELD_TYPES)} — "
+                f"FormBuilder would refuse it at the type level"
+            )
+        if self.field_type in ("select", "radio") and not self.options:
+            raise ManifestError(
+                f"FormField {self.name!r}: field_type {self.field_type!r} requires "
+                f"non-empty options"
+            )
 
 
 @dataclass(slots=True, frozen=True)
@@ -481,10 +684,20 @@ class ResourceDescriptor:
     ``list`` is ``None`` for a resource with no collection endpoint at all
     (Gough's ``clusters`` — see ``adapters/gough/manifest.py`` for why it is
     NOT expressed as a ``ResourceDescriptor`` in this step; a schema finding,
-    not a workaround). A resource descriptor that DOES declare ``list`` is
-    assumed reachable at ``{list.path_bytes}{id}`` by nothing in THIS
-    module — that derivation is deliberately not attempted here; see the
-    same docstring.
+    not a workaround). Schema v1 left the item path undeclared entirely — "a
+    resource descriptor that DOES declare list is assumed reachable at
+    ``{list.path_bytes}{id}`` by nothing in THIS module — that derivation is
+    deliberately not attempted here." Schema v2 closes that gap explicitly:
+    ``item_path`` (:class:`ItemPathSpec` or ``None``) is the resource's own
+    declared item route, never derived by concatenating ``list.path_bytes``
+    with an id — see :class:`ItemPathSpec`'s docstring for the exact defect
+    that derivation produces. ``None`` means "this resource genuinely has no
+    item endpoint" (Gough's ``clusters``, whose single-item route is the
+    irregular ``/api/v1/clusters/{id}/lxd/status``, not
+    ``{collection}/{id}``, would be the case in point — clusters stays
+    unexpressed as a resource in this schema version regardless) — an
+    explicit fact a manifest states, never a default a caller's omission
+    falls into.
     """
 
     kind: str
@@ -497,6 +710,7 @@ class ResourceDescriptor:
     empty_state: str
     error_state: str
     list: ListSpec | None = None
+    item_path: ItemPathSpec | None = None
     detail: DetailSpec = field(default_factory=DetailSpec)
     actions: tuple[ActionSpec, ...] = ()
     create: FormSpec | None = None
@@ -585,10 +799,34 @@ class NavSpec:
 
 @dataclass(slots=True, frozen=True)
 class OperationsSpec:
-    """Presence + display config for the product's operations panel."""
+    """Presence + display config for the product's operations panel.
+
+    Schema v2 finding: schema v1 carried only ``label`` and
+    ``poll_interval_seconds``, so ``ManifestResourceScreen`` had no field to
+    read a real capability from and always rendered a READ-ONLY panel
+    (``cancelAllowed: false``, ``showLogs: false``) regardless of what the
+    product actually supports — see ``useManifestOperations.ts``'s module
+    doc for that gap named precisely. ``cancel_allowed``/``show_logs`` close
+    it, matching the webui's own ``OperationsPanelSpec`` socket
+    (``components/kit/operationsPanelTypes.ts``) field for field; ``title``
+    and ``pollIntervalMs`` there are already served by ``label`` and
+    ``poll_interval_seconds`` × 1000, and ``testIdPrefix`` is computed by
+    the renderer per resource, not carried on the manifest.
+
+    Both new fields are checked by :func:`validate_manifest` against the
+    caller-supplied ``supports_cancel``/``supports_operation_logs`` —
+    ``True`` here is a claim about the adapter's real behaviour, not a
+    display preference, so an adapter with no cancellable operation kind
+    must refuse a manifest that claims one exists, the same way an unknown
+    action verb already refuses to load.
+    """
 
     label: str = "Operations"
     poll_interval_seconds: int = 5
+    #: Whether a live (non-terminal) operation offers a Cancel control.
+    cancel_allowed: bool = False
+    #: Whether an operation row offers a "Show logs" disclosure.
+    show_logs: bool = False
 
     def __post_init__(self) -> None:
         """Refuse a non-positive poll interval — zero or negative never terminates sanely."""
@@ -699,6 +937,9 @@ def validate_manifest(
     *,
     action_verbs: Mapping[str, frozenset[str]],
     sensitive_fields: frozenset[str] = frozenset(),
+    envelope_paths: Mapping[str, tuple[str, ...]] | None = None,
+    supports_cancel: bool = False,
+    supports_operation_logs: bool = False,
 ) -> None:
     """Adapter-aware conformance — Design §11.1's second fail-closed layer.
 
@@ -711,12 +952,23 @@ def validate_manifest(
       ``adapter_cls.route_allowlist`` admits (the manifest must refuse to
       load rather than render a menu of 403s, per Design §11.1's own
       example);
+    * a resource's ``item_path`` (:class:`ItemPathSpec`) whose
+      ``f"{prefix}/{sample_id}"`` no GET rule in
+      ``adapter_cls.route_allowlist`` admits — the same proof as
+      ``list.path_bytes``, schema v2's new item-path field;
     * an :class:`ActionSpec` whose ``verb`` is not in ``action_verbs`` for
       that resource kind (an unknown verb refuses to load — distinct from
       Design §3.4's client-side "hide it", which handles a renderer older
       than a valid manifest, not an invalid one);
     * a :class:`ColumnSpec` naming a field in ``sensitive_fields`` (refused,
       never hidden — Design §3.3's ``databaseColumns.tsx`` finding);
+    * a resource's ``list.envelope`` disagreeing with the ``envelope_paths``
+      entry for its kind, when the caller declares one — schema v2's
+      envelope check, see :class:`EnvelopeSpec`;
+    * ``manifest.operations.cancel_allowed`` or ``.show_logs`` being
+      ``True`` while the caller's ``supports_cancel``/
+      ``supports_operation_logs`` says the adapter offers no such
+      capability — schema v2's operations-honesty check;
     * ``manifest.product_type`` disagreeing with the adapter's own
       ``PRODUCT_TYPE``.
 
@@ -727,14 +979,23 @@ def validate_manifest(
     calls an adapter method, so requiring the full async Protocol would be
     an unrelated widening.
 
-    ``action_verbs`` and ``sensitive_fields`` are supplied by the caller
-    rather than read off ``adapter_cls`` directly: neither is part of the
-    :class:`~app.adapters.base.Adapter` Protocol today (widening it would
-    force every OTHER registered adapter — Nest, Tobogganing, the generic
-    fallback — to declare attributes they have no present need for, for the
-    sake of one product's manifest). Gough's own module-level ``_ACTIONS``
-    and (currently empty) ``SENSITIVE_FIELDS`` are the source of truth this
-    function is handed; see ``adapters/gough/manifest.py``.
+    ``action_verbs``, ``sensitive_fields``, ``envelope_paths``,
+    ``supports_cancel`` and ``supports_operation_logs`` are all supplied by
+    the caller rather than read off ``adapter_cls`` directly: none is part
+    of the :class:`~app.adapters.base.Adapter` Protocol today (widening it
+    would force every OTHER registered adapter — Nest, Tobogganing, the
+    generic fallback — to declare attributes they have no present need for,
+    for the sake of one product's manifest). Gough's own module-level
+    ``_ACTIONS``, ``SENSITIVE_FIELDS``, ``_ENVELOPE_PATHS`` and
+    ``SUPPORTS_OPERATION_CANCEL``/``SUPPORTS_OPERATION_LOGS`` are the source
+    of truth this function is handed; see ``adapters/gough/manifest.py``.
+
+    ``envelope_paths`` defaults to ``None`` (no check performed) rather than
+    an empty mapping raising for every kind — the same "supplied only when
+    the adapter has something non-trivial to say" idiom
+    ``sensitive_fields`` already uses; a kind absent from a non-``None``
+    mapping is likewise skipped, not refused, since the caller may only have
+    verified some of its resources' wire shapes.
     """
     adapter_product_type = adapter_cls.PRODUCT_TYPE
     if manifest.product_type != adapter_product_type:
@@ -745,6 +1006,22 @@ def validate_manifest(
 
     allowlist = adapter_cls.route_allowlist
 
+    if manifest.operations is not None:
+        if manifest.operations.cancel_allowed and not supports_cancel:
+            raise ManifestError(
+                f"{manifest.product_type}: operations.cancel_allowed=True but "
+                f"{adapter_cls.__name__} declares no cancellable operation kind "
+                f"(supports_cancel=False) — a manifest may not promise a Cancel "
+                f"control the adapter cannot honour"
+            )
+        if manifest.operations.show_logs and not supports_operation_logs:
+            raise ManifestError(
+                f"{manifest.product_type}: operations.show_logs=True but "
+                f"{adapter_cls.__name__} declares no log stream "
+                f"(supports_operation_logs=False) — a manifest may not promise a "
+                f"Show logs control the adapter cannot honour"
+            )
+
     for resource in manifest.resources:
         if resource.list is not None:
             path = resource.list.path_bytes
@@ -754,6 +1031,26 @@ def validate_manifest(
                     f"{path!r} is not admitted by any GET rule in "
                     f"{adapter_cls.__name__}.route_allowlist — a manifest may not "
                     f"declare a read path the adapter's proxy allowlist refuses"
+                )
+            if envelope_paths is not None and resource.kind in envelope_paths:
+                expected = envelope_paths[resource.kind]
+                if resource.list.envelope.keys != expected:
+                    raise ManifestError(
+                        f"{manifest.product_type}/{resource.kind}: list.envelope.keys "
+                        f"{resource.list.envelope.keys!r} does not match the adapter's "
+                        f"own real wire shape {expected!r} — a manifest may not "
+                        f"declare an unwrap path the product's own response does not "
+                        f"have"
+                    )
+
+        if resource.item_path is not None:
+            item_path = f"{resource.item_path.prefix}/{resource.item_path.sample_id}"
+            if not any(rule.matches("GET", item_path) for rule in allowlist):
+                raise ManifestError(
+                    f"{manifest.product_type}/{resource.kind}: item_path "
+                    f"{item_path!r} is not admitted by any GET rule in "
+                    f"{adapter_cls.__name__}.route_allowlist — a manifest may not "
+                    f"declare an item path the adapter's proxy allowlist refuses"
                 )
 
         allowed_verbs = action_verbs.get(resource.kind, frozenset())
@@ -806,11 +1103,14 @@ def apply_capabilities_overlay(
     missing capability     effect
     =====================  ===============================================
     ``list_resources``     every resource's ``list`` is dropped (None)
+    ``get_resource``       every resource's ``item_path`` is dropped (None)
     ``create_resource``    every resource's ``create`` is dropped (None)
     ``delete_resource``    every resource's ``delete`` is dropped (None)
     ``perform_action``     every resource's ``actions`` is emptied
     ``metrics_summary``    ``manifest.metrics`` is dropped (None)
     ``list_operations``    ``manifest.operations`` is dropped (None)
+    ``cancel_operation``   ``operations.cancel_allowed`` forced False
+    ``operation_logs``     ``operations.show_logs`` forced False
     =====================  ===============================================
 
     Nav items left pointing at a now-list-less resource are dropped from
@@ -821,9 +1121,12 @@ def apply_capabilities_overlay(
     """
     caps = frozenset(capabilities)
     drop_list = "list_resources" not in caps
+    drop_item_path = "get_resource" not in caps
     drop_create = "create_resource" not in caps
     drop_delete = "delete_resource" not in caps
     drop_actions = "perform_action" not in caps
+    drop_cancel = "cancel_operation" not in caps
+    drop_logs = "operation_logs" not in caps
 
     new_resources: list[ResourceDescriptor] = []
     for resource in manifest.resources:
@@ -839,6 +1142,7 @@ def apply_capabilities_overlay(
                 empty_state=resource.empty_state,
                 error_state=resource.error_state,
                 list=None if drop_list else resource.list,
+                item_path=None if drop_item_path else resource.item_path,
                 detail=resource.detail,
                 actions=() if drop_actions else resource.actions,
                 create=None if drop_create else resource.create,
@@ -852,13 +1156,22 @@ def apply_capabilities_overlay(
         items=tuple(item for item in manifest.nav.items if item.kind in listable_kinds)
     )
 
+    new_operations: OperationsSpec | None = None
+    if "list_operations" in caps and manifest.operations is not None:
+        new_operations = OperationsSpec(
+            label=manifest.operations.label,
+            poll_interval_seconds=manifest.operations.poll_interval_seconds,
+            cancel_allowed=False if drop_cancel else manifest.operations.cancel_allowed,
+            show_logs=False if drop_logs else manifest.operations.show_logs,
+        )
+
     return ConsoleManifest(
         manifest_version=manifest.manifest_version,
         product_type=manifest.product_type,
         display_name=manifest.display_name,
         nav=new_nav,
         resources=tuple(new_resources),
-        operations=None if "list_operations" not in caps else manifest.operations,
+        operations=new_operations,
         metrics=None if "metrics_summary" not in caps else manifest.metrics,
         extensions=manifest.extensions,
     )
