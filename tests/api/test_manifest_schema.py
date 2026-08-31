@@ -27,14 +27,17 @@ from typing import Any
 import pytest
 from app.adapters.base import RouteRule, product_scope
 from app.adapters.manifest import (
+    FIELD_TYPES,
     ActionSpec,
     CellSpec,
     ColumnSpec,
     ConsoleManifest,
     DeleteSpec,
+    EnvelopeSpec,
     ExtensionSlot,
     FormField,
     FormSpec,
+    ItemPathSpec,
     ListSpec,
     ManifestError,
     NavItem,
@@ -42,6 +45,7 @@ from app.adapters.manifest import (
     OperationsSpec,
     RelationshipSpec,
     ResourceDescriptor,
+    SelectOption,
     apply_capabilities_overlay,
     validate_manifest,
 )
@@ -184,7 +188,9 @@ def test_proxy_transport_with_a_plain_action_is_allowed() -> None:
 
 def test_nav_item_naming_an_undeclared_resource_is_refused() -> None:
     """Nav item naming an undeclared resource is refused."""
-    resource = _minimal_resource(list=ListSpec(path_bytes="/widgets/", envelope_key="widgets"))
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
     with pytest.raises(ManifestError, match="does not declare"):
         ConsoleManifest(
             manifest_version=1,
@@ -210,7 +216,9 @@ def test_nav_item_pointing_at_a_list_less_resource_is_refused() -> None:
 
 def test_extension_budget_of_two_per_product_is_enforced() -> None:
     """Extension budget of two per product is enforced."""
-    resource = _minimal_resource(list=ListSpec(path_bytes="/widgets/", envelope_key="widgets"))
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
     slots = tuple(
         ExtensionSlot(slot="detail_tab", id=f"acme.slot{i}", label=f"Slot {i}") for i in range(3)
     )
@@ -236,10 +244,13 @@ class _FakeAdapter:
     PRODUCT_TYPE = "acme"
     route_allowlist: list[RouteRule] = [
         RouteRule("GET", r"^/api/v1/widgets/?\Z", product_scope("acme", "read")),
+        RouteRule("GET", r"^/api/v1/widgets/\d+\Z", product_scope("acme", "read")),
     ]
 
 
-def _fake_manifest(resource: ResourceDescriptor) -> ConsoleManifest:
+def _fake_manifest(
+    resource: ResourceDescriptor, operations: OperationsSpec | None = None
+) -> ConsoleManifest:
     return ConsoleManifest(
         manifest_version=1,
         product_type="acme",
@@ -248,6 +259,7 @@ def _fake_manifest(resource: ResourceDescriptor) -> ConsoleManifest:
         if resource.list is not None
         else NavSpec(items=()),
         resources=(resource,),
+        operations=operations,
     )
 
 
@@ -259,7 +271,10 @@ def test_a_read_path_the_allowlist_does_not_admit_refuses_to_load() -> None:
     """
     resource = _minimal_resource(
         transport="proxy",
-        list=ListSpec(path_bytes="/api/v1/widgets/secret-admin-panel/", envelope_key="widgets"),
+        list=ListSpec(
+            path_bytes="/api/v1/widgets/secret-admin-panel/",
+            envelope=EnvelopeSpec(keys=("widgets",)),
+        ),
     )
     manifest = _fake_manifest(resource)
     with pytest.raises(ManifestError, match="is not admitted by any GET rule"):
@@ -269,10 +284,136 @@ def test_a_read_path_the_allowlist_does_not_admit_refuses_to_load() -> None:
 def test_an_admitted_read_path_loads_cleanly() -> None:
     """An admitted read path loads cleanly."""
     resource = _minimal_resource(
-        transport="proxy", list=ListSpec(path_bytes="/api/v1/widgets/", envelope_key="widgets")
+        transport="proxy",
+        list=ListSpec(path_bytes="/api/v1/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
     )
     manifest = _fake_manifest(resource)
     validate_manifest(manifest, _FakeAdapter, action_verbs={})  # must not raise
+
+
+def test_an_item_path_the_allowlist_does_not_admit_refuses_to_load() -> None:
+    """Schema v2's item-path proof, parallel to list.path_bytes' own.
+
+    A manifest naming an item route the adapter's route_allowlist does not
+    admit must refuse to load, exactly like an unadmitted list path.
+    """
+    resource = _minimal_resource(
+        transport="proxy",
+        item_path=ItemPathSpec(prefix="/api/v1/widgets/secret-admin-panel", sample_id="1"),
+    )
+    manifest = _fake_manifest(resource)
+    with pytest.raises(ManifestError, match="item_path .* is not admitted by any GET rule"):
+        validate_manifest(manifest, _FakeAdapter, action_verbs={})
+
+
+def test_an_admitted_item_path_loads_cleanly() -> None:
+    """An admitted item path loads cleanly."""
+    resource = _minimal_resource(
+        transport="proxy",
+        item_path=ItemPathSpec(prefix="/api/v1/widgets", sample_id="1"),
+    )
+    manifest = _fake_manifest(resource)
+    validate_manifest(manifest, _FakeAdapter, action_verbs={})  # must not raise
+
+
+def test_an_envelope_not_matching_the_adapters_declared_shape_refuses_to_load() -> None:
+    """Schema v2's envelope-honesty proof.
+
+    A manifest claiming a bare envelope for a resource the adapter says is
+    really wrapped in an outer ``data`` key (or vice versa) must refuse to
+    load — exactly the ``biome_groups`` trap ``EnvelopeSpec`` exists to
+    close, reproduced generically against the fake adapter.
+    """
+    resource = _minimal_resource(
+        transport="proxy",
+        list=ListSpec(path_bytes="/api/v1/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
+    )
+    manifest = _fake_manifest(resource)
+    with pytest.raises(ManifestError, match="does not match the adapter's own real wire shape"):
+        validate_manifest(
+            manifest,
+            _FakeAdapter,
+            action_verbs={},
+            envelope_paths={"widgets": ("data", "widgets")},
+        )
+
+
+def test_a_matching_envelope_loads_cleanly() -> None:
+    """A declared envelope matching the adapter's own shape loads cleanly."""
+    resource = _minimal_resource(
+        transport="proxy",
+        list=ListSpec(
+            path_bytes="/api/v1/widgets/", envelope=EnvelopeSpec(keys=("data", "widgets"))
+        ),
+    )
+    manifest = _fake_manifest(resource)
+    validate_manifest(
+        manifest,
+        _FakeAdapter,
+        action_verbs={},
+        envelope_paths={"widgets": ("data", "widgets")},
+    )  # must not raise
+
+
+def test_an_unlisted_kind_in_envelope_paths_is_not_checked() -> None:
+    """A kind absent from a supplied envelope_paths mapping is skipped, not refused.
+
+    ``envelope_paths`` may cover only some of an adapter's resources (the
+    caller may only have verified some of them) — a kind it says nothing
+    about must not be treated as a mismatch.
+    """
+    resource = _minimal_resource(
+        transport="proxy",
+        list=ListSpec(path_bytes="/api/v1/widgets/", envelope=EnvelopeSpec(keys=("anything",))),
+    )
+    manifest = _fake_manifest(resource)
+    validate_manifest(
+        manifest, _FakeAdapter, action_verbs={}, envelope_paths={}
+    )  # must not raise -- "widgets" is not a key in envelope_paths
+
+
+def test_operations_cancel_allowed_with_no_adapter_support_refuses_to_load() -> None:
+    """Schema v2's cancel-honesty proof.
+
+    A manifest may not declare ``operations.cancel_allowed=True`` when the
+    adapter offers no cancellable operation kind.
+    """
+    resource = _minimal_resource(
+        transport="proxy",
+        list=ListSpec(path_bytes="/api/v1/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
+    )
+    manifest = _fake_manifest(resource, operations=OperationsSpec(cancel_allowed=True))
+    with pytest.raises(ManifestError, match="operations.cancel_allowed=True but"):
+        validate_manifest(manifest, _FakeAdapter, action_verbs={}, supports_cancel=False)
+
+
+def test_operations_show_logs_with_no_adapter_support_refuses_to_load() -> None:
+    """A manifest may not declare ``operations.show_logs=True`` with no adapter log stream."""
+    resource = _minimal_resource(
+        transport="proxy",
+        list=ListSpec(path_bytes="/api/v1/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
+    )
+    manifest = _fake_manifest(resource, operations=OperationsSpec(show_logs=True))
+    with pytest.raises(ManifestError, match="operations.show_logs=True but"):
+        validate_manifest(manifest, _FakeAdapter, action_verbs={}, supports_operation_logs=False)
+
+
+def test_operations_cancel_allowed_with_adapter_support_loads_cleanly() -> None:
+    """A manifest's cancel_allowed/show_logs claim loads cleanly when the adapter backs it."""
+    resource = _minimal_resource(
+        transport="proxy",
+        list=ListSpec(path_bytes="/api/v1/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
+    )
+    manifest = _fake_manifest(
+        resource, operations=OperationsSpec(cancel_allowed=True, show_logs=True)
+    )
+    validate_manifest(
+        manifest,
+        _FakeAdapter,
+        action_verbs={},
+        supports_cancel=True,
+        supports_operation_logs=True,
+    )  # must not raise
 
 
 def test_an_action_verb_the_adapter_does_not_implement_refuses_to_load() -> None:
@@ -333,7 +474,7 @@ def test_overlay_strips_create_when_capability_is_missing() -> None:
     resource = _minimal_resource(
         transport="typed",
         create=FormSpec(fields=(FormField(name="name", label="Name"),), submit_label="Go"),
-        list=ListSpec(path_bytes="/widgets/", envelope_key="widgets"),
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
     )
     manifest = ConsoleManifest(
         manifest_version=1,
@@ -353,7 +494,8 @@ def test_overlay_strips_create_when_capability_is_missing() -> None:
 def test_overlay_never_adds_a_capability_the_manifest_did_not_declare() -> None:
     """Overlay never adds a capability the manifest did not declare."""
     resource = _minimal_resource(
-        transport="proxy", list=ListSpec(path_bytes="/widgets/", envelope_key="widgets")
+        transport="proxy",
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
     )
     manifest = ConsoleManifest(
         manifest_version=1,
@@ -377,7 +519,9 @@ def test_overlay_never_adds_a_capability_the_manifest_did_not_declare() -> None:
 
 def test_overlay_drops_nav_items_whose_resource_lost_its_list() -> None:
     """Overlay drops nav items whose resource lost its list."""
-    resource = _minimal_resource(list=ListSpec(path_bytes="/widgets/", envelope_key="widgets"))
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
     manifest = ConsoleManifest(
         manifest_version=1,
         product_type="acme",
@@ -390,6 +534,68 @@ def test_overlay_drops_nav_items_whose_resource_lost_its_list() -> None:
     got = overlaid.resource("widgets")
     assert got is not None
     assert got.list is None
+
+
+def test_overlay_strips_item_path_when_get_resource_capability_is_missing() -> None:
+    """Schema v2's item_path is subtract-only, matching every other field here."""
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
+        item_path=ItemPathSpec(prefix="/widgets", sample_id="1"),
+    )
+    manifest = _fake_manifest(resource)
+    overlaid = apply_capabilities_overlay(manifest, ["list_resources"])  # no "get_resource"
+    got = overlaid.resource("widgets")
+    assert got is not None
+    assert got.item_path is None
+
+
+def test_overlay_keeps_item_path_when_get_resource_capability_is_present() -> None:
+    """The subtraction is conditional, not unconditional -- proves the positive case too."""
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
+        item_path=ItemPathSpec(prefix="/widgets", sample_id="1"),
+    )
+    manifest = _fake_manifest(resource)
+    overlaid = apply_capabilities_overlay(manifest, ["list_resources", "get_resource"])
+    got = overlaid.resource("widgets")
+    assert got is not None
+    assert got.item_path == resource.item_path
+
+
+def test_overlay_forces_cancel_allowed_and_show_logs_false_when_capabilities_are_missing() -> None:
+    """A live connection that has lost cancel/log capability must lose the claim too.
+
+    Otherwise the overlay -- whose entire contract is "never gain, only
+    lose" -- would let a degraded connection keep advertising a Cancel
+    control it can no longer honour.
+    """
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
+    manifest = _fake_manifest(
+        resource, operations=OperationsSpec(cancel_allowed=True, show_logs=True)
+    )
+    overlaid = apply_capabilities_overlay(manifest, ["list_resources", "list_operations"])
+    assert overlaid.operations is not None
+    assert overlaid.operations.cancel_allowed is False
+    assert overlaid.operations.show_logs is False
+
+
+def test_overlay_keeps_cancel_allowed_and_show_logs_when_capabilities_are_present() -> None:
+    """The subtraction is conditional -- proves the positive case for operations too."""
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
+    manifest = _fake_manifest(
+        resource, operations=OperationsSpec(cancel_allowed=True, show_logs=True)
+    )
+    overlaid = apply_capabilities_overlay(
+        manifest,
+        ["list_resources", "list_operations", "cancel_operation", "operation_logs"],
+    )
+    assert overlaid.operations is not None
+    assert overlaid.operations.cancel_allowed is True
+    assert overlaid.operations.show_logs is True
 
 
 # ---------------------------------------------------------------------------
@@ -417,15 +623,51 @@ def test_column_spec_trivial_guards(kwargs: dict[str, Any], match: str) -> None:
 @pytest.mark.parametrize(
     "kwargs, match",
     [
-        ({"path_bytes": "widgets/", "envelope_key": "w"}, "must be an absolute path"),
-        ({"path_bytes": "/widgets/", "envelope_key": ""}, "envelope_key must not be empty"),
-        ({"path_bytes": "/widgets/", "envelope_key": "w", "pagination": "bogus"}, "is not one of"),
+        (
+            {"path_bytes": "widgets/", "envelope": EnvelopeSpec(keys=("w",))},
+            "must be an absolute path",
+        ),
+        (
+            {
+                "path_bytes": "/widgets/",
+                "envelope": EnvelopeSpec(keys=("w",)),
+                "pagination": "bogus",
+            },
+            "is not one of",
+        ),
     ],
 )
 def test_list_spec_trivial_guards(kwargs: dict[str, Any], match: str) -> None:
-    """ListSpec refuses a relative path, an empty envelope_key, or a bad pagination style."""
+    """ListSpec refuses a relative path or a bad pagination style."""
     with pytest.raises(ManifestError, match=match):
         ListSpec(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"keys": ()}, "keys must not be empty"),
+        ({"keys": ("data", "")}, "must not contain an empty key"),
+    ],
+)
+def test_envelope_spec_trivial_guards(kwargs: dict[str, Any], match: str) -> None:
+    """EnvelopeSpec refuses an empty path or a path containing an empty key."""
+    with pytest.raises(ManifestError, match=match):
+        EnvelopeSpec(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"prefix": "widgets", "sample_id": "1"}, "must be an absolute path"),
+        ({"prefix": "/widgets/", "sample_id": "1"}, "must not end with '/'"),
+        ({"prefix": "/widgets", "sample_id": ""}, "sample_id must not be empty"),
+    ],
+)
+def test_item_path_spec_trivial_guards(kwargs: dict[str, Any], match: str) -> None:
+    """ItemPathSpec refuses a relative or trailing-slash prefix, or an empty sample id."""
+    with pytest.raises(ManifestError, match=match):
+        ItemPathSpec(**kwargs)
 
 
 @pytest.mark.parametrize(
@@ -449,6 +691,55 @@ def test_form_field_trivial_guards(kwargs: dict[str, Any], match: str) -> None:
     """FormField refuses an empty name or label."""
     with pytest.raises(ManifestError, match=match):
         FormField(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"value": "", "label": "X"}, "value must not be empty"),
+        ({"value": "x", "label": ""}, "must declare a label"),
+    ],
+)
+def test_select_option_trivial_guards(kwargs: dict[str, Any], match: str) -> None:
+    """SelectOption refuses an unvalued or unlabelled option."""
+    with pytest.raises(ManifestError, match=match):
+        SelectOption(**kwargs)
+
+
+def test_form_field_with_a_field_type_outside_react_libs_union_is_refused() -> None:
+    """Schema v2's react-libs-conformance proof.
+
+    ``field_type`` must be one of react-libs' own closed ``FieldType``
+    union (:data:`FIELD_TYPES`) — a manifest naming anything else would be
+    silently unrenderable by ``FormBuilder``, so it is refused at
+    construction instead.
+    """
+    assert "html" not in FIELD_TYPES
+    with pytest.raises(ManifestError, match="not in react-libs' closed FieldType union"):
+        FormField(name="x", label="X", field_type="html")
+
+
+def test_form_field_with_every_real_field_type_is_accepted() -> None:
+    """Every real react-libs FieldType is accepted -- proves the union isn't over-tight."""
+    for field_type in sorted(FIELD_TYPES - {"select", "radio"}):
+        FormField(name="x", label="X", field_type=field_type)
+
+
+def test_select_field_type_with_no_options_is_refused() -> None:
+    """A ``select``/``radio`` field with no options would render an empty control."""
+    with pytest.raises(ManifestError, match="requires non-empty options"):
+        FormField(name="x", label="X", field_type="select")
+
+
+def test_select_field_type_with_options_loads_cleanly() -> None:
+    """A select field with real SelectOptions constructs cleanly."""
+    field = FormField(
+        name="x",
+        label="X",
+        field_type="select",
+        options=(SelectOption(value="a", label="A"), SelectOption(value="b", label="B")),
+    )
+    assert field.options[0].value == "a"
 
 
 def test_form_spec_with_no_fields_is_refused() -> None:
