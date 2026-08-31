@@ -28,6 +28,9 @@ export function DataTableLoading() {
 export interface DataTableErrorProps {
   error: Error;
   onRetry?: () => void;
+  /** Overrides the generic "Error loading data" heading — see
+   * `DataTableProps.errorTitle`'s doc for why this is optional and additive. */
+  title?: string;
 }
 
 /**
@@ -39,7 +42,11 @@ export interface DataTableErrorProps {
  * response marked `X-Portal-Upstream-Response` never renders its raw body
  * here either — see `lib/mutationError.ts`.
  */
-export function DataTableError({ error, onRetry }: DataTableErrorProps) {
+export function DataTableError({
+  error,
+  onRetry,
+  title = "Error loading data",
+}: DataTableErrorProps) {
   return (
     <div
       data-testid="datatable"
@@ -49,7 +56,7 @@ export function DataTableError({ error, onRetry }: DataTableErrorProps) {
       <div className="flex items-start gap-3">
         <AlertCircle size={20} className="shrink-0 mt-0.5" />
         <div className="flex-1">
-          <p className="font-semibold">Error loading data</p>
+          <p className="font-semibold">{title}</p>
           <p className="text-sm mt-1">{describeQueryError(error)}</p>
           {onRetry && (
             <button
@@ -110,11 +117,19 @@ export function DataTableStaleNotice({
   );
 }
 
+export interface DataTableEmptyProps {
+  /** Overrides the generic "No data available" copy — see
+   * `DataTableProps.emptyMessage`'s doc for why this is optional and additive. */
+  message?: string;
+}
+
 /** Successful query that returned no rows. */
-export function DataTableEmpty() {
+export function DataTableEmpty({
+  message = "No data available",
+}: DataTableEmptyProps) {
   return (
     <div data-testid="datatable-empty" className="w-full text-center py-8">
-      <p className="text-amber-400 font-medium">No data available</p>
+      <p className="text-amber-400 font-medium">{message}</p>
     </div>
   );
 }

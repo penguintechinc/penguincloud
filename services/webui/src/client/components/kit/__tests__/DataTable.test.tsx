@@ -67,6 +67,38 @@ describe("DataTable", () => {
     expect(screen.getByText("No data available")).toBeInTheDocument();
   });
 
+  it("honours emptyMessage over the generic fallback", () => {
+    // Added for the manifest-driven renderer (`ManifestResourceScreen`),
+    // which must show a resource's own declared `empty_state` copy rather
+    // than the generic "No data available" — additive, so every caller that
+    // does not pass this prop keeps today's copy (asserted above).
+    render(
+      <DataTable
+        columns={mockColumns}
+        data={[]}
+        emptyMessage="No nodes enrolled yet."
+      />,
+    );
+
+    expect(screen.getByText("No nodes enrolled yet.")).toBeInTheDocument();
+    expect(screen.queryByText("No data available")).not.toBeInTheDocument();
+  });
+
+  it("honours errorTitle over the generic heading, leaving the detail line untouched", () => {
+    render(
+      <DataTable
+        columns={mockColumns}
+        data={[]}
+        error={new Error("Failed to load")}
+        errorTitle="Unable to load nodes."
+      />,
+    );
+
+    expect(screen.getByText("Unable to load nodes.")).toBeInTheDocument();
+    expect(screen.getByText("Failed to load")).toBeInTheDocument();
+    expect(screen.queryByText("Error loading data")).not.toBeInTheDocument();
+  });
+
   it("does not render the raw body of an upstream-marked query error", () => {
     // Same provenance rule the mutation banner enforces
     // (`lib/mutationError.ts`, `describeQueryError`): a response the proxy

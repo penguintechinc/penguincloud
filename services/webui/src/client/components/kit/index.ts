@@ -43,6 +43,39 @@ export type {
   UseOperationLogsResult,
 } from "./operationsPanelTypes";
 
+// Phase 8 Step 3 — manifest-driven console renderer (behind
+// `penguincloud.declarative_console`, runs alongside the hand-written
+// product screens; see `ManifestResourceScreen.tsx`'s module doc).
+export {
+  ManifestResourceScreen,
+  type ManifestResourceScreenProps,
+} from "./ManifestResourceScreen";
+export { useConsoleManifests } from "./useConsoleManifests";
+export { useManifestOperations } from "./useManifestOperations";
+export {
+  renderCell,
+  resetUnknownCellKindWarnings,
+  type ManifestRow,
+} from "./manifestCells";
+export {
+  buildManifestListFetcher,
+  readManifestEnvelope,
+  toProxyPath,
+} from "./manifestListFetcher";
+export {
+  CELL_KINDS,
+  isCellKind,
+  findResource,
+  type CellKind,
+  type ConsoleManifest,
+  type ConsoleManifestsResponse,
+  type ProductManifestEntry,
+  type ResourceDescriptor,
+  type ColumnSpec,
+  type CellSpec,
+  type ListSpec,
+} from "./manifestTypes";
+
 // Note: Breadcrumbs, TenantScopeSwitcher, and ActingAsBanner are exported from their own files
 // directly, not through this barrel, since they have router/store dependencies
 // that make them unsuitable for all kit consumers.
