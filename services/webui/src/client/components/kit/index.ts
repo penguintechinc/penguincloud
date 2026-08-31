@@ -26,6 +26,15 @@ export {
 export { ActionButton } from "./ActionButton";
 export { FactList, type Fact } from "./FactList";
 export { RowOpenButtons } from "./RowOpenButtons";
+export { ProductScreen, type ProductScreenProps } from "./ProductScreen";
+export {
+  useActiveTenantId,
+  useProductConnection,
+  useProductResource,
+  type ProductConnectionState,
+  type UseProductResourceOptions,
+  type UseProductResourceResult,
+} from "./useProductResource";
 
 // Note: Breadcrumbs, TenantScopeSwitcher, and ActingAsBanner are exported from their own files
 // directly, not through this barrel, since they have router/store dependencies
