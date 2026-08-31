@@ -28,6 +28,14 @@ FLUTTER_VERSION := 3.38.9
 PORTAL_API_VENV := .venv
 PORTAL_API_PYTHON := python3.13
 
+# Project-local venv for the pcli CLI client (services/cli/). Same
+# isolation rationale as PORTAL_API_VENV above -- built ONLY from
+# services/cli/requirements.txt --require-hashes, kept entirely separate
+# from the portal-api venv since pcli is a standalone client, not a
+# dependency of the backend service.
+CLI_VENV := services/cli/.venv
+CLI_PYTHON := python3.13
+
 # Colors for output
 RED := \033[31m
 GREEN := \033[32m
@@ -614,6 +622,35 @@ test-api: venv-portal-api ## Testing - Run tests/ through the isolated venv (dec
 test-api-live: venv-portal-api ## Testing - Run the API suite with product checkouts REQUIRED (no silent skips)
 	@echo "$(BLUE)Running API tests with REQUIRE_PRODUCT_SOURCE=1...$(RESET)"
 	@REQUIRE_PRODUCT_SOURCE=1 $(PORTAL_API_VENV)/bin/python -m pytest tests/api -q
+
+venv-cli: ## Setup - Create/refresh the isolated pcli (services/cli) venv (idempotent)
+	@$(CLI_PYTHON) --version >/dev/null 2>&1 || (echo "$(RED)$(CLI_PYTHON) not installed$(RESET)" && exit 1)
+	@if [ ! -x "$(CLI_VENV)/bin/python" ]; then \
+		echo "$(BLUE)Creating $(CLI_VENV) ($(CLI_PYTHON))...$(RESET)"; \
+		$(CLI_PYTHON) -m venv $(CLI_VENV); \
+		$(CLI_VENV)/bin/python -m pip install --upgrade pip --quiet; \
+	fi
+	@reqs_hash=$$(sha256sum services/cli/requirements.txt | cut -d' ' -f1); \
+	stamp=$(CLI_VENV)/.requirements.sha256; \
+	if [ ! -f "$$stamp" ] || [ "$$(cat $$stamp 2>/dev/null)" != "$$reqs_hash" ]; then \
+		echo "$(BLUE)Installing services/cli/requirements.txt (--require-hashes)...$(RESET)"; \
+		$(CLI_VENV)/bin/pip install --require-hashes -r services/cli/requirements.txt || exit 1; \
+		echo "$$reqs_hash" > "$$stamp"; \
+		echo "$(GREEN)$(CLI_VENV) up to date$(RESET)"; \
+	else \
+		echo "$(GREEN)$(CLI_VENV) already up to date (requirements.txt unchanged)$(RESET)"; \
+	fi
+	@$(CLI_VENV)/bin/pip install -e services/cli --no-deps --quiet
+
+cli-test: venv-cli ## Testing - Run pcli's own test suite (services/cli/tests/) via its isolated venv
+	@echo "$(BLUE)Running services/cli/tests/ via $(CLI_VENV)...$(RESET)"
+	@cd services/cli && .venv/bin/python -m pytest tests/ -q --cov=pcli --cov-report=term-missing
+
+cli-lint: venv-cli ## Code Quality - Run pcli's own ruff + mypy --strict (services/cli/, self-contained pyproject.toml)
+	@echo "$(BLUE)Linting services/cli/...$(RESET)"
+	@cd services/cli && .venv/bin/ruff check src/ tests/
+	@cd services/cli && .venv/bin/ruff format --check src/ tests/
+	@cd services/cli && .venv/bin/mypy --strict src/pcli
 
 # Missing Standard Targets (added for standards compliance)
 test-unit: ## Testing - Run unit tests

@@ -1,0 +1,9 @@
+# Build/test artifacts local to this service. .venv/ and __pycache__/ are
+# already covered by the repo-root .gitignore; the rest (egg-info at this
+# src/ depth, .coverage, tool caches) are not, since the root patterns
+# don't match this directory depth.
+src/*.egg-info/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
