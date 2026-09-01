@@ -46,7 +46,24 @@ components:
 
         proxy by construction, so the owning :class:`ResourceDescriptor` MUST
 
-        be ``transport == "typed"`` whenever any of its actions sets this True.'
+        be ``transport == "typed"`` whenever any of its actions sets this True.
+
+
+        ``confirm`` MAY contain the literal token ``{name}`` — the renderer
+
+        substitutes it with the acted-on row''s ``name_field`` value before
+
+        display. Gough convergence finding (Phase 8 Step 5): ``NodesPage``''s
+
+        confirm copy is ``f"{action.confirmation} This affects node
+
+        "{selected.name}"."`` — a per-row fact a manifest string, composed
+
+        once at import time, cannot embed directly. ``{name}`` is the one
+
+        substitution this schema authorises; no other braced token is
+
+        interpreted (a manifest containing one renders it verbatim).'
       properties:
         confirm:
           anyOf:
@@ -252,7 +269,26 @@ components:
       title: CellSpec
       type: object
     ColumnSpec:
-      description: One column of a resource's list/detail table.
+      description: 'One column of a resource''s list/detail table.
+
+
+        ``fallback_fields`` is a schema generalisation from the Gough
+
+        convergence (Phase 8 Step 5): ``agentColumns.tsx``''s ``hostname`` column
+
+        renders ``String(value || row.agent_id || row.id)`` — the FIRST
+
+        non-null of a chain of fields on the same row, not a single
+
+        ``field`` binding. A plain ``field`` cannot express that fallback
+
+        chain, and it is not Gough-specific (any product whose primary display
+
+        field is sometimes absent needs the same "fall back to the id" idiom),
+
+        so it is a column-level list here rather than a one-off on
+
+        :class:`ResourceDescriptor`.'
       properties:
         absent_as:
           anyOf:
@@ -261,6 +297,13 @@ components:
           title: Absent As
         cell:
           $ref: '#/components/schemas/CellSpec'
+        fallback_fields:
+          default: []
+          items:
+            type: string
+          maxItems: 10000
+          title: Fallback Fields
+          type: array
         field:
           title: Field
           type: string
@@ -1199,13 +1242,13 @@ components:
       description: 'One resource kind: its shape, its columns, and how it is reached.
 
 
-        ``transport`` governs the TYPED-MUTATION surface (create/delete, and
+        ``transport`` governs the TYPED-MUTATION surface (create/edit/delete,
 
-        whether an operation-starting action is reachable), never reads. Every
+        and whether an operation-starting action is reachable), never reads.
 
-        read in this schema version — list AND detail — goes through the byte
+        Every read in this schema version — list AND detail — goes through the
 
-        proxy; that is the only read path this codebase has (see
+        byte proxy; that is the only read path this codebase has (see
 
         ``app/resources_api.py``''s module docstring: "Reads are not here").
 
@@ -1213,7 +1256,7 @@ components:
 
         version declares no mechanism for a proxy-transport resource to carry a
 
-        typed create/delete, or an action whose result the portal must
+        typed create/edit/delete, or an action whose result the portal must
 
         interpret (``starts_operations=True``) — both enforced below. A
 
@@ -1222,6 +1265,25 @@ components:
         through the ordinary allowlisted proxy POST (Gough''s own
 
         ``evacuate``/``reject``/``suspend``/``resume`` all qualify).
+
+
+        ``edit`` (:class:`FormSpec` or ``None``) is the exact parallel of
+
+        ``create`` for an update: same dataclass, same field-level validation
+
+        (``FormField.field_type`` closed to :data:`FIELD_TYPES`,
+
+        select/radio requiring options), just posted against the existing row
+
+        instead of a new one. Gough convergence finding (Phase 8 Step 5):
+
+        ``BiomesPage`` opens the SAME ``FormModalBuilder`` for both "New biome"
+
+        and "Edit biome", so a manifest resource with editable rows needs a
+
+        form to describe here — schema v2 had no field for this at all, only
+
+        ``create``.
 
 
         ``list`` is ``None`` for a resource with no collection endpoint at all
@@ -1281,6 +1343,10 @@ components:
             - type: 'null'
         detail:
           $ref: '#/components/schemas/DetailSpec'
+        edit:
+          anyOf:
+            - $ref: '#/components/schemas/FormSpec'
+            - type: 'null'
         empty_state:
           title: Empty State
           type: string

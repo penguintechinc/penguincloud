@@ -146,16 +146,25 @@ def test_malformed_absent_as_spelling_is_refused() -> None:
 
 def test_proxy_transport_with_create_is_refused() -> None:
     """Proxy transport with create is refused."""
-    with pytest.raises(ManifestError, match="declares create/delete"):
+    with pytest.raises(ManifestError, match="declares create/edit/delete"):
         _minimal_resource(
             transport="proxy",
             create=FormSpec(fields=(FormField(name="name", label="Name"),), submit_label="Go"),
         )
 
 
+def test_proxy_transport_with_edit_is_refused() -> None:
+    """Proxy transport with edit is refused — the exact parallel of create/delete."""
+    with pytest.raises(ManifestError, match="declares create/edit/delete"):
+        _minimal_resource(
+            transport="proxy",
+            edit=FormSpec(fields=(FormField(name="name", label="Name"),), submit_label="Save"),
+        )
+
+
 def test_proxy_transport_with_delete_is_refused() -> None:
     """Proxy transport with delete is refused."""
-    with pytest.raises(ManifestError, match="declares create/delete"):
+    with pytest.raises(ManifestError, match="declares create/edit/delete"):
         _minimal_resource(transport="proxy", delete=DeleteSpec(confirm="Delete?"))
 
 
@@ -450,6 +459,56 @@ def test_a_sensitive_field_named_in_a_column_is_refused_not_hidden() -> None:
         )
 
 
+def test_a_sensitive_field_named_in_a_columns_fallback_fields_is_refused_not_hidden() -> None:
+    """The ``fallback_fields`` refusal is the same rule as ``field``'s, not a loophole.
+
+    Gough convergence finding (Phase 8 Step 5): ``agentColumns.tsx``'s
+    hostname fallback chain reads ``row.agent_id`` then ``row.id`` when
+    ``hostname`` is absent. A fallback chain that silently reached a
+    sensitive field would leak it into a rendered cell exactly as surely as
+    naming it in ``field`` would — this proves the gate bites there too,
+    not just on the primary field.
+    """
+    resource = _minimal_resource(
+        columns=(
+            _text_column("id"),
+            ColumnSpec(
+                field="hostname",
+                label="Hostname",
+                cell=CellSpec(kind="text"),
+                fallback_fields=("agent_id", "secret_token"),
+            ),
+        ),
+    )
+    manifest = _fake_manifest(resource)
+    with pytest.raises(ManifestError, match="fallback_fields names a field .* marks sensitive"):
+        validate_manifest(
+            manifest,
+            _FakeAdapter,
+            action_verbs={},
+            sensitive_fields=frozenset({"secret_token"}),
+        )
+
+
+def test_a_non_sensitive_fallback_chain_loads_cleanly() -> None:
+    """The positive case for the fallback-fields sensitive-field gate."""
+    resource = _minimal_resource(
+        columns=(
+            _text_column("id"),
+            ColumnSpec(
+                field="hostname",
+                label="Hostname",
+                cell=CellSpec(kind="text"),
+                fallback_fields=("agent_id", "id"),
+            ),
+        ),
+    )
+    manifest = _fake_manifest(resource)
+    validate_manifest(
+        manifest, _FakeAdapter, action_verbs={}, sensitive_fields=frozenset({"secret_token"})
+    )  # must not raise
+
+
 def test_product_type_mismatch_between_manifest_and_adapter_refuses_to_load() -> None:
     """Product type mismatch between manifest and adapter refuses to load."""
     resource = _minimal_resource()
@@ -491,6 +550,46 @@ def test_overlay_strips_create_when_capability_is_missing() -> None:
     assert got.delete is None
 
 
+def test_overlay_strips_edit_when_capability_is_missing() -> None:
+    """Overlay strips edit when update_resource capability is missing -- create's exact parallel."""
+    resource = _minimal_resource(
+        transport="typed",
+        edit=FormSpec(fields=(FormField(name="name", label="Name"),), submit_label="Save"),
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
+    )
+    manifest = ConsoleManifest(
+        manifest_version=1,
+        product_type="acme",
+        display_name="Acme",
+        nav=NavSpec(items=(NavItem(kind="widgets", label="Widgets"),)),
+        resources=(resource,),
+    )
+    overlaid = apply_capabilities_overlay(manifest, ["list_resources"])  # no "update_resource"
+    got = overlaid.resource("widgets")
+    assert got is not None
+    assert got.edit is None
+
+
+def test_overlay_keeps_edit_when_capability_is_present() -> None:
+    """The subtraction is conditional -- proves the positive case for edit too."""
+    resource = _minimal_resource(
+        transport="typed",
+        edit=FormSpec(fields=(FormField(name="name", label="Name"),), submit_label="Save"),
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",))),
+    )
+    manifest = ConsoleManifest(
+        manifest_version=1,
+        product_type="acme",
+        display_name="Acme",
+        nav=NavSpec(items=(NavItem(kind="widgets", label="Widgets"),)),
+        resources=(resource,),
+    )
+    overlaid = apply_capabilities_overlay(manifest, ["list_resources", "update_resource"])
+    got = overlaid.resource("widgets")
+    assert got is not None
+    assert got.edit == resource.edit
+
+
 def test_overlay_never_adds_a_capability_the_manifest_did_not_declare() -> None:
     """Overlay never adds a capability the manifest did not declare."""
     resource = _minimal_resource(
@@ -505,14 +604,21 @@ def test_overlay_never_adds_a_capability_the_manifest_did_not_declare() -> None:
         resources=(resource,),
     )
     # Every capability present -- the overlay must still not manufacture a
-    # create/delete/actions surface the committed manifest never declared.
+    # create/edit/delete/actions surface the committed manifest never declared.
     overlaid = apply_capabilities_overlay(
         manifest,
-        ["list_resources", "create_resource", "delete_resource", "perform_action"],
+        [
+            "list_resources",
+            "create_resource",
+            "update_resource",
+            "delete_resource",
+            "perform_action",
+        ],
     )
     got = overlaid.resource("widgets")
     assert got is not None
     assert got.create is None
+    assert got.edit is None
     assert got.delete is None
     assert got.actions == ()
 
@@ -612,12 +718,35 @@ def test_overlay_keeps_cancel_allowed_and_show_logs_when_capabilities_are_presen
     [
         ({"field": "", "label": "X"}, "field must not be empty"),
         ({"field": "x", "label": ""}, "must declare a label"),
+        (
+            {"field": "x", "label": "X", "fallback_fields": ("",)},
+            "must be a plain identifier",
+        ),
+        (
+            {"field": "x", "label": "X", "fallback_fields": ("row.id",)},
+            "must be a plain identifier",
+        ),
+        (
+            {"field": "x", "label": "X", "fallback_fields": ("row['id']",)},
+            "must be a plain identifier",
+        ),
     ],
 )
 def test_column_spec_trivial_guards(kwargs: dict[str, Any], match: str) -> None:
-    """ColumnSpec refuses an empty field or label."""
+    """ColumnSpec refuses an empty field/label or a non-identifier fallback field."""
     with pytest.raises(ManifestError, match=match):
         ColumnSpec(cell=CellSpec(kind="text"), **kwargs)
+
+
+def test_column_spec_with_plain_identifier_fallback_fields_loads_cleanly() -> None:
+    """The positive case: real field names construct cleanly as fallback_fields."""
+    column = ColumnSpec(
+        field="hostname",
+        label="Hostname",
+        cell=CellSpec(kind="text"),
+        fallback_fields=("agent_id", "id"),
+    )
+    assert column.fallback_fields == ("agent_id", "id")
 
 
 @pytest.mark.parametrize(
@@ -752,6 +881,52 @@ def test_form_spec_with_no_submit_label_is_refused() -> None:
     """FormSpec refuses an empty submit label."""
     with pytest.raises(ManifestError, match="submit_label must not be empty"):
         FormSpec(fields=(FormField(name="n", label="N"),), submit_label="")
+
+
+# ---------------------------------------------------------------------------
+# ResourceDescriptor.edit -- exact parallel of .create
+# ---------------------------------------------------------------------------
+
+
+def test_resource_descriptor_edit_is_validated_the_same_way_as_create() -> None:
+    """``edit`` runs through the identical FormSpec/FormField construction as ``create``.
+
+    Proves the "same __post_init__ validation as create" claim directly: a
+    field_type outside react-libs' closed union refuses to load whether it
+    is declared on ``create`` or ``edit``.
+    """
+    with pytest.raises(ManifestError, match="not in react-libs' closed FieldType union"):
+        _minimal_resource(
+            transport="typed",
+            edit=FormSpec(
+                fields=(FormField(name="x", label="X", field_type="html"),),
+                submit_label="Save",
+            ),
+        )
+
+
+def test_resource_descriptor_edit_with_a_real_form_loads_cleanly() -> None:
+    """A well-formed edit FormSpec loads cleanly, independent of create."""
+    resource = _minimal_resource(
+        transport="typed",
+        edit=FormSpec(fields=(FormField(name="name", label="Name"),), submit_label="Save"),
+    )
+    assert resource.edit is not None
+    assert resource.edit.submit_label == "Save"
+    assert resource.create is None  # edit does not imply create
+
+
+def test_resource_descriptor_with_edit_and_create_and_delete_all_declared() -> None:
+    """A resource may declare create, edit and delete independently."""
+    resource = _minimal_resource(
+        transport="typed",
+        create=FormSpec(fields=(FormField(name="name", label="Name"),), submit_label="Create"),
+        edit=FormSpec(fields=(FormField(name="name", label="Name"),), submit_label="Save"),
+        delete=DeleteSpec(confirm="Delete?"),
+    )
+    assert resource.create is not None
+    assert resource.edit is not None
+    assert resource.delete is not None
 
 
 @pytest.mark.parametrize(

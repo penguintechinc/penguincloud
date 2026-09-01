@@ -322,7 +322,18 @@ class CellSpec:
 
 @dataclass(slots=True, frozen=True)
 class ColumnSpec:
-    """One column of a resource's list/detail table."""
+    """One column of a resource's list/detail table.
+
+    ``fallback_fields`` is a schema generalisation from the Gough
+    convergence (Phase 8 Step 5): ``agentColumns.tsx``'s ``hostname`` column
+    renders ``String(value || row.agent_id || row.id)`` — the FIRST
+    non-null of a chain of fields on the same row, not a single
+    ``field`` binding. A plain ``field`` cannot express that fallback
+    chain, and it is not Gough-specific (any product whose primary display
+    field is sometimes absent needs the same "fall back to the id" idiom),
+    so it is a column-level list here rather than a one-off on
+    :class:`ResourceDescriptor`.
+    """
 
     field: str
     label: str
@@ -331,14 +342,26 @@ class ColumnSpec:
     #: Required for every non-``text`` cell kind — see :data:`CELL_KINDS`
     #: and :func:`_require_absent_as`.
     absent_as: str | None = None
+    #: Additional field names to try, in order, when ``field`` is null —
+    #: the renderer shows the first non-null of ``[field, *fallback_fields]``.
+    #: Each entry is validated the same way ``field`` is validated against
+    #: an adapter's sensitive-field set: refused, never silently hidden, by
+    #: :func:`validate_manifest`.
+    fallback_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        """Refuse an empty field/label and a missing/malformed absent_as."""
+        """Refuse an empty field/label, a malformed absent_as, or a non-identifier fallback."""
         if not self.field:
             raise ManifestError("ColumnSpec.field must not be empty")
         if not self.label:
             raise ManifestError(f"ColumnSpec {self.field!r} must declare a label")
         _require_absent_as(self.cell, self.absent_as)
+        for fallback in self.fallback_fields:
+            if not fallback or not fallback.isidentifier():
+                raise ManifestError(
+                    f"ColumnSpec {self.field!r}: fallback_fields entry {fallback!r} "
+                    f"must be a plain identifier, not a computed expression or path"
+                )
 
 
 @dataclass(slots=True, frozen=True)
@@ -608,13 +631,22 @@ class FormSpec:
 
 @dataclass(slots=True, frozen=True)
 class ActionSpec:
-    """One non-CRUD verb offered on a resource row.
+    r"""One non-CRUD verb offered on a resource row.
 
     ``starts_operations`` is the field :func:`validate_manifest` and Design
     §3.3 both key off: an action that starts pollable work returns
     ``ActionResult.operations``, which is unreachable through the byte
     proxy by construction, so the owning :class:`ResourceDescriptor` MUST
     be ``transport == "typed"`` whenever any of its actions sets this True.
+
+    ``confirm`` MAY contain the literal token ``{name}`` — the renderer
+    substitutes it with the acted-on row's ``name_field`` value before
+    display. Gough convergence finding (Phase 8 Step 5): ``NodesPage``'s
+    confirm copy is ``f"{action.confirmation} This affects node
+    \"{selected.name}\"."`` — a per-row fact a manifest string, composed
+    once at import time, cannot embed directly. ``{name}`` is the one
+    substitution this schema authorises; no other braced token is
+    interpreted (a manifest containing one renders it verbatim).
     """
 
     verb: str
@@ -668,18 +700,28 @@ class DeleteSpec:
 class ResourceDescriptor:
     """One resource kind: its shape, its columns, and how it is reached.
 
-    ``transport`` governs the TYPED-MUTATION surface (create/delete, and
-    whether an operation-starting action is reachable), never reads. Every
-    read in this schema version — list AND detail — goes through the byte
-    proxy; that is the only read path this codebase has (see
+    ``transport`` governs the TYPED-MUTATION surface (create/edit/delete,
+    and whether an operation-starting action is reachable), never reads.
+    Every read in this schema version — list AND detail — goes through the
+    byte proxy; that is the only read path this codebase has (see
     ``app/resources_api.py``'s module docstring: "Reads are not here").
     ``transport == "proxy"`` means "no typed mutation backing": this schema
     version declares no mechanism for a proxy-transport resource to carry a
-    typed create/delete, or an action whose result the portal must
+    typed create/edit/delete, or an action whose result the portal must
     interpret (``starts_operations=True``) — both enforced below. A
     proxy-transport resource MAY still declare a plain action reachable
     through the ordinary allowlisted proxy POST (Gough's own
     ``evacuate``/``reject``/``suspend``/``resume`` all qualify).
+
+    ``edit`` (:class:`FormSpec` or ``None``) is the exact parallel of
+    ``create`` for an update: same dataclass, same field-level validation
+    (``FormField.field_type`` closed to :data:`FIELD_TYPES`,
+    select/radio requiring options), just posted against the existing row
+    instead of a new one. Gough convergence finding (Phase 8 Step 5):
+    ``BiomesPage`` opens the SAME ``FormModalBuilder`` for both "New biome"
+    and "Edit biome", so a manifest resource with editable rows needs a
+    form to describe here — schema v2 had no field for this at all, only
+    ``create``.
 
     ``list`` is ``None`` for a resource with no collection endpoint at all
     (Gough's ``clusters`` — see ``adapters/gough/manifest.py`` for why it is
@@ -714,6 +756,7 @@ class ResourceDescriptor:
     detail: DetailSpec = field(default_factory=DetailSpec)
     actions: tuple[ActionSpec, ...] = ()
     create: FormSpec | None = None
+    edit: FormSpec | None = None
     delete: DeleteSpec | None = None
     relationships: tuple[RelationshipSpec, ...] = ()
 
@@ -722,8 +765,8 @@ class ResourceDescriptor:
 
         Raises on: an empty identity field, an unrecognised transport, no
         columns, empty state copy, a duplicate column field, a
-        ``proxy``-transport resource declaring ``create``/``delete`` (this
-        schema has no typed-mutation dispatch for a proxy-transport
+        ``proxy``-transport resource declaring ``create``/``edit``/``delete``
+        (this schema has no typed-mutation dispatch for a proxy-transport
         resource), OR — Design §3.3's named rule, checked exactly as
         written rather than folded into a broader ban — any action with
         ``starts_operations=True`` on a resource that is not
@@ -755,12 +798,12 @@ class ResourceDescriptor:
         seen_fields = {column.field for column in self.columns}
         if len(seen_fields) != len(self.columns):
             raise ManifestError(f"ResourceDescriptor {self.kind!r} has duplicate column fields")
-        if self.transport == "proxy" and (self.create or self.delete):
+        if self.transport == "proxy" and (self.create or self.edit or self.delete):
             raise ManifestError(
                 f"ResourceDescriptor {self.kind!r}: transport is 'proxy' but declares "
-                f"create/delete — this schema version has no typed-mutation dispatch "
-                f"for a proxy-transport resource; set transport='typed' if it really "
-                f"has one"
+                f"create/edit/delete — this schema version has no typed-mutation "
+                f"dispatch for a proxy-transport resource; set transport='typed' if it "
+                f"really has one"
             )
         for action in self.actions:
             if action.starts_operations and self.transport != "typed":
@@ -960,8 +1003,9 @@ def validate_manifest(
       that resource kind (an unknown verb refuses to load — distinct from
       Design §3.4's client-side "hide it", which handles a renderer older
       than a valid manifest, not an invalid one);
-    * a :class:`ColumnSpec` naming a field in ``sensitive_fields`` (refused,
-      never hidden — Design §3.3's ``databaseColumns.tsx`` finding);
+    * a :class:`ColumnSpec` naming a field — via ``field`` OR
+      ``fallback_fields`` — in ``sensitive_fields`` (refused, never hidden
+      — Design §3.3's ``databaseColumns.tsx`` finding);
     * a resource's ``list.envelope`` disagreeing with the ``envelope_paths``
       entry for its kind, when the caller declares one — schema v2's
       envelope check, see :class:`EnvelopeSpec`;
@@ -1083,6 +1127,14 @@ def validate_manifest(
                     f"names a field {adapter_cls.__name__} marks sensitive — refused, "
                     f"not hidden, per Design §3.3"
                 )
+            for fallback in column.fallback_fields:
+                if fallback in sensitive_fields:
+                    raise ManifestError(
+                        f"{manifest.product_type}/{resource.kind}: column "
+                        f"{column.field!r} fallback_fields names a field "
+                        f"{adapter_cls.__name__} marks sensitive ({fallback!r}) — "
+                        f"refused, not hidden, per Design §3.3"
+                    )
 
 
 def apply_capabilities_overlay(
@@ -1105,6 +1157,7 @@ def apply_capabilities_overlay(
     ``list_resources``     every resource's ``list`` is dropped (None)
     ``get_resource``       every resource's ``item_path`` is dropped (None)
     ``create_resource``    every resource's ``create`` is dropped (None)
+    ``update_resource``    every resource's ``edit`` is dropped (None)
     ``delete_resource``    every resource's ``delete`` is dropped (None)
     ``perform_action``     every resource's ``actions`` is emptied
     ``metrics_summary``    ``manifest.metrics`` is dropped (None)
@@ -1123,6 +1176,7 @@ def apply_capabilities_overlay(
     drop_list = "list_resources" not in caps
     drop_item_path = "get_resource" not in caps
     drop_create = "create_resource" not in caps
+    drop_edit = "update_resource" not in caps
     drop_delete = "delete_resource" not in caps
     drop_actions = "perform_action" not in caps
     drop_cancel = "cancel_operation" not in caps
@@ -1146,6 +1200,7 @@ def apply_capabilities_overlay(
                 detail=resource.detail,
                 actions=() if drop_actions else resource.actions,
                 create=None if drop_create else resource.create,
+                edit=None if drop_edit else resource.edit,
                 delete=None if drop_delete else resource.delete,
                 relationships=resource.relationships,
             )
