@@ -1,0 +1,77 @@
+[project]
+# Distribution name is "penguincloud-cli", NOT "pcli" -- the PyPI name
+# "pcli" is already registered to an unrelated project (verified at
+# authoring time). The COMMAND the user types stays `pcli` (see
+# [project.scripts] below); only the package a `pip install` would name
+# differs. Update this comment if the distribution is ever actually
+# published and the name is revisited.
+name = "penguincloud-cli"
+version = "0.1.0"
+description = "pcli -- the PenguinCloud portal command-line client. Its command tree is discovered from each connected product's manifest, not compiled per-product."
+requires-python = ">=3.13"
+readme = { text = "pcli: a manifest-discovered CLI for the PenguinCloud portal.", content-type = "text/plain" }
+license = { text = "Proprietary" }
+
+dependencies = [
+    "click>=8.1.7",
+    "httpx>=0.28.0",
+    "keyring>=25.5.0",
+    "jmespath>=1.0.1",
+    "PyYAML>=6.0.2",
+]
+
+[project.scripts]
+# The BINARY name is `pcli` regardless of the distribution name above.
+pcli = "pcli.cli:main"
+
+[build-system]
+requires = ["setuptools>=75.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# PEP 561 marker -- ships this package's own inline types to anything that
+# imports it (this repo's own tests/, a future consumer). Without it mypy
+# degrades every `from pcli... import ...` to "installed but missing
+# library stubs" and silently stops checking the imported names.
+pcli = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.report]
+# Org standard (client.md / critical-rules.md Coverage): 90% minimum.
+fail_under = 90
+show_missing = true
+
+[tool.coverage.run]
+source = ["src/pcli"]
+
+[tool.ruff]
+# Ruff config discovery walks UP from the target file to the nearest
+# pyproject.toml that has a [tool.ruff] table -- a pyproject.toml with NONE
+# (this file, before this section existed) is skipped over, not treated as
+# "ruff config: defaults". Without this table, `ruff check services/cli/`
+# silently inherited the REPO ROOT's [tool.ruff] instead -- same rule
+# `select`, but its `per-file-ignores` "tests/**" pattern matches only
+# root-level tests/, never services/cli/tests/, so every `assert` in this
+# service's own test suite flagged S101. Declared explicitly here so this
+# service's lint config is self-contained, matching backend-python.md's
+# canonical settings byte-for-byte.
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# Same S101/S105/S106/S107 pytest-assert/fixture-literal false-positive
+# class the repo root ignores for its own tests/** -- see that file's
+# comment for the full rationale (S603 omitted: no subprocess calls here).
+"tests/**" = ["S101", "S105", "S106", "S107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
