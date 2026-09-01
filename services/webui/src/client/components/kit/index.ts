@@ -60,6 +60,17 @@ export {
 } from "./ManifestCreateForm";
 export { useConsoleManifests } from "./useConsoleManifests";
 export {
+  ProductResourceRoute,
+  type ProductResourceRouteProps,
+} from "./ProductResourceRoute";
+export {
+  RESOURCE_CAPABILITIES,
+  SUPPORTED_CAPABILITIES,
+  requiredCapabilities,
+  isManifestRoutable,
+  type ResourceCapability,
+} from "./manifestCapabilities";
+export {
   useManifestOperations,
   useCancelManifestOperation,
   useManifestOperationLogs,

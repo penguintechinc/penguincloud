@@ -20,6 +20,7 @@ import ConnectionDetail from "./pages/connections/ConnectionDetail";
 import AuditLog from "./pages/audit/AuditLog";
 import ProductPage from "./pages/products/ProductPage";
 import Teams from "./pages/Teams";
+import { ProductResourceRoute } from "./components/kit";
 import NodesPage from "./pages/products/gough/NodesPage";
 import BiomesPage from "./pages/products/gough/BiomesPage";
 import AgentsPage from "./pages/products/gough/AgentsPage";
@@ -132,18 +133,74 @@ function App() {
 
         {/* Gough. No RoleGuard: authority is a scope question answered
             server-side; flag + connection gating live in GoughScreen. No
-            Clusters route — see menuCategories.ts. */}
-        <Route path="/products/gough/nodes" element={<NodesPage />} />
-        <Route path="/products/gough/biomes" element={<BiomesPage />} />
-        <Route path="/products/gough/agents" element={<AgentsPage />} />
+            Clusters route — see menuCategories.ts.
+
+            Each route is wrapped in `ProductResourceRoute`, the generic
+            capability-subset gate (`manifestCapabilities.ts`): with
+            `penguincloud.declarative_console` off, or for any resource whose
+            manifest declares more than the renderer can yet reproduce
+            losslessly, this renders the hand-written page below completely
+            unchanged — Gough's manifest declares operations/actions/create
+            on every resource, so today it always falls back here. */}
+        <Route
+          path="/products/gough/nodes"
+          element={
+            <ProductResourceRoute
+              productType="gough"
+              kind="nodes"
+              fallback={NodesPage}
+            />
+          }
+        />
+        <Route
+          path="/products/gough/biomes"
+          element={
+            <ProductResourceRoute
+              productType="gough"
+              kind="biomes"
+              fallback={BiomesPage}
+            />
+          }
+        />
+        <Route
+          path="/products/gough/agents"
+          element={
+            <ProductResourceRoute
+              productType="gough"
+              kind="agents"
+              fallback={AgentsPage}
+            />
+          }
+        />
 
         {/* Nest. No RoleGuard, for the same reason as Gough: authority is a
             scope question answered server-side, and flag + connection gating
             live in NestScreen. No Servers/Cloud/Workflows routes — those
             services are not reachable at a Nest connection's origin, see
-            menuCategories.ts. */}
-        <Route path="/products/nest/databases" element={<DatabasesPage />} />
-        <Route path="/products/nest/billing" element={<BillingPage />} />
+            menuCategories.ts. Nest has no committed manifest yet
+            (`adapters/nest` carries none), so `ProductResourceRoute` always
+            falls back here today — wrapped anyway so Nest picks up manifest
+            routing for free the moment one is committed. */}
+        <Route
+          path="/products/nest/databases"
+          element={
+            <ProductResourceRoute
+              productType="nest"
+              kind="databases"
+              fallback={DatabasesPage}
+            />
+          }
+        />
+        <Route
+          path="/products/nest/billing"
+          element={
+            <ProductResourceRoute
+              productType="nest"
+              kind="billing"
+              fallback={BillingPage}
+            />
+          }
+        />
 
         {/* Tobogganing. No RoleGuard, for the same reason as Gough and Nest.
             No Firewall or Headend routes: those are Tobogganing's MACHINE
@@ -151,20 +208,61 @@ function App() {
             token whose `aud` is not "headend". A portal connection credential
             carries aud=="tobogganing", so no screen can ever be backed by
             them — an audience mismatch, not a scope one. See
-            menuCategories.ts and task-4T-report.md. */}
-        <Route path="/products/tobogganing/clients" element={<ClientsPage />} />
+            menuCategories.ts and task-4T-report.md.
+
+            Tobogganing's resources are read-only (no operations/actions/
+            create declared anywhere in its manifest), so once
+            `penguincloud.declarative_console` is on, these ARE the
+            resources that route through `ManifestResourceScreen`. */}
+        <Route
+          path="/products/tobogganing/clients"
+          element={
+            <ProductResourceRoute
+              productType="tobogganing"
+              kind="sdwan_client"
+              fallback={ClientsPage}
+            />
+          }
+        />
         <Route
           path="/products/tobogganing/clusters"
-          element={<ClustersPage />}
+          element={
+            <ProductResourceRoute
+              productType="tobogganing"
+              kind="sdwan_cluster"
+              fallback={ClustersPage}
+            />
+          }
         />
-        <Route path="/products/tobogganing/peers" element={<PeersPage />} />
+        <Route
+          path="/products/tobogganing/peers"
+          element={
+            <ProductResourceRoute
+              productType="tobogganing"
+              kind="wireguard_peer"
+              fallback={PeersPage}
+            />
+          }
+        />
         <Route
           path="/products/tobogganing/block-pages"
-          element={<BlockPagesPage />}
+          element={
+            <ProductResourceRoute
+              productType="tobogganing"
+              kind="block_page"
+              fallback={BlockPagesPage}
+            />
+          }
         />
         <Route
           path="/products/tobogganing/swg-policy"
-          element={<SwgPolicyPage />}
+          element={
+            <ProductResourceRoute
+              productType="tobogganing"
+              kind="swg_policy"
+              fallback={SwgPolicyPage}
+            />
+          }
         />
 
         {/* Settings - Maintainer and Admin */}
