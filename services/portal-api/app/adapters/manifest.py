@@ -643,7 +643,7 @@ class ActionSpec:
     substitutes it with the acted-on row's ``name_field`` value before
     display. Gough convergence finding (Phase 8 Step 5): ``NodesPage``'s
     confirm copy is ``f"{action.confirmation} This affects node
-    \"{selected.name}\"."`` — a per-row fact a manifest string, composed
+    "{selected.name}"."`` — a per-row fact a manifest string, composed
     once at import time, cannot embed directly. ``{name}`` is the one
     substitution this schema authorises; no other braced token is
     interpreted (a manifest containing one renders it verbatim).
