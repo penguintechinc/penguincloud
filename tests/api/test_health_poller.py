@@ -285,11 +285,14 @@ async def test_one_connections_failure_does_not_affect_another(
 ) -> None:
     """Requirement 4: "one connection's failure never affects others".
 
-    waddleai is a valid PRODUCT_TYPES entry with no ADAPTER_REGISTRY entry
+    marchproxy is a valid PRODUCT_TYPES entry with no ADAPTER_REGISTRY entry
     (get_adapter raises ValueError), sitting in the same sweep as a
-    healthy generic connection.
+    healthy generic connection. Phase 8 registered waddleai as an active
+    adapter (see app.adapters.MANIFEST_REGISTRY), so it no longer serves as
+    this "no adapter at all" example — marchproxy remains in
+    PLANNED_PRODUCTS with none.
     """
-    broken = await _register_connection(client, admin_headers, tenant_id, product_type="waddleai")
+    broken = await _register_connection(client, admin_headers, tenant_id, product_type="marchproxy")
     healthy = await _register_connection(client, admin_headers, tenant_id, product_type="generic")
 
     async with app.app_context():
@@ -300,7 +303,7 @@ async def test_one_connections_failure_does_not_affect_another(
 
     assert broken_entry is not None
     assert broken_entry.status == "unhealthy"
-    assert broken_entry.error is not None and "waddleai" in broken_entry.error
+    assert broken_entry.error is not None and "marchproxy" in broken_entry.error
 
     # generic's real health() hits transport against an unreachable
     # https://example.invalid base_url, so it also reports unhealthy --
@@ -348,18 +351,22 @@ async def test_poll_error_increments_the_error_counter(
     admin_headers: dict[str, str],
     tenant_id: int,
 ) -> None:
-    """Requirement 2: "counter poll errors" — only for a raised/timed-out check."""
-    conn = await _register_connection(client, admin_headers, tenant_id, product_type="waddleai")
+    """Requirement 2: "counter poll errors" — only for a raised/timed-out check.
+
+    marchproxy, not waddleai — see the module note above
+    ``test_one_connections_failure_does_not_affect_another`` for why.
+    """
+    conn = await _register_connection(client, admin_headers, tenant_id, product_type="marchproxy")
 
     before = health_poller.POLL_ERRORS_COUNTER.labels(
-        connection=str(conn["id"]), product="waddleai"
+        connection=str(conn["id"]), product="marchproxy"
     )._value.get()
 
     async with app.app_context():
         await health_poller.run_sweep()
 
     after = health_poller.POLL_ERRORS_COUNTER.labels(
-        connection=str(conn["id"]), product="waddleai"
+        connection=str(conn["id"]), product="marchproxy"
     )._value.get()
 
     assert after == before + 1

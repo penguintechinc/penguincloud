@@ -31,6 +31,8 @@ from .manifest import ConsoleManifest
 from .nest import NestAdapter
 from .tobogganing import TobogganingAdapter
 from .tobogganing.manifest import TOBOGGANING_MANIFEST
+from .waddleai import WaddleAIAdapter
+from .waddleai.manifest import WADDLEAI_MANIFEST
 
 __all__ = [
     "ADAPTER_REGISTRY",
@@ -53,6 +55,7 @@ ADAPTER_REGISTRY: dict[str, type[Adapter]] = {
     "gough": GoughAdapter,
     "nest": NestAdapter,
     "tobogganing": TobogganingAdapter,
+    "waddleai": WaddleAIAdapter,
     # Health-only fallback with an empty proxy allowlist. Present so an
     # operator can register and monitor an endpoint the portal has no
     # specific integration for, without that endpoint becoming proxyable.
@@ -73,6 +76,7 @@ ADAPTER_REGISTRY: dict[str, type[Adapter]] = {
 MANIFEST_REGISTRY: dict[str, ConsoleManifest] = {
     "gough": GOUGH_MANIFEST,
     "tobogganing": TOBOGGANING_MANIFEST,
+    "waddleai": WADDLEAI_MANIFEST,
 }
 
 #: Products with no adapter. Catalogue entries only — get_adapter() raises
@@ -82,7 +86,6 @@ PLANNED_PRODUCTS: Final[dict[str, dict[str, str]]] = {
     "squawk": {"display_name": "Squawk", "category": "dns"},
     "license_server": {"display_name": "License Server", "category": "licensing"},
     "skauswatch": {"display_name": "SkausWatch", "category": "monitoring"},
-    "waddleai": {"display_name": "WaddleAI", "category": "ai"},
     "articdbm": {"display_name": "ArticDBM", "category": "database"},
     "cerberus": {"display_name": "Cerberus", "category": "security"},
     "waddlebot": {"display_name": "Waddles", "category": "community"},

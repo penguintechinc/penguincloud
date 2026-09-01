@@ -58,6 +58,7 @@ class TestRegistrySplit:
             "gough",
             "nest",
             "tobogganing",
+            "waddleai",
             "generic",
         }
 
@@ -85,7 +86,8 @@ class TestRegistrySplit:
     def test_metadata_reports_status_for_each_tier(self) -> None:
         """Catalogue metadata distinguishes active, planned and unknown."""
         assert get_adapter_metadata("gough")["status"] == "active"
-        assert get_adapter_metadata("waddleai")["status"] == "planned"
+        assert get_adapter_metadata("waddleai")["status"] == "active"
+        assert get_adapter_metadata("marchproxy")["status"] == "planned"
         assert get_adapter_metadata("nonsense")["status"] == "unknown"
 
     def test_catalogue_covers_both_tiers(self) -> None:

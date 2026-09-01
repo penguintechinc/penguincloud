@@ -29,6 +29,9 @@ from app.adapters.manifest import _RouteSourceAdapter, apply_capabilities_overla
 from app.adapters.tobogganing.adapter import TobogganingAdapter
 from app.adapters.tobogganing.manifest import _ACTION_VERBS as _TOBOGGANING_ACTION_VERBS
 from app.adapters.tobogganing.manifest import _ENVELOPE_PATHS as _TOBOGGANING_ENVELOPE_PATHS
+from app.adapters.waddleai.adapter import WaddleAIAdapter
+from app.adapters.waddleai.manifest import _ACTION_VERBS as _WADDLEAI_ACTION_VERBS
+from app.adapters.waddleai.manifest import _ENVELOPE_PATHS as _WADDLEAI_ENVELOPE_PATHS
 
 
 @dataclass(slots=True, frozen=True)
@@ -63,6 +66,14 @@ _CONFORMANCE_INPUTS: Final[dict[str, _ConformanceInputs]] = {
         action_verbs=dict(_TOBOGGANING_ACTION_VERBS),
         sensitive_fields=frozenset(),
         envelope_paths=_TOBOGGANING_ENVELOPE_PATHS,
+        supports_cancel=False,
+        supports_operation_logs=False,
+    ),
+    "waddleai": _ConformanceInputs(
+        adapter_cls=WaddleAIAdapter,
+        action_verbs=dict(_WADDLEAI_ACTION_VERBS),
+        sensitive_fields=frozenset(),
+        envelope_paths=_WADDLEAI_ENVELOPE_PATHS,
         supports_cancel=False,
         supports_operation_logs=False,
     ),
