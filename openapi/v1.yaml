@@ -3611,6 +3611,137 @@ paths:
 
             can attribute the answer without tracking request order.'
       summary: Delete one resource from the connected product.
+    put:
+      description: '
+
+        Typed for the same reason create is: the adapter maps the product''s own
+
+        not-found/conflict response onto the shared taxonomy, which a proxied
+
+        write cannot interpret — see the module docstring. Requires ``manage``,
+
+        the same scope create and delete require, since an update is a mutation.'
+      operationId: put_update_resource
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: resource_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Wire shape for one resource.
+
+
+                  A named projection rather than the dataclass itself, for the reason
+
+                  :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+
+                  adapter''s free-form bag with no declared schema, so publishing it wholesale
+
+                  would make every key an adapter happens to stash there part of the portal''s
+
+                  wire contract by accident.
+
+
+                  ``operation_id`` is the one thing lifted out of it, and only because the
+
+                  contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+
+                  for exactly this purpose — a create the product completes asynchronously.
+
+                  ``None`` means the create finished synchronously, which is how the UI tells
+
+                  "nothing to poll" from "poll this".'
+                properties:
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  id:
+                    title: Id
+                    type: string
+                  kind:
+                    title: Kind
+                    type: string
+                  name:
+                    title: Name
+                    type: string
+                  operation_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Operation Id
+                  parent_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Parent Id
+                  parent_kind:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Parent Kind
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Status
+                  updated_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Updated At
+                required:
+                  - id
+                  - kind
+                  - name
+                  - status
+                  - parent_id
+                  - parent_kind
+                  - operation_id
+                  - created_at
+                  - updated_at
+                title: ResourceView
+                type: object
+          description: 'Wire shape for one resource.
+
+
+            A named projection rather than the dataclass itself, for the reason
+
+            :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+
+            adapter''s free-form bag with no declared schema, so publishing it wholesale
+
+            would make every key an adapter happens to stash there part of the portal''s
+
+            wire contract by accident.
+
+
+            ``operation_id`` is the one thing lifted out of it, and only because the
+
+            contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+
+            for exactly this purpose — a create the product completes asynchronously.
+
+            ``None`` means the create finished synchronously, which is how the UI tells
+
+            "nothing to poll" from "poll this".'
+      summary: Update one resource in the connected product.
   /api/v1/products/{product_id}/resources/{kind}/{resource_id}/actions/{action}:
     post:
       description: '

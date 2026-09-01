@@ -1,11 +1,13 @@
-"""Typed resource create/delete: the routes Nest's writes had no path to.
+"""Typed resource create/update/delete: the routes Nest's writes had no path to.
 
 Nest's proxy allowlist is deliberately GET-only — every Nest write answers
 ``202`` with an ``operationId``, which :mod:`app.adapters.base` puts on a typed
 adapter method rather than the byte-pipe proxy. ``create_resource`` and
 ``delete_resource`` were therefore implemented and verified against a live
 Nest in Session 1, and reachable by nothing: no HTTP route exposed them, so a
-Databases screen could list and act but not create or delete.
+Databases screen could list and act but not create or delete. ``update_resource``
+was added later, for Gough's manifest-console ``edit`` capability, and had the
+same gap: implemented and tested at the adapter layer, unreachable over HTTP.
 
 These tests cover the route layer only. What the adapter does with Nest is
 covered exhaustively in ``test_nest_adapter.py`` (including against a live
@@ -123,6 +125,7 @@ class StubAdapter:
 
     seen_ctx: Any = None
     seen_create: Any = None
+    seen_update: Any = None
     seen_delete: Any = None
     resource: Resource | None = None
     raises: Exception | None = None
@@ -134,6 +137,17 @@ class StubAdapter:
         """Return the staged resource or raise the staged error."""
         StubAdapter.seen_ctx = ctx
         StubAdapter.seen_create = (kind, payload)
+        if StubAdapter.raises is not None:
+            raise StubAdapter.raises
+        assert StubAdapter.resource is not None
+        return StubAdapter.resource
+
+    async def update_resource(
+        self, kind: str, resource_id: str, payload: dict[str, Any], ctx: Any
+    ) -> Resource:
+        """Return the staged resource or raise the staged error."""
+        StubAdapter.seen_ctx = ctx
+        StubAdapter.seen_update = (kind, resource_id, payload)
         if StubAdapter.raises is not None:
             raise StubAdapter.raises
         assert StubAdapter.resource is not None
@@ -155,6 +169,7 @@ def _stub_adapter(monkeypatch: pytest.MonkeyPatch) -> Any:
     StubAdapter.seen_ctx = None
     StubAdapter.seen_create = None
     StubAdapter.seen_delete = None
+    StubAdapter.seen_update = None
     monkeypatch.setitem(
         __import__("app.adapters", fromlist=["ADAPTER_REGISTRY"]).ADAPTER_REGISTRY,
         "nest",
@@ -324,6 +339,137 @@ class TestCreate:
         # see adapters/base.py UPSTREAM_RESPONSE_HEADER on why it is not
         # worth excepting the ones that happen not to carry upstream text.
         assert response.headers.get("X-Portal-Upstream-Response") == "true"
+
+
+@pytest.mark.asyncio
+class TestUpdate:
+    """The route the manifest console's ``edit`` capability calls.
+
+    Typed for the same reason create is — see the module docstring — and
+    required ``manage``, since an update mutates product state exactly as
+    create does.
+    """
+
+    async def test_update_returns_the_updated_row(self, client: Any, app: Quart) -> None:
+        """A successful update reports the resource the product returned."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.resource = _resource(name="orders-renamed", status="active")
+
+        response = await client.put(
+            f"/api/v1/products/{conn_id}/resources/database/orders-primary",
+            headers=headers,
+            json={"name": "orders-renamed"},
+        )
+
+        assert response.status_code == 200, await response.get_json()
+        body = await response.get_json()
+        assert body["id"] == "orders-primary"
+        assert body["name"] == "orders-renamed"
+        assert body["status"] == "active"
+        assert StubAdapter.seen_update == (
+            "database",
+            "orders-primary",
+            {"name": "orders-renamed"},
+        )
+
+    async def test_a_non_object_body_is_refused(self, client: Any, app: Quart) -> None:
+        """A list or a bare string is not an update payload."""
+        conn_id, headers = await _setup(client, app)
+
+        response = await client.put(
+            f"/api/v1/products/{conn_id}/resources/database/orders-primary",
+            headers=headers,
+            json=["not", "an", "object"],
+        )
+
+        assert response.status_code == 400
+        assert StubAdapter.seen_update is None
+
+    async def test_an_unsupported_update_is_not_implemented(self, client: Any, app: Quart) -> None:
+        """501, the same clean error create's unsupported-kind case uses."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.raises = AdapterCapabilityError("nest does not support updating 'widget'")
+
+        response = await client.put(
+            f"/api/v1/products/{conn_id}/resources/widget/w1",
+            headers=headers,
+            json={"name": "w"},
+        )
+
+        assert response.status_code == 501
+        assert response.headers.get("X-Portal-Upstream-Response") == "true"
+
+    async def test_a_still_referenced_resource_answers_409(self, client: Any, app: Quart) -> None:
+        """The same conflict taxonomy delete uses applies to update."""
+        conn_id, headers = await _setup(client, app)
+        StubAdapter.raises = ResourceConflictError("resource is still referenced")
+
+        response = await client.put(
+            f"/api/v1/products/{conn_id}/resources/database/orders-primary",
+            headers=headers,
+            json={"name": "n"},
+        )
+
+        assert response.status_code == 409
+
+    async def test_a_non_member_gets_404_not_403(self, client: Any, app: Quart) -> None:
+        """Same tenant-isolation oracle guard create and delete get."""
+        _, owner_email = await _register(client)
+        owner_headers = await _headers(client, owner_email)
+        tenant_id = await _create_tenant(client, owner_headers)
+        conn_id = await _create_connection(app, tenant_id)
+
+        _, other_email = await _register(client)
+        other_headers = await _headers(client, other_email)
+
+        response = await client.put(
+            f"/api/v1/products/{conn_id}/resources/database/n",
+            headers=other_headers,
+            json={"name": "n"},
+        )
+
+        assert response.status_code == 404
+        assert StubAdapter.seen_update is None
+
+    async def test_read_scope_cannot_update(self, client: Any, app: Quart) -> None:
+        """Update mutates product state, so it requires ``manage`` too."""
+        conn_id, headers = await _setup(client, app)
+
+        async def _read_only(user_id: int, tenant_id: int) -> list[str]:
+            return ["products:nest:read"]
+
+        with _patched_scopes(_read_only):
+            response = await client.put(
+                f"/api/v1/products/{conn_id}/resources/database/n",
+                headers=headers,
+                json={"name": "n"},
+            )
+
+        assert response.status_code == 403, "read scope reached a mutating route"
+        assert StubAdapter.seen_update is None
+
+    async def test_a_deactivated_connection_is_refused(self, client: Any, app: Quart) -> None:
+        """The kill switch the proxy honours applies here too."""
+        conn_id, headers = await _setup(client, app, is_active=False)
+
+        response = await client.put(
+            f"/api/v1/products/{conn_id}/resources/database/n",
+            headers=headers,
+            json={"name": "n"},
+        )
+
+        assert response.status_code == 403
+        assert StubAdapter.seen_update is None
+
+    async def test_an_anonymous_caller_is_rejected(self, client: Any, app: Quart) -> None:
+        """No token, no route."""
+        conn_id, _ = await _setup(client, app)
+
+        response = await client.put(
+            f"/api/v1/products/{conn_id}/resources/database/n", json={"name": "n"}
+        )
+
+        assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -544,11 +690,17 @@ class TestProductCoverage:
             headers=headers,
             json={"name": "x"},
         )
+        updated = await client.put(
+            f"/api/v1/products/{conn_id}/resources/thing/x",
+            headers=headers,
+            json={"name": "x"},
+        )
         deleted = await client.delete(
             f"/api/v1/products/{conn_id}/resources/thing/x", headers=headers
         )
 
         assert created.status_code == 501, await created.get_json()
+        assert updated.status_code == 501, await updated.get_json()
         assert deleted.status_code == 501, await deleted.get_json()
 
     @pytest.mark.parametrize("product_type", ["tobogganing", "generic"])
@@ -596,6 +748,7 @@ class TestGoughThroughTheTypedRoutes:
         )
         StubAdapter.raises = None
         StubAdapter.seen_create = None
+        StubAdapter.seen_update = None
         StubAdapter.seen_delete = None
         monkeypatch.setitem(
             __import__("app.adapters", fromlist=["ADAPTER_REGISTRY"]).ADAPTER_REGISTRY,
@@ -640,6 +793,24 @@ class TestGoughThroughTheTypedRoutes:
 
         assert (await response.get_json())["operation_id"] is None
 
+    async def test_update_reaches_the_gough_adapter(self, client: Any, app: Quart) -> None:
+        """The route the manifest console's biome ``edit`` capability calls.
+
+        Gough's adapter has ``update_resource`` (nodes take PATCH, biomes and
+        groups take PUT internally) — this is what the frontend's edit action
+        had no HTTP route to reach before this route existed.
+        """
+        conn_id, headers = await _setup(client, app, product_type="gough")
+
+        response = await client.put(
+            f"/api/v1/products/{conn_id}/resources/biomes/biome-1",
+            headers=headers,
+            json={"name": "edge-renamed"},
+        )
+
+        assert response.status_code == 200, await response.get_json()
+        assert StubAdapter.seen_update == ("biomes", "biome-1", {"name": "edge-renamed"})
+
     async def test_delete_reaches_the_gough_adapter(self, client: Any, app: Quart) -> None:
         """The delete path is equally live for Gough, and equally untested."""
         conn_id, headers = await _setup(client, app, product_type="gough")
@@ -670,7 +841,7 @@ class TestGoughThroughTheTypedRoutes:
 
         assert response.status_code == 501
 
-    async def test_read_scope_cannot_create_or_delete_for_gough(
+    async def test_read_scope_cannot_create_update_or_delete_for_gough(
         self, client: Any, app: Quart
     ) -> None:
         """The manage requirement is per-route, not per-product."""
@@ -685,13 +856,20 @@ class TestGoughThroughTheTypedRoutes:
                 headers=headers,
                 json={"name": "edge"},
             )
+            updated = await client.put(
+                f"/api/v1/products/{conn_id}/resources/biomes/b1",
+                headers=headers,
+                json={"name": "edge"},
+            )
             deleted = await client.delete(
                 f"/api/v1/products/{conn_id}/resources/biomes/b1", headers=headers
             )
 
         assert created.status_code == 403
+        assert updated.status_code == 403
         assert deleted.status_code == 403
         assert StubAdapter.seen_create is None
+        assert StubAdapter.seen_update is None
         assert StubAdapter.seen_delete is None
 
 
@@ -741,6 +919,23 @@ class TestTheModuleKillSwitchReachesTheTypedSurface:
         # adapter is built, so a disabled module's credential is never even
         # decrypted.
         assert StubAdapter.seen_create is None
+
+    async def test_resource_update_is_refused(
+        self, client: Any, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A killed product flag refuses resource update before the adapter builds."""
+        conn_id, headers = await _setup(client, app)
+        self._kill(monkeypatch)
+
+        response = await client.put(
+            f"/api/v1/products/{conn_id}/resources/database/orders-primary",
+            headers=headers,
+            json={"name": "orders-renamed"},
+        )
+
+        assert response.status_code == 403
+        assert (await response.get_json())["error"] == "feature_disabled"
+        assert StubAdapter.seen_update is None
 
     async def test_resource_delete_is_refused(
         self, client: Any, app: Quart, monkeypatch: pytest.MonkeyPatch

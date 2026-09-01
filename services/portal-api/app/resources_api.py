@@ -1,9 +1,10 @@
-"""Typed create and delete for a connected product's resources.
+"""Typed create, update and delete for a connected product's resources.
 
 Routes (under ``/api/v1/products/<product_id>``):
 
 =====================================  ==========================================
 ``POST   /resources/<kind>``           create; returns the row and any poll handle
+``PUT    /resources/<kind>/<id>``      update; returns the row
 ``DELETE /resources/<kind>/<id>``      delete
 =====================================  ==========================================
 
@@ -41,8 +42,8 @@ Security
 ========
 Authorisation is :func:`app.product_access.resolve_product_context`, shared
 verbatim with :mod:`app.operations_api`: membership, then scope, then
-credential decryption, and 404 rather than 403 for a non-member. Creates and
-deletes both require ``manage``.
+credential decryption, and 404 rather than 403 for a non-member. Creates,
+updates and deletes all require ``manage``.
 
 ``kind`` is never interpolated into a product URL here — the adapter validates
 it against its own literal table and raises
@@ -182,6 +183,39 @@ async def create_resource(product_id: int, kind: str) -> tuple[Any, int]:
         extra={"product_id": product_id, "kind": kind, "resource_id": resource.id},
     )
     return ResourceView.of(resource), 201
+
+
+@resources_bp.route("/<int:product_id>/resources/<kind>/<resource_id>", methods=["PUT"])
+@auth_required
+@tenancy_aware
+@validate_response(ResourceView, 200)
+async def update_resource(product_id: int, kind: str, resource_id: str) -> tuple[Any, int]:
+    """Update one resource in the connected product.
+
+    Typed for the same reason create is: the adapter maps the product's own
+    not-found/conflict response onto the shared taxonomy, which a proxied
+    write cannot interpret — see the module docstring. Requires ``manage``,
+    the same scope create and delete require, since an update is a mutation.
+    """
+    ctx, product_type, error = await resolve_product_context(product_id, ACTION_MANAGE)
+    if error is not None or ctx is None or product_type is None:
+        return error or NOT_FOUND
+
+    body = await request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return {"error": "request body must be a JSON object"}, 400
+
+    adapter = get_adapter(product_type, ctx)
+    try:
+        resource = await adapter.update_resource(kind, resource_id, body, ctx)
+    except AdapterError as exc:
+        return adapter_failure(exc, product_id, f"update_resource:{kind}")
+
+    logger.info(
+        "resource_updated",
+        extra={"product_id": product_id, "kind": kind, "resource_id": resource.id},
+    )
+    return ResourceView.of(resource), 200
 
 
 @resources_bp.route("/<int:product_id>/resources/<kind>/<resource_id>", methods=["DELETE"])
