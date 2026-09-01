@@ -401,6 +401,113 @@ jobs:
           flags: backend
           fail_ci_if_error: true
 
+  test-cli:
+    name: CLI tests (isolated venv)
+    # services/cli (pcli) is a separate, independently-versioned Python
+    # package -- its own pyproject.toml, its own hash-pinned
+    # requirements.txt, its own venv (Makefile's CLI_VENV) -- with zero CI
+    # coverage before this job. mypy.ini already documents the reason it
+    # excludes services/cli/ from the shared root .venv checks: pcli's own
+    # strict gate is `make cli-lint`, run through services/cli/.venv where
+    # its dependencies (click, httpx, keyring, ...) genuinely resolve. This
+    # job is that gate, in CI, mirroring test-backend's isolated-venv
+    # pattern above rather than folding pcli into that job's own venv.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.13'
+
+      - name: Create the isolated pcli venv
+        # Deliberately uncached -- see the lint job's equivalent step for
+        # why (zizmor cache-poisoning on a pull_request-triggered
+        # workflow). Builds services/cli/.venv from services/cli/
+        # requirements.txt (--require-hashes) and editable-installs pcli
+        # itself -- see Makefile's venv-cli target.
+        run: make venv-cli
+
+      - name: Ruff + mypy --strict (pcli's own self-contained config)
+        # make cli-lint == ruff check + ruff format --check + mypy
+        # --strict src/pcli, all through services/cli/.venv -- NOT the
+        # root mypy.ini, which explicitly excludes services/cli/ (see that
+        # file's header comment): checking pcli's source through the
+        # portal-api venv degrades every third-party symbol (click, httpx,
+        # keyring) to Any and trips disallow_subclassing_any for reasons
+        # that have nothing to do with pcli's own code. This target IS
+        # pcli's strict gate, against the venv where those dependencies
+        # genuinely resolve -- verified clean locally (24 source files).
+        run: make cli-lint
+
+      - name: Bandit (SAST)
+        # bandit==1.9.4 is hash-pinned in services/cli/requirements.txt
+        # (same pin the pre-commit bandit hook uses for the rest of the
+        # repo), run here directly rather than through pre-commit so this
+        # job stands alone and gates on its own exit code, not on the
+        # separate `security` job's `pre-commit run --hook-stage
+        # pre-push --all-files` also happening to cover this path.
+        # -ll matches the root Makefile's own bandit invocation
+        # (`make test-security`) -- Low-severity/Low-confidence findings
+        # are measured (2 present, both below this floor) but do not gate.
+        run: services/cli/.venv/bin/bandit -r services/cli/src -ll --quiet
+
+      - name: Run pcli test suite with coverage gate
+        # Same two-independent-dimensions gate as test-backend's "Backend
+        # coverage gate" step above, via the same
+        # scripts/check-coverage-dimensions.py (see that script's own
+        # docstring for why --cov-branch alone would blend lines+branches
+        # into one misleading percentage instead of two honest ones).
+        # --cov-fail-under=0 is deliberate, not "no gate" -- it stops
+        # pytest-cov falling back to services/cli/pyproject.toml's
+        # [tool.coverage.report] fail_under=90 (a blended figure) and
+        # reporting THAT as the failure instead of the dimension-gated
+        # numbers below. rootdir is services/cli (its own pyproject.toml/
+        # tests config), not the repo root -- pcli has no dependency on
+        # anything under services/portal-api.
+        #
+        # Same 90% line / 86% branch floors as test-backend -- both
+        # measured comfortably clear locally: 989/1013 = 97.63% line,
+        # 170/192 = 88.54% branch, 168 passed / 0 failed / 0 skipped.
+        working-directory: services/cli
+        run: |
+          .venv/bin/python -m pytest tests/ -q -rs \
+            --cov=pcli --cov-branch \
+            --cov-report=xml:coverage-cli.xml \
+            --cov-report=json:coverage-cli.json \
+            --cov-report=term-missing \
+            --cov-fail-under=0 \
+            | tee pytest-cli.log
+
+          .venv/bin/python ../../scripts/check-coverage-dimensions.py \
+            coverage-cli.json --min-lines 90 --min-branches 86
+
+      - name: Surface skipped tests in the job summary
+        if: always()
+        run: |
+          {
+            echo '## CLI test summary'
+            echo
+            echo '```'
+            grep -E '^(SKIPPED|[0-9]+ (passed|failed|skipped|xfailed|error))' services/cli/pytest-cli.log || true
+            echo '```'
+            skip_count=$(grep -c '^SKIPPED' services/cli/pytest-cli.log || true)
+            echo
+            echo "${skip_count:-0} test(s) skipped in this job"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
+        if: always()
+        with:
+          name: coverage-cli
+          path: services/cli/coverage-cli.xml
+          retention-days: 14
+
   test-webui:
     name: WebUI tests (jest, 90% threshold per jest.config.js)
     runs-on: ubuntu-latest

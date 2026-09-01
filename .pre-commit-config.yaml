@@ -107,6 +107,20 @@ repos:
         entry: scripts/hooks/run-mypy.sh
         language: script
         types: [python]
+        # services/cli (pcli) is a separate, independently-versioned
+        # package with its own pyproject.toml/venv/pinned deps
+        # (services/cli/requirements.txt) -- this hook's mypy runs from
+        # THIS REPO's .venv (portal-api's own), which never installs
+        # pcli's deps (keyring, click, ...). Passing pcli's files to that
+        # mypy degrades every third-party symbol to Any and trips
+        # disallow_subclassing_any for reasons with nothing to do with
+        # pcli's own code (mypy's `exclude` config option only applies to
+        # its own directory walk, not to explicitly-passed file paths --
+        # doesn't help here, hence excluding at the pre-commit level
+        # instead). pcli's own strict gate is `make cli-lint`, which runs
+        # against services/cli/.venv where these dependencies genuinely
+        # resolve -- verified clean there.
+        exclude: ^services/cli/
         # Without this, pre-commit partitions the file list across
         # target_concurrency() parallel processes (see xargs.py) that all
         # write to the same .mypy_cache/ by default. That race is exactly
