@@ -30,6 +30,7 @@ from .gough.manifest import GOUGH_MANIFEST
 from .manifest import ConsoleManifest
 from .nest import NestAdapter
 from .tobogganing import TobogganingAdapter
+from .tobogganing.manifest import TOBOGGANING_MANIFEST
 
 __all__ = [
     "ADAPTER_REGISTRY",
@@ -71,6 +72,7 @@ ADAPTER_REGISTRY: dict[str, type[Adapter]] = {
 #: ``validate_manifest`` call at the bottom of the file.
 MANIFEST_REGISTRY: dict[str, ConsoleManifest] = {
     "gough": GOUGH_MANIFEST,
+    "tobogganing": TOBOGGANING_MANIFEST,
 }
 
 #: Products with no adapter. Catalogue entries only — get_adapter() raises
