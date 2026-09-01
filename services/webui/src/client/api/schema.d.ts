@@ -992,7 +992,14 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    put?: never;
+    /**
+     * Update one resource in the connected product.
+     * @description Typed for the same reason create is: the adapter maps the product's own
+     *     not-found/conflict response onto the shared taxonomy, which a proxied
+     *     write cannot interpret — see the module docstring. Requires ``manage``,
+     *     the same scope create and delete require, since an update is a mutation.
+     */
+    put: operations["put_update_resource"];
     post?: never;
     /**
      * Delete one resource from the connected product.
@@ -1719,6 +1726,15 @@ export interface components {
      *     ``ActionResult.operations``, which is unreachable through the byte
      *     proxy by construction, so the owning :class:`ResourceDescriptor` MUST
      *     be ``transport == "typed"`` whenever any of its actions sets this True.
+     *
+     *     ``confirm`` MAY contain the literal token ``{name}`` — the renderer
+     *     substitutes it with the acted-on row's ``name_field`` value before
+     *     display. Gough convergence finding (Phase 8 Step 5): ``NodesPage``'s
+     *     confirm copy is ``f"{action.confirmation} This affects node
+     *     "{selected.name}"."`` — a per-row fact a manifest string, composed
+     *     once at import time, cannot embed directly. ``{name}`` is the one
+     *     substitution this schema authorises; no other braced token is
+     *     interpreted (a manifest containing one renders it verbatim).
      */
     ActionSpec: {
       /** Confirm */
@@ -1858,11 +1874,26 @@ export interface components {
     /**
      * ColumnSpec
      * @description One column of a resource's list/detail table.
+     *
+     *     ``fallback_fields`` is a schema generalisation from the Gough
+     *     convergence (Phase 8 Step 5): ``agentColumns.tsx``'s ``hostname`` column
+     *     renders ``String(value || row.agent_id || row.id)`` — the FIRST
+     *     non-null of a chain of fields on the same row, not a single
+     *     ``field`` binding. A plain ``field`` cannot express that fallback
+     *     chain, and it is not Gough-specific (any product whose primary display
+     *     field is sometimes absent needs the same "fall back to the id" idiom),
+     *     so it is a column-level list here rather than a one-off on
+     *     :class:`ResourceDescriptor`.
      */
     ColumnSpec: {
       /** Absent As */
       absent_as?: string | null;
       cell: components["schemas"]["CellSpec"];
+      /**
+       * Fallback Fields
+       * @default []
+       */
+      fallback_fields: string[];
       /** Field */
       field: string;
       /** Label */
@@ -2506,18 +2537,28 @@ export interface components {
      * ResourceDescriptor
      * @description One resource kind: its shape, its columns, and how it is reached.
      *
-     *     ``transport`` governs the TYPED-MUTATION surface (create/delete, and
-     *     whether an operation-starting action is reachable), never reads. Every
-     *     read in this schema version — list AND detail — goes through the byte
-     *     proxy; that is the only read path this codebase has (see
+     *     ``transport`` governs the TYPED-MUTATION surface (create/edit/delete,
+     *     and whether an operation-starting action is reachable), never reads.
+     *     Every read in this schema version — list AND detail — goes through the
+     *     byte proxy; that is the only read path this codebase has (see
      *     ``app/resources_api.py``'s module docstring: "Reads are not here").
      *     ``transport == "proxy"`` means "no typed mutation backing": this schema
      *     version declares no mechanism for a proxy-transport resource to carry a
-     *     typed create/delete, or an action whose result the portal must
+     *     typed create/edit/delete, or an action whose result the portal must
      *     interpret (``starts_operations=True``) — both enforced below. A
      *     proxy-transport resource MAY still declare a plain action reachable
      *     through the ordinary allowlisted proxy POST (Gough's own
      *     ``evacuate``/``reject``/``suspend``/``resume`` all qualify).
+     *
+     *     ``edit`` (:class:`FormSpec` or ``None``) is the exact parallel of
+     *     ``create`` for an update: same dataclass, same field-level validation
+     *     (``FormField.field_type`` closed to :data:`FIELD_TYPES`,
+     *     select/radio requiring options), just posted against the existing row
+     *     instead of a new one. Gough convergence finding (Phase 8 Step 5):
+     *     ``BiomesPage`` opens the SAME ``FormModalBuilder`` for both "New biome"
+     *     and "Edit biome", so a manifest resource with editable rows needs a
+     *     form to describe here — schema v2 had no field for this at all, only
+     *     ``create``.
      *
      *     ``list`` is ``None`` for a resource with no collection endpoint at all
      *     (Gough's ``clusters`` — see ``adapters/gough/manifest.py`` for why it is
@@ -2548,6 +2589,7 @@ export interface components {
       create?: components["schemas"]["FormSpec"] | null;
       delete?: components["schemas"]["DeleteSpec"] | null;
       detail?: components["schemas"]["DetailSpec"];
+      edit?: components["schemas"]["FormSpec"] | null;
       /** Empty State */
       empty_state: string;
       /** Error State */
@@ -4277,6 +4319,63 @@ export interface operations {
        *     "nothing to poll" from "poll this".
        */
       201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Created At */
+            created_at: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Operation Id */
+            operation_id: string | null;
+            /** Parent Id */
+            parent_id: string | null;
+            /** Parent Kind */
+            parent_kind: string | null;
+            /** Status */
+            status: string | null;
+            /** Updated At */
+            updated_at: string | null;
+          };
+        };
+      };
+    };
+  };
+  put_update_resource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        product_id: number;
+        kind: string;
+        resource_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /**
+       * @description Wire shape for one resource.
+       *
+       *     A named projection rather than the dataclass itself, for the reason
+       *     :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+       *     adapter's free-form bag with no declared schema, so publishing it wholesale
+       *     would make every key an adapter happens to stash there part of the portal's
+       *     wire contract by accident.
+       *
+       *     ``operation_id`` is the one thing lifted out of it, and only because the
+       *     contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+       *     for exactly this purpose — a create the product completes asynchronously.
+       *     ``None`` means the create finished synchronously, which is how the UI tells
+       *     "nothing to poll" from "poll this".
+       */
+      200: {
         headers: {
           [name: string]: unknown;
         };
