@@ -22,6 +22,7 @@ export const RESOURCE_CAPABILITIES = [
   "operations",
   "actions",
   "create",
+  "edit",
 ] as const;
 
 export type ResourceCapability = (typeof RESOURCE_CAPABILITIES)[number];
@@ -29,18 +30,25 @@ export type ResourceCapability = (typeof RESOURCE_CAPABILITIES)[number];
 /**
  * What `ManifestResourceScreen` can render losslessly TODAY, proven by an
  * equivalence test against a hand-written screen — not merely "the code
- * path exists". The component technically renders operations panels, row
- * actions, delete, and a create form too (see `ManifestResourceDetail.tsx`,
- * `ManifestCreateForm.tsx`), but only the rendered TABLE has an equivalence
- * proof against Gough's committed manifest
- * (`ManifestResourceScreen.equivalence.test.tsx`'s module doc: "actions/
- * create/item_path are simplified to the empty/null case here ... this
- * file's scope is the rendered TABLE"). Routing a resource whose manifest
- * declares more than this set would be shipping unverified UI, not a
- * capability gap this gate should paper over.
+ * path exists".
+ *
+ * Widened for Phase 8 Step 5 frontend: `operations`/`actions`/`create`
+ * (folding in `delete`, per `requiredCapabilities`'s own doc) and `edit`
+ * are now each proven against Gough's REAL, un-simplified manifest in
+ * `ManifestResourceScreen.equivalence.test.tsx` — operations panel
+ * (list/poll/cancel/logs) on nodes/biomes/agents, row actions + `{name}`
+ * confirm interpolation + danger variants on nodes/agents, the biomes
+ * create AND edit forms, and the agents `fallback_fields` name column.
+ * Routing a resource whose manifest declares more than this set would
+ * still be shipping unverified UI — that discipline does not change,
+ * only what has now earned the proof.
  */
 export const SUPPORTED_CAPABILITIES: ReadonlySet<ResourceCapability> = new Set([
   "list",
+  "operations",
+  "actions",
+  "create",
+  "edit",
 ]);
 
 /**
@@ -54,11 +62,18 @@ export const SUPPORTED_CAPABILITIES: ReadonlySet<ResourceCapability> = new Set([
  * product (see that component's `operationsSpec` wiring), so its presence
  * folds into every resource's requirement the same way.
  *
- * `delete` folds into `'actions'` rather than adding a fifth capability:
- * both render from the same not-yet-equivalence-proven code path in
- * `ManifestResourceDetail.tsx` (the detail drawer's action buttons), gated
- * on the same `item_path` precondition, so a resource declaring only
- * `delete` is exactly as unproven as one declaring only `actions`.
+ * `delete` folds into `'actions'` rather than its own capability: both
+ * render from the same code path in `ManifestResourceDetail.tsx` (the
+ * detail drawer's action buttons), gated on the same `item_path`
+ * precondition, and both are proven together by the same nodes/biomes/
+ * agents equivalence coverage.
+ *
+ * `edit` gets its OWN capability, not folded into `create` or `actions`:
+ * it renders through a distinct code path (`ManifestResourceDetail.tsx`'s
+ * `FormBuilder` modal, not `ManifestCreateForm.tsx`), gated on its own
+ * `resource.edit` field rather than `resource.create`/`resource.actions`,
+ * so a resource declaring edit without either of those needs its own
+ * proof to route.
  */
 export function requiredCapabilities(
   manifest: ConsoleManifest,
@@ -68,6 +83,7 @@ export function requiredCapabilities(
   if (manifest.operations) required.add("operations");
   if (resource.actions.length > 0 || resource.delete) required.add("actions");
   if (resource.create) required.add("create");
+  if (resource.edit) required.add("edit");
   return required;
 }
 

@@ -181,7 +181,12 @@ async def test_gough_manifest_survives_the_wire_round_trip_unchanged(
     committed_nodes = committed.resource("nodes")
     assert committed_nodes is not None
     assert {a["verb"] for a in served_nodes["actions"]} == {a.verb for a in committed_nodes.actions}
-    assert served_nodes["delete"] is not None
+    # Phase 8 Step 5 convergence: nodes declares NO delete (NodesPage has no
+    # delete affordance — see adapters/gough/manifest.py) — the wire round
+    # trip must preserve that absence exactly as faithfully as it would
+    # preserve a presence, so this asserts parity with the committed
+    # manifest rather than a hardcoded "delete exists" fact.
+    assert (served_nodes["delete"] is None) == (committed_nodes.delete is None)
     assert {item["kind"] for item in served["nav"]["items"]} == {
         item.kind for item in committed.nav.items
     }

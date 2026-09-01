@@ -11,15 +11,20 @@ import {
   useCreateManifestResource,
   useDeleteManifestResource,
   usePerformManifestAction,
+  useUpdateManifestResource,
 } from "../manifestMutations";
 import api from "../../../lib/api";
 
 jest.mock("../../../lib/api", () => ({
   __esModule: true,
-  default: { post: jest.fn(), delete: jest.fn() },
+  default: { post: jest.fn(), delete: jest.fn(), put: jest.fn() },
 }));
 
-const mockedApi = api as unknown as { post: jest.Mock; delete: jest.Mock };
+const mockedApi = api as unknown as {
+  post: jest.Mock;
+  delete: jest.Mock;
+  put: jest.Mock;
+};
 
 function client(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -110,6 +115,53 @@ describe("useDeleteManifestResource", () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(mockedApi.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe("useUpdateManifestResource", () => {
+  it("PUTs to the same generic typed item route useDeleteManifestResource uses", async () => {
+    mockedApi.put.mockResolvedValue({ data: { id: "4" } });
+    const qc = client();
+    const { result } = renderHook(
+      () => useUpdateManifestResource("gough", 42, 7, "biomes"),
+      { wrapper: wrapper(qc) },
+    );
+
+    result.current.mutate({ resourceId: "4", payload: { name: "web-2" } });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockedApi.put).toHaveBeenCalledWith(
+      "/products/7/resources/biomes/4",
+      { name: "web-2" },
+    );
+  });
+
+  it("refuses to fire without a resolved product id", async () => {
+    const qc = client();
+    const { result } = renderHook(
+      () => useUpdateManifestResource("gough", 42, undefined, "biomes"),
+      { wrapper: wrapper(qc) },
+    );
+
+    result.current.mutate({ resourceId: "4", payload: { name: "web-2" } });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(mockedApi.put).not.toHaveBeenCalled();
+  });
+
+  it("invalidates the resource list and operations queries on success", async () => {
+    mockedApi.put.mockResolvedValue({ data: {} });
+    const qc = client();
+    const invalidateSpy = jest.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(
+      () => useUpdateManifestResource("gough", 42, 7, "biomes"),
+      { wrapper: wrapper(qc) },
+    );
+
+    result.current.mutate({ resourceId: "4", payload: { name: "web-2" } });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledTimes(2);
   });
 });
 

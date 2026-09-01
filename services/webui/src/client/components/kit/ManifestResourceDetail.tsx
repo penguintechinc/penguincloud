@@ -24,8 +24,21 @@
  * standard `gough/manifest.py` itself holds to elsewhere ("a fabricated
  * mapping would be worse than a plain string"). Left as a stated follow-up,
  * not guessed at here.
+ *
+ * Edit (Phase 8 Step 5 frontend) mirrors `ManifestCreateForm.tsx`'s
+ * `FormBuilder` binding exactly — same field-config projection, gated on
+ * `resource.edit` instead of `resource.create` — but does NOT prefill the
+ * form from the selected row: `BiomesPage.tsx` opens the identical
+ * `FormModalBuilder` for New and Edit, switching only `title` and
+ * `submitButtonText`, never passing the existing biome's values in either
+ * mode, so prefilling here would be a real behaviour ADDITION beyond what
+ * the hand-written screen does, not parity with it.
+ *
+ * `useUpdateManifestResource`'s own doc names a found backend gap: the
+ * portal registers no `PUT` route at this shape yet, only `POST`/`DELETE`.
  */
 import { useState } from "react";
+import { FormBuilder } from "@penguintechinc/react-libs";
 import { DetailDrawer } from "./DetailDrawer";
 import { RowOpenButtons } from "./RowOpenButtons";
 import { ActionButton } from "./ActionButton";
@@ -33,9 +46,11 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { FactList, type Fact } from "./FactList";
 import type { ManifestRow } from "./manifestCells";
 import { manifestItemPathBytes } from "./manifestItemPath";
+import { toFieldConfig, applyFieldAliases } from "./manifestFormFields";
 import {
   useDeleteManifestResource,
   usePerformManifestAction,
+  useUpdateManifestResource,
 } from "./manifestMutations";
 import type { ActionSpec, ResourceDescriptor } from "./manifestTypes";
 
@@ -52,6 +67,23 @@ function isActionEnabled(action: ActionSpec, row: Row): boolean {
 
 function actionButtonVariant(variant: string): "primary" | "danger" | "ghost" {
   return variant === "danger" ? "danger" : "primary";
+}
+
+/**
+ * Substitutes the literal `{name}` token in an `ActionSpec.confirm` string
+ * with the acted-on row's own `name_field` value — the one substitution
+ * `ActionSpec.confirm`'s docstring authorises; any other braced token is
+ * left verbatim (a plain string replace, not a template engine). Byte-exact
+ * with `NodesPage.tsx`'s own hand-written interpolation (`` `${pending.
+ * confirmation} This affects node "${selected.name}".` ``) once the
+ * manifest's confirm string supplies the surrounding text.
+ */
+function interpolateConfirmName(
+  confirm: string | null | undefined,
+  name: string,
+): string {
+  if (!confirm) return "";
+  return confirm.replaceAll("{name}", name);
 }
 
 /** Plain-text rendering of one cell for the drawer's `FactList` — reuses
@@ -85,6 +117,7 @@ export function ManifestResourceDetail({
   const [selected, setSelected] = useState<Row | null>(null);
   const [pendingAction, setPendingAction] = useState<ActionSpec | null>(null);
   const [pendingDelete, setPendingDelete] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const deleteResource = useDeleteManifestResource(
     productType,
@@ -98,12 +131,19 @@ export function ManifestResourceDetail({
     productId,
     resource.kind,
   );
+  const updateResource = useUpdateManifestResource(
+    productType,
+    tenantId,
+    productId,
+    resource.kind,
+  );
 
   if (resource.item_path === null || resource.item_path === undefined) {
     return null;
   }
   const itemPath = resource.item_path;
   const testIdPrefix = `${productType}-manifest-${resource.kind}`;
+  const editFormSpec = resource.edit;
 
   const openRow = (row: Row) => {
     console.log(
@@ -153,6 +193,13 @@ export function ManifestResourceDetail({
         ]}
         actions={
           <>
+            {editFormSpec && (
+              <ActionButton
+                label="Edit"
+                onClick={() => setEditOpen(true)}
+                testId={`${testIdPrefix}-edit`}
+              />
+            )}
             {resource.actions.map((action) => (
               <ActionButton
                 key={action.verb}
@@ -185,7 +232,14 @@ export function ManifestResourceDetail({
             ? `${pendingAction.label} ${resource.label.toLowerCase()}`
             : ""
         }
-        message={pendingAction?.confirm ?? ""}
+        message={
+          pendingAction && selected
+            ? interpolateConfirmName(
+                pendingAction.confirm,
+                String(selected[resource.name_field] ?? selected.id),
+              )
+            : ""
+        }
         confirmLabel={pendingAction?.label}
         isDangerous={pendingAction?.variant === "danger"}
         isLoading={performAction.isPending}
@@ -228,6 +282,31 @@ export function ManifestResourceDetail({
         onCancel={() => setPendingDelete(false)}
         testId={`${testIdPrefix}-delete-confirm`}
       />
+
+      {editFormSpec && (
+        <FormBuilder
+          mode="modal"
+          isOpen={editOpen}
+          title={`Edit ${resource.label}`}
+          fields={editFormSpec.fields.map(toFieldConfig)}
+          submitLabel={editFormSpec.submit_label}
+          loading={updateResource.isPending}
+          onCancel={() => setEditOpen(false)}
+          onSubmit={async (values: Record<string, unknown>): Promise<void> => {
+            /* istanbul ignore next -- defensive: this form only opens
+               (isOpen={editOpen}) via setEditOpen(true) inside the Edit
+               button's onClick, which only renders while a row is
+               selected — nothing clears selected before a synchronous
+               submit completes. */
+            if (!selected) return;
+            await updateResource.mutateAsync({
+              resourceId: selected.id,
+              payload: applyFieldAliases(values, editFormSpec.field_aliases),
+            });
+            setEditOpen(false);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -73,6 +73,63 @@ export function useCreateManifestResource(
   });
 }
 
+/**
+ * Updates one resource via `PUT /products/{id}/resources/{kind}/{id}` — the
+ * exact parallel of {@link useCreateManifestResource}, gated on the
+ * manifest's own `resource.edit` the same way create is gated on
+ * `resource.create` (`ManifestResourceDetail.tsx`).
+ *
+ * BACKEND GAP (Phase 8 Step 5 frontend, found not guessed at): as of this
+ * commit, `services/portal-api/app/resources_api.py`'s `resources_bp`
+ * registers only `POST /resources/<kind>` (`create_resource`) and `DELETE
+ * /resources/<kind>/<id>` (`delete_resource`) — no `PUT` route exists at
+ * `/resources/<kind>/<id>` yet, confirmed by reading that module directly
+ * and by `openapi/v1.yaml`'s `paths:` section (Stage 1 added the `edit`
+ * SCHEMA field but no new path). `GoughAdapter.update_resource` exists and
+ * is listed in `capabilities()` (`adapters/gough/adapter.py:438,198`), so
+ * `apply_capabilities_overlay` does NOT strip Gough biomes' `edit` — the
+ * overlaid manifest served to the browser really does carry a non-null
+ * `edit` FormSpec, but there is nowhere on the portal for this PUT to land
+ * yet. It will 405 (the URL shape already serves DELETE) against a live
+ * portal until that route ships.
+ *
+ * Wired here to the contract the schema and the overlay already commit to
+ * — same URL `useDeleteManifestResource` uses, PUT instead of DELETE (the
+ * same same-URL-different-verb reuse `/tenants/{id}` and `/users/{id}`
+ * already use for their own PUT) — so this hook needs no change once the
+ * backend route exists. A stated backend follow-up, not guessed at here;
+ * see the Step 5 frontend report for the finding.
+ */
+export function useUpdateManifestResource(
+  productType: string,
+  tenantId: number | undefined,
+  productId: number | undefined,
+  kind: string,
+) {
+  const invalidate = useInvalidateManifestResource(
+    productType,
+    tenantId,
+    productId,
+    kind,
+  );
+  return useMutation({
+    mutationFn: async (vars: {
+      resourceId: string;
+      payload: Record<string, unknown>;
+    }): Promise<unknown> => {
+      if (productId === undefined) {
+        throw new Error("No connection for the active tenant");
+      }
+      const response = await api.put(
+        portalUrl.resource(productId, kind, vars.resourceId),
+        vars.payload,
+      );
+      return response.data;
+    },
+    onSuccess: invalidate,
+  });
+}
+
 /** Deletes one resource via `DELETE /products/{id}/resources/{kind}/{id}`. */
 export function useDeleteManifestResource(
   productType: string,

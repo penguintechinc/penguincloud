@@ -53,11 +53,15 @@ documented reads), not the portal's normalised :class:`~app.adapters.base.Resour
 fields — Design §6.4: for a proxied read, the manifest IS the type contract,
 and what the browser receives is Gough's own envelope, unmapped.
 
-Create-form field sets below are intentionally minimal (``name`` only) and
-NOT verified against Gough's own request validation, which lives in a
-different repository this worktree does not check out. Flagged rather than
-guessed at further — widening a create form is cheap; a field that silently
-never validates is not.
+Create/edit-form field sets below are verified against Gough's own request
+validation (``BiomeCreate`` in ``~/code/gough/services/api-manager/app/api/
+_biome_schema.py`` — a sibling checkout, the same convention Nest/
+Tobogganing's own manifest/route modules use for THEIR product source, not
+vendored into this repo). ``biomes``' four fields are a real subset of
+``BiomeCreate``'s accepted body — see :data:`_BIOME_FORM_FIELDS`'s own
+docstring for the specific fields checked and the one pre-existing gap
+(``version`` not marked required, matching the hand-written screen) carried
+over rather than silently fixed.
 """
 
 from __future__ import annotations
@@ -82,6 +86,7 @@ from ..manifest import (
     NavSpec,
     OperationsSpec,
     ResourceDescriptor,
+    SelectOption,
     validate_manifest,
 )
 from .adapter import _ACTIONS, _COLLECTION_ROUTES, _COLLECTIONS, _ITEM_KEYS, GoughAdapter
@@ -178,13 +183,26 @@ _NODES: Final[ResourceDescriptor] = ResourceDescriptor(
     # differ and why conflating them is the trap this field exists to close.
     item_path=ItemPathSpec(prefix=_COLLECTIONS["nodes"], sample_id="1"),
     detail=DetailSpec(tabs=("Overview", "Tags", "Biomes")),
+    # Phase 8 Step 5 convergence: every variant here is "danger", matching
+    # `NodesPage.tsx`'s own `ActionButton`s -- the drawer hard-codes
+    # `variant="danger"` for EVERY entry of `NODE_ACTIONS` (~:123-131),
+    # never reading a per-action variant, so `deploy`'s prior
+    # `variant="primary"` rendered a colour no screen has ever shown. Confirm
+    # copy is byte-for-byte `nodeActions.ts`'s `confirmation` string plus
+    # NodesPage's own trailing sentence (~:137-140:
+    # `` `${pending.confirmation} This affects node "${selected.name}".` ``),
+    # with `{name}` standing in for the per-row interpolation the renderer
+    # performs (see `ActionSpec.confirm`'s docstring).
     actions=(
         ActionSpec(
             verb="deploy",
             label="Deploy",
-            variant="primary",
+            variant="danger",
             requires="manage",
-            confirm="Deploy a biome to this node?",
+            confirm=(
+                "Deploying commissions this hardware and begins provisioning it. "
+                'This affects node "{name}".'
+            ),
             starts_operations=True,
         ),
         ActionSpec(
@@ -192,18 +210,30 @@ _NODES: Final[ResourceDescriptor] = ResourceDescriptor(
             label="Evacuate",
             variant="danger",
             requires="manage",
-            confirm="Evacuate all biomes from this node?",
+            confirm=(
+                "Evacuating drains every workload off this node before removing it "
+                'from service. This affects node "{name}".'
+            ),
         ),
         ActionSpec(
             verb="reject",
             label="Reject",
             variant="danger",
             requires="manage",
-            confirm="Reject this node from the fleet? This cannot be undone.",
+            confirm=(
+                "Rejecting removes this node from the fleet. It must be "
+                're-discovered to return. This affects node "{name}".'
+            ),
         ),
     ),
     create=None,  # nodes are discovered from hardware, never portal-created
-    delete=DeleteSpec(confirm="Decommission this node? This cannot be undone.", requires="manage"),
+    # Phase 8 Step 5 convergence: NodesPage has no delete affordance at all --
+    # no button, no ConfirmDialog wired to a delete mutation (see
+    # `NodesPage.tsx` in full: `DetailDrawer.actions` renders only
+    # `NODE_ACTIONS`). The prior `delete=DeleteSpec(...)` here was a real
+    # over-declaration: a generic renderer driven by this manifest would
+    # have shown a Decommission button the hand-written screen never had.
+    delete=None,
 )
 
 # ---------------------------------------------------------------------------
@@ -224,6 +254,53 @@ _NODES: Final[ResourceDescriptor] = ResourceDescriptor(
 #:   ``absent_as="literal:Unknown"``; ``biomeColumns.tsx`` renders lowercase
 #:   ``"active"``/``"inactive"`` and a plain dash (`absent`) for a null value,
 #:   never the word "Unknown".
+#: Phase 8 Step 5 convergence: byte-for-byte the same field set, order,
+#: types, defaults and select options as ``biomeColumns.tsx``'s
+#: ``biomeFields`` (~:55-82) -- the SAME array ``BiomesPage.tsx`` passes to
+#: ``FormModalBuilder`` for both "New biome" and "Edit biome" (only
+#: ``submitButtonText`` differs between the two modes, not the field set).
+#: Verified against Gough's real ``POST /api/v1/biomes`` request schema
+#: (``BiomeCreate`` in ``~/code/gough/services/api-manager/app/api/
+#: _biome_schema.py``): ``name`` is required ``str``; ``biome_kind``'s
+#: three offered options are a subset of ``BiomeCreate``'s six-member
+#: ``BiomeKind`` literal (``infrastructure``/``k8s``/``monitoring``/
+#: ``storage``/``user_workload``/``custom``) -- a valid subset, not an
+#: invalid value; ``workload_type``'s two options are byte-exact with the
+#: full ``WorkloadType`` literal (``lxc``/``vm``); ``version`` is a
+#: required ``str`` on the real schema but NOT marked ``required=True``
+#: here, matching ``biomeFields``' own field exactly -- a pre-existing gap
+#: in the hand-written form (an empty version would 422 against the real
+#: API), reproduced rather than silently fixed, since this step's mandate
+#: is manifest/screen parity, not screen/API correctness. ``PUT
+#: /api/v1/biomes/{id}`` (``update_biome``) accepts the same four fields,
+#: all optional on update, so the identical field set is also valid for
+#: ``edit``.
+_BIOME_FORM_FIELDS: Final[tuple[FormField, ...]] = (
+    FormField(name="name", label="Name", required=True),
+    FormField(
+        name="biome_kind",
+        label="Kind",
+        field_type="select",
+        default_value="custom",
+        options=(
+            SelectOption(value="custom", label="Custom"),
+            SelectOption(value="k8s", label="Kubernetes"),
+            SelectOption(value="storage", label="Storage"),
+        ),
+    ),
+    FormField(
+        name="workload_type",
+        label="Workload type",
+        field_type="select",
+        default_value="lxc",
+        options=(
+            SelectOption(value="lxc", label="LXC"),
+            SelectOption(value="vm", label="VM"),
+        ),
+    ),
+    FormField(name="version", label="Version"),
+)
+
 _BIOMES_COLUMNS: Final[tuple[ColumnSpec, ...]] = (
     ColumnSpec(field="name", label="Name", cell=CellSpec(kind="text")),
     ColumnSpec(
@@ -261,20 +338,23 @@ _BIOMES: Final[ResourceDescriptor] = ResourceDescriptor(
     ),
     item_path=ItemPathSpec(prefix=_COLLECTIONS["biomes"], sample_id="1"),
     detail=DetailSpec(tabs=("Overview", "Eligibility")),
-    actions=(
-        ActionSpec(
-            verb="upgrade",
-            label="Upgrade",
-            variant="primary",
-            requires="manage",
-            confirm="Upgrade this biome?",
-            starts_operations=True,
-        ),
-    ),
-    create=FormSpec(
-        fields=(FormField(name="name", label="Name", required=True),),
-        submit_label="Create Biome",
-    ),
+    # Phase 8 Step 5 convergence: `upgrade` REMOVED. `BiomesPage.tsx`'s
+    # `DetailDrawer.actions` renders exactly two `ActionButton`s -- Edit and
+    # Delete (~:114-131) -- and no other control anywhere on the screen
+    # calls `useGoughMutation`/`performAction` with an "upgrade" verb. The
+    # prior declaration here was a real over-declaration, the same class of
+    # defect as `nodes`' phantom delete button above: a generic renderer
+    # would have shown an Upgrade button (and, worse, one wired to
+    # `starts_operations=True`) the hand-written screen never had.
+    actions=(),
+    create=FormSpec(fields=_BIOME_FORM_FIELDS, submit_label="Create"),
+    # Phase 8 Step 5 convergence: NEW. `BiomesPage.tsx` opens the identical
+    # `FormModalBuilder` (same `fields={biomeFields}`) for Edit as for New,
+    # switching only `title` and `submitButtonText` on `editing !== null`
+    # (~:134-144) -- so `edit` mirrors `create`'s field set exactly, with
+    # `submit_label` matching the real `"Save"` the screen renders in edit
+    # mode.
+    edit=FormSpec(fields=_BIOME_FORM_FIELDS, submit_label="Save"),
     delete=DeleteSpec(
         confirm="Delete this biome? Nodes running it will need reassignment.",
         requires="manage",
@@ -352,15 +432,18 @@ _BIOME_GROUPS: Final[ResourceDescriptor] = ResourceDescriptor(
 #: rendering it as a relative timestamp would be a real content difference,
 #: not a formatting nicety.
 #:
-#: One documented remaining gap, not fixed here: `agentColumns.tsx`'s
-#: `hostname` column falls back to `agent_id` then the row id when
-#: `hostname` is falsy (`String(value || row.agent_id || row.id)`). This
-#: schema has no field for "compute this cell from a different field when
-#: absent" -- a plain field-to-cell binding cannot express it, so a genuinely
-#: missing `hostname` renders a dash here instead of falling back. See the
-#: Step 8 report.
+#: Phase 8 Step 5 convergence: the Step 8 gap noted above is now CLOSED.
+#: ``fallback_fields`` (schema generalisation, see :class:`ColumnSpec`)
+#: reproduces ``agentColumns.tsx``'s ``String(value || row.agent_id ||
+#: row.id)`` chain exactly: the renderer shows the first non-null of
+#: ``hostname``, then ``agent_id``, then ``id``.
 _AGENTS_COLUMNS: Final[tuple[ColumnSpec, ...]] = (
-    ColumnSpec(field="hostname", label="Hostname", cell=CellSpec(kind="text")),
+    ColumnSpec(
+        field="hostname",
+        label="Hostname",
+        cell=CellSpec(kind="text"),
+        fallback_fields=("agent_id", "id"),
+    ),
     # Real status vocabulary unverified (see module docstring) -- `text`,
     # not a fabricated `enum_badge` style mapping.
     ColumnSpec(field="status", label="Status", cell=CellSpec(kind="text"), absent_as="dash"),

@@ -31,6 +31,8 @@ const MANIFEST_PY = resolve(
   "manifest.py",
 );
 
+const MANIFEST_TYPES_TS = resolve(__dirname, "..", "manifestTypes.ts");
+
 const CELL_KINDS_BLOCK_RE =
   /CELL_KINDS:\s*Final\[frozenset\[str\]\]\s*=\s*frozenset\(\s*\{([\s\S]*?)\}\s*\)/;
 // `[a-z0-9_-]` (not just `[a-z_]`) because `FIELD_TYPES` needs the same
@@ -105,5 +107,38 @@ describe("FIELD_TYPES <-> app/adapters/manifest.py", () => {
   it("includes the hyphenated member the CELL_KINDS-only pattern would have dropped", () => {
     const source = readFileSync(MANIFEST_PY, "utf-8");
     expect(pythonFieldTypes(source)).toContain("datetime-local");
+  });
+});
+
+/**
+ * Field-presence drift guards for the two Phase 8 Step 5 schema additions —
+ * not a closed-set enum like `CELL_KINDS`/`FIELD_TYPES` above, so the check
+ * is simpler: does the Python dataclass field still exist, and does the TS
+ * mirror still declare it. Textual, same technique as the rest of this file
+ * (see the module doc for why this worktree parses rather than imports).
+ */
+describe("ColumnSpec.fallback_fields <-> app/adapters/manifest.py", () => {
+  it("the Python ColumnSpec still declares fallback_fields", () => {
+    const source = readFileSync(MANIFEST_PY, "utf-8");
+    expect(source).toMatch(
+      /fallback_fields:\s*tuple\[str, \.\.\.\]\s*=\s*\(\)/,
+    );
+  });
+
+  it("the TS ColumnSpec mirror still declares fallback_fields", () => {
+    const source = readFileSync(MANIFEST_TYPES_TS, "utf-8");
+    expect(source).toMatch(/fallback_fields\?:\s*readonly string\[\]/);
+  });
+});
+
+describe("ResourceDescriptor.edit <-> app/adapters/manifest.py", () => {
+  it("the Python ResourceDescriptor still declares edit: FormSpec | None", () => {
+    const source = readFileSync(MANIFEST_PY, "utf-8");
+    expect(source).toMatch(/edit:\s*FormSpec \| None\s*=\s*None/);
+  });
+
+  it("the TS ResourceDescriptor mirror still declares edit", () => {
+    const source = readFileSync(MANIFEST_TYPES_TS, "utf-8");
+    expect(source).toMatch(/edit\?:\s*FormSpec \| null/);
   });
 });

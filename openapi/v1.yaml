@@ -46,7 +46,24 @@ components:
 
         proxy by construction, so the owning :class:`ResourceDescriptor` MUST
 
-        be ``transport == "typed"`` whenever any of its actions sets this True.'
+        be ``transport == "typed"`` whenever any of its actions sets this True.
+
+
+        ``confirm`` MAY contain the literal token ``{name}`` — the renderer
+
+        substitutes it with the acted-on row''s ``name_field`` value before
+
+        display. Gough convergence finding (Phase 8 Step 5): ``NodesPage``''s
+
+        confirm copy is ``f"{action.confirmation} This affects node
+
+        "{selected.name}"."`` — a per-row fact a manifest string, composed
+
+        once at import time, cannot embed directly. ``{name}`` is the one
+
+        substitution this schema authorises; no other braced token is
+
+        interpreted (a manifest containing one renders it verbatim).'
       properties:
         confirm:
           anyOf:
@@ -252,7 +269,26 @@ components:
       title: CellSpec
       type: object
     ColumnSpec:
-      description: One column of a resource's list/detail table.
+      description: 'One column of a resource''s list/detail table.
+
+
+        ``fallback_fields`` is a schema generalisation from the Gough
+
+        convergence (Phase 8 Step 5): ``agentColumns.tsx``''s ``hostname`` column
+
+        renders ``String(value || row.agent_id || row.id)`` — the FIRST
+
+        non-null of a chain of fields on the same row, not a single
+
+        ``field`` binding. A plain ``field`` cannot express that fallback
+
+        chain, and it is not Gough-specific (any product whose primary display
+
+        field is sometimes absent needs the same "fall back to the id" idiom),
+
+        so it is a column-level list here rather than a one-off on
+
+        :class:`ResourceDescriptor`.'
       properties:
         absent_as:
           anyOf:
@@ -261,6 +297,13 @@ components:
           title: Absent As
         cell:
           $ref: '#/components/schemas/CellSpec'
+        fallback_fields:
+          default: []
+          items:
+            type: string
+          maxItems: 10000
+          title: Fallback Fields
+          type: array
         field:
           title: Field
           type: string
@@ -1199,13 +1242,13 @@ components:
       description: 'One resource kind: its shape, its columns, and how it is reached.
 
 
-        ``transport`` governs the TYPED-MUTATION surface (create/delete, and
+        ``transport`` governs the TYPED-MUTATION surface (create/edit/delete,
 
-        whether an operation-starting action is reachable), never reads. Every
+        and whether an operation-starting action is reachable), never reads.
 
-        read in this schema version — list AND detail — goes through the byte
+        Every read in this schema version — list AND detail — goes through the
 
-        proxy; that is the only read path this codebase has (see
+        byte proxy; that is the only read path this codebase has (see
 
         ``app/resources_api.py``''s module docstring: "Reads are not here").
 
@@ -1213,7 +1256,7 @@ components:
 
         version declares no mechanism for a proxy-transport resource to carry a
 
-        typed create/delete, or an action whose result the portal must
+        typed create/edit/delete, or an action whose result the portal must
 
         interpret (``starts_operations=True``) — both enforced below. A
 
@@ -1222,6 +1265,25 @@ components:
         through the ordinary allowlisted proxy POST (Gough''s own
 
         ``evacuate``/``reject``/``suspend``/``resume`` all qualify).
+
+
+        ``edit`` (:class:`FormSpec` or ``None``) is the exact parallel of
+
+        ``create`` for an update: same dataclass, same field-level validation
+
+        (``FormField.field_type`` closed to :data:`FIELD_TYPES`,
+
+        select/radio requiring options), just posted against the existing row
+
+        instead of a new one. Gough convergence finding (Phase 8 Step 5):
+
+        ``BiomesPage`` opens the SAME ``FormModalBuilder`` for both "New biome"
+
+        and "Edit biome", so a manifest resource with editable rows needs a
+
+        form to describe here — schema v2 had no field for this at all, only
+
+        ``create``.
 
 
         ``list`` is ``None`` for a resource with no collection endpoint at all
@@ -1281,6 +1343,10 @@ components:
             - type: 'null'
         detail:
           $ref: '#/components/schemas/DetailSpec'
+        edit:
+          anyOf:
+            - $ref: '#/components/schemas/FormSpec'
+            - type: 'null'
         empty_state:
           title: Empty State
           type: string
@@ -3545,6 +3611,137 @@ paths:
 
             can attribute the answer without tracking request order.'
       summary: Delete one resource from the connected product.
+    put:
+      description: '
+
+        Typed for the same reason create is: the adapter maps the product''s own
+
+        not-found/conflict response onto the shared taxonomy, which a proxied
+
+        write cannot interpret — see the module docstring. Requires ``manage``,
+
+        the same scope create and delete require, since an update is a mutation.'
+      operationId: put_update_resource
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: resource_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Wire shape for one resource.
+
+
+                  A named projection rather than the dataclass itself, for the reason
+
+                  :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+
+                  adapter''s free-form bag with no declared schema, so publishing it wholesale
+
+                  would make every key an adapter happens to stash there part of the portal''s
+
+                  wire contract by accident.
+
+
+                  ``operation_id`` is the one thing lifted out of it, and only because the
+
+                  contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+
+                  for exactly this purpose — a create the product completes asynchronously.
+
+                  ``None`` means the create finished synchronously, which is how the UI tells
+
+                  "nothing to poll" from "poll this".'
+                properties:
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  id:
+                    title: Id
+                    type: string
+                  kind:
+                    title: Kind
+                    type: string
+                  name:
+                    title: Name
+                    type: string
+                  operation_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Operation Id
+                  parent_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Parent Id
+                  parent_kind:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Parent Kind
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Status
+                  updated_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Updated At
+                required:
+                  - id
+                  - kind
+                  - name
+                  - status
+                  - parent_id
+                  - parent_kind
+                  - operation_id
+                  - created_at
+                  - updated_at
+                title: ResourceView
+                type: object
+          description: 'Wire shape for one resource.
+
+
+            A named projection rather than the dataclass itself, for the reason
+
+            :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+
+            adapter''s free-form bag with no declared schema, so publishing it wholesale
+
+            would make every key an adapter happens to stash there part of the portal''s
+
+            wire contract by accident.
+
+
+            ``operation_id`` is the one thing lifted out of it, and only because the
+
+            contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+
+            for exactly this purpose — a create the product completes asynchronously.
+
+            ``None`` means the create finished synchronously, which is how the UI tells
+
+            "nothing to poll" from "poll this".'
+      summary: Update one resource in the connected product.
   /api/v1/products/{product_id}/resources/{kind}/{resource_id}/actions/{action}:
     post:
       description: '

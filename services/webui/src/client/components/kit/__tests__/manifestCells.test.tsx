@@ -412,6 +412,73 @@ describe("renderCell — each CellKind", () => {
   });
 });
 
+describe("renderCell — fallback_fields", () => {
+  it("reproduces agentColumns.tsx's String(value || row.agent_id || row.id) chain: field null, first fallback wins", () => {
+    const col = column({
+      field: "hostname",
+      fallback_fields: ["agent_id", "id"],
+      cell: { kind: "text", styles: [], relative: false },
+    });
+    render(
+      <div>
+        {renderCell(col, { hostname: null, agent_id: "3f2b-aa", id: "1" })}
+      </div>,
+    );
+    expect(screen.getByText("3f2b-aa")).toBeInTheDocument();
+  });
+
+  it("falls through to the SECOND fallback when both field and the first fallback are null", () => {
+    const col = column({
+      field: "hostname",
+      fallback_fields: ["agent_id", "id"],
+      cell: { kind: "text", styles: [], relative: false },
+    });
+    render(
+      <div>{renderCell(col, { hostname: null, agent_id: null, id: "1" })}</div>,
+    );
+    expect(screen.getByText("1")).toBeInTheDocument();
+  });
+
+  it("the primary field wins over every fallback when it is present", () => {
+    const col = column({
+      field: "hostname",
+      fallback_fields: ["agent_id", "id"],
+      cell: { kind: "text", styles: [], relative: false },
+    });
+    render(
+      <div>
+        {renderCell(col, { hostname: "agent-1", agent_id: "3f2b-aa", id: "1" })}
+      </div>,
+    );
+    expect(screen.getByText("agent-1")).toBeInTheDocument();
+  });
+
+  it("applies absent_as only once field AND every fallback are null", () => {
+    const col = column({
+      field: "hostname",
+      fallback_fields: ["agent_id", "id"],
+      cell: { kind: "text", styles: [], relative: false },
+      absent_as: "dash",
+    });
+    render(
+      <div>
+        {renderCell(col, { hostname: null, agent_id: null, id: null })}
+      </div>,
+    );
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
+  it("an absent fallback_fields declaration behaves exactly as before (field only)", () => {
+    const col = column({
+      field: "hostname",
+      cell: { kind: "text", styles: [], relative: false },
+      absent_as: "dash",
+    });
+    render(<div>{renderCell(col, { hostname: null, id: "1" })}</div>);
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+});
+
 describe("renderCell — unknown kind", () => {
   it("degrades to text and logs exactly once per kind", () => {
     const errorSpy = jest
