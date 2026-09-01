@@ -62,8 +62,14 @@ function manifest(
 }
 
 describe("SUPPORTED_CAPABILITIES", () => {
-  it("today covers list only — proven equivalence, not merely rendered code", () => {
-    expect([...SUPPORTED_CAPABILITIES]).toEqual(["list"]);
+  it("today covers list, operations, actions, create and edit — each proven by an equivalence test against Gough, not merely rendered code", () => {
+    expect([...SUPPORTED_CAPABILITIES]).toEqual([
+      "list",
+      "operations",
+      "actions",
+      "create",
+      "edit",
+    ]);
   });
 
   it("is a subset of every declared capability, so widening it later cannot add an unknown one", () => {
@@ -135,6 +141,19 @@ describe("requiredCapabilities", () => {
     );
   });
 
+  it("adds 'edit' when the resource declares an edit form", () => {
+    const withEdit = resource({
+      edit: {
+        fields: [],
+        submit_label: "Save",
+        field_aliases: [],
+      },
+    });
+    expect(requiredCapabilities(manifest([withEdit]), withEdit)).toEqual(
+      new Set(["list", "edit"]),
+    );
+  });
+
   it("unions every declared capability for a resource that declares them all", () => {
     const kitchenSink = resource({
       item_path: { prefix: "/api/v1/widgets", sample_id: "1" },
@@ -152,6 +171,7 @@ describe("requiredCapabilities", () => {
         },
       ],
       create: { fields: [], submit_label: "Create", field_aliases: [] },
+      edit: { fields: [], submit_label: "Save", field_aliases: [] },
       delete: { confirm: "Delete?", requires: "manage" },
     });
     const withOps = manifest([kitchenSink], {
@@ -161,7 +181,7 @@ describe("requiredCapabilities", () => {
       show_logs: true,
     });
     expect(requiredCapabilities(withOps, kitchenSink)).toEqual(
-      new Set(["list", "operations", "actions", "create"]),
+      new Set(["list", "operations", "actions", "create", "edit"]),
     );
   });
 });
@@ -171,17 +191,17 @@ describe("isManifestRoutable", () => {
     expect(isManifestRoutable(manifest([resource()]), resource())).toBe(true);
   });
 
-  it("does not route a resource whose manifest declares product-level operations", () => {
+  it("routes a resource whose manifest declares product-level operations — SUPPORTED_CAPABILITIES now covers 'operations'", () => {
     const withOps = manifest([resource()], {
       label: "Ops",
       poll_interval_seconds: 5,
       cancel_allowed: false,
       show_logs: false,
     });
-    expect(isManifestRoutable(withOps, resource())).toBe(false);
+    expect(isManifestRoutable(withOps, resource())).toBe(true);
   });
 
-  it("does not route a resource that declares its own actions", () => {
+  it("routes a resource that declares its own actions — SUPPORTED_CAPABILITIES now covers 'actions'", () => {
     const withActions = resource({
       actions: [
         {
@@ -197,15 +217,20 @@ describe("isManifestRoutable", () => {
         },
       ],
     });
-    expect(isManifestRoutable(manifest([withActions]), withActions)).toBe(
-      false,
-    );
+    expect(isManifestRoutable(manifest([withActions]), withActions)).toBe(true);
   });
 
-  it("does not route a resource that declares a create form", () => {
+  it("routes a resource that declares a create form — SUPPORTED_CAPABILITIES now covers 'create'", () => {
     const withCreate = resource({
       create: { fields: [], submit_label: "Create", field_aliases: [] },
     });
-    expect(isManifestRoutable(manifest([withCreate]), withCreate)).toBe(false);
+    expect(isManifestRoutable(manifest([withCreate]), withCreate)).toBe(true);
+  });
+
+  it("routes a resource that declares an edit form — SUPPORTED_CAPABILITIES now covers 'edit'", () => {
+    const withEdit = resource({
+      edit: { fields: [], submit_label: "Save", field_aliases: [] },
+    });
+    expect(isManifestRoutable(manifest([withEdit]), withEdit)).toBe(true);
   });
 });

@@ -17,11 +17,20 @@
  * DOM. Fallback is also this component's initial/loading render, so a
  * `findByTestId("fallback-marker")` alone would pass vacuously even if the
  * routing decision were broken and always routed — it would just catch the
- * loading frame on its way to a state the assertion never re-checks. Only
- * `case 2`'s deferred-promise variant proves this the hard way: an earlier
- * draft of this suite that used a bare `findByTestId` here stayed green
- * even with `SUPPORTED_CAPABILITIES` temporarily widened to cover
- * `'actions'` — the settle-then-assert pattern below is what catches that.
+ * loading frame on its way to a state the assertion never re-checks.
+ * `case 3` (flag off) and the "no matching resource kind" test both prove
+ * this the hard way: an earlier draft of this suite that used a bare
+ * `findByTestId` for a fallback outcome stayed green even when the routing
+ * decision was broken — the settle-then-assert pattern below is what
+ * catches that.
+ *
+ * `case 2` used to be exactly this kind of fallback assertion, for a
+ * resource declaring `actions`. Phase 8 Step 5 frontend widened
+ * `SUPPORTED_CAPABILITIES` to cover `operations`/`actions`/`create`/`edit`
+ * (proven against Gough's real manifest in
+ * `ManifestResourceScreen.equivalence.test.tsx`), so that same fixture now
+ * routes — `case 2` was flipped to assert routing rather than weakened or
+ * deleted, matching `manifestCapabilities.test.ts`'s own lockstep flip.
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
@@ -172,7 +181,7 @@ it("case 1: flag ON + a read-only manifest present routes through ManifestResour
   expect(screen.queryByTestId("fallback-marker")).not.toBeInTheDocument();
 });
 
-it("case 2: flag ON + a manifest declaring actions falls back to the hand-written screen", async () => {
+it("case 2: flag ON + a manifest declaring actions now routes through ManifestResourceScreen — SUPPORTED_CAPABILITIES widened (Phase 8 Step 5 frontend) to cover 'actions', proven by the Gough nodes/agents equivalence tests", async () => {
   mockConnections.mockReturnValue({
     data: [{ id: 7, product_type: "demo" }],
     isLoading: false,
@@ -204,13 +213,12 @@ it("case 2: flag ON + a manifest declaring actions falls back to the hand-writte
       count: 1,
     },
   });
+  mockProxyRequest.mockResolvedValue({ widgets: [] });
 
-  const queryClient = renderRoute("demo", "widgets");
-  await waitForManifestsSettled(queryClient);
+  renderRoute("demo", "widgets");
 
-  expect(screen.getByTestId("fallback-marker")).toBeInTheDocument();
-  expect(screen.queryByTestId("demo-screen")).not.toBeInTheDocument();
-  expect(mockProxyRequest).not.toHaveBeenCalled();
+  expect(await screen.findByTestId("demo-screen")).toBeInTheDocument();
+  expect(screen.queryByTestId("fallback-marker")).not.toBeInTheDocument();
 });
 
 it("case 3: flag OFF (manifests endpoint 403s) falls back to the hand-written screen", async () => {

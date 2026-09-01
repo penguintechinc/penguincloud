@@ -11,10 +11,14 @@ import type { ResourceDescriptor } from "../manifestTypes";
 
 jest.mock("../../../lib/api", () => ({
   __esModule: true,
-  default: { post: jest.fn(), delete: jest.fn() },
+  default: { post: jest.fn(), delete: jest.fn(), put: jest.fn() },
 }));
 
-const mockedApi = api as unknown as { post: jest.Mock; delete: jest.Mock };
+const mockedApi = api as unknown as {
+  post: jest.Mock;
+  delete: jest.Mock;
+  put: jest.Mock;
+};
 
 function resource(
   overrides: Partial<ResourceDescriptor> = {},
@@ -326,6 +330,137 @@ it("treats a missing enabled_when_field row value as empty, not a crash", () => 
   expect(
     screen.getByTestId("gough-manifest-nodes-action-resume"),
   ).toBeDisabled();
+});
+
+it("renders no Edit button when the resource declares no edit form", () => {
+  renderDetail(resource({ edit: null }));
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  expect(
+    screen.queryByTestId("gough-manifest-nodes-edit"),
+  ).not.toBeInTheDocument();
+});
+
+it("opens the edit modal, submits, and PUTs the aliased payload to the generic typed item route — never prefilled from the selected row", async () => {
+  mockedApi.put.mockResolvedValue({ data: { id: "12" } });
+  renderDetail(
+    resource({
+      edit: {
+        fields: [
+          {
+            name: "name",
+            label: "Name",
+            field_type: "text",
+            required: true,
+            options: [],
+          },
+        ],
+        submit_label: "Save",
+        field_aliases: [{ portal_name: "name", product_name: "node_name" }],
+      },
+    }),
+  );
+
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-edit"));
+
+  // Never prefilled — BiomesPage's own FormModalBuilder opens blank for
+  // Edit too, switching only title/submit label, not the field values.
+  const nameInput = await screen.findByLabelText(/^Name\*$/);
+  expect(nameInput).toHaveValue("");
+
+  fireEvent.change(nameInput, { target: { value: "rack-a-02" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() =>
+    expect(mockedApi.put).toHaveBeenCalledWith(
+      "/products/7/resources/nodes/12",
+      { node_name: "rack-a-02" },
+    ),
+  );
+  await waitFor(() =>
+    expect(screen.queryByLabelText(/^Name\*$/)).not.toBeInTheDocument(),
+  );
+});
+
+it("closes the edit modal without submitting when its own Cancel is clicked", async () => {
+  renderDetail(
+    resource({
+      edit: {
+        fields: [
+          {
+            name: "name",
+            label: "Name",
+            field_type: "text",
+            required: true,
+            options: [],
+          },
+        ],
+        submit_label: "Save",
+        field_aliases: [],
+      },
+    }),
+  );
+
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-edit"));
+  await screen.findByLabelText(/^Name\*$/);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(screen.queryByLabelText(/^Name\*$/)).not.toBeInTheDocument();
+  expect(mockedApi.put).not.toHaveBeenCalled();
+});
+
+it("substitutes {name} in an action's confirm copy with the selected row's own name_field value, byte-exact with NodesPage's hand-written interpolation", () => {
+  renderDetail(
+    resource({
+      actions: [
+        {
+          verb: "deploy",
+          label: "Deploy",
+          variant: "danger",
+          requires: "manage",
+          confirm:
+            'Deploying commissions this hardware and begins provisioning it. This affects node "{name}".',
+          starts_operations: true,
+          enabled_when_in: [],
+        },
+      ],
+    }),
+  );
+
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-action-deploy"));
+
+  expect(
+    screen.getByText(
+      'Deploying commissions this hardware and begins provisioning it. This affects node "rack-a-01".',
+    ),
+  ).toBeInTheDocument();
+});
+
+it("leaves any OTHER braced token in a confirm string verbatim — only {name} is interpreted", () => {
+  renderDetail(
+    resource({
+      actions: [
+        {
+          verb: "evacuate",
+          label: "Evacuate",
+          variant: "danger",
+          requires: "manage",
+          confirm: 'Evacuate "{name}"? {unrelated_token} stays as-is.',
+          starts_operations: false,
+          enabled_when_in: [],
+        },
+      ],
+    }),
+  );
+
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-action-evacuate"));
+
+  expect(
+    screen.getByText('Evacuate "rack-a-01"? {unrelated_token} stays as-is.'),
+  ).toBeInTheDocument();
 });
 
 it("disables an action that declares a form — unsupported without an approximated payload", () => {

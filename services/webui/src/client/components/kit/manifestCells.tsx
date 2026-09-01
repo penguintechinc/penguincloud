@@ -215,8 +215,26 @@ export function resetUnknownCellKindWarnings(): void {
 }
 
 /**
- * Render one cell: `row[column.field]` through the registry entry for
- * `column.cell.kind`, honouring `absent_as` for a missing value first.
+ * The first non-null of `[column.field, ...column.fallback_fields]` on
+ * `row` — `absent_as` only applies once every one of them is null/undefined.
+ * Mirrors the backend's `ColumnSpec.fallback_fields` contract exactly:
+ * reproduces `agentColumns.tsx`'s `String(value || row.agent_id ||
+ * row.id)` chain (null/undefined-based here, not `||`'s falsy-based check —
+ * consistent with the rest of this module treating a real `0`/`false`/`""`
+ * as a fact to render, never a missing value).
+ */
+function resolveFieldValue(column: ColumnSpec, row: ManifestRow): unknown {
+  for (const field of [column.field, ...(column.fallback_fields ?? [])]) {
+    const candidate = row[field];
+    if (candidate !== null && candidate !== undefined) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Render one cell: `row[column.field]` (or its `fallback_fields` chain)
+ * through the registry entry for `column.cell.kind`, honouring `absent_as`
+ * for a missing value first.
  *
  * Absence is `null`/`undefined` only — a real `0`, `false`, or `[]` is a
  * fact to render, not a missing value (Design §3.3's named example: "a
@@ -225,7 +243,7 @@ export function resetUnknownCellKindWarnings(): void {
  * given there.
  */
 export function renderCell(column: ColumnSpec, row: ManifestRow): ReactNode {
-  const value = row[column.field];
+  const value = resolveFieldValue(column, row);
   if (value === null || value === undefined) {
     return renderAbsent(column.absent_as);
   }

@@ -171,6 +171,16 @@ export interface ColumnSpec {
   sortable: boolean;
   /** Required by the backend for every non-`"text"` cell kind. */
   absent_as?: AbsentAs | null;
+  /**
+   * Additional field names to try, in order, when `field` is null — the
+   * renderer shows the first non-null of `[field, ...fallback_fields]`,
+   * THEN applies `absent_as` if every one of them is null. Mirrors
+   * `ColumnSpec.fallback_fields` in `app/adapters/manifest.py`; Gough's
+   * `agents` name column sets `("agent_id", "id")`, reproducing
+   * `agentColumns.tsx`'s `String(value || row.agent_id || row.id)` chain —
+   * see `manifestCells.tsx`'s `resolveFieldValue`.
+   */
+  fallback_fields?: readonly string[];
 }
 
 /**
@@ -311,6 +321,16 @@ export interface ResourceDescriptor {
   detail: DetailSpec;
   actions: ActionSpec[];
   create?: FormSpec | null;
+  /**
+   * The exact parallel of `create` for an update: same `FormSpec`, posted
+   * against the existing row instead of a new one. Mirrors
+   * `ResourceDescriptor.edit` in `app/adapters/manifest.py`; `null`/absent
+   * means this resource has no edit affordance. Gough's `biomes` sets this
+   * to the SAME field set as `create` (`BiomesPage.tsx` opens the identical
+   * form for "New biome" and "Edit biome") — see `manifestMutations.ts`'s
+   * `useUpdateManifestResource`.
+   */
+  edit?: FormSpec | null;
   delete?: DeleteSpec | null;
   relationships: RelationshipSpec[];
 }

@@ -140,8 +140,14 @@ function App() {
             `penguincloud.declarative_console` off, or for any resource whose
             manifest declares more than the renderer can yet reproduce
             losslessly, this renders the hand-written page below completely
-            unchanged — Gough's manifest declares operations/actions/create
-            on every resource, so today it always falls back here. */}
+            unchanged. Phase 8 Step 5 frontend widened
+            `SUPPORTED_CAPABILITIES` to cover operations/actions/create/edit
+            (proven against Gough's real manifest in
+            `ManifestResourceScreen.equivalence.test.tsx`), so with the flag
+            on every Gough resource now routes through the manifest —
+            the hand-written pages below stay as the `fallback` prop (flag
+            off, or a future manifest change the renderer cannot yet
+            reproduce), not deleted. */}
         <Route
           path="/products/gough/nodes"
           element={
