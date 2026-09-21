@@ -20,6 +20,8 @@ import DevModeBanner from "./DevModeBanner";
 import MutationErrorBanner from "./kit/MutationErrorBanner";
 import { Breadcrumbs } from "./kit/Breadcrumbs";
 import { buildMenuCategories } from "./layout/menuCategories";
+import { useConsoleManifests } from "./kit/useConsoleManifests";
+import { buildExtensionMenuCategories } from "./extensions";
 
 const SIDEBAR_COLORS = {
   sidebarBackground: "rgb(15, 23, 42)",
@@ -53,6 +55,18 @@ export default function Layout() {
     return hasRole(roles as Array<"admin" | "maintainer" | "viewer">);
   });
 
+  // Page-slot extension categories (Design §4.1) — appended after the
+  // hand-written categories rather than interleaved with them, so this
+  // never has to know `buildMenuCategories`'s internal ordering. Gating is
+  // inherited from `useConsoleManifests` (flag + connection, see that
+  // hook's doc), not re-checked here — an empty `data` (flag off, still
+  // loading, or nothing connected) yields zero extension categories via
+  // `buildExtensionMenuCategories`'s own "no empty header" rule.
+  const manifestsQuery = useConsoleManifests();
+  const extensionCategories = buildExtensionMenuCategories(
+    manifestsQuery.data ?? [],
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* Fixed-position overlay; mounted once here so a rejected mutation's
@@ -65,7 +79,7 @@ export default function Layout() {
           it in a custom translate-able <aside> left the library's desktop
           panel `hidden` below lg, so the drawer never appeared on mobile. */}
       <SidebarMenu
-        categories={categories}
+        categories={[...categories, ...extensionCategories]}
         currentPath={location.pathname}
         onNavigate={(href) => {
           navigate(href);

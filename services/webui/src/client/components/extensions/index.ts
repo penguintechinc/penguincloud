@@ -1,0 +1,19 @@
+/**
+ * Extension slot mechanism — Design §4.1/§3.4's escape hatch. See
+ * `ExtensionRegistry.ts`'s module doc for the full contract.
+ */
+export {
+  registerPageExtension,
+  resolveExtension,
+  clearPageExtensions,
+  type ExtensionPageProps,
+  type ExtensionPageComponent,
+  type ExtensionLoader,
+} from "./ExtensionRegistry";
+export {
+  ExtensionFallback,
+  type ExtensionFallbackProps,
+} from "./ExtensionFallback";
+export { ExtensionSlotRenderer } from "./ExtensionSlotRenderer";
+export { ExtensionPageRoute } from "./ExtensionPageRoute";
+export { buildExtensionMenuCategories } from "./extensionNav";

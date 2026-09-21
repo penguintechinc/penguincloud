@@ -121,6 +121,7 @@ export {
   type ActionSpec,
   type DeleteSpec,
   type OperationsSpec,
+  type ExtensionSlot,
 } from "./manifestTypes";
 
 // Note: Breadcrumbs, TenantScopeSwitcher, and ActingAsBanner are exported from their own files
