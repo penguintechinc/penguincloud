@@ -65,3 +65,12 @@ export const FileText = (props: IconProps) => (
 export const Gauge = (props: IconProps) => (
   <svg data-testid="icon-gauge" {...props} />
 );
+export const Receipt = (props: IconProps) => (
+  <svg data-testid="icon-receipt" {...props} />
+);
+
+// Extension-slot nav icon (components/extensions/extensionNav.ts) — generic,
+// not tied to any product.
+export const Puzzle = (props: IconProps) => (
+  <svg data-testid="icon-puzzle" {...props} />
+);

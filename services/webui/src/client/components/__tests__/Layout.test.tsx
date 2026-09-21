@@ -15,12 +15,18 @@ import { useTenantStore } from "../../stores/tenantStore";
 import { useProductConnections } from "../../hooks/useProducts";
 import { useTenantScopeBootstrap } from "../../hooks/useTenantScopeBootstrap";
 import { useFeatures } from "../../hooks/useFeatures";
+import { useConsoleManifests } from "../kit/useConsoleManifests";
 
 jest.mock("../../hooks/useAuth");
 jest.mock("../../stores/tenantStore");
 jest.mock("../../hooks/useProducts");
 jest.mock("../../hooks/useTenantScopeBootstrap");
 jest.mock("../../hooks/useFeatures");
+// Mocked at the hook boundary, same as `useProductConnections` above — Layout
+// reads `useConsoleManifests` only to build the extension nav categories
+// (`buildExtensionMenuCategories`, Design §4.1), not to prove the fetch
+// chain itself (that is `useConsoleManifests.test.tsx`'s job).
+jest.mock("../kit/useConsoleManifests");
 jest.mock("../kit/TenantScopeSwitcher", () => ({
   TenantScopeSwitcher: () => <div data-testid="tenant-scope-switcher" />,
 }));
@@ -56,6 +62,7 @@ describe("Layout", () => {
     );
     (useProductConnections as jest.Mock).mockReturnValue({ data: [] });
     (useTenantScopeBootstrap as jest.Mock).mockReturnValue(undefined);
+    (useConsoleManifests as jest.Mock).mockReturnValue({ data: [] });
   });
 
   it("passes the user's role to SidebarMenu", () => {
@@ -86,6 +93,46 @@ describe("Layout", () => {
     await user.click(screen.getByRole("button", { name: "Toggle menu" }));
 
     expect(sidebarProps[sidebarProps.length - 1].mobileOpen).toBe(true);
+  });
+
+  it("appends a page-slot extension category after the hand-written ones (Design §4.1)", () => {
+    (useConsoleManifests as jest.Mock).mockReturnValue({
+      data: [
+        {
+          product_id: 9,
+          product_type: "layout-ext-product",
+          manifest: {
+            manifest_version: 2,
+            product_type: "layout-ext-product",
+            display_name: "Layout Ext Product",
+            nav: { items: [] },
+            resources: [],
+            operations: null,
+            metrics: null,
+            extensions: [
+              {
+                slot: "page",
+                id: "panel",
+                label: "Panel",
+                resource: null,
+                position: 0,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    render(<Layout />);
+
+    const categories = sidebarProps[0].categories as Array<{
+      header?: string;
+      key?: string;
+    }>;
+    expect(categories[categories.length - 1]).toMatchObject({
+      header: "Layout Ext Product Extensions",
+      key: "ext-layout-ext-product",
+    });
   });
 
   it("bootstraps the tenant scope", () => {

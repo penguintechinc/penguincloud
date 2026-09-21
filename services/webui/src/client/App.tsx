@@ -21,6 +21,7 @@ import AuditLog from "./pages/audit/AuditLog";
 import ProductPage from "./pages/products/ProductPage";
 import Teams from "./pages/Teams";
 import { ProductResourceRoute } from "./components/kit";
+import { ExtensionPageRoute } from "./components/extensions";
 import NodesPage from "./pages/products/gough/NodesPage";
 import BiomesPage from "./pages/products/gough/BiomesPage";
 import AgentsPage from "./pages/products/gough/AgentsPage";
@@ -130,6 +131,25 @@ function App() {
 
         {/* Product management - all authenticated (product-level auth via backend) */}
         <Route path="/products/:id" element={<ProductPage />} />
+
+        {/* Extension page slots (Design §4.1/§3.4's escape hatch) — ONE
+            generic, param-driven route for every product's `page`-slot
+            extensions, not a route per product. `ExtensionPageRoute`
+            resolves `:productType`/`:extensionId` against
+            `useConsoleManifests()` and hands off to the registry
+            (`components/extensions/ExtensionRegistry.ts`); an unregistered
+            or undeclared slot degrades to a generic fallback, never a blank
+            page. Gated the same way `ProductResourceRoute` is: the manifest
+            only resolves when `penguincloud.declarative_console` is on and
+            the tenant is connected to that product, so there is no separate
+            flag check here. Deliberately NOT wrapped in
+            `ProductResourceRoute`/`manifestCapabilities.ts` — a `page` slot
+            is not a resource and does not go through the capability-subset
+            gate resources do. */}
+        <Route
+          path="/products/:productType/ext/:extensionId"
+          element={<ExtensionPageRoute />}
+        />
 
         {/* Gough. No RoleGuard: authority is a scope question answered
             server-side; flag + connection gating live in GoughScreen. No

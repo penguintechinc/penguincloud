@@ -28,6 +28,7 @@ export default {
   // whole-app percentage that no threshold actually enforced.
   collectCoverageFrom: [
     "src/client/components/kit/**/*.{ts,tsx}",
+    "src/client/components/extensions/**/*.{ts,tsx}",
     "src/client/api/**/*.{ts,tsx}",
     "src/client/lib/**/*.{ts,tsx}",
     // Only the new mutationErrorStore, not stores/** broadly: tenantStore.ts
@@ -40,12 +41,19 @@ export default {
     "src/client/stores/mutationErrorStore.ts",
     "!src/client/**/*.d.ts",
     "!src/client/components/kit/index.ts", // Barrel exports have no behavior to test
+    "!src/client/components/extensions/index.ts", // Barrel exports have no behavior to test
     // Bundler-only `import.meta` access; stubbed in tests, so the real body
     // never executes under jest (see moduleNameMapper above).
     "!src/client/lib/viteEnv.ts",
   ],
   coverageThreshold: {
     "src/client/components/kit/**": {
+      branches: 90,
+      functions: 90,
+      lines: 90,
+      statements: 90,
+    },
+    "src/client/components/extensions/**": {
       branches: 90,
       functions: 90,
       lines: 90,

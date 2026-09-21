@@ -29,6 +29,7 @@ export const APP_ROUTES = [
   "/audit",
   "/settings",
   "/products/:id",
+  "/products/:productType/ext/:extensionId",
   "/products/gough/nodes",
   "/products/gough/biomes",
   "/products/gough/agents",
