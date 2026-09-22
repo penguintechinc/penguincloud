@@ -481,18 +481,22 @@ _AGENTS: Final[ResourceDescriptor] = ResourceDescriptor(
     ),
     detail=DetailSpec(tabs=("Overview",)),
     actions=(
+        # Confirm copy is byte-exact with AgentsPage.tsx's own hand-written
+        # ConfirmDialog message (Phase 8 Step 7 exactness gap closure) --
+        # the manifest is the single source now, not an approximation of it.
         ActionSpec(
             verb="suspend",
             label="Suspend",
             variant="danger",
             requires="manage",
-            confirm="Suspend this agent?",
+            confirm="Suspending stops this agent from acting until it is resumed.",
         ),
         ActionSpec(
             verb="resume",
             label="Resume",
             variant="primary",
             requires="manage",
+            confirm="Resuming returns this agent to service.",
         ),
     ),
     create=None,  # agents are enrolled by the product's own key-exchange handshake

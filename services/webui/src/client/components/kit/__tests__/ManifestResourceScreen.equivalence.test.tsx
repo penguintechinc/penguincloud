@@ -21,9 +21,9 @@
  *
  * - the operations panel (list/poll spec/cancel/logs) on all three screens;
  * - row actions, `{name}` confirm interpolation, and danger-variant styling
- *   on nodes (and, where the manifest's OWN content actually matches — see
- *   the agents block below — on agents too);
- * - the biomes create AND edit forms;
+ *   on nodes AND agents (the agents confirm-copy gap below is now CLOSED);
+ * - the biomes create AND edit forms, including their "New biome"/"Edit
+ *   biome" modal titles;
  * - the agents `hostname` column's `fallback_fields` chain.
  *
  * The `*_RESOURCE` fixtures are still hand-transcriptions of
@@ -32,13 +32,31 @@
  * for why cross-language checks in this repo read source as text instead).
  * Kept deliberately literal, field for field.
  *
- * One REAL divergence this file found and does NOT paper over: Gough's own
- * `agents` manifest declares `suspend`'s `confirm` as `"Suspend this
- * agent?"` and `resume` with NO `confirm` at all, while `AgentsPage.tsx`
- * hand-writes `"Suspending stops this agent from acting until it is
- * resumed."` / `"Resuming returns this agent to service."` — neither
- * matches. The agents actions block below asserts what is actually TRUE on
- * each side rather than a false equality; see that block's own comment.
+ * Phase 8 Step 7 closed the two remaining exactness gaps this file had
+ * found, ahead of deleting AgentsPage/BiomesPage in favour of the manifest
+ * console:
+ *
+ * - Gough's own `agents` manifest now declares `suspend`'s and `resume`'s
+ *   `confirm` byte-identical to `AgentsPage.tsx`'s hand-written
+ *   ConfirmDialog message — a pure data change in `gough/manifest.py`
+ *   (`ManifestResourceDetail.tsx`'s title/confirmLabel/isDangerous
+ *   derivation from `ActionSpec` already matched; only the confirm STRING
+ *   diverged). The agents actions block below now asserts equality, not a
+ *   finding.
+ * - `ManifestCreateForm.tsx`/`ManifestResourceDetail.tsx`'s create/edit
+ *   modal titles now lowercase `resource.label` (`New ${label
+ *   .toLowerCase()}` / `Edit ${label.toLowerCase()}`), matching the
+ *   lowercase-resource-noun convention every hand-written product page
+ *   uses (`BiomesPage.tsx`'s "New biome"/"Edit biome", `DatabasesPage.tsx`'s
+ *   "New database", `BlockPagesPage.tsx`'s "New block page") — generic, not
+ *   special-cased to biomes.
+ *
+ * One divergence remains OUT OF SCOPE for Step 7 and is still reported, not
+ * papered over: BiomesPage's own hand-written DELETE confirm interpolates
+ * the biome's real name inline (`Deleting "web" removes the definition.
+ * ...`), while the manifest's `DeleteSpec.confirm` is a fixed string with
+ * different wording (`{name}` interpolation is `ActionSpec`-only, never
+ * `DeleteSpec` — see the biomes delete test below).
  */
 import {
   render,
@@ -746,6 +764,14 @@ describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
     await within(manifestScreen.container).findByTestId("datatable-row");
 
     fireEvent.click(screen.getByTestId("gough-biome-create"));
+    // Title casing (Phase 8 Step 7 exactness): BiomesPage's own
+    // FormModalBuilder opens with lowercase "New biome" — the manifest's
+    // FormBuilder must reproduce that exactly, not "New Biome". Scoped to
+    // the heading role: the create BUTTON behind the modal carries the
+    // same text, so an unscoped query would match both.
+    expect(
+      within(biomesPage.container).getByRole("heading", { name: "New biome" }),
+    ).toBeInTheDocument();
     for (const label of [/^Name\*$/, "Kind", "Workload type", "Version"]) {
       expect(
         within(biomesPage.container).getByLabelText(label),
@@ -764,6 +790,11 @@ describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
     );
 
     fireEvent.click(screen.getByTestId("gough-manifest-biomes-create"));
+    expect(
+      within(manifestScreen.container).getByRole("heading", {
+        name: "New biome",
+      }),
+    ).toBeInTheDocument();
     for (const label of [/^Name\*$/, "Kind", "Workload type", "Version"]) {
       expect(
         within(manifestScreen.container).getByLabelText(label),
@@ -790,6 +821,11 @@ describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
     // documents.
     fireEvent.click(screen.getByTestId("gough-biome-open-4"));
     fireEvent.click(screen.getByTestId("gough-biome-edit"));
+    // Title casing (Phase 8 Step 7 exactness): lowercase "Edit biome" on
+    // both sides, not "Edit Biome".
+    expect(
+      within(biomesPage.container).getByRole("heading", { name: "Edit biome" }),
+    ).toBeInTheDocument();
     const handWrittenNameInput = within(biomesPage.container).getByLabelText(
       /^Name\*$/,
     );
@@ -804,6 +840,11 @@ describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
 
     fireEvent.click(screen.getByTestId("gough-manifest-biomes-open-4"));
     fireEvent.click(screen.getByTestId("gough-manifest-biomes-edit"));
+    expect(
+      within(manifestScreen.container).getByRole("heading", {
+        name: "Edit biome",
+      }),
+    ).toBeInTheDocument();
     const manifestNameInput = await within(
       manifestScreen.container,
     ).findByLabelText(/^Name\*$/);
@@ -957,7 +998,7 @@ const GOUGH_AGENTS_RESOURCE: ResourceDescriptor = {
       label: "Suspend",
       variant: "danger",
       requires: "manage",
-      confirm: "Suspend this agent?",
+      confirm: "Suspending stops this agent from acting until it is resumed.",
       starts_operations: false,
       form: null,
       enabled_when_field: null,
@@ -968,7 +1009,7 @@ const GOUGH_AGENTS_RESOURCE: ResourceDescriptor = {
       label: "Resume",
       variant: "primary",
       requires: "manage",
-      confirm: null,
+      confirm: "Resuming returns this agent to service.",
       starts_operations: false,
       form: null,
       enabled_when_field: null,
@@ -1132,38 +1173,67 @@ describe("ManifestResourceScreen vs AgentsPage — agents", () => {
     ).toBeNull();
   });
 
-  it("FINDING (not fixed here): the manifest's action confirm COPY does not match AgentsPage's hand-written text — reported, not papered over", async () => {
+  it("renders the SAME action confirm COPY as AgentsPage's hand-written text for BOTH suspend and resume — Phase 8 Step 7 closed this gap in gough/manifest.py's own ActionSpec.confirm data", async () => {
     const { agentsPage, manifestScreen } = renderAgentsBoth([RAW_AGENT]);
     await within(agentsPage.container).findByTestId("datatable-row");
     await within(manifestScreen.container).findByTestId("datatable-row");
 
-    fireEvent.click(screen.getByTestId("gough-agent-open-3f2b-aa"));
-    fireEvent.click(screen.getByTestId("gough-agent-suspend"));
     const handWrittenSuspendConfirm =
       "Suspending stops this agent from acting until it is resumed.";
+    const handWrittenResumeConfirm = "Resuming returns this agent to service.";
+
+    fireEvent.click(screen.getByTestId("gough-agent-open-3f2b-aa"));
+    fireEvent.click(screen.getByTestId("gough-agent-suspend"));
     expect(
       within(screen.getByTestId("gough-agent-confirm")).getByText(
         handWrittenSuspendConfirm,
       ),
     ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("gough-agent-confirm")).getByText(
+        "Suspend agent",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("gough-agent-confirm-cancel"));
+
+    fireEvent.click(screen.getByTestId("gough-agent-resume"));
+    expect(
+      within(screen.getByTestId("gough-agent-confirm")).getByText(
+        handWrittenResumeConfirm,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("gough-agent-confirm")).getByText(
+        "Resume agent",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("gough-agent-confirm-cancel"));
 
     fireEvent.click(screen.getByTestId("gough-manifest-agents-open-3f2b-aa"));
     fireEvent.click(screen.getByTestId("gough-manifest-agents-action-suspend"));
-    // The manifest's OWN declared copy — genuinely different wording, per
-    // `_AGENTS`'s `suspend` ActionSpec in `gough/manifest.py`. Scoped to its
-    // own dialog testid, not a document-wide absence check — AgentsPage's
-    // own dialog (opened above) is still mounted alongside it, and its text
-    // legitimately remains in the document; the two dialogs' MESSAGES not
-    // matching is the finding, not one supplanting the other.
-    const manifestDialog = screen.getByTestId(
+    const manifestSuspendDialog = screen.getByTestId(
       "gough-manifest-agents-action-confirm",
     );
     expect(
-      within(manifestDialog).getByText("Suspend this agent?"),
+      within(manifestSuspendDialog).getByText(handWrittenSuspendConfirm),
     ).toBeInTheDocument();
     expect(
-      within(manifestDialog).queryByText(handWrittenSuspendConfirm),
-    ).not.toBeInTheDocument();
+      within(manifestSuspendDialog).getByText("Suspend agent"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByTestId("gough-manifest-agents-action-confirm-cancel"),
+    );
+
+    fireEvent.click(screen.getByTestId("gough-manifest-agents-action-resume"));
+    const manifestResumeDialog = screen.getByTestId(
+      "gough-manifest-agents-action-confirm",
+    );
+    expect(
+      within(manifestResumeDialog).getByText(handWrittenResumeConfirm),
+    ).toBeInTheDocument();
+    expect(
+      within(manifestResumeDialog).getByText("Resume agent"),
+    ).toBeInTheDocument();
   });
 });
 

@@ -287,7 +287,7 @@ export function ManifestResourceDetail({
         <FormBuilder
           mode="modal"
           isOpen={editOpen}
-          title={`Edit ${resource.label}`}
+          title={`Edit ${resource.label.toLowerCase()}`}
           fields={editFormSpec.fields.map(toFieldConfig)}
           submitLabel={editFormSpec.submit_label}
           loading={updateResource.isPending}
