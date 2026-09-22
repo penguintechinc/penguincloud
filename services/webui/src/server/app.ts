@@ -65,14 +65,14 @@ export function createApp(config: AppConfig): express.Express {
           // called (see src/client/lib/api.ts and portalPaths.ts) — no
           // third-party API is called directly from the browser.
           connectSrc: ["'self'"],
-          // BlockPagePreview.tsx renders operator-authored HTML in a
-          // sandbox="" srcDoc iframe, never via dangerouslySetInnerHTML. A
-          // srcDoc frame has no URL of its own and is checked against the
-          // parent's origin, so 'self' is what lets that preview render at
-          // all; it does not broaden what the frame can do, since
-          // sandbox="" already strips scripts/same-origin/forms/popups from
-          // its content.
-          frameSrc: ["'self'"],
+          // Phase 8 Step 7 deleted `BlockPagePreview.tsx` (the sole reason
+          // this was ever 'self' — it rendered operator-authored HTML in a
+          // sandbox="" srcDoc iframe, replaced by the manifest console's
+          // read-only table). Nothing in this app frames anything anymore,
+          // so this tightens to 'none' rather than leaving a widening with
+          // no live justification — least privilege, not a defense-in-depth
+          // nicety.
+          frameSrc: ["'none'"],
           // Nothing here can legitimately be framed by another site.
           frameAncestors: ["'none'"],
           objectSrc: ["'none'"],

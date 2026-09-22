@@ -56,13 +56,13 @@ export default function Teams() {
         `error`/`isLoading` are wired straight into DataTable so its own
         loading > error > empty precedence decides what renders — the same
         pattern every Gough/Nest/Tobogganing list screen uses (see e.g.
-        `pages/products/tobogganing/PeersPage.tsx`). Previously this page
+        `pages/products/tobogganing/SwgPolicyPage.tsx`). Previously this page
         derived its own "teams.length === 0" empty state and never looked at
         `teamsQuery.error` at all, so a failed `/teams` request rendered "No
         teams yet" — a fact about a request that never returned data,
         printed as if it were a fact about the tenant. The custom
         `EmptyState` below is gated on `!error` for the same reason
-        PeersPage's is: it must not render over a failure DataTable is
+        SwgPolicyPage's is: it must not render over a failure DataTable is
         already showing.
       */}
       <DataTable

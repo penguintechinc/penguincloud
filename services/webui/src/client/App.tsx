@@ -22,15 +22,8 @@ import ProductPage from "./pages/products/ProductPage";
 import Teams from "./pages/Teams";
 import { ProductResourceRoute } from "./components/kit";
 import { ExtensionPageRoute } from "./components/extensions";
-import NodesPage from "./pages/products/gough/NodesPage";
-import BiomesPage from "./pages/products/gough/BiomesPage";
-import AgentsPage from "./pages/products/gough/AgentsPage";
 import DatabasesPage from "./pages/products/nest/DatabasesPage";
 import BillingPage from "./pages/products/nest/BillingPage";
-import ClientsPage from "./pages/products/tobogganing/ClientsPage";
-import ClustersPage from "./pages/products/tobogganing/ClustersPage";
-import PeersPage from "./pages/products/tobogganing/PeersPage";
-import BlockPagesPage from "./pages/products/tobogganing/BlockPagesPage";
 import SwgPolicyPage from "./pages/products/tobogganing/SwgPolicyPage";
 
 function App() {
@@ -152,51 +145,29 @@ function App() {
         />
 
         {/* Gough. No RoleGuard: authority is a scope question answered
-            server-side; flag + connection gating live in GoughScreen. No
-            Clusters route — see menuCategories.ts.
+            server-side; flag + connection gating live in
+            `ProductResourceRoute`'s generic fallback. No Clusters route —
+            see menuCategories.ts.
 
-            Each route is wrapped in `ProductResourceRoute`, the generic
-            capability-subset gate (`manifestCapabilities.ts`): with
-            `penguincloud.declarative_console` off, or for any resource whose
-            manifest declares more than the renderer can yet reproduce
-            losslessly, this renders the hand-written page below completely
-            unchanged. Phase 8 Step 5 frontend widened
-            `SUPPORTED_CAPABILITIES` to cover operations/actions/create/edit
-            (proven against Gough's real manifest in
-            `ManifestResourceScreen.equivalence.test.tsx`), so with the flag
-            on every Gough resource now routes through the manifest —
-            the hand-written pages below stay as the `fallback` prop (flag
-            off, or a future manifest change the renderer cannot yet
-            reproduce), not deleted. */}
+            Phase 8 Step 7 deleted Gough's hand-written NodesPage/
+            BiomesPage/AgentsPage — `declarative_console` is default-on and
+            every Gough resource is proven equivalence-exact against them
+            (`ManifestResourceScreen.equivalence.test.tsx`), so they were
+            replaced by the manifest console, not kept as a `fallback`. No
+            `fallback` prop: `ProductResourceRoute` renders a generic
+            connection-aware empty state for the (now purely hypothetical)
+            case of the flag being off or the manifest going unroutable. */}
         <Route
           path="/products/gough/nodes"
-          element={
-            <ProductResourceRoute
-              productType="gough"
-              kind="nodes"
-              fallback={NodesPage}
-            />
-          }
+          element={<ProductResourceRoute productType="gough" kind="nodes" />}
         />
         <Route
           path="/products/gough/biomes"
-          element={
-            <ProductResourceRoute
-              productType="gough"
-              kind="biomes"
-              fallback={BiomesPage}
-            />
-          }
+          element={<ProductResourceRoute productType="gough" kind="biomes" />}
         />
         <Route
           path="/products/gough/agents"
-          element={
-            <ProductResourceRoute
-              productType="gough"
-              kind="agents"
-              fallback={AgentsPage}
-            />
-          }
+          element={<ProductResourceRoute productType="gough" kind="agents" />}
         />
 
         {/* Nest. No RoleGuard, for the same reason as Gough: authority is a
@@ -236,17 +207,21 @@ function App() {
             them — an audience mismatch, not a scope one. See
             menuCategories.ts and task-4T-report.md.
 
-            Tobogganing's resources are read-only (no operations/actions/
-            create declared anywhere in its manifest), so once
-            `penguincloud.declarative_console` is on, these ARE the
-            resources that route through `ManifestResourceScreen`. */}
+            Phase 8 Step 7 deleted Tobogganing's hand-written ClientsPage/
+            ClustersPage/PeersPage/BlockPagesPage — read-only resources,
+            proven equivalence-exact against the manifest console, now
+            default-on. No `fallback` prop on those four: same generic
+            empty-state reasoning as Gough above.
+
+            `swg_policy` KEEPS its hand-written `SwgPolicyPage` fallback: an
+            unresolved `scope_id` ceiling means its manifest coverage is not
+            yet equivalence-proven. */}
         <Route
           path="/products/tobogganing/clients"
           element={
             <ProductResourceRoute
               productType="tobogganing"
               kind="sdwan_client"
-              fallback={ClientsPage}
             />
           }
         />
@@ -256,7 +231,6 @@ function App() {
             <ProductResourceRoute
               productType="tobogganing"
               kind="sdwan_cluster"
-              fallback={ClustersPage}
             />
           }
         />
@@ -266,18 +240,13 @@ function App() {
             <ProductResourceRoute
               productType="tobogganing"
               kind="wireguard_peer"
-              fallback={PeersPage}
             />
           }
         />
         <Route
           path="/products/tobogganing/block-pages"
           element={
-            <ProductResourceRoute
-              productType="tobogganing"
-              kind="block_page"
-              fallback={BlockPagesPage}
-            />
+            <ProductResourceRoute productType="tobogganing" kind="block_page" />
           }
         />
         <Route

@@ -9,7 +9,7 @@
  * note on the first one) and pass against the fixed one, which wires
  * `error`/`isLoading` into `DataTable` and gates the custom empty state on
  * `!error`, matching the pattern every Gough/Nest/Tobogganing list screen
- * already uses (e.g. `pages/products/tobogganing/PeersPage.tsx`).
+ * already uses (e.g. `pages/products/tobogganing/SwgPolicyPage.tsx`).
  */
 
 import { render, screen, waitFor } from "@testing-library/react";

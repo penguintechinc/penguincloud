@@ -70,13 +70,11 @@ function actionButtonVariant(variant: string): "primary" | "danger" | "ghost" {
 }
 
 /**
- * Substitutes the literal `{name}` token in an `ActionSpec.confirm` string
- * with the acted-on row's own `name_field` value — the one substitution
- * `ActionSpec.confirm`'s docstring authorises; any other braced token is
- * left verbatim (a plain string replace, not a template engine). Byte-exact
- * with `NodesPage.tsx`'s own hand-written interpolation (`` `${pending.
- * confirmation} This affects node "${selected.name}".` ``) once the
- * manifest's confirm string supplies the surrounding text.
+ * Substitutes the literal `{name}` token in an `ActionSpec.confirm` or
+ * `DeleteSpec.confirm` string with the acted-on row's own `name_field`
+ * value — the one substitution both specs' docstrings authorise; any other
+ * braced token is left verbatim (a plain string replace, not a template
+ * engine). Shared by the action-confirm and delete-confirm dialogs below.
  */
 function interpolateConfirmName(
   confirm: string | null | undefined,
@@ -261,7 +259,14 @@ export function ManifestResourceDetail({
       <ConfirmDialog
         isOpen={pendingDelete}
         title={`Delete ${resource.label.toLowerCase()}`}
-        message={resource.delete?.confirm ?? ""}
+        message={
+          selected
+            ? interpolateConfirmName(
+                resource.delete?.confirm,
+                String(selected[resource.name_field] ?? selected.id),
+              )
+            : ""
+        }
         confirmLabel="Delete"
         isDangerous
         isLoading={deleteResource.isPending}

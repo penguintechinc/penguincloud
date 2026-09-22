@@ -3,12 +3,13 @@
  * entirely by the typed operations API contract
  * (`services/portal-api/app/adapters/base.py`'s `Operation`/`OperationState`).
  *
- * Replaces two hand-written, product-specific panels
- * (`pages/products/gough/OperationsPanel.tsx`,
- * `pages/products/nest/NestOperationsPanel.tsx`) that did the same job
- * against the same contract with a different capability subset — Gough
- * offers cancel and a log-stream disclosure; Nest's product has no route
- * for either. This component takes that difference as data
+ * Replaced two hand-written, product-specific panels that did the same job
+ * against the same contract with a different capability subset — Gough's
+ * own `OperationsPanel.tsx` (deleted in Phase 8 Step 7 once
+ * `declarative_console` went default-on) offered cancel and a log-stream
+ * disclosure; Nest's still-hand-written `NestOperationsPanel.tsx` has no
+ * route for either (Nest has no committed manifest, so it always falls
+ * back). This component takes that difference as data
  * (`OperationsPanelSpec`), not as a second implementation.
  *
  * Deliberately does NOT own polling. Gough discovers its operations via a

@@ -31,6 +31,15 @@
  * `ManifestResourceScreen.equivalence.test.tsx`), so that same fixture now
  * routes — `case 2` was flipped to assert routing rather than weakened or
  * deleted, matching `manifestCapabilities.test.ts`'s own lockstep flip.
+ *
+ * Phase 8 Step 7 made `fallback` OPTIONAL: a route with no hand-written
+ * screen left renders `DefaultResourceFallback` instead of crashing on a
+ * missing prop. The "no fallback given" cases below reuse `case 3`'s same
+ * settle-then-assert discipline — `DefaultResourceFallback` also renders
+ * during the loading frame (as `ProductScreen`'s own loading placeholder),
+ * so asserting its final state without waiting for the manifests query to
+ * settle would be exactly the kind of vacuous pass this file's own module
+ * doc already warns about.
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
@@ -128,6 +137,18 @@ function renderRoute(productType: string, kind: string): QueryClient {
         kind={kind}
         fallback={FallbackScreen}
       />
+    </QueryClientProvider>,
+  );
+  return queryClient;
+}
+
+/** Same as {@link renderRoute} but with NO `fallback` prop — the Phase 8
+ * Step 7 case where a route has no hand-written screen left. */
+function renderRouteNoFallback(productType: string, kind: string): QueryClient {
+  const queryClient = createAppQueryClient();
+  render(
+    <QueryClientProvider client={queryClient}>
+      <ProductResourceRoute productType={productType} kind={kind} />
     </QueryClientProvider>,
   );
   return queryClient;
@@ -291,4 +312,83 @@ it("falls back when the manifest has no matching resource kind at all", async ()
   await waitForManifestsSettled(queryClient);
 
   expect(screen.getByTestId("fallback-marker")).toBeInTheDocument();
+});
+
+describe("no fallback given (Phase 8 Step 7: fallback is now optional)", () => {
+  it("still routes through ManifestResourceScreen when the manifest is fully covered — no fallback needed", async () => {
+    mockConnections.mockReturnValue({
+      data: [{ id: 7, product_type: "demo" }],
+      isLoading: false,
+    });
+    mockApiGet.mockResolvedValue({
+      data: {
+        manifests: [
+          {
+            product_id: 7,
+            product_type: "demo",
+            manifest: manifestFor("demo", readOnlyResource("widgets")),
+          },
+        ],
+        count: 1,
+      },
+    });
+    mockProxyRequest.mockResolvedValue({ widgets: [] });
+
+    renderRouteNoFallback("demo", "widgets");
+
+    expect(await screen.findByTestId("demo-screen")).toBeInTheDocument();
+  });
+
+  it("renders the generic connection-aware empty state, never blank, when disabled", async () => {
+    mockIsProductEnabled.mockReturnValue(false);
+    mockConnections.mockReturnValue({ data: [], isLoading: false });
+    mockApiGet.mockResolvedValue({ data: { manifests: [], count: 0 } });
+
+    const queryClient = renderRouteNoFallback("demo", "widgets");
+    await waitForManifestsSettled(queryClient);
+
+    expect(await screen.findByTestId("demo-disabled")).toBeInTheDocument();
+    expect(screen.queryByTestId("fallback-marker")).not.toBeInTheDocument();
+  });
+
+  it("renders the generic connection-aware empty state when the tenant has no connection for the product", async () => {
+    mockConnections.mockReturnValue({ data: [], isLoading: false });
+    mockApiGet.mockResolvedValue({ data: { manifests: [], count: 0 } });
+
+    const queryClient = renderRouteNoFallback("demo", "widgets");
+    await waitForManifestsSettled(queryClient);
+
+    expect(await screen.findByTestId("demo-no-connection")).toBeInTheDocument();
+  });
+
+  it("renders the generic 'not available' empty state (connected, enabled, but no manifest coverage for this kind) — never blank, never a crash", async () => {
+    mockConnections.mockReturnValue({
+      data: [{ id: 7, product_type: "demo" }],
+      isLoading: false,
+    });
+    mockApiGet.mockResolvedValue({
+      data: {
+        manifests: [
+          {
+            product_id: 7,
+            product_type: "demo",
+            manifest: manifestFor("demo", readOnlyResource("widgets")),
+          },
+        ],
+        count: 1,
+      },
+    });
+
+    const queryClient = renderRouteNoFallback("demo", "gizmos");
+    await waitForManifestsSettled(queryClient);
+
+    expect(
+      await screen.findByTestId("demo-gizmos-unavailable"),
+    ).toBeInTheDocument();
+    // Still inside ProductScreen's connected header shell, not the
+    // disabled/no-connection gate — this tenant genuinely has "demo"
+    // enabled and connected; there is simply no manifest coverage for
+    // "gizmos".
+    expect(screen.getByTestId("demo-screen")).toBeInTheDocument();
+  });
 });
