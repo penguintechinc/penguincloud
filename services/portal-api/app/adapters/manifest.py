@@ -681,7 +681,15 @@ class ActionSpec:
 
 @dataclass(slots=True, frozen=True)
 class DeleteSpec:
-    """Delete affordance for a resource. ``confirm`` is mandatory copy."""
+    """Delete affordance for a resource. ``confirm`` is mandatory copy.
+
+    ``confirm`` MAY contain the literal token ``{name}`` — same
+    per-row-interpolation contract as :attr:`ActionSpec.confirm` (see that
+    docstring): the renderer substitutes it with the acted-on row's
+    ``name_field`` value before display. A delete confirm is a row action
+    just like any :class:`ActionSpec`, so it gets the identical
+    substitution rather than a second, divergent template language.
+    """
 
     confirm: str
     requires: str = "manage"

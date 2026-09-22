@@ -84,7 +84,9 @@ class TestResponseShape:
         The two halves differ deliberately. A product module is shipped and
         included at every tier, so its flag is a kill switch and no answer
         means "not killed"; a feature flag governs rollout, so no answer
-        means "not turned on yet".
+        means "not turned on yet" -- UNLESS that feature has graduated to
+        validated (``flags.DEFAULT_ON_FEATURES``, Phase 8 Step 7), in which
+        case no answer means "nothing said stop", same as a product module.
 
         Asserted against ``flags.default_for`` rather than a literal map, so
         the endpoint and the gate cannot disagree — a UI that hides a
@@ -99,7 +101,10 @@ class TestResponseShape:
         assert response.status_code == 200
         assert body["flags"] == {name: flags.default_for(name) for name in flags.KNOWN_FLAGS}
         assert all(body["flags"][name] for name in flags.PRODUCT_FLAGS)
-        assert not any(body["flags"][name] for name in flags.FEATURE_FLAGS)
+        assert all(body["flags"][name] for name in flags.DEFAULT_ON_FEATURES)
+        assert not any(
+            body["flags"][name] for name in flags.FEATURE_FLAGS - flags.DEFAULT_ON_FEATURES
+        )
 
     @pytest.mark.asyncio
     async def test_tier_and_ordering_are_published(

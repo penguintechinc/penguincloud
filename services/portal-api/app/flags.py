@@ -164,12 +164,32 @@ FEATURE_FLAGS: Final[frozenset[str]] = frozenset(
         "advanced_analytics",
         "whitelabel",
         "multi_tenant",
-        # Phase 8 Step 3: the manifest-driven console endpoint
-        # (GET /api/v1/console/manifests, app/console_manifests.py). A
-        # genuinely NEW feature — general.md's "new flags default OFF" rule
-        # — not a licensed one, so it is intentionally absent from
-        # licensing.FEATURE_MIN_TIER; is_feature_available() already treats
-        # "not a licensed feature" as flag-alone-gates.
+        # Phase 8 Step 7: graduated to validated — see DEFAULT_ON_FEATURES.
+        # Still a FEATURE flag (not a licensed one), so it is intentionally
+        # absent from licensing.FEATURE_MIN_TIER; is_feature_available()
+        # already treats "not a licensed feature" as flag-alone-gates.
+        "declarative_console",
+    }
+)
+
+#: Feature flags that have graduated from "new rollout" to "validated" and
+#: therefore default ON rather than the general.md "new flags default OFF"
+#: rule — an operator with no flag server configured gets the validated
+#: behaviour, not a permanently-inert one. Membership here changes only the
+#: *default*; the flag stays in :data:`FEATURE_FLAGS` (its category —
+#: general feature vs. licensed vs. product — is unrelated to graduation)
+#: and remains a normal kill switch: a configured flag server answering
+#: ``false`` still turns it off.
+#:
+#: A flag graduates here once the capability it gates has been proven
+#: equivalent to what it replaces (see the Tobogganing/Gough manifest
+#: equivalence proofs) — not merely "shipped and untouched for a while".
+DEFAULT_ON_FEATURES: Final[frozenset[str]] = frozenset(
+    {
+        # Phase 8 Step 7: the manifest-driven console
+        # (GET /api/v1/console/manifests) is validated — Tobogganing and
+        # Gough both route through it and are equivalence-proven against
+        # their hand-written screens. Graduated new → validated.
         "declarative_console",
     }
 )
@@ -192,14 +212,18 @@ def default_for(feature: str) -> bool:
       its flag is a kill switch and the absence of an answer means "not
       killed" (:data:`PRODUCT_FLAG_DEFAULT`);
     * a **feature** flag governs rollout of something new, where the absence
-      of an answer means nobody has turned it on yet — OFF, per general.md.
+      of an answer means nobody has turned it on yet — OFF, per general.md —
+      *unless* it has graduated to validated (:data:`DEFAULT_ON_FEATURES`),
+      in which case absence of an answer means "nothing said stop".
 
     Callers use this rather than hardcoding a default so the two never drift,
     and so ``GET /api/v1/features`` reports exactly what the server will
     enforce. A UI that renders a product the API then refuses (or hides one
     the API allows) is worse than either answer alone.
     """
-    return PRODUCT_FLAG_DEFAULT if feature in PRODUCT_FLAGS else False
+    if feature in PRODUCT_FLAGS:
+        return PRODUCT_FLAG_DEFAULT
+    return feature in DEFAULT_ON_FEATURES
 
 
 @dataclass(slots=True)
