@@ -5,6 +5,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { createAppQueryClient } from "./lib/queryClient";
 import "./index.css";
+// Cell-slot extension registrations — side-effect only, must run before the
+// first render so `ExtensionCellSlot.tsx`'s registry lookups can resolve.
+import "./components/extensions/tobogganing/register";
 
 const queryClient = createAppQueryClient();
 

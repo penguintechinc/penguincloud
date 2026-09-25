@@ -85,6 +85,7 @@ from ..manifest import (
     ColumnSpec,
     ConsoleManifest,
     EnvelopeSpec,
+    ExtensionSlot,
     ListSpec,
     NavItem,
     NavSpec,
@@ -350,14 +351,21 @@ _BLOCKPAGE_ROUTE: Final[ResourceDescriptor] = ResourceDescriptor(
 #: Byte-for-byte the same field set, order, and labels as the hand-written
 #: ``swgPolicyColumns.tsx``. ``action`` stays ``text`` for the same
 #: enum_badge-avoidance reason as ``sdwan_client.status`` above. One
-#: documented remaining gap, not fixed here -- matching precisely how
-#: Gough's own ``_AGENTS_COLUMNS`` names its ``hostname`` fallback gap:
-#: ``swgPolicyColumns.tsx``'s ``scope_id`` column renders "Everyone" when
-#: ``scope_id`` is absent AND ``row.scope === "tenant"`` -- a value computed
-#: from a SECOND field on the same row. This schema has no field for
-#: "compute this cell from a different field when absent"; a plain
-#: field-to-cell binding cannot express it, so a genuinely missing
-#: ``scope_id`` renders a dash here instead of "Everyone".
+#: documented gap, now RESOLVED via a ``cell`` ``ExtensionSlot`` rather than
+#: a wider ``ColumnSpec`` -- matching precisely how Gough's own
+#: ``_AGENTS_COLUMNS`` names its ``hostname`` fallback gap for the shape of
+#: the problem, though that one stayed open: ``swgPolicyColumns.tsx``'s
+#: ``scope_id`` column rendered "Everyone" when ``scope_id`` was absent AND
+#: ``row.scope == "tenant"`` -- a value computed from a SECOND field on the
+#: same row, which a plain field-to-cell binding cannot express. The
+#: ``extensions`` tuple below declares a ``cell`` slot for exactly this
+#: (resource, field) pair; ``SwgPolicyScopeCell.tsx``
+#: (``components/extensions/tobogganing/``) supplies the registered
+#: component, and ``ExtensionCellSlot.tsx`` renders it in place of this
+#: column's default ``text`` cell. A genuinely missing ``scope_id`` with
+#: ``scope != "tenant"`` still renders this column's own ``absent_as: dash``
+#: -- the slot only overrides the tenant case, matching the hand-written
+#: page's own logic exactly.
 _SWG_POLICY_COLUMNS: Final[tuple[ColumnSpec, ...]] = (
     ColumnSpec(field="category", label="Category", cell=CellSpec(kind="text"), absent_as="dash"),
     ColumnSpec(field="action", label="Action", cell=CellSpec(kind="text"), absent_as="dash"),
@@ -416,7 +424,14 @@ TOBOGGANING_MANIFEST: Final[ConsoleManifest] = ConsoleManifest(
     # No metrics tile: "metrics_summary" is not among the capabilities
     # TobogganingAdapter.capabilities() reports.
     metrics=None,
-    extensions=(),
+    # One `cell` slot -- see `_SWG_POLICY_COLUMNS`'s own comment above for
+    # what gap it closes. `resource` names the resource `kind` it overrides
+    # (`swg_policy`); `id` names the overridden column's `field`
+    # (`scope_id`) -- the console resolves the registered component against
+    # `"tobogganing.scope_id"` (`components/extensions/tobogganing/register.ts`).
+    extensions=(
+        ExtensionSlot(slot="cell", id="scope_id", label="Applies to", resource=KIND_SWG_POLICY),
+    ),
 )
 
 # Fail closed at import time -- Design §11.1. A manifest that does not pass

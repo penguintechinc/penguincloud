@@ -22,13 +22,18 @@
  * Phase 8 Step 7 deleted the hand-written `ClientsPage`/`ClustersPage`/
  * `PeersPage`/`BlockPagesPage` — `declarative_console` is default-on, and
  * their read-only resources were already proven equivalence-exact below.
- * Those four sections are now GOLDEN: each renders only
- * `ManifestResourceScreen` and asserts the exact header/cell/absent-value
- * text the deleted hand-written screen used to produce, captured at the
- * moment both sides were last proven identical. `swg_policy` is the ONE
- * exception — its `SwgPolicyPage.tsx` was NOT deleted (unresolved
- * `scope_id` ceiling, see the fixture's own comment below), so its section
- * remains a genuine side-by-side comparison against the still-live page.
+ * Those four sections are GOLDEN: each renders only `ManifestResourceScreen`
+ * and asserts the exact header/cell/absent-value text the deleted
+ * hand-written screen used to produce, captured at the moment both sides
+ * were last proven identical. `swg_policy` was the one holdout — its
+ * `SwgPolicyPage.tsx` stayed live because one column, `scope_id`, needed a
+ * value computed from a SIBLING field (`row.scope`) a plain `ColumnSpec`
+ * cannot express. That gap is now closed by a `cell` `ExtensionSlot`
+ * (`tobogganing/manifest.py`'s `extensions` tuple, resolved by
+ * `components/extensions/tobogganing/SwgPolicyScopeCell.tsx`), proven
+ * byte-identical against the still-live `SwgPolicyPage` before it was
+ * deleted in the same change that added the slot — so `swg_policy` is now
+ * GOLDEN too, the fifth and last section, matching the other four's shape.
  *
  * The `*_RESOURCE` fixtures below are hand-transcriptions of
  * `services/portal-api/app/adapters/tobogganing/manifest.py` — this
@@ -57,33 +62,20 @@ jest.mock("../../../stores/tenantStore", () => ({
     selector({ currentTenant: { id: 42, name: "Acme" } }),
 }));
 
-// SwgPolicyPage (the one hand-written screen still live) reads through
-// `tobogganingApi`.
-const tobogganingApi = {
-  listClients: jest.fn(),
-  listClusters: jest.fn(),
-  listPeers: jest.fn(),
-  listBlockPages: jest.fn(),
-  listSwgPolicies: jest.fn(),
-  createBlockPage: jest.fn(),
-  updateBlockPage: jest.fn(),
-  previewBlockPage: jest.fn(),
-  publishBlockPage: jest.fn(),
-  setSwgPolicy: jest.fn(),
-};
-jest.mock("../../../api/resources/tobogganing", () => ({ tobogganingApi }));
-
-// The manifest-driven renderer reads through the generic byte proxy.
+// The manifest-driven renderer reads through the generic byte proxy — the
+// only api-layer mock this file needs now that every section (including
+// `swg_policy`, since `SwgPolicyPage.tsx` was deleted) renders exclusively
+// through `ManifestResourceScreen`.
 const mockProxyRequest = jest.fn();
 jest.mock("../../../api/resources/products", () => ({
   proxyApi: { request: (...args: unknown[]) => mockProxyRequest(...args) },
 }));
 
-// Imported after the mocks above are set up — an `import` at the top of the
-// file would require the page (and its transitive `tobogganingApi` mock
-// factory) before the `const`s those factories close over are assigned, the
-// same ordering the Gough equivalence file already follows.
-import SwgPolicyPage from "../../../pages/products/tobogganing/SwgPolicyPage";
+// The REAL production registration side effect for the `swg_policy` cell
+// slot — proves the actual wiring (`tobogganing/manifest.py`'s declared
+// slot resolving against the actually-registered `SwgPolicyScopeCell`), not
+// a synthetic stand-in.
+import "../../extensions/tobogganing/register";
 
 /** Every `<th role="columnheader">` label, in DOM order. */
 function headerLabels(container: HTMLElement): string[] {
@@ -672,29 +664,50 @@ describe("ManifestResourceScreen — block_page (golden: matches the deleted Blo
 });
 
 // ---------------------------------------------------------------------------
-// swg_policy — the ONE resource still compared side by side against a live
-// hand-written page (unresolved scope_id ceiling, see the fixture comment)
+// swg_policy — the fifth and last GOLDEN section: SwgPolicyPage.tsx is now
+// deleted, its one equivalence gap closed by a `cell` ExtensionSlot.
 // ---------------------------------------------------------------------------
 
 /**
- * `scope_id: null` is the absent-value cell — deliberately paired with
- * `scope: "group"`, NOT `"tenant"`. `swgPolicyColumns.tsx`'s `scope_id`
- * column renders "Everyone" (not a dash) when `scope_id` is absent AND
- * `row.scope === "tenant"` — a value computed from a second field on the
- * same row, which this schema's plain field-to-cell binding cannot express
- * (see `tobogganing/manifest.py`'s own comment on `_SWG_POLICY_COLUMNS`,
- * naming this exact gap). A `scope: "group"` row sidesteps that documented,
- * open gap rather than masking it: both sides render a dash for it, so this
- * fixture proves real parity on the case this schema version DOES cover,
- * without asserting past the one it does not. This unresolved ceiling is
- * why `SwgPolicyPage.tsx` was NOT deleted in Phase 8 Step 7.
+ * `scope_id: null` paired with `scope: "tenant"` — the tenant-wide case
+ * the deleted `swgPolicyColumns.tsx`'s own `scope_id` column rendered as
+ * "Everyone", not a dash, because a tenant-scoped policy has no subject BY
+ * DEFINITION. This was the one documented equivalence gap a plain
+ * `ColumnSpec` could not express (computed from a SECOND field,
+ * `row.scope`, on the same row — see `tobogganing/manifest.py`'s own
+ * comment on `_SWG_POLICY_COLUMNS`), closed by declaring a `cell`
+ * `ExtensionSlot` for this (resource, field) pair and registering
+ * `SwgPolicyScopeCell` under `"tobogganing.scope_id"`. Proven byte-identical
+ * against the still-live `SwgPolicyPage` before it was deleted (see this
+ * file's own git history for that intermediate proof); asserted here
+ * directly, the same golden-fixture shape the other four sections use.
  */
-const RAW_SWG_POLICY = {
+const RAW_SWG_POLICY_TENANT = {
   id: "pol-1",
   category: "malware",
   action: "block",
-  scope: "group",
+  scope: "tenant",
   scope_id: null,
+};
+
+/** Group- and user-scoped policies — `scope_id` present on both, so the
+ * cell slot's own `value ? String(value) : ...` branch never reaches the
+ * "Everyone"/dash decision at all. Proves the slot does not clobber the
+ * ordinary, unaffected case for either non-tenant scope. */
+const RAW_SWG_POLICY_GROUP = {
+  id: "pol-2",
+  category: "phishing",
+  action: "soft_block",
+  scope: "group",
+  scope_id: "grp-eng",
+};
+
+const RAW_SWG_POLICY_USER = {
+  id: "pol-3",
+  category: "malware",
+  action: "allow",
+  scope: "user",
+  scope_id: "user-42",
 };
 
 /** Transcribed from `_SWG_POLICY_COLUMNS`/`_SWG_POLICY` in
@@ -754,6 +767,9 @@ const TOBOGGANING_SWG_POLICY_RESOURCE: ResourceDescriptor = {
   relationships: [],
 };
 
+/** Transcribed from `TOBOGGANING_MANIFEST`'s `extensions` tuple in
+ * `tobogganing/manifest.py` — the `cell` slot that closes the "Everyone"
+ * gap this section used to sidestep. */
 const TOBOGGANING_MANIFEST_SWG_POLICIES: ConsoleManifest = {
   manifest_version: 2,
   product_type: "tobogganing",
@@ -762,16 +778,29 @@ const TOBOGGANING_MANIFEST_SWG_POLICIES: ConsoleManifest = {
   resources: [TOBOGGANING_SWG_POLICY_RESOURCE],
   operations: null,
   metrics: null,
-  extensions: [],
+  extensions: [
+    {
+      slot: "cell",
+      id: "scope_id",
+      label: "Applies to",
+      resource: "swg_policy",
+      position: 0,
+    },
+  ],
 };
 
-describe("ManifestResourceScreen vs SwgPolicyPage — swg_policy", () => {
+describe("ManifestResourceScreen — swg_policy (golden: matches the deleted SwgPolicyPage's own output, cell slot included)", () => {
   beforeEach(() => {
-    tobogganingApi.listSwgPolicies.mockResolvedValue([RAW_SWG_POLICY]);
-    mockProxyRequest.mockResolvedValue({ policies: [RAW_SWG_POLICY] });
+    mockProxyRequest.mockResolvedValue({
+      policies: [
+        RAW_SWG_POLICY_TENANT,
+        RAW_SWG_POLICY_GROUP,
+        RAW_SWG_POLICY_USER,
+      ],
+    });
   });
 
-  it("proxies the exact path SwgPolicyPage's own tobogganingPaths.ts pins", async () => {
+  it("proxies the manifest's own committed list path", async () => {
     render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -782,7 +811,7 @@ describe("ManifestResourceScreen vs SwgPolicyPage — swg_policy", () => {
         />
       </QueryClientProvider>,
     );
-    await screen.findByTestId("datatable-row");
+    await screen.findAllByTestId("datatable-row");
     expect(mockProxyRequest).toHaveBeenCalledWith(
       7,
       "GET",
@@ -790,12 +819,7 @@ describe("ManifestResourceScreen vs SwgPolicyPage — swg_policy", () => {
     );
   });
 
-  it("renders an IDENTICAL table to SwgPolicyPage: same headers, same row, including the absent cell", async () => {
-    const swgPolicyPage = render(
-      <QueryClientProvider client={createAppQueryClient()}>
-        <SwgPolicyPage />
-      </QueryClientProvider>,
-    );
+  it("renders the same table the deleted SwgPolicyPage produced: same headers, same rows, including the cell-slot value", async () => {
     const manifestScreen = render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -807,16 +831,12 @@ describe("ManifestResourceScreen vs SwgPolicyPage — swg_policy", () => {
       </QueryClientProvider>,
     );
 
-    const swgPolicyRow = await within(swgPolicyPage.container).findByTestId(
+    const rows = await within(manifestScreen.container).findAllByTestId(
       "datatable-row",
     );
-    const manifestRow = await within(manifestScreen.container).findByTestId(
-      "datatable-row",
-    );
+    expect(rows).toHaveLength(3);
+    const [tenantRow, groupRow, userRow] = rows;
 
-    expect(headerLabels(manifestScreen.container)).toEqual(
-      headerLabels(swgPolicyPage.container),
-    );
     expect(headerLabels(manifestScreen.container)).toEqual([
       "Category",
       "Action",
@@ -824,17 +844,23 @@ describe("ManifestResourceScreen vs SwgPolicyPage — swg_policy", () => {
       "Applies to",
     ]);
 
-    // Every shared value, verbatim — including "block", which the
-    // hand-written side colours via its own `ACTION_STYLES` map and the
-    // manifest side renders as plain text; the TEXT is identical.
-    for (const shared of ["malware", "block", "group"]) {
-      expect(within(swgPolicyRow).getByText(shared)).toBeInTheDocument();
-      expect(within(manifestRow).getByText(shared)).toBeInTheDocument();
-    }
+    // `scope_id: null` with `scope: "tenant"` -> "Everyone", not a dash —
+    // the cell slot's whole reason to exist. Byte-matches the deleted
+    // `swgPolicyColumns.tsx`'s own `scope_id` render.
+    expect(within(tenantRow!).getByText("malware")).toBeInTheDocument();
+    expect(within(tenantRow!).getByText("block")).toBeInTheDocument();
+    expect(within(tenantRow!).getByText("tenant")).toBeInTheDocument();
+    expect(within(tenantRow!).getByText("Everyone")).toBeInTheDocument();
 
-    // `scope_id: null` with `scope: "group"` -> a dash on both sides. (A
-    // `scope: "tenant"` row would diverge — see the fixture's own comment.)
-    expect(within(swgPolicyRow).getByText("—")).toBeInTheDocument();
-    expect(within(manifestRow).getByText("—")).toBeInTheDocument();
+    // group/user: `scope_id` present -> the cell slot renders the raw id
+    // verbatim, same as the default `text` cell always did. Not clobbered
+    // by the slot's tenant-only branch.
+    expect(within(groupRow!).getByText("phishing")).toBeInTheDocument();
+    expect(within(groupRow!).getByText("group")).toBeInTheDocument();
+    expect(within(groupRow!).getByText("grp-eng")).toBeInTheDocument();
+
+    expect(within(userRow!).getByText("allow")).toBeInTheDocument();
+    expect(within(userRow!).getByText("user")).toBeInTheDocument();
+    expect(within(userRow!).getByText("user-42")).toBeInTheDocument();
   });
 });
