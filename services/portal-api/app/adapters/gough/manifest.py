@@ -355,8 +355,17 @@ _BIOMES: Final[ResourceDescriptor] = ResourceDescriptor(
     # `submit_label` matching the real `"Save"` the screen renders in edit
     # mode.
     edit=FormSpec(fields=_BIOME_FORM_FIELDS, submit_label="Save"),
+    # Phase 8 Step 7: confirm text now matches BiomesPage.tsx's ConfirmDialog
+    # `message` exactly (~:151) -- `Deleting "${deleting.name}" removes the
+    # definition. Nodes already running it are not reverted.` -- with
+    # `{name}` standing in for the per-row interpolation the renderer
+    # performs (see DeleteSpec.confirm's own docstring). The prior copy here
+    # was a paraphrase, not the real screen's wording.
     delete=DeleteSpec(
-        confirm="Delete this biome? Nodes running it will need reassignment.",
+        confirm=(
+            'Deleting "{name}" removes the definition. '
+            "Nodes already running it are not reverted."
+        ),
         requires="manage",
     ),
 )
@@ -481,18 +490,22 @@ _AGENTS: Final[ResourceDescriptor] = ResourceDescriptor(
     ),
     detail=DetailSpec(tabs=("Overview",)),
     actions=(
+        # Confirm copy is byte-exact with AgentsPage.tsx's own hand-written
+        # ConfirmDialog message (Phase 8 Step 7 exactness gap closure) --
+        # the manifest is the single source now, not an approximation of it.
         ActionSpec(
             verb="suspend",
             label="Suspend",
             variant="danger",
             requires="manage",
-            confirm="Suspend this agent?",
+            confirm="Suspending stops this agent from acting until it is resumed.",
         ),
         ActionSpec(
             verb="resume",
             label="Resume",
             variant="primary",
             requires="manage",
+            confirm="Resuming returns this agent to service.",
         ),
     ),
     create=None,  # agents are enrolled by the product's own key-exchange handshake

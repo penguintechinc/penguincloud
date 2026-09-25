@@ -1,15 +1,15 @@
 /**
  * Generic manifest-driven list screen: given a `ResourceDescriptor`, renders
- * the same shell every hand-written product screen uses (`ProductScreen` +
+ * the same shell every hand-written product screen used (`ProductScreen` +
  * `useProductResource` + `DataTable`), with columns, cells, and empty/error
  * copy all read from the manifest instead of a hand-written column file.
  *
- * Behind the `penguincloud.declarative_console` flag, run ALONGSIDE the
- * hand-written product screens — this step does not convert or delete any
- * of them (see the module doc on `pages/products/gough/NodesPage.tsx`).
- * `__tests__/ManifestResourceScreen.equivalence.test.tsx` proves this
- * component reproduces `NodesPage`'s (and, where practical, `BiomesPage`'s/
- * `AgentsPage`'s) rendered table exactly.
+ * Gated on the `penguincloud.declarative_console` flag (default-on).
+ * `__tests__/ManifestResourceScreen.equivalence.test.tsx` proved this
+ * component reproduced Gough's hand-written `NodesPage`/`BiomesPage`/
+ * `AgentsPage` rendered tables exactly before Phase 8 Step 7 deleted them in
+ * favour of this renderer — the equivalence fixtures remain as the
+ * still-committed proof.
  *
  * Schema v2 lets this component render what schema v1 explicitly deferred:
  * - **Detail + row-actions** (`ManifestResourceDetail.tsx`) — gated on

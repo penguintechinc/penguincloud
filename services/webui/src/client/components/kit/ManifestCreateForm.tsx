@@ -43,7 +43,7 @@ export function ManifestCreateForm({
     <>
       <div className="mb-4 flex justify-end">
         <ActionButton
-          label={`New ${resource.label}`}
+          label={`New ${resource.label.toLowerCase()}`}
           onClick={() => setIsOpen(true)}
           testId={`${testIdPrefix}-create`}
         />
@@ -52,7 +52,7 @@ export function ManifestCreateForm({
       <FormBuilder
         mode="modal"
         isOpen={isOpen}
-        title={`New ${resource.label}`}
+        title={`New ${resource.label.toLowerCase()}`}
         fields={formSpec.fields.map(toFieldConfig)}
         submitLabel={formSpec.submit_label}
         loading={create.isPending}

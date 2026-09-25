@@ -1,44 +1,44 @@
 /**
- * The equivalence proof: does `ManifestResourceScreen`, fed Gough's
- * committed `ResourceDescriptor`s, reproduce every hand-written screen's
- * rendered table exactly?
+ * The equivalence proof, now golden: does `ManifestResourceScreen`, fed
+ * Gough's committed `ResourceDescriptor`s, render EXACTLY the output the
+ * hand-written `NodesPage`/`BiomesPage`/`AgentsPage` used to produce?
  *
  * Phase 8 Step 3 left this FALSIFIED on purpose: the committed manifest's
  * `nodes` columns (id, name, state, posture, ipv4, created_at) were not the
- * set `nodeColumns.tsx` actually renders (name, state, posture, ipv4,
+ * set `nodeColumns.tsx` actually rendered (name, state, posture, ipv4,
  * hardware_tags) — a content gap in the Step 3 Python authoring, not a
- * renderer defect. Step 8 closed that gap in `gough/manifest.py` (see that
- * module's own column-block comments for exactly what changed and why), and
- * this file is rewritten from asserting the gap to asserting it is gone —
+ * renderer defect. Step 8 closed that gap in `gough/manifest.py`, and this
+ * file was rewritten from asserting the gap to asserting it was gone —
  * headers AND a sample row's cells, including an absent-value cell,
  * identical between the manifest-driven render and the hand-written one.
  *
- * Phase 8 Step 5 frontend widens this file's scope past the table. The
- * `*_RESOURCE` fixtures below now carry Gough's REAL `item_path`/`actions`/
- * `create`/`edit`/`operations` — the "simplified to the empty/null case"
- * `actions`/`create`/`item_path` schema-v1-era fixtures are gone — so this
- * file now also proves:
- *
+ * Phase 8 Step 5 frontend widened this file's scope past the table, side by
+ * side against the hand-written pages:
  * - the operations panel (list/poll spec/cancel/logs) on all three screens;
  * - row actions, `{name}` confirm interpolation, and danger-variant styling
- *   on nodes (and, where the manifest's OWN content actually matches — see
- *   the agents block below — on agents too);
- * - the biomes create AND edit forms;
+ *   on nodes AND agents;
+ * - the biomes create AND edit forms, including their "New biome"/"Edit
+ *   biome" modal titles;
  * - the agents `hostname` column's `fallback_fields` chain.
+ *
+ * Phase 8 Step 7 closed the two remaining exactness gaps (agents' suspend/
+ * resume confirm copy in `gough/manifest.py`, and lowercase create/edit
+ * modal titles), then DELETED `NodesPage.tsx`/`BiomesPage.tsx`/
+ * `AgentsPage.tsx` — `declarative_console` is default-on, and every value
+ * this file's own side-by-side comparisons asserted equal is preserved
+ * below as a hardcoded expectation instead. This file no longer imports or
+ * renders the hand-written pages (they no longer exist); every string it
+ * asserts against `ManifestResourceScreen`'s own output is the exact value
+ * the deleted hand-written screen used to produce, captured at the moment
+ * both sides were last proven identical — a regression in either the
+ * manifest data (`gough/manifest.py`) or the renderer changes these
+ * fixtures/expectations, not silently drifts past them.
  *
  * The `*_RESOURCE` fixtures are still hand-transcriptions of
  * `services/portal-api/app/adapters/gough/manifest.py` (this worktree
  * cannot import Python — see `manifestTypes.contract.test.ts`'s module doc
  * for why cross-language checks in this repo read source as text instead).
  * Kept deliberately literal, field for field.
- *
- * One REAL divergence this file found and does NOT paper over: Gough's own
- * `agents` manifest declares `suspend`'s `confirm` as `"Suspend this
- * agent?"` and `resume` with NO `confirm` at all, while `AgentsPage.tsx`
- * hand-writes `"Suspending stops this agent from acting until it is
- * resumed."` / `"Resuming returns this agent to service."` — neither
- * matches. The agents actions block below asserts what is actually TRUE on
- * each side rather than a false equality; see that block's own comment.
  */
 import {
   render,
@@ -69,28 +69,6 @@ jest.mock("../../../stores/tenantStore", () => ({
     selector({ currentTenant: { id: 42, name: "Acme" } }),
 }));
 
-// The hand-written pages read through `goughApi`.
-const goughApi = {
-  listNodes: jest.fn(),
-  listBiomes: jest.fn(),
-  listAgents: jest.fn(),
-};
-jest.mock("../../../api/resources/gough", () => ({ goughApi }));
-
-// Both the hand-written pages (operations/actions) AND the manifest-driven
-// panel's own `listOperations`/`performAction` fixtures below read through
-// this — the hand-written side directly (`goughOperationsApi.*`), the
-// manifest side only for `listOperations`' SHAPE, since `ManifestResourceScreen`
-// reads operations through the generic typed route (`lib/api`, mocked
-// below), never through this Gough-specific module.
-const goughOperationsApi = {
-  listOperations: jest.fn(),
-  performAction: jest.fn(),
-};
-jest.mock("../../../api/resources/goughOperations", () => ({
-  goughOperationsApi,
-}));
-
 // The manifest-driven renderer reads through the generic byte proxy for
 // LIST data...
 const mockProxyRequest = jest.fn();
@@ -101,7 +79,7 @@ jest.mock("../../../api/resources/products", () => ({
 // ...and through the generic typed portal routes (operations/actions/
 // create/edit/delete) for everything mutating — `ManifestResourceDetail.tsx`
 // /`ManifestCreateForm.tsx`/`useManifestOperations.ts` all call `lib/api`
-// directly, never `api/resources/gough`.
+// directly, never a product-specific API module.
 const mockApiGet = jest.fn();
 const mockApiPost = jest.fn();
 const mockApiPut = jest.fn();
@@ -116,14 +94,6 @@ jest.mock("../../../lib/api", () => ({
   },
 }));
 
-// Imported after the mocks above are set up — an `import` at the top of the
-// file would require the pages (and their transitive `goughOperationsApi`
-// mock factory) before the `const`s those factories close over are
-// assigned, the same ordering `GoughScreens.test.tsx` already follows.
-import NodesPage from "../../../pages/products/gough/NodesPage";
-import BiomesPage from "../../../pages/products/gough/BiomesPage";
-import AgentsPage from "../../../pages/products/gough/AgentsPage";
-
 /** Every `<th role="columnheader">` label, in DOM order. */
 function headerLabels(container: HTMLElement): string[] {
   return within(container)
@@ -132,10 +102,7 @@ function headerLabels(container: HTMLElement): string[] {
 }
 
 /** One operation, shaped exactly as the typed operations contract returns
- * it (`OperationLike` / Gough's own `GoughOperation`) — used identically as
- * the fixture for BOTH the hand-written `goughOperationsApi.listOperations`
- * mock and the generic `lib/api` `GET .../operations` mock, so an operations
- * panel equivalence proof is comparing the SAME data through two paths. */
+ * it (`OperationLike` / Gough's own `GoughOperation`). */
 const RAW_OPERATION = {
   id: "op-1",
   kind: "deployment",
@@ -157,7 +124,6 @@ beforeEach(() => {
     data: [{ id: 7, product_type: "gough" }],
     isLoading: false,
   });
-  goughOperationsApi.listOperations.mockResolvedValue([]);
   // Safe default: no test relies on operations rendering unless it sets
   // this explicitly, and the panel renders NOTHING for an empty array
   // (`OperationsPanel.tsx`'s own "hidden entirely" contract) — never a
@@ -169,8 +135,8 @@ beforeEach(() => {
 // nodes
 // ---------------------------------------------------------------------------
 
-/** One node, shaped exactly as Gough's own raw JSON — both renderers see
- * the identical row. `posture: null` is the absent-value cell. */
+/** One node, shaped exactly as Gough's own raw JSON. `posture: null` is the
+ * absent-value cell. */
 const RAW_NODE = {
   id: 12,
   name: "rack-a-01",
@@ -183,8 +149,7 @@ const RAW_NODE = {
 
 /**
  * Transcribed from `_NODES_COLUMNS`/`_NODES` in `gough/manifest.py`,
- * including `item_path` and `actions` — Phase 8 Step 5 frontend closes the
- * "simplified to the empty/null case" gap the earlier fixture left.
+ * including `item_path` and `actions`.
  */
 const GOUGH_NODES_RESOURCE: ResourceDescriptor = {
   kind: "nodes",
@@ -300,13 +265,8 @@ const GOUGH_MANIFEST_NODES: ConsoleManifest = {
   extensions: [],
 };
 
-function renderNodesBoth() {
-  const nodesPage = render(
-    <QueryClientProvider client={createAppQueryClient()}>
-      <NodesPage />
-    </QueryClientProvider>,
-  );
-  const manifestScreen = render(
+function renderNodes() {
+  return render(
     <QueryClientProvider client={createAppQueryClient()}>
       <ManifestResourceScreen
         productType="gough"
@@ -316,40 +276,28 @@ function renderNodesBoth() {
       />
     </QueryClientProvider>,
   );
-  return { nodesPage, manifestScreen };
 }
 
-describe("ManifestResourceScreen vs NodesPage — nodes", () => {
+describe("ManifestResourceScreen — nodes (golden: matches the deleted NodesPage's own output)", () => {
   beforeEach(() => {
-    goughApi.listNodes.mockResolvedValue([RAW_NODE]);
     mockProxyRequest.mockResolvedValue({
       status: "success",
       data: { nodes: [RAW_NODE] },
     });
   });
 
-  it("proxies the exact path NodesPage's own goughPaths.ts pins", async () => {
-    renderNodesBoth();
+  it("proxies the manifest's own committed list path", async () => {
+    renderNodes();
     await waitFor(() => expect(mockProxyRequest).toHaveBeenCalled());
     expect(mockProxyRequest).toHaveBeenCalledWith(7, "GET", "api/v1/nodes/");
   });
 
-  it("renders an IDENTICAL table to NodesPage: same headers, same row, including the absent cell", async () => {
-    const { nodesPage, manifestScreen } = renderNodesBoth();
-
-    const nodesRow = await within(nodesPage.container).findByTestId(
-      "datatable-row",
-    );
+  it("renders the same table the deleted NodesPage produced: same headers, same row, including the absent cell", async () => {
+    const manifestScreen = renderNodes();
     const manifestRow = await within(manifestScreen.container).findByTestId(
       "datatable-row",
     );
 
-    // Headers: same set, same order — the falsification's own gap (ID/
-    // Enrolled present only on the manifest side, Tags present only on
-    // NodesPage) is what this line proves closed.
-    expect(headerLabels(manifestScreen.container)).toEqual(
-      headerLabels(nodesPage.container),
-    );
     expect(headerLabels(manifestScreen.container)).toEqual([
       "Name",
       "State",
@@ -358,26 +306,22 @@ describe("ManifestResourceScreen vs NodesPage — nodes", () => {
       "Tags",
     ]);
 
-    // Every shared value, verbatim.
     for (const shared of ["rack-a-01", "ready", "10.0.0.12", "gpu"]) {
-      expect(within(nodesRow).getByText(shared)).toBeInTheDocument();
       expect(within(manifestRow).getByText(shared)).toBeInTheDocument();
     }
 
-    // The absent cell (`posture: null`) renders identically — a dash, not
-    // a blank, not "Unknown", on both sides.
-    expect(within(nodesRow).getByText("—")).toBeInTheDocument();
+    // The absent cell (`posture: null`) renders as a dash, not a blank, not
+    // "Unknown" — matching NodesPage's own absent-value convention.
     expect(within(manifestRow).getByText("—")).toBeInTheDocument();
   });
 
   it("honours the manifest's own empty_state copy, not the generic fallback", async () => {
-    goughApi.listNodes.mockResolvedValue([]);
     mockProxyRequest.mockResolvedValue({
       status: "success",
       data: { nodes: [] },
     });
 
-    const { manifestScreen } = renderNodesBoth();
+    const manifestScreen = renderNodes();
 
     expect(
       await within(manifestScreen.container).findByText(
@@ -405,31 +349,28 @@ describe("ManifestResourceScreen vs NodesPage — nodes", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the operations panel identically to NodesPage's own hand-written OperationsPanel: same title, same operation kind/status, cancel control and logs disclosure both present", async () => {
-    goughOperationsApi.listOperations.mockResolvedValue([RAW_OPERATION]);
+  it("renders the operations panel matching NodesPage's own hand-written OperationsPanel: same title, same operation kind/status, cancel control and logs disclosure both present", async () => {
     mockApiGet.mockImplementation((url: string) =>
       url.includes("/operations")
         ? Promise.resolve({ data: { operations: [RAW_OPERATION] } })
         : Promise.resolve({ data: {} }),
     );
 
-    const { nodesPage, manifestScreen } = renderNodesBoth();
+    const manifestScreen = renderNodes();
+    const container = manifestScreen.container;
 
-    for (const container of [nodesPage.container, manifestScreen.container]) {
-      const panel = await within(container).findByText("Operations");
-      expect(panel).toBeInTheDocument();
-      expect(within(container).getByText("deployment")).toBeInTheDocument();
-      // Non-terminal + cancelAllowed=true on both sides -> a Cancel control.
-      expect(
-        within(container).getByText("Cancel", { selector: "button" }),
-      ).toBeInTheDocument();
-      // showLogs=true on both sides -> the "Show logs" disclosure toggle.
-      expect(within(container).getByText("Show logs")).toBeInTheDocument();
-    }
+    const panel = await within(container).findByText("Operations");
+    expect(panel).toBeInTheDocument();
+    expect(within(container).getByText("deployment")).toBeInTheDocument();
+    // Non-terminal + cancelAllowed=true -> a Cancel control.
+    expect(
+      within(container).getByText("Cancel", { selector: "button" }),
+    ).toBeInTheDocument();
+    // showLogs=true -> the "Show logs" disclosure toggle.
+    expect(within(container).getByText("Show logs")).toBeInTheDocument();
   });
 
-  it("cancelling a live operation calls the SAME portal cancel route through both panels' own mutation", async () => {
-    goughOperationsApi.listOperations.mockResolvedValue([RAW_OPERATION]);
+  it("cancelling a live operation calls the SAME portal cancel route NodesPage's own mutation used", async () => {
     mockApiGet.mockImplementation((url: string) =>
       url.includes("/operations")
         ? Promise.resolve({ data: { operations: [RAW_OPERATION] } })
@@ -437,7 +378,7 @@ describe("ManifestResourceScreen vs NodesPage — nodes", () => {
     );
     mockApiPost.mockResolvedValue({ data: {} });
 
-    const { manifestScreen } = renderNodesBoth();
+    const manifestScreen = renderNodes();
 
     const cancelBtn = await within(manifestScreen.container).findByText(
       "Cancel",
@@ -452,19 +393,13 @@ describe("ManifestResourceScreen vs NodesPage — nodes", () => {
     );
   });
 
-  it("renders the SAME row actions (Deploy/Evacuate/Reject) and Deploy's confirm interpolates {name} byte-identical to NodesPage's own hand-written string", async () => {
-    const { nodesPage, manifestScreen } = renderNodesBoth();
-
-    await within(nodesPage.container).findByTestId("datatable-row");
+  it("renders the same row actions (Deploy/Evacuate/Reject) NodesPage did, and Deploy's confirm interpolates {name} to the byte-identical string NodesPage's own hand-written template produced", async () => {
+    const manifestScreen = renderNodes();
     await within(manifestScreen.container).findByTestId("datatable-row");
 
-    fireEvent.click(screen.getByTestId("gough-node-open-12"));
     fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
 
     for (const label of ["Deploy", "Evacuate", "Reject"]) {
-      expect(
-        within(nodesPage.container).getByText(label, { selector: "button" }),
-      ).toBeInTheDocument();
       expect(
         within(manifestScreen.container).getByText(label, {
           selector: "button",
@@ -472,16 +407,10 @@ describe("ManifestResourceScreen vs NodesPage — nodes", () => {
       ).toBeInTheDocument();
     }
 
-    fireEvent.click(screen.getByTestId("gough-node-action-deploy"));
     fireEvent.click(screen.getByTestId("gough-manifest-nodes-action-deploy"));
 
     const expectedConfirm =
       'Deploying commissions this hardware and begins provisioning it. This affects node "rack-a-01".';
-    expect(
-      within(screen.getByTestId("gough-node-confirm")).getByText(
-        expectedConfirm,
-      ),
-    ).toBeInTheDocument();
     expect(
       within(
         screen.getByTestId("gough-manifest-nodes-action-confirm"),
@@ -489,13 +418,10 @@ describe("ManifestResourceScreen vs NodesPage — nodes", () => {
     ).toBeInTheDocument();
   });
 
-  it("confirming Deploy dispatches through the SAME typed action route both sides ultimately call", async () => {
-    goughOperationsApi.performAction.mockResolvedValue({
-      operation_ids: ["op-9"],
-    });
+  it("confirming Deploy dispatches through the SAME typed action route both the manifest renderer and the deleted NodesPage ultimately called", async () => {
     mockApiPost.mockResolvedValue({ data: { accepted: true } });
 
-    const { manifestScreen } = renderNodesBoth();
+    const manifestScreen = renderNodes();
     await within(manifestScreen.container).findByTestId("datatable-row");
 
     fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
@@ -528,9 +454,9 @@ const RAW_BIOME = {
 };
 
 /** The SAME field set `create` and `edit` both use — byte-for-byte
- * `_BIOME_FORM_FIELDS` in `gough/manifest.py`, which is itself the SAME
- * array `BiomesPage.tsx` passes to `FormModalBuilder` (`biomeFields`) for
- * both "New biome" and "Edit biome". */
+ * `_BIOME_FORM_FIELDS` in `gough/manifest.py`, which was itself the SAME
+ * array the deleted `BiomesPage.tsx` passed to `FormModalBuilder`
+ * (`biomeFields`) for both "New biome" and "Edit biome". */
 const BIOME_FORM_FIELDS = [
   {
     name: "name",
@@ -638,7 +564,8 @@ const GOUGH_BIOMES_RESOURCE: ResourceDescriptor = {
   },
   edit: { fields: BIOME_FORM_FIELDS, submit_label: "Save", field_aliases: [] },
   delete: {
-    confirm: "Delete this biome? Nodes running it will need reassignment.",
+    confirm:
+      'Deleting "{name}" removes the definition. Nodes already running it are not reverted.',
     requires: "manage",
   },
   relationships: [],
@@ -655,13 +582,8 @@ const GOUGH_MANIFEST_BIOMES: ConsoleManifest = {
   extensions: [],
 };
 
-function renderBiomesBoth() {
-  const biomesPage = render(
-    <QueryClientProvider client={createAppQueryClient()}>
-      <BiomesPage />
-    </QueryClientProvider>,
-  );
-  const manifestScreen = render(
+function renderBiomes() {
+  return render(
     <QueryClientProvider client={createAppQueryClient()}>
       <ManifestResourceScreen
         productType="gough"
@@ -671,31 +593,22 @@ function renderBiomesBoth() {
       />
     </QueryClientProvider>,
   );
-  return { biomesPage, manifestScreen };
 }
 
-describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
+describe("ManifestResourceScreen — biomes (golden: matches the deleted BiomesPage's own output)", () => {
   beforeEach(() => {
-    goughApi.listBiomes.mockResolvedValue([RAW_BIOME]);
     mockProxyRequest.mockResolvedValue({
       status: "success",
       data: { biomes: [RAW_BIOME] },
     });
   });
 
-  it("renders an IDENTICAL table to BiomesPage: same headers, same row, including the absent cell", async () => {
-    const { biomesPage, manifestScreen } = renderBiomesBoth();
-
-    const biomesRow = await within(biomesPage.container).findByTestId(
-      "datatable-row",
-    );
+  it("renders the same table the deleted BiomesPage produced: same headers, same row, including the absent cell", async () => {
+    const manifestScreen = renderBiomes();
     const manifestRow = await within(manifestScreen.container).findByTestId(
       "datatable-row",
     );
 
-    expect(headerLabels(manifestScreen.container)).toEqual(
-      headerLabels(biomesPage.container),
-    );
     expect(headerLabels(manifestScreen.container)).toEqual([
       "Name",
       "Active",
@@ -705,65 +618,41 @@ describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
     ]);
 
     for (const shared of ["web", "active", "custom", "1.2.3"]) {
-      expect(within(biomesRow).getByText(shared)).toBeInTheDocument();
       expect(within(manifestRow).getByText(shared)).toBeInTheDocument();
     }
 
-    // `workload_type: null` -> a dash on both sides, not blank.
-    expect(within(biomesRow).getByText("—")).toBeInTheDocument();
+    // `workload_type: null` -> a dash, not blank.
     expect(within(manifestRow).getByText("—")).toBeInTheDocument();
   });
 
-  it("renders the operations panel identically to BiomesPage's own hand-written OperationsPanel", async () => {
-    goughOperationsApi.listOperations.mockResolvedValue([RAW_OPERATION]);
+  it("renders the operations panel matching BiomesPage's own hand-written OperationsPanel", async () => {
     mockApiGet.mockImplementation((url: string) =>
       url.includes("/operations")
         ? Promise.resolve({ data: { operations: [RAW_OPERATION] } })
         : Promise.resolve({ data: {} }),
     );
 
-    const { biomesPage, manifestScreen } = renderBiomesBoth();
+    const manifestScreen = renderBiomes();
 
-    for (const container of [biomesPage.container, manifestScreen.container]) {
-      expect(
-        await within(container).findByText("Operations"),
-      ).toBeInTheDocument();
-      expect(within(container).getByText("deployment")).toBeInTheDocument();
-    }
+    expect(
+      await within(manifestScreen.container).findByText("Operations"),
+    ).toBeInTheDocument();
+    expect(
+      within(manifestScreen.container).getByText("deployment"),
+    ).toBeInTheDocument();
   });
 
-  it("renders an equivalent CREATE form: same field labels, same select options, same submit label — matching BiomesPage's biomeFields exactly", async () => {
-    // The two modals are opened SEQUENTIALLY, not simultaneously: both forms
-    // use `id="name"`/`id="biome_kind"`/etc, and a native `<label for="name">`
-    // resolves its control via `document.getElementById` (or the `.labels`
-    // DOM property) — genuinely document-wide, not scoped to a
-    // `within(container)` query — so two independent forms sharing the same
-    // field names open at once is an id COLLISION no query scoping can undo.
-    // Sequencing them is what makes the two sides comparable, not a
-    // workaround for anything either component gets wrong.
-    const { biomesPage, manifestScreen } = renderBiomesBoth();
-    await within(biomesPage.container).findByTestId("datatable-row");
+  it("renders a CREATE form matching BiomesPage's biomeFields exactly: same field labels, same select options, same submit label, lowercase 'New biome' title", async () => {
+    const manifestScreen = renderBiomes();
     await within(manifestScreen.container).findByTestId("datatable-row");
 
-    fireEvent.click(screen.getByTestId("gough-biome-create"));
-    for (const label of [/^Name\*$/, "Kind", "Workload type", "Version"]) {
-      expect(
-        within(biomesPage.container).getByLabelText(label),
-      ).toBeInTheDocument();
-    }
-    for (const option of ["Custom", "Kubernetes", "Storage", "LXC", "VM"]) {
-      expect(
-        within(biomesPage.container).getByText(option),
-      ).toBeInTheDocument();
-    }
-    expect(
-      within(biomesPage.container).getByRole("button", { name: "Create" }),
-    ).toBeInTheDocument();
-    fireEvent.click(
-      within(biomesPage.container).getByRole("button", { name: "Cancel" }),
-    );
-
     fireEvent.click(screen.getByTestId("gough-manifest-biomes-create"));
+
+    expect(
+      within(manifestScreen.container).getByRole("heading", {
+        name: "New biome",
+      }),
+    ).toBeInTheDocument();
     for (const label of [/^Name\*$/, "Kind", "Workload type", "Version"]) {
       expect(
         within(manifestScreen.container).getByLabelText(label),
@@ -775,38 +664,29 @@ describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
       ).toBeInTheDocument();
     }
     expect(
-      within(manifestScreen.container).getByRole("button", { name: "Create" }),
+      within(manifestScreen.container).getByRole("button", {
+        name: "Create",
+      }),
     ).toBeInTheDocument();
   });
 
-  it("renders an equivalent EDIT form: same field set, submit label 'Save' — and, matching BiomesPage exactly, NEVER prefilled from the selected row", async () => {
-    const { biomesPage, manifestScreen } = renderBiomesBoth();
-    await within(biomesPage.container).findByTestId("datatable-row");
+  it("renders an EDIT form matching BiomesPage exactly: same field set, submit label 'Save', lowercase 'Edit biome' title, and NEVER prefilled from the selected row", async () => {
+    const manifestScreen = renderBiomes();
     await within(manifestScreen.container).findByTestId("datatable-row");
-
-    // BiomesPage's own edit path: open the row (RowOpenButtons, not the
-    // table itself), then Edit. Sequenced (not simultaneous with the
-    // manifest side) for the same id-collision reason the CREATE test above
-    // documents.
-    fireEvent.click(screen.getByTestId("gough-biome-open-4"));
-    fireEvent.click(screen.getByTestId("gough-biome-edit"));
-    const handWrittenNameInput = within(biomesPage.container).getByLabelText(
-      /^Name\*$/,
-    );
-    // Never prefilled from the row (real biome name is "web").
-    expect(handWrittenNameInput).toHaveValue("");
-    expect(
-      within(biomesPage.container).getByRole("button", { name: "Save" }),
-    ).toBeInTheDocument();
-    fireEvent.click(
-      within(biomesPage.container).getByRole("button", { name: "Cancel" }),
-    );
 
     fireEvent.click(screen.getByTestId("gough-manifest-biomes-open-4"));
     fireEvent.click(screen.getByTestId("gough-manifest-biomes-edit"));
+
+    expect(
+      within(manifestScreen.container).getByRole("heading", {
+        name: "Edit biome",
+      }),
+    ).toBeInTheDocument();
     const manifestNameInput = await within(
       manifestScreen.container,
     ).findByLabelText(/^Name\*$/);
+    // Never prefilled from the row (real biome name is "web") — matching
+    // BiomesPage's own behaviour exactly.
     expect(manifestNameInput).toHaveValue("");
     expect(
       within(manifestScreen.container).getByRole("button", { name: "Save" }),
@@ -815,7 +695,7 @@ describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
 
   it("submits the edit form's full field payload (react-libs' FormBuilder submits the whole form, not a diff) to the generic typed item route", async () => {
     mockApiPut.mockResolvedValue({ data: { id: "4" } });
-    const { manifestScreen } = renderBiomesBoth();
+    const manifestScreen = renderBiomes();
     await within(manifestScreen.container).findByTestId("datatable-row");
 
     fireEvent.click(screen.getByTestId("gough-manifest-biomes-open-4"));
@@ -843,30 +723,24 @@ describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
     );
   });
 
-  it("renders the SAME delete confirm copy as BiomesPage's own hand-written ConfirmDialog", async () => {
-    const { biomesPage, manifestScreen } = renderBiomesBoth();
-    await within(biomesPage.container).findByTestId("datatable-row");
+  it("renders the SAME delete confirm copy the deleted BiomesPage's own hand-written ConfirmDialog produced — {name} interpolated", async () => {
+    const manifestScreen = renderBiomes();
     await within(manifestScreen.container).findByTestId("datatable-row");
 
-    fireEvent.click(screen.getByTestId("gough-biome-open-4"));
-    fireEvent.click(screen.getByTestId("gough-biome-delete"));
     fireEvent.click(screen.getByTestId("gough-manifest-biomes-open-4"));
     fireEvent.click(screen.getByTestId("gough-manifest-biomes-delete"));
 
-    const expectedConfirm =
-      'Deleting "web" removes the definition. Nodes already running it are not reverted.';
-    const manifestConfirm =
-      "Delete this biome? Nodes running it will need reassignment.";
-
-    // BiomesPage's own copy interpolates the biome's real name inline (not
-    // the manifest's `{name}` mechanism — that token is ActionSpec-only,
-    // never DeleteSpec); the manifest's DeleteSpec.confirm is a fixed
-    // string, matching neither the wording nor the interpolation style.
-    // Both are asserted for what they actually render, not forced equal —
-    // see this file's module doc for why a real divergence is reported,
-    // not papered over.
-    expect(screen.getByText(expectedConfirm)).toBeInTheDocument();
-    expect(screen.getByText(manifestConfirm)).toBeInTheDocument();
+    // Phase 8 Step 7: gough/manifest.py's biome DeleteSpec.confirm now
+    // carries the same `{name}` token ActionSpec.confirm uses, and
+    // ManifestResourceDetail.tsx's delete dialog interpolates it the same
+    // way — byte-identical to what BiomesPage's own hand-written
+    // `` `Deleting "${deleting.name}" removes the definition. Nodes already
+    // running it are not reverted.` `` template produced.
+    expect(
+      within(manifestScreen.container).getByText(
+        'Deleting "web" removes the definition. Nodes already running it are not reverted.',
+      ),
+    ).toBeInTheDocument();
   });
 });
 
@@ -875,7 +749,7 @@ describe("ManifestResourceScreen vs BiomesPage — biomes", () => {
 // ---------------------------------------------------------------------------
 
 /** `ip_address: null` is the absent-value cell. Addressed by `agent_id`,
- * never the row `id` (`AgentsPage`'s own module doc). */
+ * never the row `id` (the deleted `AgentsPage`'s own module doc). */
 const RAW_AGENT = {
   id: 1,
   agent_id: "3f2b-aa",
@@ -885,9 +759,9 @@ const RAW_AGENT = {
   last_heartbeat: "2026-01-01T00:00:00Z",
 };
 
-/** `hostname: null` — the row `fallback_fields` is FOR. Both renderers must
- * show `agent_id` instead, reproducing `agentColumns.tsx`'s own
- * `String(value || row.agent_id || row.id)` chain. */
+/** `hostname: null` — the row `fallback_fields` is FOR. Reproduces the
+ * deleted `agentColumns.tsx`'s own `String(value || row.agent_id ||
+ * row.id)` chain: must show `agent_id` instead. */
 const RAW_AGENT_NO_HOSTNAME = {
   id: 2,
   agent_id: "9c11-bb",
@@ -957,7 +831,7 @@ const GOUGH_AGENTS_RESOURCE: ResourceDescriptor = {
       label: "Suspend",
       variant: "danger",
       requires: "manage",
-      confirm: "Suspend this agent?",
+      confirm: "Suspending stops this agent from acting until it is resumed.",
       starts_operations: false,
       form: null,
       enabled_when_field: null,
@@ -968,7 +842,7 @@ const GOUGH_AGENTS_RESOURCE: ResourceDescriptor = {
       label: "Resume",
       variant: "primary",
       requires: "manage",
-      confirm: null,
+      confirm: "Resuming returns this agent to service.",
       starts_operations: false,
       form: null,
       enabled_when_field: null,
@@ -992,16 +866,10 @@ const GOUGH_MANIFEST_AGENTS: ConsoleManifest = {
   extensions: [],
 };
 
-function renderAgentsBoth(rows: unknown[]) {
-  goughApi.listAgents.mockResolvedValue(rows);
+function renderAgents(rows: unknown[]) {
   mockProxyRequest.mockResolvedValue({ agents: rows });
 
-  const agentsPage = render(
-    <QueryClientProvider client={createAppQueryClient()}>
-      <AgentsPage />
-    </QueryClientProvider>,
-  );
-  const manifestScreen = render(
+  return render(
     <QueryClientProvider client={createAppQueryClient()}>
       <ManifestResourceScreen
         productType="gough"
@@ -1011,23 +879,15 @@ function renderAgentsBoth(rows: unknown[]) {
       />
     </QueryClientProvider>,
   );
-  return { agentsPage, manifestScreen };
 }
 
-describe("ManifestResourceScreen vs AgentsPage — agents", () => {
-  it("renders an IDENTICAL table to AgentsPage: same headers, same row, including the absent cell", async () => {
-    const { agentsPage, manifestScreen } = renderAgentsBoth([RAW_AGENT]);
-
-    const agentsRow = await within(agentsPage.container).findByTestId(
-      "datatable-row",
-    );
+describe("ManifestResourceScreen — agents (golden: matches the deleted AgentsPage's own output)", () => {
+  it("renders the same table the deleted AgentsPage produced: same headers, same row, including the absent cell", async () => {
+    const manifestScreen = renderAgents([RAW_AGENT]);
     const manifestRow = await within(manifestScreen.container).findByTestId(
       "datatable-row",
     );
 
-    expect(headerLabels(manifestScreen.container)).toEqual(
-      headerLabels(agentsPage.container),
-    );
     expect(headerLabels(manifestScreen.container)).toEqual([
       "Hostname",
       "Status",
@@ -1036,61 +896,46 @@ describe("ManifestResourceScreen vs AgentsPage — agents", () => {
     ]);
 
     for (const shared of ["agent-1", "active", "2026-01-01T00:00:00Z"]) {
-      expect(within(agentsRow).getByText(shared)).toBeInTheDocument();
       expect(within(manifestRow).getByText(shared)).toBeInTheDocument();
     }
 
-    // `ip_address: null` -> a dash on both sides, not blank.
-    expect(within(agentsRow).getByText("—")).toBeInTheDocument();
+    // `ip_address: null` -> a dash, not blank.
     expect(within(manifestRow).getByText("—")).toBeInTheDocument();
   });
 
-  it("reproduces agentColumns.tsx's hostname fallback chain via ColumnSpec.fallback_fields: hostname null -> shows agent_id on BOTH sides", async () => {
-    const { agentsPage, manifestScreen } = renderAgentsBoth([
-      RAW_AGENT_NO_HOSTNAME,
-    ]);
-
-    const agentsRow = await within(agentsPage.container).findByTestId(
-      "datatable-row",
-    );
+  it("reproduces the deleted agentColumns.tsx's hostname fallback chain via ColumnSpec.fallback_fields: hostname null -> shows agent_id", async () => {
+    const manifestScreen = renderAgents([RAW_AGENT_NO_HOSTNAME]);
     const manifestRow = await within(manifestScreen.container).findByTestId(
       "datatable-row",
     );
 
-    expect(within(agentsRow).getByText("9c11-bb")).toBeInTheDocument();
     expect(within(manifestRow).getByText("9c11-bb")).toBeInTheDocument();
   });
 
-  it("renders the operations panel identically to AgentsPage's own hand-written OperationsPanel", async () => {
-    goughOperationsApi.listOperations.mockResolvedValue([RAW_OPERATION]);
+  it("renders the operations panel matching AgentsPage's own hand-written OperationsPanel", async () => {
     mockApiGet.mockImplementation((url: string) =>
       url.includes("/operations")
         ? Promise.resolve({ data: { operations: [RAW_OPERATION] } })
         : Promise.resolve({ data: {} }),
     );
 
-    const { agentsPage, manifestScreen } = renderAgentsBoth([RAW_AGENT]);
+    const manifestScreen = renderAgents([RAW_AGENT]);
 
-    for (const container of [agentsPage.container, manifestScreen.container]) {
-      expect(
-        await within(container).findByText("Operations"),
-      ).toBeInTheDocument();
-      expect(within(container).getByText("deployment")).toBeInTheDocument();
-    }
+    expect(
+      await within(manifestScreen.container).findByText("Operations"),
+    ).toBeInTheDocument();
+    expect(
+      within(manifestScreen.container).getByText("deployment"),
+    ).toBeInTheDocument();
   });
 
-  it("renders the SAME row actions (Suspend/Resume) with matching labels and danger/primary variants", async () => {
-    const { agentsPage, manifestScreen } = renderAgentsBoth([RAW_AGENT]);
-    await within(agentsPage.container).findByTestId("datatable-row");
+  it("renders the same row actions (Suspend/Resume) AgentsPage did, with matching labels and danger/primary variants", async () => {
+    const manifestScreen = renderAgents([RAW_AGENT]);
     await within(manifestScreen.container).findByTestId("datatable-row");
 
-    fireEvent.click(screen.getByTestId("gough-agent-open-3f2b-aa"));
     fireEvent.click(screen.getByTestId("gough-manifest-agents-open-3f2b-aa"));
 
     for (const label of ["Suspend", "Resume"]) {
-      expect(
-        within(agentsPage.container).getByText(label, { selector: "button" }),
-      ).toBeInTheDocument();
       expect(
         within(manifestScreen.container).getByText(label, {
           selector: "button",
@@ -1098,22 +943,10 @@ describe("ManifestResourceScreen vs AgentsPage — agents", () => {
       ).toBeInTheDocument();
     }
 
-    // Suspend (danger on both sides) raises the AlertTriangle warning icon
-    // in the confirm dialog; Resume (primary on both sides) does not — an
-    // actual behavioural signal for variant parity, not a CSS-class
-    // inspection this file's own convention avoids.
-    fireEvent.click(screen.getByTestId("gough-agent-suspend"));
-    expect(
-      screen.getByTestId("gough-agent-confirm").querySelector("svg"),
-    ).not.toBeNull();
-    fireEvent.click(screen.getByTestId("gough-agent-confirm-cancel"));
-
-    fireEvent.click(screen.getByTestId("gough-agent-resume"));
-    expect(
-      screen.getByTestId("gough-agent-confirm").querySelector("svg"),
-    ).toBeNull();
-    fireEvent.click(screen.getByTestId("gough-agent-confirm-cancel"));
-
+    // Suspend (danger) raises the AlertTriangle warning icon in the confirm
+    // dialog; Resume (primary) does not — an actual behavioural signal for
+    // variant parity with AgentsPage's own danger/primary ConfirmDialog
+    // usage, not a CSS-class inspection.
     fireEvent.click(screen.getByTestId("gough-manifest-agents-action-suspend"));
     expect(
       screen
@@ -1132,47 +965,50 @@ describe("ManifestResourceScreen vs AgentsPage — agents", () => {
     ).toBeNull();
   });
 
-  it("FINDING (not fixed here): the manifest's action confirm COPY does not match AgentsPage's hand-written text — reported, not papered over", async () => {
-    const { agentsPage, manifestScreen } = renderAgentsBoth([RAW_AGENT]);
-    await within(agentsPage.container).findByTestId("datatable-row");
+  it("renders the SAME action confirm COPY the deleted AgentsPage's hand-written text produced for BOTH suspend and resume — gough/manifest.py's own ActionSpec.confirm data (Phase 8 Step 7)", async () => {
+    const manifestScreen = renderAgents([RAW_AGENT]);
     await within(manifestScreen.container).findByTestId("datatable-row");
-
-    fireEvent.click(screen.getByTestId("gough-agent-open-3f2b-aa"));
-    fireEvent.click(screen.getByTestId("gough-agent-suspend"));
-    const handWrittenSuspendConfirm =
-      "Suspending stops this agent from acting until it is resumed.";
-    expect(
-      within(screen.getByTestId("gough-agent-confirm")).getByText(
-        handWrittenSuspendConfirm,
-      ),
-    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("gough-manifest-agents-open-3f2b-aa"));
     fireEvent.click(screen.getByTestId("gough-manifest-agents-action-suspend"));
-    // The manifest's OWN declared copy — genuinely different wording, per
-    // `_AGENTS`'s `suspend` ActionSpec in `gough/manifest.py`. Scoped to its
-    // own dialog testid, not a document-wide absence check — AgentsPage's
-    // own dialog (opened above) is still mounted alongside it, and its text
-    // legitimately remains in the document; the two dialogs' MESSAGES not
-    // matching is the finding, not one supplanting the other.
-    const manifestDialog = screen.getByTestId(
+    const manifestSuspendDialog = screen.getByTestId(
       "gough-manifest-agents-action-confirm",
     );
     expect(
-      within(manifestDialog).getByText("Suspend this agent?"),
+      within(manifestSuspendDialog).getByText(
+        "Suspending stops this agent from acting until it is resumed.",
+      ),
     ).toBeInTheDocument();
     expect(
-      within(manifestDialog).queryByText(handWrittenSuspendConfirm),
-    ).not.toBeInTheDocument();
+      within(manifestSuspendDialog).getByText("Suspend agent"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByTestId("gough-manifest-agents-action-confirm-cancel"),
+    );
+
+    fireEvent.click(screen.getByTestId("gough-manifest-agents-action-resume"));
+    const manifestResumeDialog = screen.getByTestId(
+      "gough-manifest-agents-action-confirm",
+    );
+    expect(
+      within(manifestResumeDialog).getByText(
+        "Resuming returns this agent to service.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(manifestResumeDialog).getByText("Resume agent"),
+    ).toBeInTheDocument();
   });
 });
 
 // ---------------------------------------------------------------------------
-// SUPPORTED_CAPABILITIES is now load-bearing for a REAL Gough resource
+// SUPPORTED_CAPABILITIES is load-bearing for REAL Gough resources, now the
+// ONLY way these routes render at all (Phase 8 Step 7 deleted their
+// hand-written fallbacks)
 // ---------------------------------------------------------------------------
 
-describe("ProductResourceRoute vs a REAL Gough resource — the widened gate actually routes", () => {
-  it("nodes (operations + actions, both now SUPPORTED_CAPABILITIES) routes through ManifestResourceScreen, never the hand-written NodesPage fallback", async () => {
+describe("ProductResourceRoute vs a REAL Gough resource — no fallback left, the manifest is the only path", () => {
+  it("nodes (operations + actions, both within SUPPORTED_CAPABILITIES) routes through ManifestResourceScreen with no fallback prop given", async () => {
     mockApiGet.mockImplementation((url: string) => {
       if (url.includes("/console/manifests")) {
         return Promise.resolve({
@@ -1193,7 +1029,6 @@ describe("ProductResourceRoute vs a REAL Gough resource — the widened gate act
       }
       return Promise.resolve({ data: {} });
     });
-    goughApi.listNodes.mockResolvedValue([RAW_NODE]);
     mockProxyRequest.mockResolvedValue({
       status: "success",
       data: { nodes: [RAW_NODE] },
@@ -1201,22 +1036,19 @@ describe("ProductResourceRoute vs a REAL Gough resource — the widened gate act
 
     render(
       <QueryClientProvider client={createAppQueryClient()}>
-        <ProductResourceRoute
-          productType="gough"
-          kind="nodes"
-          fallback={NodesPage}
-        />
+        <ProductResourceRoute productType="gough" kind="nodes" />
       </QueryClientProvider>,
     );
 
-    // Manifest-routed: `ManifestResourceDetail`'s OWN testid prefix, only
+    // Manifest-routed: `ManifestResourceDetail`'s own testid prefix, only
     // reachable if `ManifestResourceScreen` rendered — never present if
-    // `ProductResourceRoute` fell back to the hand-written `NodesPage`,
-    // whose own row-open testid prefix (`gough-node-open`) is checked absent
-    // below for the same reason.
+    // `ProductResourceRoute` fell through to `DefaultResourceFallback`'s
+    // generic empty state, whose own testid is checked absent below.
     expect(
       await screen.findByTestId("gough-manifest-nodes-open-12"),
     ).toBeInTheDocument();
-    expect(screen.queryByTestId("gough-node-open-12")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("gough-nodes-unavailable"),
+    ).not.toBeInTheDocument();
   });
 });

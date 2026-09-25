@@ -82,8 +82,10 @@ it("renders the New-resource button when the resource declares create", () => {
     }),
   );
 
+  // Lowercase resource noun — matches BiomesPage.tsx's own hand-written
+  // "New biome" button/modal-title convention (Phase 8 Step 7 exactness).
   expect(screen.getByTestId("gough-manifest-biomes-create")).toHaveTextContent(
-    "New Biome",
+    "New biome",
   );
 });
 

@@ -455,10 +455,28 @@ class TestProductModulesAreKillSwitchesNotGates:
         """Product flags default on."""
         assert flags.default_for(feature) is True
 
-    @pytest.mark.parametrize("feature", sorted(flags.FEATURE_FLAGS))
+    @pytest.mark.parametrize("feature", sorted(flags.FEATURE_FLAGS - flags.DEFAULT_ON_FEATURES))
     def test_feature_flags_default_off(self, feature: str) -> None:
-        """Rollout of a new capability is still opt-in."""
+        """Rollout of a new capability is still opt-in.
+
+        Excludes ``DEFAULT_ON_FEATURES`` -- a feature flag that has
+        graduated to validated (Phase 8 Step 7's ``declarative_console`` is
+        the first) intentionally departs from "new flags default OFF"; see
+        ``test_graduated_feature_flags_default_on`` below for its assertion.
+        """
         assert flags.default_for(feature) is False
+
+    @pytest.mark.parametrize("feature", sorted(flags.DEFAULT_ON_FEATURES))
+    def test_graduated_feature_flags_default_on(self, feature: str) -> None:
+        """A feature flag graduated to validated defaults ON, not OFF.
+
+        Phase 8 Step 7: ``declarative_console`` proved equivalent to the
+        hand-written screens it replaces (Tobogganing + Gough both route
+        through it), so an unconfigured deployment gets the validated
+        behaviour rather than a permanently-inert new feature.
+        """
+        assert feature in flags.FEATURE_FLAGS
+        assert flags.default_for(feature) is True
 
     def test_the_two_defaults_actually_differ(self) -> None:
         """Guards the parametrised checks above from agreeing vacuously."""

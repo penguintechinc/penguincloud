@@ -960,6 +960,17 @@ def test_delete_spec_trivial_guards(kwargs: dict[str, Any], match: str) -> None:
         DeleteSpec(**kwargs)
 
 
+def test_delete_spec_confirm_accepts_the_name_token() -> None:
+    """DeleteSpec.confirm allows the {name} row-interpolation token.
+
+    The same contract ActionSpec.confirm already carries (Phase 8 Step 7:
+    the biome delete confirm needs its exact per-row wording expressed this
+    way).
+    """
+    spec = DeleteSpec(confirm='Deleting "{name}" removes the definition.')
+    assert "{name}" in spec.confirm
+
+
 @pytest.mark.parametrize(
     "overrides, match",
     [

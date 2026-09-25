@@ -24,12 +24,35 @@ _FEATURE = "declarative_console"
 def console_flag_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """Opt-in: enable ``declarative_console`` on top of every product flag.
 
-    Not autouse — a genuinely new feature defaults OFF (general.md), and
-    ``test_flag_disabled_refuses_with_403`` below exercises exactly that
-    default with no extra setup.
+    Not autouse, but also not exercising a default any more: Phase 8 Step 7
+    graduated ``declarative_console`` into ``flags.DEFAULT_ON_FEATURES``, so
+    the ``_product_flags_enabled`` autouse fixture's "unknown" answer for it
+    now resolves ON via ``default_for`` regardless of this fixture. Every
+    route test below still requests this explicitly so it keeps testing "the
+    flag is ON" rather than "nothing turned it off" -- the same reason
+    ``console_flag_disabled`` exists for the one test that needs the
+    opposite, explicit OFF.
     """
     monkeypatch.setattr(
         flags, "_client", _FakeFlagServer(flags.PRODUCT_FLAGS | frozenset({_FEATURE}))
+    )
+    monkeypatch.setattr(flags, "_client_built", True)
+
+
+@pytest.fixture
+def console_flag_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opt-in: explicitly kill ``declarative_console`` via the flag server.
+
+    ``declarative_console`` graduated into ``flags.DEFAULT_ON_FEATURES``
+    (Phase 8 Step 7), so an unconfigured/unknown answer now resolves ON --
+    exercising the 403-when-off path requires an explicit ``False`` from the
+    server, the same kill-switch shape :data:`flags.PRODUCT_FLAG_DEFAULT`
+    already requires for product flags.
+    """
+    monkeypatch.setattr(
+        flags,
+        "_client",
+        _FakeFlagServer(flags.PRODUCT_FLAGS, disabled=frozenset({_FEATURE})),
     )
     monkeypatch.setattr(flags, "_client_built", True)
 
@@ -104,8 +127,16 @@ async def _setup(
 
 
 @pytest.mark.asyncio
-async def test_flag_disabled_refuses_with_403(client: Any, app: Quart) -> None:
-    """No ``console_flag_enabled`` fixture here — the default is what is tested."""
+async def test_flag_disabled_refuses_with_403(
+    client: Any, app: Quart, console_flag_disabled: None
+) -> None:
+    """``declarative_console`` explicitly OFF still refuses with a 403.
+
+    Pre-Step-7 this exercised the flag's default (OFF); the flag graduated
+    into ``flags.DEFAULT_ON_FEATURES`` and now defaults ON, so the OFF path
+    needs an explicit kill from the flag server instead — see
+    ``console_flag_disabled``.
+    """
     _, headers, tenant_id = await _setup(client, app)
 
     response = await client.get(f"/api/v1/console/manifests?tenant_id={tenant_id}", headers=headers)

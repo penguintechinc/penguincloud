@@ -17,9 +17,18 @@
  * All six Tobogganing resources are `transport: "proxy"`, `item_path: null`
  * (no detail view), `pagination: "none"`, with a BARE single-key envelope —
  * unlike Gough's mix of enveloped (`{data: {nodes: [...]}}`) and bare
- * (`{agents: [...]}`) shapes. Only 5 of the 6 kinds have a hand-written
- * screen to compare against; `blockpage_route` has none (see
- * `tobogganing/manifest.py`'s module docstring) and is out of scope here.
+ * (`{agents: [...]}`) shapes.
+ *
+ * Phase 8 Step 7 deleted the hand-written `ClientsPage`/`ClustersPage`/
+ * `PeersPage`/`BlockPagesPage` — `declarative_console` is default-on, and
+ * their read-only resources were already proven equivalence-exact below.
+ * Those four sections are now GOLDEN: each renders only
+ * `ManifestResourceScreen` and asserts the exact header/cell/absent-value
+ * text the deleted hand-written screen used to produce, captured at the
+ * moment both sides were last proven identical. `swg_policy` is the ONE
+ * exception — its `SwgPolicyPage.tsx` was NOT deleted (unresolved
+ * `scope_id` ceiling, see the fixture's own comment below), so its section
+ * remains a genuine side-by-side comparison against the still-live page.
  *
  * The `*_RESOURCE` fixtures below are hand-transcriptions of
  * `services/portal-api/app/adapters/tobogganing/manifest.py` — this
@@ -48,7 +57,8 @@ jest.mock("../../../stores/tenantStore", () => ({
     selector({ currentTenant: { id: 42, name: "Acme" } }),
 }));
 
-// The hand-written pages read through `tobogganingApi`.
+// SwgPolicyPage (the one hand-written screen still live) reads through
+// `tobogganingApi`.
 const tobogganingApi = {
   listClients: jest.fn(),
   listClusters: jest.fn(),
@@ -70,13 +80,9 @@ jest.mock("../../../api/resources/products", () => ({
 }));
 
 // Imported after the mocks above are set up — an `import` at the top of the
-// file would require the pages (and their transitive `tobogganingApi`
-// mock factory) before the `const`s those factories close over are
-// assigned, the same ordering the Gough equivalence file already follows.
-import ClientsPage from "../../../pages/products/tobogganing/ClientsPage";
-import ClustersPage from "../../../pages/products/tobogganing/ClustersPage";
-import PeersPage from "../../../pages/products/tobogganing/PeersPage";
-import BlockPagesPage from "../../../pages/products/tobogganing/BlockPagesPage";
+// file would require the page (and its transitive `tobogganingApi` mock
+// factory) before the `const`s those factories close over are assigned, the
+// same ordering the Gough equivalence file already follows.
 import SwgPolicyPage from "../../../pages/products/tobogganing/SwgPolicyPage";
 
 /** Every `<th role="columnheader">` label, in DOM order. */
@@ -103,7 +109,7 @@ beforeEach(() => {
 
 /** One client, shaped exactly as Tobogganing's own raw JSON. `cluster_id:
  * null` is the absent-value cell — an enrolled-but-unassigned client, a real
- * state `clientColumns.tsx`'s own comment calls out. */
+ * state the deleted `clientColumns.tsx`'s own comment called out. */
 const RAW_CLIENT = {
   id: "client-1",
   name: "branch-nyc",
@@ -184,13 +190,12 @@ const TOBOGGANING_MANIFEST_CLIENTS: ConsoleManifest = {
   extensions: [],
 };
 
-describe("ManifestResourceScreen vs ClientsPage — sdwan_client", () => {
+describe("ManifestResourceScreen — sdwan_client (golden: matches the deleted ClientsPage's own output)", () => {
   beforeEach(() => {
-    tobogganingApi.listClients.mockResolvedValue([RAW_CLIENT]);
     mockProxyRequest.mockResolvedValue({ clients: [RAW_CLIENT] });
   });
 
-  it("proxies the exact path ClientsPage's own tobogganingPaths.ts pins", async () => {
+  it("proxies the manifest's own committed list path", async () => {
     render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -209,12 +214,7 @@ describe("ManifestResourceScreen vs ClientsPage — sdwan_client", () => {
     );
   });
 
-  it("renders an IDENTICAL table to ClientsPage: same headers, same row, including the absent cell", async () => {
-    const clientsPage = render(
-      <QueryClientProvider client={createAppQueryClient()}>
-        <ClientsPage />
-      </QueryClientProvider>,
-    );
+  it("renders the same table the deleted ClientsPage produced: same headers, same row, including the absent cell", async () => {
     const manifestScreen = render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -226,16 +226,10 @@ describe("ManifestResourceScreen vs ClientsPage — sdwan_client", () => {
       </QueryClientProvider>,
     );
 
-    const clientsRow = await within(clientsPage.container).findByTestId(
-      "datatable-row",
-    );
     const manifestRow = await within(manifestScreen.container).findByTestId(
       "datatable-row",
     );
 
-    expect(headerLabels(manifestScreen.container)).toEqual(
-      headerLabels(clientsPage.container),
-    );
     expect(headerLabels(manifestScreen.container)).toEqual([
       "Name",
       "Status",
@@ -244,16 +238,14 @@ describe("ManifestResourceScreen vs ClientsPage — sdwan_client", () => {
       "Last seen",
     ]);
 
-    // Every shared value, verbatim — including "active", which the
-    // hand-written side colours via `statusCell` and the manifest side
-    // renders as plain text; the TEXT is identical either way.
+    // Every value, verbatim — including "active", which ClientsPage's own
+    // `statusCell` used to colour and the manifest renders as plain text;
+    // the TEXT was already identical either way.
     for (const shared of ["branch-nyc", "active", "docker"]) {
-      expect(within(clientsRow).getByText(shared)).toBeInTheDocument();
       expect(within(manifestRow).getByText(shared)).toBeInTheDocument();
     }
 
-    // `cluster_id: null` -> a dash on both sides, not blank.
-    expect(within(clientsRow).getByText("—")).toBeInTheDocument();
+    // `cluster_id: null` -> a dash, not blank.
     expect(within(manifestRow).getByText("—")).toBeInTheDocument();
   });
 });
@@ -344,13 +336,12 @@ const TOBOGGANING_MANIFEST_CLUSTERS: ConsoleManifest = {
   extensions: [],
 };
 
-describe("ManifestResourceScreen vs ClustersPage — sdwan_cluster", () => {
+describe("ManifestResourceScreen — sdwan_cluster (golden: matches the deleted ClustersPage's own output)", () => {
   beforeEach(() => {
-    tobogganingApi.listClusters.mockResolvedValue([RAW_CLUSTER]);
     mockProxyRequest.mockResolvedValue({ clusters: [RAW_CLUSTER] });
   });
 
-  it("proxies the exact path ClustersPage's own tobogganingPaths.ts pins", async () => {
+  it("proxies the manifest's own committed list path", async () => {
     render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -369,12 +360,7 @@ describe("ManifestResourceScreen vs ClustersPage — sdwan_cluster", () => {
     );
   });
 
-  it("renders an IDENTICAL table to ClustersPage: same headers, same row, including the absent cell", async () => {
-    const clustersPage = render(
-      <QueryClientProvider client={createAppQueryClient()}>
-        <ClustersPage />
-      </QueryClientProvider>,
-    );
+  it("renders the same table the deleted ClustersPage produced: same headers, same row, including the absent cell", async () => {
     const manifestScreen = render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -386,16 +372,10 @@ describe("ManifestResourceScreen vs ClustersPage — sdwan_cluster", () => {
       </QueryClientProvider>,
     );
 
-    const clustersRow = await within(clustersPage.container).findByTestId(
-      "datatable-row",
-    );
     const manifestRow = await within(manifestScreen.container).findByTestId(
       "datatable-row",
     );
 
-    expect(headerLabels(manifestScreen.container)).toEqual(
-      headerLabels(clustersPage.container),
-    );
     expect(headerLabels(manifestScreen.container)).toEqual([
       "Name",
       "Status",
@@ -405,12 +385,10 @@ describe("ManifestResourceScreen vs ClustersPage — sdwan_cluster", () => {
     ]);
 
     for (const shared of ["us-east-1", "healthy", "us-east", "dc-3"]) {
-      expect(within(clustersRow).getByText(shared)).toBeInTheDocument();
       expect(within(manifestRow).getByText(shared)).toBeInTheDocument();
     }
 
-    // `client_count: null` -> a dash on both sides, never a false "0".
-    expect(within(clustersRow).getByText("—")).toBeInTheDocument();
+    // `client_count: null` -> a dash, never a false "0".
     expect(within(manifestRow).getByText("—")).toBeInTheDocument();
   });
 });
@@ -484,13 +462,12 @@ const TOBOGGANING_MANIFEST_PEERS: ConsoleManifest = {
   extensions: [],
 };
 
-describe("ManifestResourceScreen vs PeersPage — wireguard_peer", () => {
+describe("ManifestResourceScreen — wireguard_peer (golden: matches the deleted PeersPage's own output)", () => {
   beforeEach(() => {
-    tobogganingApi.listPeers.mockResolvedValue([RAW_PEER]);
     mockProxyRequest.mockResolvedValue({ peers: [RAW_PEER] });
   });
 
-  it("proxies the exact path PeersPage's own tobogganingPaths.ts pins", async () => {
+  it("proxies the manifest's own committed list path", async () => {
     render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -509,12 +486,7 @@ describe("ManifestResourceScreen vs PeersPage — wireguard_peer", () => {
     );
   });
 
-  it("renders an IDENTICAL table to PeersPage: same headers, same row, including the absent cell", async () => {
-    const peersPage = render(
-      <QueryClientProvider client={createAppQueryClient()}>
-        <PeersPage />
-      </QueryClientProvider>,
-    );
+  it("renders the same table the deleted PeersPage produced: same headers, same row, including the absent cell", async () => {
     const manifestScreen = render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -526,32 +498,24 @@ describe("ManifestResourceScreen vs PeersPage — wireguard_peer", () => {
       </QueryClientProvider>,
     );
 
-    const peersRow = await within(peersPage.container).findByTestId(
-      "datatable-row",
-    );
     const manifestRow = await within(manifestScreen.container).findByTestId(
       "datatable-row",
     );
 
-    expect(headerLabels(manifestScreen.container)).toEqual(
-      headerLabels(peersPage.container),
-    );
     expect(headerLabels(manifestScreen.container)).toEqual([
       "Node",
       "Public key",
       "Tunnel IP",
     ]);
 
-    // Shared values, verbatim — including the public key, which the
-    // hand-written side wraps in a monospace span; the manifest side does
-    // not, but the rendered TEXT is identical.
+    // Shared values, verbatim — including the public key, which
+    // PeersPage's own hand-written cell wrapped in a monospace span; the
+    // rendered TEXT was already identical.
     for (const shared of ["node-7", "AbCdEf0123456789=="]) {
-      expect(within(peersRow).getByText(shared)).toBeInTheDocument();
       expect(within(manifestRow).getByText(shared)).toBeInTheDocument();
     }
 
-    // `ip_address: null` -> a dash on both sides, not blank.
-    expect(within(peersRow).getByText("—")).toBeInTheDocument();
+    // `ip_address: null` -> a dash, not blank.
     expect(within(manifestRow).getByText("—")).toBeInTheDocument();
   });
 });
@@ -642,13 +606,12 @@ const TOBOGGANING_MANIFEST_BLOCK_PAGES: ConsoleManifest = {
   extensions: [],
 };
 
-describe("ManifestResourceScreen vs BlockPagesPage — block_page", () => {
+describe("ManifestResourceScreen — block_page (golden: matches the deleted BlockPagesPage's own output)", () => {
   beforeEach(() => {
-    tobogganingApi.listBlockPages.mockResolvedValue([RAW_BLOCK_PAGE]);
     mockProxyRequest.mockResolvedValue({ pages: [RAW_BLOCK_PAGE] });
   });
 
-  it("proxies the exact path BlockPagesPage's own tobogganingPaths.ts pins", async () => {
+  it("proxies the manifest's own committed list path", async () => {
     render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -667,12 +630,7 @@ describe("ManifestResourceScreen vs BlockPagesPage — block_page", () => {
     );
   });
 
-  it("renders an IDENTICAL table to BlockPagesPage: same headers, same row, including the absent cell", async () => {
-    const blockPagesPage = render(
-      <QueryClientProvider client={createAppQueryClient()}>
-        <BlockPagesPage />
-      </QueryClientProvider>,
-    );
+  it("renders the same table the deleted BlockPagesPage produced: same headers, same row, including the absent cell", async () => {
     const manifestScreen = render(
       <QueryClientProvider client={createAppQueryClient()}>
         <ManifestResourceScreen
@@ -684,16 +642,10 @@ describe("ManifestResourceScreen vs BlockPagesPage — block_page", () => {
       </QueryClientProvider>,
     );
 
-    const blockPagesRow = await within(blockPagesPage.container).findByTestId(
-      "datatable-row",
-    );
     const manifestRow = await within(manifestScreen.container).findByTestId(
       "datatable-row",
     );
 
-    expect(headerLabels(manifestScreen.container)).toEqual(
-      headerLabels(blockPagesPage.container),
-    );
     expect(headerLabels(manifestScreen.container)).toEqual([
       "Name",
       "Status",
@@ -702,27 +654,26 @@ describe("ManifestResourceScreen vs BlockPagesPage — block_page", () => {
       "Updated",
     ]);
 
-    // Every shared value, verbatim — including "published", which the
-    // hand-written side colours via its own `STATUS_STYLES` map and the
-    // manifest side renders as plain text; the TEXT is identical.
+    // Every value, verbatim — including "published", which
+    // BlockPagesPage's own `STATUS_STYLES` map used to colour and the
+    // manifest renders as plain text; the TEXT was already identical.
     for (const shared of [
       "generic-block",
       "published",
       "3",
       "2026-02-01T00:00:00Z",
     ]) {
-      expect(within(blockPagesRow).getByText(shared)).toBeInTheDocument();
       expect(within(manifestRow).getByText(shared)).toBeInTheDocument();
     }
 
-    // `updated_by: null` -> a dash on both sides, not blank.
-    expect(within(blockPagesRow).getByText("—")).toBeInTheDocument();
+    // `updated_by: null` -> a dash, not blank.
     expect(within(manifestRow).getByText("—")).toBeInTheDocument();
   });
 });
 
 // ---------------------------------------------------------------------------
-// swg_policy
+// swg_policy — the ONE resource still compared side by side against a live
+// hand-written page (unresolved scope_id ceiling, see the fixture comment)
 // ---------------------------------------------------------------------------
 
 /**
@@ -735,7 +686,8 @@ describe("ManifestResourceScreen vs BlockPagesPage — block_page", () => {
  * naming this exact gap). A `scope: "group"` row sidesteps that documented,
  * open gap rather than masking it: both sides render a dash for it, so this
  * fixture proves real parity on the case this schema version DOES cover,
- * without asserting past the one it does not.
+ * without asserting past the one it does not. This unresolved ceiling is
+ * why `SwgPolicyPage.tsx` was NOT deleted in Phase 8 Step 7.
  */
 const RAW_SWG_POLICY = {
   id: "pol-1",
