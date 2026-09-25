@@ -24,7 +24,6 @@ import { ProductResourceRoute } from "./components/kit";
 import { ExtensionPageRoute } from "./components/extensions";
 import DatabasesPage from "./pages/products/nest/DatabasesPage";
 import BillingPage from "./pages/products/nest/BillingPage";
-import SwgPolicyPage from "./pages/products/tobogganing/SwgPolicyPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -213,9 +212,14 @@ function App() {
             default-on. No `fallback` prop on those four: same generic
             empty-state reasoning as Gough above.
 
-            `swg_policy` KEEPS its hand-written `SwgPolicyPage` fallback: an
-            unresolved `scope_id` ceiling means its manifest coverage is not
-            yet equivalence-proven. */}
+            `swg_policy`'s hand-written `SwgPolicyPage` is now ALSO deleted:
+            its one equivalence gap (`scope_id` -> "Everyone" for a
+            tenant-wide policy, computed from a sibling field a plain
+            `ColumnSpec` cannot express) is closed by a `cell` `ExtensionSlot`
+            (`tobogganing/manifest.py`'s `extensions` tuple, resolved by
+            `components/extensions/tobogganing/SwgPolicyScopeCell.tsx`), so
+            this route is now equivalence-proven like the other four and
+            carries no `fallback` prop either. */}
         <Route
           path="/products/tobogganing/clients"
           element={
@@ -252,11 +256,7 @@ function App() {
         <Route
           path="/products/tobogganing/swg-policy"
           element={
-            <ProductResourceRoute
-              productType="tobogganing"
-              kind="swg_policy"
-              fallback={SwgPolicyPage}
-            />
+            <ProductResourceRoute productType="tobogganing" kind="swg_policy" />
           }
         />
 

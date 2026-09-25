@@ -17,3 +17,11 @@ export {
 export { ExtensionSlotRenderer } from "./ExtensionSlotRenderer";
 export { ExtensionPageRoute } from "./ExtensionPageRoute";
 export { buildExtensionMenuCategories } from "./extensionNav";
+export {
+  registerCellExtension,
+  resolveCellExtension,
+  clearCellExtensions,
+  type ExtensionCellProps,
+  type ExtensionCellComponent,
+} from "./ExtensionCellRegistry";
+export { renderCellSlot } from "./ExtensionCellSlot";

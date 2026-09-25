@@ -31,10 +31,11 @@ import {
   useManifestOperationLogs,
   useManifestOperations,
 } from "./useManifestOperations";
-import { renderCell, type ManifestRow } from "./manifestCells";
+import { type ManifestRow } from "./manifestCells";
 import { buildManifestListFetcher } from "./manifestListFetcher";
 import { ManifestResourceDetail } from "./ManifestResourceDetail";
 import { ManifestCreateForm } from "./ManifestCreateForm";
+import { renderCellSlot } from "../extensions/ExtensionCellSlot";
 import { queryKeys } from "../../api/keys";
 import type { ConsoleManifest, ResourceDescriptor } from "./manifestTypes";
 import type { OperationLike } from "./operationsPanelTypes";
@@ -59,13 +60,22 @@ function withStringId(
 }
 
 function buildColumns(
+  productType: string,
+  manifest: ConsoleManifest,
   resource: ResourceDescriptor,
 ): ColumnConfig<ManifestRow & { id: string }>[] {
   return resource.columns.map((column) => ({
     key: column.field as keyof (ManifestRow & { id: string }),
     label: column.label,
     sortable: column.sortable,
-    render: (_value, row) => renderCell(column, row),
+    render: (_value, row) =>
+      renderCellSlot(
+        productType,
+        manifest.extensions,
+        resource.kind,
+        column,
+        row,
+      ),
   }));
 }
 
@@ -81,7 +91,10 @@ export function ManifestResourceScreen({
     () => (list ? buildManifestListFetcher(list) : async () => []),
     [list],
   );
-  const columns = useMemo(() => buildColumns(resource), [resource]);
+  const columns = useMemo(
+    () => buildColumns(productType, manifest, resource),
+    [productType, manifest, resource],
+  );
 
   const {
     data,

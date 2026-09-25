@@ -18,10 +18,11 @@
  * `fallback` is now OPTIONAL (Phase 8 Step 7): once Gough's and
  * Tobogganing's converged hand-written screens were deleted in favour of
  * the manifest console (default-on), their routes have no hand-written
- * screen left to fall back to. A route that still has one (Nest's
- * `DatabasesPage`/`BillingPage` — no committed manifest yet; Tobogganing's
- * `SwgPolicyPage` — unresolved `scope_id` ceiling) keeps passing it
- * unchanged.
+ * screen left to fall back to. Tobogganing's last holdout, `swg_policy`'s
+ * `SwgPolicyPage`, was deleted once its one equivalence gap closed via a
+ * `cell` `ExtensionSlot` — see `App.tsx`'s route comment. A route that
+ * still has one (Nest's `DatabasesPage`/`BillingPage` — no committed
+ * manifest yet) keeps passing it unchanged.
  *
  * Four states, in order:
  * 1. No manifest for this (product, kind) yet — flag off (the endpoint
