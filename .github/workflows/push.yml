@@ -12,11 +12,24 @@ name: Publish Docker image on push
 permissions:
   contents: read
 
+# devops.md CI/CD Tag Naming (five-tier table):
+#   Pre-alpha -> feature/fix/chore/hotfix branches, LOCAL only.
+#   Alpha     -> release/v{Major}.{Minor}.X branches, LOCAL today (CI only
+#                once "dal3" exists) -- NOT this workflow.
+#   Beta      -> merge to `main`, CI build.
+#   Gamma     -> GitHub release flagged pre-release, CI build, upgrade-in-place.
+#   Prod      -> GitHub release, non-pre-release, v1.x+ only, CI build,
+#                upgrade-in-place.
+# Release-branch pushes are intentionally NOT a trigger here: that tier is
+# local-only until dal3 exists, and building it in CI produced the
+# multi-arch imagetools merge failure on every release/v*.x push (this
+# workflow's failure history before this fix).
 on:
   push:
     branches:
       - main
-      - 'release/v*.x'
+  release:
+    types: [prereleased, released]
 
 concurrency:
   group: publish-push-${{ github.ref }}
@@ -32,34 +45,57 @@ defaults:
     shell: bash
 
 jobs:
-  # Tag prefix and epoch are resolved ONCE here and passed to every other
-  # job via outputs. The previous version of this workflow called
-  # `date +%s` independently in build-platform (per matrix leg) AND again
-  # in merge-manifests -- three different processes computing three
-  # different timestamps, so imagetools was merging tags that were never
-  # actually pushed. See devops.md CI/CD Tag Naming for the beta/gamma
-  # mapping: release branches -> beta, main -> gamma.
+  # The final image tag (sans per-arch suffix) is resolved ONCE here and
+  # passed to every other job via outputs -- computing epoch/version
+  # independently in multiple jobs previously produced tags that were never
+  # actually pushed (imagetools tried to merge mismatched timestamps).
+  #
+  # Tag format per devops.md:
+  #   beta-<epoch64>   (push to main)
+  #   gamma-<epoch64>  (GitHub release, prereleased)
+  #   v{Major}.{Minor}.{Patch}  (GitHub release, released, v1.x+ only)
+  #
+  # Prod is fail-closed: a missing/empty/unparseable release tag or a
+  # major version below 1 aborts this job (exit 1) before any image is
+  # built or pushed -- downstream jobs `needs: prepare` are skipped by
+  # GitHub Actions when this job fails, so a bad prod trigger never
+  # partially publishes.
   prepare:
     name: Resolve build tag
     runs-on: ubuntu-latest
     outputs:
-      epoch: ${{ steps.vars.outputs.epoch }}
-      tag_prefix: ${{ steps.vars.outputs.tag_prefix }}
+      final_tag: ${{ steps.vars.outputs.final_tag }}
     steps:
-      - name: Resolve epoch + tag prefix
+      - name: Resolve final image tag
         id: vars
         env:
           # Never interpolate ${{ }} directly into a run: script (zizmor
           # template-injection) -- route it through env: and reference the
-          # shell variable instead, even for a value as low-risk as a
-          # branch name.
-          REF_NAME: ${{ github.ref_name }}
+          # shell variable instead.
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_ACTION: ${{ github.event.action }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
-          if [ "$REF_NAME" = "main" ]; then
-            echo "tag_prefix=gamma" >> "$GITHUB_OUTPUT"
+          EPOCH=$(date +%s)
+          if [ "$EVENT_NAME" = "push" ]; then
+            # Only main pushes reach this workflow (release/v*.x branches
+            # are alpha, local-only until dal3 exists -- see `on:` above).
+            echo "final_tag=beta-${EPOCH}" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "release" ] && [ "$RELEASE_ACTION" = "prereleased" ]; then
+            echo "final_tag=gamma-${EPOCH}" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "release" ] && [ "$RELEASE_ACTION" = "released" ]; then
+            if [ -z "$RELEASE_TAG" ]; then
+              echo "::error::Prod release triggered with a missing/empty tag_name -- refusing to publish" >&2
+              exit 1
+            fi
+            if ! printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[1-9][0-9]*\.[0-9]+\.[0-9]+$'; then
+              echo "::error::Release tag '${RELEASE_TAG}' is not a valid v{Major>=1}.{Minor}.{Patch} -- refusing to publish" >&2
+              exit 1
+            fi
+            echo "final_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag_prefix=beta" >> "$GITHUB_OUTPUT"
+            echo "::error::Unhandled trigger (event=${EVENT_NAME}, action=${RELEASE_ACTION}) -- refusing to publish" >&2
+            exit 1
           fi
 
   build-platform:
@@ -112,15 +148,14 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
           SERVICE: ${{ matrix.service }}
-          TAG_PREFIX: ${{ needs.prepare.outputs.tag_prefix }}
-          EPOCH: ${{ needs.prepare.outputs.epoch }}
+          FINAL_TAG: ${{ needs.prepare.outputs.final_tag }}
         run: |
           ARCH=$(printf '%s\n' "$PLATFORM" | sed 's|/|-|g')
           # Per-service image name (devops-containers.md):
           # ghcr.io/{org}/{repo}/{service} -- NOT one shared image for the
           # whole product.
           IMAGE="ghcr.io/${{ github.repository }}/${SERVICE}"
-          BUILD_TAG="${IMAGE}:${TAG_PREFIX}-${EPOCH}-${ARCH}"
+          BUILD_TAG="${IMAGE}:${FINAL_TAG}-${ARCH}"
           printf '%s\n' "build_tag=${BUILD_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
@@ -131,6 +166,14 @@ jobs:
           push: true
           platforms: ${{ matrix.platform }}
           tags: ${{ steps.tag.outputs.build_tag }}
+          # docker/build-push-action defaults to emitting provenance/SBOM
+          # attestations, which makes each single-platform push an OCI
+          # index rather than a plain manifest. `imagetools create` cannot
+          # cleanly merge two attestation-bearing indexes into one
+          # multi-arch manifest -- disabling both here is what makes the
+          # merge-manifests step below succeed.
+          provenance: false
+          sbom: false
           cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.platform }}
           cache-to: type=gha,scope=${{ matrix.service }}-${{ matrix.platform }},mode=max
 
@@ -159,11 +202,10 @@ jobs:
       - name: Merge manifests
         env:
           SERVICE: ${{ matrix.service }}
-          TAG_PREFIX: ${{ needs.prepare.outputs.tag_prefix }}
-          EPOCH: ${{ needs.prepare.outputs.epoch }}
+          FINAL_TAG: ${{ needs.prepare.outputs.final_tag }}
         run: |
           IMAGE="ghcr.io/${{ github.repository }}/${SERVICE}"
           docker buildx imagetools create \
-            -t "${IMAGE}:${TAG_PREFIX}-${EPOCH}" \
-            "${IMAGE}:${TAG_PREFIX}-${EPOCH}-amd64" \
-            "${IMAGE}:${TAG_PREFIX}-${EPOCH}-arm64"
+            -t "${IMAGE}:${FINAL_TAG}" \
+            "${IMAGE}:${FINAL_TAG}-amd64" \
+            "${IMAGE}:${FINAL_TAG}-arm64"
