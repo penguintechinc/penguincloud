@@ -235,9 +235,42 @@ async def test_semaphore_caps_concurrent_checks(
     released it, holding a 4th `in_flight` slot open while the next wave's
     first arrival also increments — surfacing as `max_in_flight > cap`
     below, not as a hang.
+
+    Full-suite isolation (CI flake fix): ``run_sweep()`` calls
+    ``get_active_product_connections()``, which is INTENTIONALLY global —
+    every ACTIVE connection for every tenant, by design (see its
+    docstring). No other test in this file deactivates or deletes the
+    connections it registers, and the test DB is one file shared for the
+    whole pytest session (conftest.py's ``TEST_DB_PATH`` comment) -- so in
+    a full-suite run, still-active "generic" connections another test left
+    behind are ALSO in `connections` here, and since the monkeypatch above
+    is a CLASS-level patch of `GenericAdapter.health`, every one of them
+    ALSO calls `tracked_health` and rendezvouses on the SAME barrier. Nine
+    is only "exactly three clean cycles" if nine is the true total; any
+    leftover participants break that multiple-of-`cap` assumption and can
+    surface as a spurious `max_in_flight != cap` (extra, unaccounted-for
+    parties) or a hang (a final wave short of `cap` real arrivals) —
+    exactly the "passes in isolation, flakes in the full suite" signature
+    this test showed. Scoping the sweep to just THIS test's tenant makes
+    the 9-connections/3-clean-cycles assumption actually hold regardless
+    of what any other test in the process has left active.
     """
     cap = 3
     monkeypatch.setattr(health_poller, "MAX_CONCURRENT_CHECKS", cap)
+
+    async def scoped_get_active_product_connections() -> list[dict[str, Any]]:
+        # `get_active_product_connections` here is the same imported name
+        # already used elsewhere in this file (module-level import above),
+        # not an attribute pulled off `health_poller` -- accessing the
+        # latter trips mypy's `attr-defined` check, since health_poller
+        # only imports the name for its own internal use and does not
+        # explicitly re-export it.
+        connections = await get_active_product_connections()
+        return [c for c in connections if int(c["tenant_id"]) == tenant_id]
+
+    monkeypatch.setattr(
+        health_poller, "get_active_product_connections", scoped_get_active_product_connections
+    )
 
     in_flight = 0
     max_in_flight = 0
