@@ -51,6 +51,7 @@ import {
   useDeleteManifestResource,
   usePerformManifestAction,
   useUpdateManifestResource,
+  startedManifestOperationIds,
 } from "./manifestMutations";
 import type { ActionSpec, ResourceDescriptor } from "./manifestTypes";
 
@@ -103,6 +104,12 @@ export interface ManifestResourceDetailProps {
   productId: number | undefined;
   resource: ResourceDescriptor;
   rows: Row[];
+  /**
+   * Registers the ids an action started with a `mode="watch"` operations
+   * panel — see `ManifestCreateForm.tsx`'s `watch` prop doc for why this is
+   * optional rather than required.
+   */
+  watch?: (ids: string[]) => void;
 }
 
 export function ManifestResourceDetail({
@@ -111,6 +118,7 @@ export function ManifestResourceDetail({
   productId,
   resource,
   rows,
+  watch,
 }: ManifestResourceDetailProps) {
   const [selected, setSelected] = useState<Row | null>(null);
   const [pendingAction, setPendingAction] = useState<ActionSpec | null>(null);
@@ -249,7 +257,12 @@ export function ManifestResourceDetail({
           if (!selected || !pendingAction) return;
           performAction.mutate(
             { resourceId: selected.id, verb: pendingAction.verb },
-            { onSuccess: () => setPendingAction(null) },
+            {
+              onSuccess: (outcome) => {
+                watch?.(startedManifestOperationIds(outcome));
+                setPendingAction(null);
+              },
+            },
           );
         }}
         onCancel={() => setPendingAction(null)}

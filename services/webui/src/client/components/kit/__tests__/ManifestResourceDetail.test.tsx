@@ -60,7 +60,10 @@ function resource(
 
 const ROWS = [{ id: "12", name: "rack-a-01", state: "ready" }];
 
-function renderDetail(res: ResourceDescriptor) {
+function renderDetail(
+  res: ResourceDescriptor,
+  watch?: (ids: string[]) => void,
+) {
   return render(
     <QueryClientProvider client={createAppQueryClient()}>
       <ManifestResourceDetail
@@ -69,6 +72,7 @@ function renderDetail(res: ResourceDescriptor) {
         productId={7}
         resource={res}
         rows={ROWS}
+        watch={watch}
       />
     </QueryClientProvider>,
   );
@@ -165,6 +169,37 @@ it("performs an action only after confirmation, through the generic typed action
       {},
     ),
   );
+});
+
+it('hands the action\'s started operation ids to watch() for a mode="watch" resource', async () => {
+  mockedApi.post.mockResolvedValue({
+    data: { operations: [{ id: "op-1" }, { id: "op-2" }] },
+  });
+  const watch = jest.fn();
+  renderDetail(
+    resource({
+      actions: [
+        {
+          verb: "snapshot",
+          label: "Snapshot",
+          variant: "primary",
+          requires: "manage",
+          confirm: "Snapshot this node?",
+          starts_operations: true,
+          enabled_when_in: [],
+        },
+      ],
+    }),
+    watch,
+  );
+
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-action-snapshot"));
+  fireEvent.click(
+    screen.getByTestId("gough-manifest-nodes-action-confirm-confirm"),
+  );
+
+  await waitFor(() => expect(watch).toHaveBeenCalledWith(["op-1", "op-2"]));
 });
 
 it("falls back to the row's own id for the open-button label and drawer title when name_field is falsy", () => {

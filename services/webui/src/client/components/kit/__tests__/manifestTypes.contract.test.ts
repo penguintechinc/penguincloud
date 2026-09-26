@@ -142,3 +142,38 @@ describe("ResourceDescriptor.edit <-> app/adapters/manifest.py", () => {
     expect(source).toMatch(/edit\?:\s*FormSpec \| null/);
   });
 });
+
+/**
+ * `OperationsSpec.mode` <-> `app/adapters/manifest.py` — the Nest-convergence
+ * field that lets `apply_capabilities_overlay` key its subtract-only strip
+ * off `get_operation` (watch) instead of always requiring `list_operations`.
+ * Same textual-presence technique as `edit`/`fallback_fields` above: `mode`
+ * is not a closed enum guarded by a frozenset like `CELL_KINDS`/`FIELD_TYPES`
+ * (Python types it as a plain `str`, refused to `{"list", "watch"}` only at
+ * `__post_init__`), so this checks the field still exists on both sides
+ * rather than diffing a member set.
+ */
+describe("OperationsSpec.mode <-> app/adapters/manifest.py", () => {
+  it('the Python OperationsSpec still declares mode: str = "list"', () => {
+    const source = readFileSync(MANIFEST_PY, "utf-8");
+    expect(source).toMatch(/mode:\s*str\s*=\s*"list"/);
+  });
+
+  it("the Python _OPERATIONS_MODES frozenset still allows exactly list/watch", () => {
+    const source = readFileSync(MANIFEST_PY, "utf-8");
+    const match =
+      /_OPERATIONS_MODES:\s*Final\[frozenset\[str\]\]\s*=\s*frozenset\(\s*\{([\s\S]*?)\}\s*\)/.exec(
+        source,
+      );
+    expect(match).not.toBeNull();
+    const members = [...(match?.[1] ?? "").matchAll(QUOTED_STRING_RE)].map(
+      (m) => m[1],
+    );
+    expect(new Set(members)).toEqual(new Set(["list", "watch"]));
+  });
+
+  it("the TS OperationsSpec mirror still declares mode", () => {
+    const source = readFileSync(MANIFEST_TYPES_TS, "utf-8");
+    expect(source).toMatch(/mode\?:\s*"list"\s*\|\s*"watch"/);
+  });
+});

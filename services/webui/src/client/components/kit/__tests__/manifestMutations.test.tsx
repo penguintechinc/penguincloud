@@ -12,6 +12,7 @@ import {
   useDeleteManifestResource,
   usePerformManifestAction,
   useUpdateManifestResource,
+  startedManifestOperationIds,
 } from "../manifestMutations";
 import api from "../../../lib/api";
 
@@ -215,5 +216,37 @@ describe("usePerformManifestAction", () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(mockedApi.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("startedManifestOperationIds", () => {
+  it("collects every id from an action's operations[]", () => {
+    expect(
+      startedManifestOperationIds({
+        operations: [{ id: "op-1" }, { id: "op-2" }],
+      }),
+    ).toEqual(["op-1", "op-2"]);
+  });
+
+  it("reads a create's single operation_id as a one-element list", () => {
+    expect(startedManifestOperationIds({ operation_id: "op-9" })).toEqual([
+      "op-9",
+    ]);
+  });
+
+  it("returns an empty list for a create that finished synchronously (operation_id null)", () => {
+    expect(startedManifestOperationIds({ operation_id: null })).toEqual([]);
+  });
+
+  it("returns an empty list for a create with operation_id absent entirely", () => {
+    expect(startedManifestOperationIds({})).toEqual([]);
+  });
+
+  it("returns an empty list for an action that completed synchronously (operations: [])", () => {
+    expect(startedManifestOperationIds({ operations: [] })).toEqual([]);
+  });
+
+  it("falls through to the operation_id check when operations is present but undefined", () => {
+    expect(startedManifestOperationIds({ operations: undefined })).toEqual([]);
   });
 });

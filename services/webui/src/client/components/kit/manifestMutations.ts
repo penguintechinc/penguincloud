@@ -45,6 +45,17 @@ function useInvalidateManifestResource(
   };
 }
 
+/**
+ * Minimal wire shape lifted from `ResourceView` (`resources_api.py`) — only
+ * the field a `mode="watch"` renderer needs to start polling. `operation_id`
+ * is `null`/absent when the create finished synchronously, which is how a
+ * caller tells "nothing to poll" from "poll this" — see
+ * `startedManifestOperationIds`.
+ */
+export interface ManifestCreateOutcome {
+  operation_id?: string | null;
+}
+
 /** Creates one resource via `POST /products/{id}/resources/{kind}`. */
 export function useCreateManifestResource(
   productType: string,
@@ -59,7 +70,9 @@ export function useCreateManifestResource(
     kind,
   );
   return useMutation({
-    mutationFn: async (payload: Record<string, unknown>): Promise<unknown> => {
+    mutationFn: async (
+      payload: Record<string, unknown>,
+    ): Promise<ManifestCreateOutcome> => {
       if (productId === undefined) {
         throw new Error("No connection for the active tenant");
       }
@@ -67,7 +80,7 @@ export function useCreateManifestResource(
         portalUrl.resources(productId, kind),
         payload,
       );
-      return response.data;
+      return response.data as ManifestCreateOutcome;
     },
     onSuccess: invalidate,
   });
@@ -157,6 +170,16 @@ export function useDeleteManifestResource(
   });
 }
 
+/**
+ * Minimal wire shape lifted from `ActionResultResponse`
+ * (`operations_api.py`) — only the ids a `mode="watch"` renderer needs to
+ * start polling. An empty/absent list means the action completed
+ * synchronously — see `startedManifestOperationIds`.
+ */
+export interface ManifestActionOutcome {
+  operations?: { id: string }[];
+}
+
 /** Invokes one `ActionSpec` verb via `POST
  * /products/{id}/resources/{kind}/{id}/actions/{verb}`. */
 export function usePerformManifestAction(
@@ -176,7 +199,7 @@ export function usePerformManifestAction(
       resourceId: string;
       verb: string;
       payload?: Record<string, unknown>;
-    }): Promise<unknown> => {
+    }): Promise<ManifestActionOutcome> => {
       if (productId === undefined) {
         throw new Error("No connection for the active tenant");
       }
@@ -184,8 +207,31 @@ export function usePerformManifestAction(
         portalUrl.resourceAction(productId, kind, vars.resourceId, vars.verb),
         vars.payload ?? {},
       );
-      return response.data;
+      return response.data as ManifestActionOutcome;
     },
     onSuccess: invalidate,
   });
+}
+
+/**
+ * The operation ids a create or action just started, normalised to a flat
+ * list — the generic analogue of `startedOperationIds` in
+ * `pages/products/nest/useDatabaseMutations.ts`. An action returns a LIST
+ * because the contract allows one action to start several operations; a
+ * create returns a single handle in `operation_id`, and a missing/null one
+ * means the create finished synchronously. Normalising both here is what
+ * lets a `mode="watch"` caller hand either outcome to
+ * `useManifestOperationWatch`'s `watch()` without branching on which route
+ * produced it.
+ */
+export function startedManifestOperationIds(
+  outcome: ManifestCreateOutcome | ManifestActionOutcome,
+): string[] {
+  if ("operations" in outcome && outcome.operations) {
+    return outcome.operations.map((operation) => operation.id);
+  }
+  if ("operation_id" in outcome && outcome.operation_id) {
+    return [outcome.operation_id];
+  }
+  return [];
 }

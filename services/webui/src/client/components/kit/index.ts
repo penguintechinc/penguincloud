@@ -77,9 +77,17 @@ export {
   nextPollInterval,
 } from "./useManifestOperations";
 export {
+  useManifestOperationWatch,
+  nextOperationPollInterval,
+  type UseManifestOperationWatchResult,
+} from "./useManifestOperationWatch";
+export {
   useCreateManifestResource,
   useDeleteManifestResource,
   usePerformManifestAction,
+  startedManifestOperationIds,
+  type ManifestCreateOutcome,
+  type ManifestActionOutcome,
 } from "./manifestMutations";
 export {
   renderCell,

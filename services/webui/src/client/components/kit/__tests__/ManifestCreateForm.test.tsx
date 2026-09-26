@@ -41,7 +41,7 @@ function resource(
   };
 }
 
-function renderForm(res: ResourceDescriptor) {
+function renderForm(res: ResourceDescriptor, watch?: (ids: string[]) => void) {
   return render(
     <QueryClientProvider client={createAppQueryClient()}>
       <ManifestCreateForm
@@ -49,6 +49,7 @@ function renderForm(res: ResourceDescriptor) {
         tenantId={42}
         productId={7}
         resource={res}
+        watch={watch}
       />
     </QueryClientProvider>,
   );
@@ -125,6 +126,37 @@ it("opens the modal, submits, and posts the aliased payload to the generic typed
   await waitFor(() =>
     expect(screen.queryByLabelText(/^Name\*$/)).not.toBeInTheDocument(),
   );
+});
+
+it('hands the created resource\'s operation_id to watch() for a mode="watch" resource', async () => {
+  mockedApi.post.mockResolvedValue({ data: { id: "9", operation_id: "op-1" } });
+  const watch = jest.fn();
+  renderForm(
+    resource({
+      create: {
+        fields: [
+          {
+            name: "name",
+            label: "Name",
+            field_type: "text",
+            required: true,
+            options: [],
+          },
+        ],
+        submit_label: "Create Biome",
+        field_aliases: [],
+      },
+    }),
+    watch,
+  );
+
+  fireEvent.click(screen.getByTestId("gough-manifest-biomes-create"));
+  fireEvent.change(await screen.findByLabelText(/^Name\*$/), {
+    target: { value: "web" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create Biome" }));
+
+  await waitFor(() => expect(watch).toHaveBeenCalledWith(["op-1"]));
 });
 
 it("closes without submitting when the modal's own Cancel is clicked", async () => {

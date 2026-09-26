@@ -94,6 +94,22 @@ export const queryKeys = {
       kind,
       operationId,
     ] as const,
+  // One entry per id `useManifestOperationWatch` is polling — the
+  // `mode="watch"` analogue of `consoleManifestOperations` above (which keys
+  // the whole COLLECTION a `mode="list"` panel polls). Mirrors `nestOperation`
+  // below, generalised off product type instead of hardcoded to Nest.
+  consoleManifestOperationWatch: (
+    tenantId: number | undefined,
+    productId: number | undefined,
+    operationId: string,
+  ) =>
+    [
+      ...queryKeys.consoleManifests(),
+      "operation-watch",
+      tenantId,
+      productId,
+      operationId,
+    ] as const,
 
   // Gough resources, reached through the proxy.
   //
