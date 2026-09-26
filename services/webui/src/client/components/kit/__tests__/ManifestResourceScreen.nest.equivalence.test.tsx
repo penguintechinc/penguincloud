@@ -26,16 +26,15 @@
  * transcribed from `nest/routes.py`'s `tenant_path()` builder and
  * `nest/mapping.py`'s `COLLECTION_ENVELOPE_KEYS`/`CREATE_FIELD_ALIASES`.
  *
- * One REAL divergence this file found and does NOT paper over: for a
- * snapshot `sizeBytes` >= 1024, the hand-written `DatabaseTabs.tsx`'s own
- * `humanBytes()` renders IEC unit labels (`KiB`/`MiB`/`GiB`/`TiB`) while the
- * manifest's generic `bytes` cell (`manifestCells.tsx`'s `formatBytes`)
- * renders SI-style labels (`KB`/`MB`/`GB`/`TB`) for the identical numeric
- * value — cosmetic (the number itself matches, and neither side rounds
- * differently), never affecting the Snapshots tab's parent-filtering
- * correctness, but not byte-identical text either. Asserted directly in the
- * Snapshots-tab section below rather than dodged by picking an under-1024
- * fixture value.
+ * A REAL divergence this file originally found, since fixed: for a snapshot
+ * `sizeBytes` >= 1024, the manifest's generic `bytes` cell
+ * (`manifestCells.tsx`'s `formatBytes`) used to render SI-style labels
+ * (`KB`/`MB`/`GB`/`TB`) for a base-1024 division, disagreeing with the
+ * hand-written `DatabaseTabs.tsx`'s own IEC-labelled `humanBytes()`.
+ * `formatBytes` now uses IEC labels (`KiB`/`MiB`/`GiB`/`TiB`) too, so both
+ * sides render byte-identical text for the same numeric value — asserted as
+ * equality directly in the Snapshots-tab section below rather than dodged by
+ * picking an under-1024 fixture value.
  */
 import {
   render,
@@ -1151,7 +1150,7 @@ describe("ManifestResourceScreen vs NestOperationsPanel — watch-mode operation
 
 describe("ManifestResourceScreen's Snapshots tab vs DatabaseTabs.tsx's hand-filtered SnapshotsTab", () => {
   // `sizeBytes: 2048` is deliberate — see this file's module doc. Chosen
-  // >= 1024 specifically so the byte-format divergence is exercised, not
+  // >= 1024 specifically so the byte-format equivalence is exercised, not
   // dodged.
   const SNAPSHOT_MINE = {
     name: "orders-db-snap-1",
@@ -1187,7 +1186,7 @@ describe("ManifestResourceScreen's Snapshots tab vs DatabaseTabs.tsx's hand-filt
     );
   });
 
-  it("lists only the parent's own snapshots on both sides, matching sourcePVC===database.name — and surfaces the byte-unit format DIVERGENCE rather than dodging it", async () => {
+  it("lists only the parent's own snapshots on both sides, matching sourcePVC===database.name — and proves byte-unit format EQUALITY rather than dodging it", async () => {
     const { handWritten, manifestScreen } = renderDatabasesBoth();
     await within(handWritten.container).findByTestId("datatable-row");
     await within(manifestScreen.container).findByTestId("datatable-row");
@@ -1231,14 +1230,13 @@ describe("ManifestResourceScreen's Snapshots tab vs DatabaseTabs.tsx's hand-filt
     ).not.toBeInTheDocument();
     expect(within(manifestPanel).getByText("ready")).toBeInTheDocument();
 
-    // DIVERGENCE (cosmetic, filtering unaffected): the SAME 2048-byte value
-    // renders "2.0 KiB" via DatabaseTabs.tsx's own IEC `humanBytes()`, and
-    // "2.0 KB" via the manifest's generic SI-style `bytes` cell
-    // (`manifestCells.tsx`'s `formatBytes`). Asserted as fact on both sides,
-    // not weakened to a shared substring.
+    // EQUIVALENCE: the SAME 2048-byte value renders identically on both
+    // sides — "2.0 KiB" via DatabaseTabs.tsx's own IEC `humanBytes()`, and
+    // "2.0 KiB" via the manifest's generic `bytes` cell
+    // (`manifestCells.tsx`'s `formatBytes`, now IEC-labelled too). Asserted
+    // as equality, not a shared substring.
     expect(within(handSnapshots).getByText(/2\.0 KiB/)).toBeInTheDocument();
-    expect(within(manifestPanel).getByText("2.0 KB")).toBeInTheDocument();
-    expect(within(manifestPanel).queryByText(/KiB/)).not.toBeInTheDocument();
+    expect(within(manifestPanel).getByText("2.0 KiB")).toBeInTheDocument();
   });
 });
 
