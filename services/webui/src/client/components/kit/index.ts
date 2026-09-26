@@ -55,6 +55,11 @@ export {
   type ManifestResourceDetailProps,
 } from "./ManifestResourceDetail";
 export {
+  RelationshipChildTab,
+  matchesRelationshipParent,
+  type RelationshipChildTabProps,
+} from "./RelationshipChildTab";
+export {
   ManifestCreateForm,
   type ManifestCreateFormProps,
 } from "./ManifestCreateForm";
@@ -77,9 +82,17 @@ export {
   nextPollInterval,
 } from "./useManifestOperations";
 export {
+  useManifestOperationWatch,
+  nextOperationPollInterval,
+  type UseManifestOperationWatchResult,
+} from "./useManifestOperationWatch";
+export {
   useCreateManifestResource,
   useDeleteManifestResource,
   usePerformManifestAction,
+  startedManifestOperationIds,
+  type ManifestCreateOutcome,
+  type ManifestActionOutcome,
 } from "./manifestMutations";
 export {
   renderCell,
@@ -122,6 +135,7 @@ export {
   type DeleteSpec,
   type OperationsSpec,
   type ExtensionSlot,
+  type RelationshipSpec,
 } from "./manifestTypes";
 
 // Note: Breadcrumbs, TenantScopeSwitcher, and ActingAsBanner are exported from their own files

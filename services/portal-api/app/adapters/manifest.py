@@ -218,6 +218,12 @@ _EXTENSION_SLOT_KINDS: Final[frozenset[str]] = frozenset(
 #: steps'." Enforced in :meth:`ConsoleManifest.__post_init__`.
 _MAX_EXTENSIONS_PER_PRODUCT: Final[int] = 2
 
+#: Modes an :class:`OperationsSpec` may declare — see that class's docstring.
+#: ``"list"`` is the pre-existing collection-fed panel; ``"watch"`` is the
+#: Nest-convergence addition for a product with ``get_operation`` but no
+#: ``list_operations``.
+_OPERATIONS_MODES: Final[frozenset[str]] = frozenset({"list", "watch"})
+
 
 class ManifestError(ValueError):
     """A manifest is malformed, or fails adapter-aware conformance.
@@ -870,19 +876,56 @@ class OperationsSpec:
     display preference, so an adapter with no cancellable operation kind
     must refuse a manifest that claims one exists, the same way an unknown
     action verb already refuses to load.
+
+    Nest-convergence finding: Nest's create/action endpoints return
+    ``202 + operationId`` and the operation is watched one-at-a-time via
+    ``get_operation`` — Nest does not implement ``list_operations``,
+    ``cancel_operation``, or ``operation_logs`` at all (501 by design, see
+    ``adapters/nest/adapter.py``). :attr:`mode` distinguishes the two panel
+    shapes so :func:`apply_capabilities_overlay` can key its subtract-only
+    strip off the right capability instead of unconditionally requiring
+    ``list_operations``, which would drop Nest's operations block entirely
+    even though ``get_operation`` is live:
+
+    * ``"list"`` (default) — the pre-existing collection-fed panel: rows
+      come from a live ``list_operations()`` poll. Requires ``list_operations``
+      to survive the overlay; ``cancel_allowed``/``show_logs`` behave exactly
+      as before.
+    * ``"watch"`` — response-driven: the panel watches one operation id
+      handed back by a 202 response, via ``get_operation``. Requires
+      ``get_operation`` (NOT ``list_operations``) to survive the overlay.
+      Has no collection to page through, so no Cancel control and no log
+      stream either — ``cancel_allowed``/``show_logs`` must both be False
+      for this mode, refused otherwise at construction (fail-closed, same
+      posture as the ``supports_cancel``/``supports_operation_logs`` check
+      above).
     """
 
     label: str = "Operations"
     poll_interval_seconds: int = 5
     #: Whether a live (non-terminal) operation offers a Cancel control.
+    #: Always False when mode="watch" — see the class docstring.
     cancel_allowed: bool = False
     #: Whether an operation row offers a "Show logs" disclosure.
+    #: Always False when mode="watch" — see the class docstring.
     show_logs: bool = False
+    #: ``"list"`` (collection-fed, needs ``list_operations``) or ``"watch"``
+    #: (single operation id from a 202, needs ``get_operation`` only).
+    mode: str = "list"
 
     def __post_init__(self) -> None:
-        """Refuse a non-positive poll interval — zero or negative never terminates sanely."""
+        """Refuse a non-positive poll interval, an unknown mode, or an invalid watch panel."""
         if self.poll_interval_seconds <= 0:
             raise ManifestError("OperationsSpec.poll_interval_seconds must be positive")
+        if self.mode not in _OPERATIONS_MODES:
+            raise ManifestError(
+                f"OperationsSpec.mode {self.mode!r} is not one of {sorted(_OPERATIONS_MODES)}"
+            )
+        if self.mode == "watch" and (self.cancel_allowed or self.show_logs):
+            raise ManifestError(
+                "OperationsSpec.mode='watch' has no list/cancel/logs surface -- a "
+                "watched operation may not declare cancel_allowed or show_logs"
+            )
 
 
 @dataclass(slots=True, frozen=True)
@@ -1169,10 +1212,19 @@ def apply_capabilities_overlay(
     ``delete_resource``    every resource's ``delete`` is dropped (None)
     ``perform_action``     every resource's ``actions`` is emptied
     ``metrics_summary``    ``manifest.metrics`` is dropped (None)
-    ``list_operations``    ``manifest.operations`` is dropped (None)
+    ``list_operations``    ``manifest.operations`` dropped (None) — mode="list" only
+    ``get_operation``      ``manifest.operations`` dropped (None) — mode="watch" only
     ``cancel_operation``   ``operations.cancel_allowed`` forced False
     ``operation_logs``     ``operations.show_logs`` forced False
     =====================  ===============================================
+
+    The ``manifest.operations`` row is mode-aware, per :class:`OperationsSpec`:
+    a ``mode="list"`` block survives on ``list_operations`` exactly as before;
+    a ``mode="watch"`` block (Nest) survives on ``get_operation`` instead —
+    ``list_operations`` is irrelevant to it, since Nest never implements that
+    capability at all. Either way, the block this function reconstructs
+    keeps declaring the same ``mode`` it was given; the overlay narrows what
+    a mode is allowed to show, never which mode it is.
 
     Nav items left pointing at a now-list-less resource are dropped from
     ``nav.items`` in the same pass, so the returned manifest still satisfies
@@ -1220,13 +1272,20 @@ def apply_capabilities_overlay(
     )
 
     new_operations: OperationsSpec | None = None
-    if "list_operations" in caps and manifest.operations is not None:
-        new_operations = OperationsSpec(
-            label=manifest.operations.label,
-            poll_interval_seconds=manifest.operations.poll_interval_seconds,
-            cancel_allowed=False if drop_cancel else manifest.operations.cancel_allowed,
-            show_logs=False if drop_logs else manifest.operations.show_logs,
+    if manifest.operations is not None:
+        operations_survive = (
+            "list_operations" in caps
+            if manifest.operations.mode == "list"
+            else "get_operation" in caps  # mode == "watch"
         )
+        if operations_survive:
+            new_operations = OperationsSpec(
+                label=manifest.operations.label,
+                poll_interval_seconds=manifest.operations.poll_interval_seconds,
+                cancel_allowed=False if drop_cancel else manifest.operations.cancel_allowed,
+                show_logs=False if drop_logs else manifest.operations.show_logs,
+                mode=manifest.operations.mode,
+            )
 
     return ConsoleManifest(
         manifest_version=manifest.manifest_version,

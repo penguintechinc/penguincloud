@@ -1,28 +1,41 @@
 import { Puzzle } from "lucide-react";
-import type { MenuCategory } from "@penguintechinc/react-libs";
+import type { MenuCategory, MenuItem } from "@penguintechinc/react-libs";
 import type { ProductManifestEntry } from "../kit/manifestTypes";
+import { productCategoryKey } from "../layout/menuCategories";
 
 /**
- * Sidebar categories for every product's `page`-slot extensions — Design
- * §4.1's escape hatch gets its OWN nav entry, independent of
- * `manifestCapabilities.ts` (the capability-subset gate
- * `buildMenuCategories`'s hand-written product categories run behind): a
- * `page` slot is not a resource, so it never needs `isManifestRoutable` to
- * agree a screen can render it losslessly.
+ * One product's `page`-slot nav items, tagged with the sidebar category
+ * `key` they belong under (see `menuCategories.ts`'s `productCategoryKey`).
+ * Deliberately NOT a `MenuCategory` of its own — Design §4.1's escape hatch
+ * used to get a standalone `"{display_name} Extensions"` category, which is
+ * exactly the UX wart blocking Billing's convergence onto Nest's own
+ * category. `mergeExtensionMenuItems` folds these into the product's
+ * EXISTING category instead.
  *
  * Purely derived from `manifest.extensions` — no product name, list, or
- * branch anywhere in this function. A brand new product with a `page` slot
- * gets a nav entry here with zero new webui lines, the same guarantee
- * `manifestCapabilities.ts`'s module doc makes for resources.
+ * branch anywhere in this module. A brand new product with a `page` slot
+ * gets its item placed correctly with zero new webui lines, the same
+ * guarantee `manifestCapabilities.ts`'s module doc makes for resources.
+ */
+export interface ExtensionMenuItemGroup {
+  categoryKey: string;
+  items: MenuItem[];
+}
+
+/**
+ * Builds one `ExtensionMenuItemGroup` per product with at least one `page`
+ * slot, sorted by declared `position`. A product with zero page slots
+ * contributes nothing — an empty group would only ever be dropped by
+ * `mergeExtensionMenuItems` anyway, so it is never constructed.
  *
  * Gating is inherited, not re-implemented: `manifests` only contains an
  * entry when `penguincloud.declarative_console` is on AND the tenant is
  * connected to that product — see `useConsoleManifests`'s own doc.
  */
-export function buildExtensionMenuCategories(
+export function buildExtensionMenuItems(
   manifests: ProductManifestEntry[],
-): MenuCategory[] {
-  const categories: MenuCategory[] = [];
+): ExtensionMenuItemGroup[] {
+  const groups: ExtensionMenuItemGroup[] = [];
 
   for (const entry of manifests) {
     const pageSlots = entry.manifest.extensions
@@ -30,16 +43,10 @@ export function buildExtensionMenuCategories(
       .slice()
       .sort((a, b) => a.position - b.position);
 
-    // A category with nothing under it reads as a screen that failed to
-    // load — the same rule `buildMenuCategories` applies to its own
-    // categories (`menuCategories.ts`).
     if (pageSlots.length === 0) continue;
 
-    categories.push({
-      header: `${entry.manifest.display_name} Extensions`,
-      collapsible: true,
-      key: `ext-${entry.product_type}`,
-      defaultOpen: false,
+    groups.push({
+      categoryKey: productCategoryKey(entry.product_type),
       items: pageSlots.map((slot) => ({
         name: slot.label,
         href: `/products/${entry.product_type}/ext/${slot.id}`,
@@ -48,5 +55,39 @@ export function buildExtensionMenuCategories(
     });
   }
 
-  return categories;
+  return groups;
+}
+
+/**
+ * Folds each group's items into the matching built category (matched by
+ * `category.key === group.categoryKey`), appended after that category's own
+ * static items so a product's items always sort before its extensions.
+ *
+ * A group whose `categoryKey` matches no built category — the product isn't
+ * connected, its gate is off, or it declares no other screens — is dropped
+ * rather than left dangling: nav placement never outlives the category it
+ * depends on, the same rule the old standalone-category version enforced
+ * via "no empty header ever renders".
+ */
+export function mergeExtensionMenuItems(
+  categories: MenuCategory[],
+  groups: ExtensionMenuItemGroup[],
+): MenuCategory[] {
+  if (groups.length === 0) return categories;
+
+  const itemsByKey = new Map<string, MenuItem[]>();
+  for (const group of groups) {
+    const existing = itemsByKey.get(group.categoryKey);
+    itemsByKey.set(
+      group.categoryKey,
+      existing ? [...existing, ...group.items] : group.items,
+    );
+  }
+
+  return categories.map((category) => {
+    const extra =
+      category.key !== undefined ? itemsByKey.get(category.key) : undefined;
+    if (!extra || extra.length === 0) return category;
+    return { ...category, items: [...category.items, ...extra] };
+  });
 }

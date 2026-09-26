@@ -1956,6 +1956,13 @@ export interface components {
     /**
      * DeleteSpec
      * @description Delete affordance for a resource. ``confirm`` is mandatory copy.
+     *
+     *     ``confirm`` MAY contain the literal token ``{name}`` — same
+     *     per-row-interpolation contract as :attr:`ActionSpec.confirm` (see that
+     *     docstring): the renderer substitutes it with the acted-on row's
+     *     ``name_field`` value before display. A delete confirm is a row action
+     *     just like any :class:`ActionSpec`, so it gets the identical
+     *     substitution rather than a second, divergent template language.
      */
     DeleteSpec: {
       /** Confirm */
@@ -2384,6 +2391,29 @@ export interface components {
      *     display preference, so an adapter with no cancellable operation kind
      *     must refuse a manifest that claims one exists, the same way an unknown
      *     action verb already refuses to load.
+     *
+     *     Nest-convergence finding: Nest's create/action endpoints return
+     *     ``202 + operationId`` and the operation is watched one-at-a-time via
+     *     ``get_operation`` — Nest does not implement ``list_operations``,
+     *     ``cancel_operation``, or ``operation_logs`` at all (501 by design, see
+     *     ``adapters/nest/adapter.py``). :attr:`mode` distinguishes the two panel
+     *     shapes so :func:`apply_capabilities_overlay` can key its subtract-only
+     *     strip off the right capability instead of unconditionally requiring
+     *     ``list_operations``, which would drop Nest's operations block entirely
+     *     even though ``get_operation`` is live:
+     *
+     *     * ``"list"`` (default) — the pre-existing collection-fed panel: rows
+     *       come from a live ``list_operations()`` poll. Requires ``list_operations``
+     *       to survive the overlay; ``cancel_allowed``/``show_logs`` behave exactly
+     *       as before.
+     *     * ``"watch"`` — response-driven: the panel watches one operation id
+     *       handed back by a 202 response, via ``get_operation``. Requires
+     *       ``get_operation`` (NOT ``list_operations``) to survive the overlay.
+     *       Has no collection to page through, so no Cancel control and no log
+     *       stream either — ``cancel_allowed``/``show_logs`` must both be False
+     *       for this mode, refused otherwise at construction (fail-closed, same
+     *       posture as the ``supports_cancel``/``supports_operation_logs`` check
+     *       above).
      */
     OperationsSpec: {
       /**
@@ -2396,6 +2426,11 @@ export interface components {
        * @default Operations
        */
       label: string;
+      /**
+       * Mode
+       * @default list
+       */
+      mode: string;
       /**
        * Poll Interval Seconds
        * @default 5

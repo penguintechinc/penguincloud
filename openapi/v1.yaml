@@ -1006,43 +1006,35 @@ components:
       title: OperationView
       type: object
     OperationsSpec:
-      description: 'Presence + display config for the product''s operations panel.
-
-
-        Schema v2 finding: schema v1 carried only ``label`` and
-
-        ``poll_interval_seconds``, so ``ManifestResourceScreen`` had no field to
-
-        read a real capability from and always rendered a READ-ONLY panel
-
-        (``cancelAllowed: false``, ``showLogs: false``) regardless of what the
-
-        product actually supports — see ``useManifestOperations.ts``''s module
-
-        doc for that gap named precisely. ``cancel_allowed``/``show_logs`` close
-
-        it, matching the webui''s own ``OperationsPanelSpec`` socket
-
-        (``components/kit/operationsPanelTypes.ts``) field for field; ``title``
-
-        and ``pollIntervalMs`` there are already served by ``label`` and
-
-        ``poll_interval_seconds`` × 1000, and ``testIdPrefix`` is computed by
-
-        the renderer per resource, not carried on the manifest.
-
-
-        Both new fields are checked by :func:`validate_manifest` against the
-
-        caller-supplied ``supports_cancel``/``supports_operation_logs`` —
-
-        ``True`` here is a claim about the adapter''s real behaviour, not a
-
-        display preference, so an adapter with no cancellable operation kind
-
-        must refuse a manifest that claims one exists, the same way an unknown
-
-        action verb already refuses to load.'
+      description: "Presence + display config for the product's operations panel.\n\nSchema\
+        \ v2 finding: schema v1 carried only ``label`` and\n``poll_interval_seconds``, so ``ManifestResourceScreen``\
+        \ had no field to\nread a real capability from and always rendered a READ-ONLY panel\n\
+        (``cancelAllowed: false``, ``showLogs: false``) regardless of what the\nproduct actually\
+        \ supports — see ``useManifestOperations.ts``'s module\ndoc for that gap named precisely.\
+        \ ``cancel_allowed``/``show_logs`` close\nit, matching the webui's own ``OperationsPanelSpec``\
+        \ socket\n(``components/kit/operationsPanelTypes.ts``) field for field; ``title``\n\
+        and ``pollIntervalMs`` there are already served by ``label`` and\n``poll_interval_seconds``\
+        \ × 1000, and ``testIdPrefix`` is computed by\nthe renderer per resource, not carried\
+        \ on the manifest.\n\nBoth new fields are checked by :func:`validate_manifest` against\
+        \ the\ncaller-supplied ``supports_cancel``/``supports_operation_logs`` —\n``True`` here\
+        \ is a claim about the adapter's real behaviour, not a\ndisplay preference, so an adapter\
+        \ with no cancellable operation kind\nmust refuse a manifest that claims one exists,\
+        \ the same way an unknown\naction verb already refuses to load.\n\nNest-convergence\
+        \ finding: Nest's create/action endpoints return\n``202 + operationId`` and the operation\
+        \ is watched one-at-a-time via\n``get_operation`` — Nest does not implement ``list_operations``,\n\
+        ``cancel_operation``, or ``operation_logs`` at all (501 by design, see\n``adapters/nest/adapter.py``).\
+        \ :attr:`mode` distinguishes the two panel\nshapes so :func:`apply_capabilities_overlay`\
+        \ can key its subtract-only\nstrip off the right capability instead of unconditionally\
+        \ requiring\n``list_operations``, which would drop Nest's operations block entirely\n\
+        even though ``get_operation`` is live:\n\n* ``\"list\"`` (default) — the pre-existing\
+        \ collection-fed panel: rows\n  come from a live ``list_operations()`` poll. Requires\
+        \ ``list_operations``\n  to survive the overlay; ``cancel_allowed``/``show_logs`` behave\
+        \ exactly\n  as before.\n* ``\"watch\"`` — response-driven: the panel watches one operation\
+        \ id\n  handed back by a 202 response, via ``get_operation``. Requires\n  ``get_operation``\
+        \ (NOT ``list_operations``) to survive the overlay.\n  Has no collection to page through,\
+        \ so no Cancel control and no log\n  stream either — ``cancel_allowed``/``show_logs``\
+        \ must both be False\n  for this mode, refused otherwise at construction (fail-closed,\
+        \ same\n  posture as the ``supports_cancel``/``supports_operation_logs`` check\n  above)."
       properties:
         cancel_allowed:
           default: false
@@ -1051,6 +1043,10 @@ components:
         label:
           default: Operations
           title: Label
+          type: string
+        mode:
+          default: list
+          title: Mode
           type: string
         poll_interval_seconds:
           default: 5

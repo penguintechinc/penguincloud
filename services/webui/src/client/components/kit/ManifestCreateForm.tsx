@@ -11,7 +11,10 @@ import { useState } from "react";
 import { FormBuilder } from "@penguintechinc/react-libs";
 import { ActionButton } from "./ActionButton";
 import { toFieldConfig, applyFieldAliases } from "./manifestFormFields";
-import { useCreateManifestResource } from "./manifestMutations";
+import {
+  useCreateManifestResource,
+  startedManifestOperationIds,
+} from "./manifestMutations";
 import type { ResourceDescriptor } from "./manifestTypes";
 
 export interface ManifestCreateFormProps {
@@ -19,6 +22,14 @@ export interface ManifestCreateFormProps {
   tenantId: number | undefined;
   productId: number | undefined;
   resource: ResourceDescriptor;
+  /**
+   * Registers the ids this create started with a `mode="watch"` operations
+   * panel (`ManifestResourceScreen.tsx`'s `useManifestOperationWatch`).
+   * Optional — a resource with no `operations` block (or `mode="list"`, which
+   * discovers its own operations from the collection poll) has nothing that
+   * needs the ids, so omitting it is a no-op, not a broken wire-up.
+   */
+  watch?: (ids: string[]) => void;
 }
 
 export function ManifestCreateForm({
@@ -26,6 +37,7 @@ export function ManifestCreateForm({
   tenantId,
   productId,
   resource,
+  watch,
 }: ManifestCreateFormProps) {
   const [isOpen, setIsOpen] = useState(false);
   const create = useCreateManifestResource(
@@ -58,9 +70,10 @@ export function ManifestCreateForm({
         loading={create.isPending}
         onCancel={() => setIsOpen(false)}
         onSubmit={async (values: Record<string, unknown>): Promise<void> => {
-          await create.mutateAsync(
+          const outcome = await create.mutateAsync(
             applyFieldAliases(values, formSpec.field_aliases),
           );
+          watch?.(startedManifestOperationIds(outcome));
           setIsOpen(false);
         }}
       />

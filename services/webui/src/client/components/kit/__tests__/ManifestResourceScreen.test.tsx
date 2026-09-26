@@ -259,6 +259,76 @@ it("stays hidden when the manifest declares no operations", async () => {
   expect(mockApiGet).not.toHaveBeenCalled();
 });
 
+it('mounts a watch-fed operations panel for mode="watch" and never polls the list_operations route', async () => {
+  mockProxyRequest.mockResolvedValue({ agents: [] });
+  mockApiPost.mockResolvedValue({ data: { id: "9", operation_id: "op-1" } });
+  mockApiGet.mockResolvedValue({
+    data: {
+      id: "op-1",
+      kind: "agents",
+      state: "running",
+      status: "provisioning",
+      is_terminal: false,
+    },
+  });
+  const resource = baseResource({
+    create: {
+      fields: [
+        {
+          name: "name",
+          label: "Name",
+          field_type: "text",
+          required: true,
+          options: [],
+        },
+      ],
+      submit_label: "Create Agent",
+      field_aliases: [],
+    },
+  });
+
+  render(
+    <QueryClientProvider client={createAppQueryClient()}>
+      <ManifestResourceScreen
+        productType="gough"
+        productLabel="Gough"
+        manifest={manifest(resource, {
+          label: "Operations",
+          poll_interval_seconds: 5,
+          cancel_allowed: false,
+          show_logs: false,
+          mode: "watch",
+        })}
+        resource={resource}
+      />
+    </QueryClientProvider>,
+  );
+
+  fireEvent.click(await screen.findByTestId("gough-manifest-agents-create"));
+  fireEvent.change(await screen.findByLabelText(/^Name\*$/), {
+    target: { value: "agent-9" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+
+  await waitFor(() =>
+    expect(mockApiGet).toHaveBeenCalledWith(
+      "/products/7/operations/agents/op-1",
+    ),
+  );
+  expect(
+    await screen.findByTestId("gough-manifest-agents-operations"),
+  ).toBeInTheDocument();
+  // mode="watch" never polls the collection route.
+  expect(mockApiGet).not.toHaveBeenCalledWith("/products/7/operations");
+  // mode="watch" never offers cancel or logs, regardless of cancel_allowed.
+  expect(
+    screen.queryByTestId("gough-manifest-agents-operation-cancel-op-1"),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByTestId("gough-manifest-agents-operation-logs-toggle-op-1"),
+  ).not.toBeInTheDocument();
+});
+
 it("renders a row-open button and detail drawer when the resource declares item_path", async () => {
   mockProxyRequest.mockResolvedValue({
     agents: [{ agent_id: "3f2b-aa", hostname: "agent-1" }],

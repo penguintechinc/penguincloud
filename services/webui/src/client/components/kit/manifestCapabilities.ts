@@ -23,6 +23,7 @@ export const RESOURCE_CAPABILITIES = [
   "actions",
   "create",
   "edit",
+  "relationships",
 ] as const;
 
 export type ResourceCapability = (typeof RESOURCE_CAPABILITIES)[number];
@@ -42,6 +43,12 @@ export type ResourceCapability = (typeof RESOURCE_CAPABILITIES)[number];
  * Routing a resource whose manifest declares more than this set would
  * still be shipping unverified UI — that discipline does not change,
  * only what has now earned the proof.
+ *
+ * `relationships` joins the set now that `ManifestResourceDetail.tsx`
+ * renders a `RelationshipSpec` as a child-list detail tab (dedicated unit
+ * coverage in `RelationshipChildTab.test.tsx` / `ManifestResourceDetail.test.tsx`
+ * proves the tab renders and filters by `parent_field`, the same "proven,
+ * not merely present" bar the other tokens above hold to).
  */
 export const SUPPORTED_CAPABILITIES: ReadonlySet<ResourceCapability> = new Set([
   "list",
@@ -49,6 +56,7 @@ export const SUPPORTED_CAPABILITIES: ReadonlySet<ResourceCapability> = new Set([
   "actions",
   "create",
   "edit",
+  "relationships",
 ]);
 
 /**
@@ -74,6 +82,17 @@ export const SUPPORTED_CAPABILITIES: ReadonlySet<ResourceCapability> = new Set([
  * `resource.edit` field rather than `resource.create`/`resource.actions`,
  * so a resource declaring edit without either of those needs its own
  * proof to route.
+ *
+ * `relationships` is its own capability for the same reason: before this
+ * token existed, a resource declaring `RelationshipSpec` entries still
+ * satisfied every OTHER required capability and so routed through
+ * `ManifestResourceScreen` anyway — silently dropping the child-list tab
+ * `ManifestResourceDetail.tsx` now renders, exactly the "declares a
+ * capability this renderer cannot yet reproduce losslessly" failure this
+ * module's own doc warns about. It needs only `list_resources` on the
+ * CHILD kind (already covered by that kind's own `list` capability, gated
+ * separately if/when that kind is itself routed) — no new backend
+ * capability, just this frontend proof.
  */
 export function requiredCapabilities(
   manifest: ConsoleManifest,
@@ -84,6 +103,7 @@ export function requiredCapabilities(
   if (resource.actions.length > 0 || resource.delete) required.add("actions");
   if (resource.create) required.add("create");
   if (resource.edit) required.add("edit");
+  if (resource.relationships.length > 0) required.add("relationships");
   return required;
 }
 

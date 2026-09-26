@@ -353,12 +353,25 @@ export interface NavSpec {
  * Schema v2 adds `cancel_allowed`/`show_logs` — see this field's Python
  * doc (`OperationsSpec` in `app/adapters/manifest.py`) for why schema v1
  * could only ever render a read-only panel and what closes that gap.
+ *
+ * `mode` (Nest-convergence finding, mirrors the Python `_OPERATIONS_MODES`
+ * frozenset byte-for-byte) distinguishes the two panel shapes:
+ * `"list"` (default) is the pre-existing collection-fed panel
+ * (`useManifestOperations.ts`, `GET /operations`); `"watch"` is
+ * response-driven — no collection exists, so the panel watches only the
+ * operation ids a create/action handed back (`useManifestOperationWatch.ts`,
+ * `GET /operations/{kind}/{id}`). `cancel_allowed`/`show_logs` are always
+ * `false` for `"watch"`, refused otherwise server-side
+ * (`OperationsSpec.__post_init__`) — this mirror does not re-enforce that,
+ * the same "as strict as the dataclasses it copies, never stricter"
+ * discipline this module's doc states for every other field here.
  */
 export interface OperationsSpec {
   label: string;
   poll_interval_seconds: number;
   cancel_allowed: boolean;
   show_logs: boolean;
+  mode?: "list" | "watch";
 }
 
 /** Presence + display config for the product's metrics tile. */

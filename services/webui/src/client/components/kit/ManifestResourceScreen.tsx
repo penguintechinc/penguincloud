@@ -20,6 +20,13 @@
  * - **Operations cancel/logs** — `manifest.operations.cancel_allowed`/
  *   `.show_logs`, both server-verified against the adapter's real
  *   capabilities by `validate_manifest`.
+ * - **Operations `mode="watch"`** (Nest-convergence) — a resource whose
+ *   product has no operation collection (`list_operations` 501s) mounts a
+ *   panel fed by `useManifestOperationWatch` instead of `useManifestOperations`,
+ *   watching only the ids `ManifestCreateForm`/`ManifestResourceDetail` report
+ *   starting. `mode="list"` (the default, and every resource this component
+ *   already rendered before this field existed) keeps the original
+ *   collection-polled path untouched.
  */
 import { useMemo } from "react";
 import { ProductScreen } from "./ProductScreen";
@@ -31,6 +38,7 @@ import {
   useManifestOperationLogs,
   useManifestOperations,
 } from "./useManifestOperations";
+import { useManifestOperationWatch } from "./useManifestOperationWatch";
 import { type ManifestRow } from "./manifestCells";
 import { buildManifestListFetcher } from "./manifestListFetcher";
 import { ManifestResourceDetail } from "./ManifestResourceDetail";
@@ -112,10 +120,11 @@ export function ManifestResourceScreen({
   });
 
   const operationsSpec = manifest.operations;
+  const isWatchMode = operationsSpec?.mode === "watch";
   const operations = useManifestOperations(
     tenantId,
     productId,
-    operationsSpec !== null && operationsSpec !== undefined,
+    operationsSpec !== null && operationsSpec !== undefined && !isWatchMode,
     (operationsSpec?.poll_interval_seconds ?? 5) * 1000,
   );
   const cancelOperation = useCancelManifestOperation(tenantId, productId);
@@ -125,6 +134,19 @@ export function ManifestResourceScreen({
     options: { enabled: boolean; isTerminal: boolean },
   ) =>
     useManifestOperationLogs(tenantId, productId, kind, operationId, options);
+
+  // Always called (rules of hooks); gated internally on `isWatchMode` the
+  // same way `useManifestOperations` above is gated on `!isWatchMode` — a
+  // `mode="list"` resource never registers a watched id (nothing ever calls
+  // `watch()` on this path), so the extra queries never fire.
+  const watchOperations = useManifestOperationWatch(
+    productType,
+    tenantId,
+    productId,
+    resource.kind,
+    isWatchMode && productId !== undefined,
+    (operationsSpec?.poll_interval_seconds ?? 5) * 1000,
+  );
 
   const rows = (data ?? []).map((row) => withStringId(row, resource.id_field));
 
@@ -138,7 +160,7 @@ export function ManifestResourceScreen({
       isConnectionLoading={isConnectionLoading}
       noConnectionReason={`manage its ${resource.plural_label.toLowerCase()}.`}
     >
-      {operationsSpec && (
+      {operationsSpec && !isWatchMode && (
         <OperationsPanel<OperationLike>
           operations={operations.data ?? []}
           isLoading={operations.isLoading}
@@ -160,11 +182,29 @@ export function ManifestResourceScreen({
         />
       )}
 
+      {operationsSpec && isWatchMode && (
+        <OperationsPanel<OperationLike>
+          operations={watchOperations.operations}
+          spec={{
+            title: operationsSpec.label,
+            testIdPrefix: `${productType}-manifest-${resource.kind}`,
+            // Structurally false for mode="watch" — validated server-side
+            // (`OperationsSpec.__post_init__`), not re-derived from
+            // `operationsSpec.cancel_allowed`/`.show_logs` here: a watched
+            // operation has no collection to cancel from and no log route.
+            cancelAllowed: false,
+            showLogs: false,
+            pollIntervalMs: operationsSpec.poll_interval_seconds * 1000,
+          }}
+        />
+      )}
+
       <ManifestCreateForm
         productType={productType}
         tenantId={tenantId}
         productId={productId}
         resource={resource}
+        watch={watchOperations.watch}
       />
 
       {list ? (
@@ -191,8 +231,10 @@ export function ManifestResourceScreen({
         productType={productType}
         tenantId={tenantId}
         productId={productId}
+        manifest={manifest}
         resource={resource}
         rows={rows}
+        watch={watchOperations.watch}
       />
     </ProductScreen>
   );
