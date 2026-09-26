@@ -15,21 +15,23 @@
  * and it is also how a brand new read-only product would be wired with no
  * new decision logic — see `manifestCapabilities.ts`'s module doc.
  *
- * `fallback` is now OPTIONAL (Phase 8 Step 7): once Gough's and
- * Tobogganing's converged hand-written screens were deleted in favour of
- * the manifest console (default-on), their routes have no hand-written
- * screen left to fall back to. Tobogganing's last holdout, `swg_policy`'s
+ * `fallback` is now OPTIONAL (Phase 8 Step 7): once Gough's, Tobogganing's,
+ * and Nest's converged hand-written screens were deleted in favour of the
+ * manifest console (default-on), their routes have no hand-written screen
+ * left to fall back to. Tobogganing's last holdout, `swg_policy`'s
  * `SwgPolicyPage`, was deleted once its one equivalence gap closed via a
- * `cell` `ExtensionSlot` — see `App.tsx`'s route comment. A route that
- * still has one (Nest's `DatabasesPage`/`BillingPage` — no committed
- * manifest yet) keeps passing it unchanged.
+ * `cell` `ExtensionSlot`; Nest's `DatabasesPage`/`BillingPage` were the
+ * final holdouts, deleted once `ManifestResourceScreen.nest.equivalence.test.tsx`
+ * closed — see `App.tsx`'s route comments. Every product route in `App.tsx`
+ * is now `fallback`-less; a future product with an incomplete manifest is
+ * the only expected caller left for this prop.
  *
  * Four states, in order:
  * 1. No manifest for this (product, kind) yet — flag off (the endpoint
  *    403s, so `useConsoleManifests` never resolves `data`), still loading,
- *    or this product/kind simply has no committed manifest (e.g. Nest) —
- *    render the fallback if one was given. This is the "no behaviour
- *    change" default for a route that still has a hand-written screen.
+ *    or this product/kind simply has no committed manifest — render the
+ *    fallback if one was given. This is the "no behaviour change" default
+ *    for a route that still has a hand-written screen.
  * 2. A manifest exists but declares capabilities the renderer cannot yet
  *    reproduce losslessly (`isManifestRoutable` false) — same as above.
  * 3. A manifest exists and is fully within `SUPPORTED_CAPABILITIES` —

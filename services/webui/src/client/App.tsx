@@ -22,7 +22,6 @@ import ProductPage from "./pages/products/ProductPage";
 import Teams from "./pages/Teams";
 import { ProductResourceRoute } from "./components/kit";
 import { ExtensionPageRoute } from "./components/extensions";
-import DatabasesPage from "./pages/products/nest/DatabasesPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -169,31 +168,36 @@ function App() {
         />
 
         {/* Nest. No RoleGuard, for the same reason as Gough: authority is a
-            scope question answered server-side, and flag + connection gating
-            live in NestScreen (fallback) / ProductResourceRoute (manifest).
-            No Servers/Cloud/Workflows routes — those services are not
+            scope question answered server-side; flag + connection gating
+            live in `ProductResourceRoute`'s generic fallback. No
+            Servers/Cloud/Workflows routes — those services are not
             reachable at a Nest connection's origin, see menuCategories.ts.
             `kind="database"` matches `NEST_MANIFEST`'s own resource kind
             (`adapters/nest/manifest.py`'s `KIND_DATABASE`) — NOT the route
             segment "databases" a resource-kind mismatch would silently miss
-            every manifest lookup and always fall back. `fallback` is kept
-            (equivalence proof + hand-written-screen deletion are later
-            convergence stages, not this one).
-            Billing is no longer a per-Nest route: `NEST_MANIFEST` declares
-            it a `page` `ExtensionSlot` (id="billing"), served generically at
-            `/products/nest/ext/billing` by `ExtensionPageRoute` above —
-            `BillingPage.tsx` stays uncommitted from routing but not yet
-            deleted, kept only as the adaptation source for
-            `components/extensions/nest/BillingPanel.tsx`. */}
+            every manifest lookup and always fall back.
+
+            Nest convergence deleted the hand-written `DatabasesPage`/
+            `DatabaseTabs`/`DatabaseDialogs`/`NestOperationsPanel`/
+            `NestScreen` — `declarative_console` is default-on and Nest's
+            database resource is proven equivalence-exact against them
+            (`ManifestResourceScreen.nest.equivalence.test.tsx`), so they
+            were replaced by the manifest console, not kept as a `fallback`,
+            mirroring Gough/Tobogganing's own Step 7. No `fallback` prop:
+            `ProductResourceRoute` renders a generic connection-aware empty
+            state for the (now purely hypothetical) case of the flag being
+            off or the manifest going unroutable.
+
+            Billing is not a per-Nest route: `NEST_MANIFEST` declares it a
+            `page` `ExtensionSlot` (id="billing"), served generically at
+            `/products/nest/ext/billing` by `ExtensionPageRoute` above — the
+            hand-written `BillingPage.tsx`/`BillingSummary.tsx`/
+            `useNestBilling.ts` it was adapted from are deleted too, now that
+            `components/extensions/nest/BillingPanel.tsx` is proven
+            equivalent. */}
         <Route
           path="/products/nest/databases"
-          element={
-            <ProductResourceRoute
-              productType="nest"
-              kind="database"
-              fallback={DatabasesPage}
-            />
-          }
+          element={<ProductResourceRoute productType="nest" kind="database" />}
         />
 
         {/* Tobogganing. No RoleGuard, for the same reason as Gough and Nest.

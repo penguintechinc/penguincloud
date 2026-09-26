@@ -1,23 +1,31 @@
 /**
- * The equivalence proof for Nest: does `ManifestResourceScreen`, fed the
- * committed `adapters/nest/manifest.py` descriptors, reproduce every
- * hand-written Nest screen's rendered output — table, create form, row
- * actions, watch-mode operations, the Snapshots relationship tab, and the
- * Health `detail_tab` extension — closely enough that `DatabasesPage.tsx`/
- * `DatabaseTabs.tsx`/`DatabaseDialogs.tsx`/`databaseColumns.tsx`/
- * `databaseActions.ts` can be deleted next stage without losing anything an
- * operator relies on? `BillingPanel.tsx` (already the extension, already
- * folding `BillingPage.tsx`'s siblings into one file) is checked the same
- * way against the still-live `BillingPage.tsx`.
+ * The equivalence proof for Nest, now golden: does `ManifestResourceScreen`,
+ * fed the committed `adapters/nest/manifest.py` descriptors, render EXACTLY
+ * the output the hand-written `DatabasesPage`/`DatabaseTabs`/
+ * `DatabaseDialogs`/`NestOperationsPanel` and the standalone `BillingPage`
+ * used to produce — table, create form, row actions, watch-mode operations,
+ * the Snapshots relationship tab, the Health `detail_tab` extension, and
+ * billing?
  *
  * Sibling to `ManifestResourceScreen.equivalence.test.tsx` (Gough) and
  * `.tobogganing.equivalence.test.tsx` — same technique (Jest's per-file
  * module registry lets this mock a DIFFERENT api module than either), same
- * assertion style (rendered TEXT/values, not DOM markup), same "sequence
- * two same-shaped forms to dodge a real `id` collision" trick Gough's own
- * biomes create/edit section documents. UNLIKE those two files, Nest's
- * hand-written screens are NOT deleted by this stage — this file only
- * PROVES equivalence; deletion is the next stage's job.
+ * assertion style (rendered TEXT/values, not DOM markup). Nest convergence
+ * closed the last gap (IEC byte labels, see below) and DELETED
+ * `DatabasesPage.tsx`/`DatabaseTabs.tsx`/`DatabaseDialogs.tsx`/
+ * `databaseColumns.tsx`/`databaseActions.ts`/`useDatabaseMutations.ts`/
+ * `useNestOperations.ts`/`NestOperationsPanel.tsx`/`NestScreen.tsx`/
+ * `BillingPage.tsx`/`BillingSummary.tsx`/`useNestBilling.ts`/
+ * `usageColumns.tsx` — `declarative_console` is default-on, and every value
+ * this file's own side-by-side comparisons asserted equal is preserved
+ * below as a hardcoded expectation instead. This file no longer imports or
+ * renders the hand-written screens (they no longer exist); every string it
+ * asserts against `ManifestResourceScreen`'s/`BillingPanel`'s own output is
+ * the exact value the deleted hand-written screen used to produce, captured
+ * at the moment both sides were last proven identical — a regression in
+ * either the manifest data (`nest/manifest.py`) or the renderer changes
+ * these fixtures/expectations, not silently drifts past them. Mirrors
+ * Gough/Tobogganing's own Step 7 rewrite.
  *
  * The `*_RESOURCE` fixtures are hand-transcriptions of
  * `services/portal-api/app/adapters/nest/manifest.py` (this worktree cannot
@@ -30,11 +38,10 @@
  * `sizeBytes` >= 1024, the manifest's generic `bytes` cell
  * (`manifestCells.tsx`'s `formatBytes`) used to render SI-style labels
  * (`KB`/`MB`/`GB`/`TB`) for a base-1024 division, disagreeing with the
- * hand-written `DatabaseTabs.tsx`'s own IEC-labelled `humanBytes()`.
+ * deleted `DatabaseTabs.tsx`'s own IEC-labelled `humanBytes()`.
  * `formatBytes` now uses IEC labels (`KiB`/`MiB`/`GiB`/`TiB`) too, so both
- * sides render byte-identical text for the same numeric value — asserted as
- * equality directly in the Snapshots-tab section below rather than dodged by
- * picking an under-1024 fixture value.
+ * sides rendered byte-identical text for the same numeric value — preserved
+ * below as a hardcoded expectation.
  */
 import {
   render,
@@ -74,32 +81,6 @@ jest.mock("../../../stores/tenantStore", () => ({
     selector({ currentTenant: { id: 42, name: "Acme" } }),
 }));
 
-// The hand-written screens (DatabasesPage via useNest.ts/useNestBilling.ts,
-// BillingPage, BillingPanel) all read through this — mocked wholesale so
-// their real implementation (which itself calls `proxyApi`) never runs; the
-// manifest-driven renderer's OWN list fetch goes through `proxyApi`
-// directly (mocked separately below), so the two paths cannot cross-leak.
-const nestApi = {
-  listDatabases: jest.fn(),
-  listSnapshots: jest.fn(),
-  costReport: jest.fn(),
-  costSummary: jest.fn(),
-};
-jest.mock("../../../api/resources/nest", () => ({ nestApi }));
-
-// DatabasesPage's own mutation/operation-poll module.
-const nestResourcesApi = {
-  createDatabase: jest.fn(),
-  deleteDatabase: jest.fn(),
-  performAction: jest.fn(),
-  getOperation: jest.fn(),
-};
-jest.mock("../../../api/resources/nestResources", () => ({
-  nestResourcesApi,
-  NEST_KIND_DATABASE: "database",
-  NEST_OPERATION_KIND: "operation",
-}));
-
 // The manifest-driven renderer's LIST path — the generic byte proxy.
 const mockProxyRequest = jest.fn();
 jest.mock("../../../api/resources/products", () => ({
@@ -123,11 +104,12 @@ jest.mock("../../../lib/api", () => ({
   },
 }));
 
-// Imported after the mocks above — both pages transitively import
-// `nestApi`/`nestResourcesApi`, which must already be the mocked factories
-// by the time these modules load (`DatabasesPage.test.tsx`'s own ordering).
-import DatabasesPage from "../../../pages/products/nest/DatabasesPage";
-import BillingPage from "../../../pages/products/nest/BillingPage";
+// The nest API module `BillingPanel.tsx` reads through for the two billing
+// endpoints — mocked wholesale so the panel's real implementation (which
+// itself calls `proxyApi`) never runs.
+const nestApi = { costReport: jest.fn(), costSummary: jest.fn() };
+jest.mock("../../../api/resources/nest", () => ({ nestApi }));
+
 // The REAL production registration side effect for Nest's two extension
 // slots — proves the actual wiring (`nest/manifest.py`'s declared slots
 // resolving against the actually-registered components), not a synthetic
@@ -232,8 +214,8 @@ const DATABASE_COLUMNS: ColumnSpec[] = [
   },
 ];
 
-/** Byte-for-byte `_DATABASE_FORM_FIELDS` — the SAME field set
- * `databaseColumns.tsx`'s `databaseFields` passes to `FormModalBuilder`. */
+/** Byte-for-byte `_DATABASE_FORM_FIELDS` — the SAME field set the deleted
+ * `databaseColumns.tsx`'s `databaseFields` passed to `FormModalBuilder`. */
 const DATABASE_FORM_FIELDS: ManifestFormField[] = [
   {
     name: "name",
@@ -282,10 +264,10 @@ const DATABASE_FIELD_ALIASES: FieldAlias[] = [
   { portal_name: "storageClass", product_name: "class" },
 ];
 
-/** Byte-exact confirm copy with `databaseActions.ts`'s own `message()`
- * strings — `introspect` has NO hand-written counterpart (see that file's
- * own comment: "It stays available through the adapter"), authored here
- * from `introspect_imported_resource`'s docstring instead. */
+/** Byte-exact confirm copy with the deleted `databaseActions.ts`'s own
+ * `message()` strings — `introspect` had NO hand-written counterpart (that
+ * file's own comment: "It stays available through the adapter"), authored
+ * here from `introspect_imported_resource`'s docstring instead. */
 const DATABASE_ACTIONS_SPEC: ActionSpec[] = [
   {
     verb: "snapshot",
@@ -609,13 +591,8 @@ const NEST_MANIFEST: ConsoleManifest = {
   ],
 };
 
-function renderDatabasesBoth() {
-  const handWritten = render(
-    <QueryClientProvider client={createAppQueryClient()}>
-      <DatabasesPage />
-    </QueryClientProvider>,
-  );
-  const manifestScreen = render(
+function renderDatabases() {
+  return render(
     <QueryClientProvider client={createAppQueryClient()}>
       <ManifestResourceScreen
         productType="nest"
@@ -625,17 +602,14 @@ function renderDatabasesBoth() {
       />
     </QueryClientProvider>,
   );
-  return { handWritten, manifestScreen };
 }
 
 // ---------------------------------------------------------------------------
 // database — list columns
 // ---------------------------------------------------------------------------
 
-describe("ManifestResourceScreen vs DatabasesPage — database list columns", () => {
+describe("ManifestResourceScreen — database (golden: matches the deleted DatabasesPage's own output) — list columns", () => {
   beforeEach(() => {
-    nestApi.listDatabases.mockResolvedValue([RAW_DATABASE]);
-    nestApi.listSnapshots.mockResolvedValue([]);
     mockProxyRequest.mockImplementation(
       (_productId: number, _method: string, path: string) => {
         if (path === DATABASE_PROXY_PATH) {
@@ -653,8 +627,8 @@ describe("ManifestResourceScreen vs DatabasesPage — database list columns", ()
     );
   });
 
-  it("proxies the exact path nestPaths.ts pins", async () => {
-    renderDatabasesBoth();
+  it("proxies the exact path the manifest pins", async () => {
+    renderDatabases();
     await waitFor(() =>
       expect(mockProxyRequest).toHaveBeenCalledWith(
         7,
@@ -664,19 +638,12 @@ describe("ManifestResourceScreen vs DatabasesPage — database list columns", ()
     );
   });
 
-  it("renders an IDENTICAL table to DatabasesPage: same headers, same row, including the absent cell", async () => {
-    const { handWritten, manifestScreen } = renderDatabasesBoth();
-
-    const handRow = await within(handWritten.container).findByTestId(
-      "datatable-row",
-    );
+  it("renders the same table the deleted DatabasesPage produced: same headers, same row, including the absent cell", async () => {
+    const manifestScreen = renderDatabases();
     const manifestRow = await within(manifestScreen.container).findByTestId(
       "datatable-row",
     );
 
-    expect(headerLabels(manifestScreen.container)).toEqual(
-      headerLabels(handWritten.container),
-    );
     expect(headerLabels(manifestScreen.container)).toEqual([
       "Name",
       "Phase",
@@ -693,12 +660,11 @@ describe("ManifestResourceScreen vs DatabasesPage — database list columns", ()
       "postgres",
       "20 GiB",
     ]) {
-      expect(within(handRow).getByText(shared)).toBeInTheDocument();
       expect(within(manifestRow).getByText(shared)).toBeInTheDocument();
     }
 
-    // `storageClass: null` -> a dash on both sides, not blank.
-    expect(within(handRow).getByText("—")).toBeInTheDocument();
+    // `storageClass: null` -> a dash, not blank — matching DatabasesPage's
+    // own absent-value convention.
     expect(within(manifestRow).getByText("—")).toBeInTheDocument();
   });
 });
@@ -707,61 +673,17 @@ describe("ManifestResourceScreen vs DatabasesPage — database list columns", ()
 // database — create form (field parity + resourceType/storageClass aliasing)
 // ---------------------------------------------------------------------------
 
-describe("ManifestResourceScreen vs DatabasesPage — create form", () => {
+describe("ManifestResourceScreen — database (golden) — create form", () => {
   beforeEach(() => {
-    nestApi.listDatabases.mockResolvedValue([RAW_DATABASE]);
-    nestApi.listSnapshots.mockResolvedValue([]);
     mockProxyRequest.mockResolvedValue({
       status: "success",
       items: [RAW_DATABASE],
     });
   });
 
-  it("renders the SAME field set and select options as databaseFields", async () => {
-    const { handWritten, manifestScreen } = renderDatabasesBoth();
-    await within(handWritten.container).findByTestId("datatable-row");
+  it("renders the same field set and select options the deleted databaseFields did", async () => {
+    const manifestScreen = renderDatabases();
     await within(manifestScreen.container).findByTestId("datatable-row");
-
-    // Sequenced, not simultaneous — both forms share `id="name"`/
-    // `id="resourceType"`/etc, and a native `<label for="...">` resolves via
-    // `document.getElementById`, genuinely document-wide (the same trap
-    // Gough's own biomes create/edit equivalence documents).
-    fireEvent.click(screen.getByTestId("nest-database-create"));
-    for (const label of [
-      /^Name\*$/,
-      /^Resource type/,
-      "Storage class",
-      "Namespace",
-    ]) {
-      expect(
-        within(handWritten.container).getByLabelText(label),
-      ).toBeInTheDocument();
-    }
-    for (const option of [
-      "PostgreSQL",
-      "Key/value",
-      "Search",
-      "Object store",
-      "Block volume",
-      "File volume",
-      "NFS",
-      "iSCSI",
-    ]) {
-      expect(
-        within(handWritten.container).getByText(option),
-      ).toBeInTheDocument();
-    }
-    expect(
-      within(handWritten.container).getByRole("button", { name: "Create" }),
-    ).toBeInTheDocument();
-    fireEvent.click(
-      within(handWritten.container).getByRole("button", { name: "Cancel" }),
-    );
-    await waitFor(() =>
-      expect(
-        within(handWritten.container).queryByRole("button", { name: "Create" }),
-      ).not.toBeInTheDocument(),
-    );
 
     fireEvent.click(screen.getByTestId("nest-manifest-database-create"));
     for (const label of [
@@ -793,48 +715,11 @@ describe("ManifestResourceScreen vs DatabasesPage — create form", () => {
     ).toBeInTheDocument();
   });
 
-  it("posts the RAW resourceType/storageClass field names on the hand-written side, and the ALIASED type/class names on the manifest side — CREATE_FIELD_ALIASES exercised client-side only by the manifest path", async () => {
-    nestResourcesApi.createDatabase.mockResolvedValue({
-      id: "new-db",
-      kind: "database",
-      name: "new-db",
-      operation_id: null,
-    });
+  it("posts the ALIASED type/class field names — CREATE_FIELD_ALIASES exercised client-side, matching what the deleted hand-written path's raw resourceType/storageClass names were translated to server-side", async () => {
     mockApiPost.mockResolvedValue({ data: { operation_id: null } });
 
-    const { handWritten, manifestScreen } = renderDatabasesBoth();
-    await within(handWritten.container).findByTestId("datatable-row");
+    const manifestScreen = renderDatabases();
     await within(manifestScreen.container).findByTestId("datatable-row");
-
-    fireEvent.click(screen.getByTestId("nest-database-create"));
-    fireEvent.change(within(handWritten.container).getByLabelText(/^Name\*$/), {
-      target: { value: "new-db" },
-    });
-    fireEvent.change(
-      within(handWritten.container).getByLabelText("Storage class"),
-      {
-        target: { value: "fast-ssd" },
-      },
-    );
-    fireEvent.click(
-      within(handWritten.container).getByRole("button", { name: "Create" }),
-    );
-
-    await waitFor(() =>
-      expect(nestResourcesApi.createDatabase).toHaveBeenCalledWith(7, {
-        name: "new-db",
-        resourceType: "postgres",
-        storageClass: "fast-ssd",
-        namespace: "default",
-      }),
-    );
-    // Confirms the modal actually closed before the manifest form opens —
-    // the id-collision precaution above.
-    await waitFor(() =>
-      expect(
-        within(handWritten.container).queryByRole("button", { name: "Create" }),
-      ).not.toBeInTheDocument(),
-    );
 
     fireEvent.click(screen.getByTestId("nest-manifest-database-create"));
     fireEvent.change(
@@ -872,10 +757,8 @@ describe("ManifestResourceScreen vs DatabasesPage — create form", () => {
 // manifest-only)
 // ---------------------------------------------------------------------------
 
-describe("ManifestResourceScreen vs DatabasesPage — row actions", () => {
+describe("ManifestResourceScreen — database (golden) — row actions", () => {
   beforeEach(() => {
-    nestApi.listDatabases.mockResolvedValue([RAW_DATABASE]);
-    nestApi.listSnapshots.mockResolvedValue([]);
     mockProxyRequest.mockResolvedValue({
       status: "success",
       items: [RAW_DATABASE],
@@ -912,77 +795,46 @@ describe("ManifestResourceScreen vs DatabasesPage — row actions", () => {
   ];
 
   it.each(SHARED_ACTIONS)(
-    "renders the SAME $verb label and byte-identical confirm text on both sides, with matching danger styling",
+    "renders the SAME $verb label and byte-identical confirm text the deleted screen used, with matching danger styling",
     async ({ verb, label, isDangerous, confirm }) => {
-      const { handWritten, manifestScreen } = renderDatabasesBoth();
-      await within(handWritten.container).findByTestId("datatable-row");
+      const manifestScreen = renderDatabases();
       await within(manifestScreen.container).findByTestId("datatable-row");
 
-      fireEvent.click(screen.getByTestId("nest-database-open-orders-db"));
       fireEvent.click(
         screen.getByTestId("nest-manifest-database-open-orders-db"),
       );
 
-      expect(
-        within(handWritten.container).getByText(label, { selector: "button" }),
-      ).toBeInTheDocument();
       expect(
         within(manifestScreen.container).getByText(label, {
           selector: "button",
         }),
       ).toBeInTheDocument();
 
-      fireEvent.click(screen.getByTestId(`nest-database-action-${verb}`));
       fireEvent.click(
         screen.getByTestId(`nest-manifest-database-action-${verb}`),
       );
 
-      expect(
-        within(screen.getByTestId("nest-database-confirm")).getByText(confirm),
-      ).toBeInTheDocument();
       expect(
         within(
           screen.getByTestId("nest-manifest-database-action-confirm"),
         ).getByText(confirm),
       ).toBeInTheDocument();
 
-      // Danger variant surfaces as ConfirmDialog's AlertTriangle icon on
-      // both sides — a behavioural signal, not a CSS-class inspection.
-      const handHasIcon =
-        screen.getByTestId("nest-database-confirm").querySelector("svg") !==
-        null;
+      // Danger variant surfaces as ConfirmDialog's AlertTriangle icon — a
+      // behavioural signal, not a CSS-class inspection.
       const manifestHasIcon =
         screen
           .getByTestId("nest-manifest-database-action-confirm")
           .querySelector("svg") !== null;
-      expect(handHasIcon).toBe(isDangerous);
       expect(manifestHasIcon).toBe(isDangerous);
     },
   );
 
-  it("confirming Restore dispatches through the SAME typed action route both sides ultimately call, keyed by name", async () => {
-    nestResourcesApi.performAction.mockResolvedValue({
-      action: "restore",
-      accepted: true,
-      operations: [],
-    });
+  it("confirming Restore dispatches through the SAME typed action route the deleted screen's own mutation ultimately called, keyed by name", async () => {
     mockApiPost.mockResolvedValue({ data: { operations: [] } });
 
-    const { handWritten, manifestScreen } = renderDatabasesBoth();
-    await within(handWritten.container).findByTestId("datatable-row");
+    const manifestScreen = renderDatabases();
     await within(manifestScreen.container).findByTestId("datatable-row");
-
-    fireEvent.click(screen.getByTestId("nest-database-open-orders-db"));
-    fireEvent.click(screen.getByTestId("nest-database-action-restore"));
-    fireEvent.click(screen.getByTestId("nest-database-confirm-confirm"));
-    await waitFor(() =>
-      expect(nestResourcesApi.performAction).toHaveBeenCalledWith(
-        7,
-        "orders-db",
-        "restore",
-        undefined,
-      ),
-    );
 
     fireEvent.click(
       screen.getByTestId("nest-manifest-database-open-orders-db"),
@@ -1001,17 +853,8 @@ describe("ManifestResourceScreen vs DatabasesPage — row actions", () => {
     );
   });
 
-  it("introspect: manifest-only (no hand-written button — databaseActions.ts's own comment: 'It stays available through the adapter'); renders the manifest's own authored copy, non-dangerous, requires read", async () => {
-    const manifestScreen = render(
-      <QueryClientProvider client={createAppQueryClient()}>
-        <ManifestResourceScreen
-          productType="nest"
-          productLabel="Nest"
-          manifest={NEST_MANIFEST}
-          resource={DATABASE_RESOURCE}
-        />
-      </QueryClientProvider>,
-    );
+  it("introspect: manifest-only (no hand-written button ever existed — the deleted databaseActions.ts's own comment: 'It stays available through the adapter'); renders the manifest's own authored copy, non-dangerous, requires read", async () => {
+    const manifestScreen = renderDatabases();
     await within(manifestScreen.container).findByTestId("datatable-row");
     fireEvent.click(
       screen.getByTestId("nest-manifest-database-open-orders-db"),
@@ -1047,7 +890,7 @@ describe("ManifestResourceScreen vs DatabasesPage — row actions", () => {
 // operation_kind="operation" overriding the resource's own "database" kind)
 // ---------------------------------------------------------------------------
 
-describe("ManifestResourceScreen vs NestOperationsPanel — watch-mode operations", () => {
+describe("ManifestResourceScreen — database (golden) — watch-mode operations", () => {
   const RAW_OPERATION = {
     id: "op-1",
     kind: "operation",
@@ -1063,38 +906,13 @@ describe("ManifestResourceScreen vs NestOperationsPanel — watch-mode operation
   };
 
   beforeEach(() => {
-    nestApi.listDatabases.mockResolvedValue([RAW_DATABASE]);
-    nestApi.listSnapshots.mockResolvedValue([]);
     mockProxyRequest.mockResolvedValue({
       status: "success",
       items: [RAW_DATABASE],
     });
   });
 
-  it("hand-written NestOperationsPanel polls via nestResourcesApi.getOperation(productId, id) — Nest's ONE operation family", async () => {
-    nestResourcesApi.performAction.mockResolvedValue({
-      action: "snapshot",
-      accepted: true,
-      operations: [{ id: "op-1", kind: "operation", state: "pending" }],
-    });
-    nestResourcesApi.getOperation.mockResolvedValue(RAW_OPERATION);
-
-    const { handWritten } = renderDatabasesBoth();
-    await within(handWritten.container).findByTestId("datatable-row");
-    fireEvent.click(screen.getByTestId("nest-database-open-orders-db"));
-    fireEvent.click(screen.getByTestId("nest-database-action-snapshot"));
-    fireEvent.click(screen.getByTestId("nest-database-confirm-confirm"));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("nest-operation-op-1")).toBeInTheDocument(),
-    );
-    expect(nestResourcesApi.getOperation).toHaveBeenCalledWith(7, "op-1");
-    expect(
-      within(screen.getByTestId("nest-operation-op-1")).getByText("operation"),
-    ).toBeInTheDocument();
-  });
-
-  it('manifest mode="watch" polls GET /operations/operation/{id} — operation_kind overrides the watched resource\'s own "database" kind, mirroring useNestOperations.ts', async () => {
+  it('mode="watch" polls GET /operations/operation/{id} — operation_kind overrides the watched resource\'s own "database" kind, matching the deleted useNestOperations.ts\'s own behaviour', async () => {
     mockApiPost.mockResolvedValue({ data: { operations: [{ id: "op-1" }] } });
     mockApiGet.mockImplementation((url: string) =>
       url === "/products/7/operations/operation/op-1"
@@ -1102,16 +920,7 @@ describe("ManifestResourceScreen vs NestOperationsPanel — watch-mode operation
         : Promise.resolve({ data: { operations: [] } }),
     );
 
-    const manifestScreen = render(
-      <QueryClientProvider client={createAppQueryClient()}>
-        <ManifestResourceScreen
-          productType="nest"
-          productLabel="Nest"
-          manifest={NEST_MANIFEST}
-          resource={DATABASE_RESOURCE}
-        />
-      </QueryClientProvider>,
-    );
+    const manifestScreen = renderDatabases();
     await within(manifestScreen.container).findByTestId("datatable-row");
     fireEvent.click(
       screen.getByTestId("nest-manifest-database-open-orders-db"),
@@ -1145,10 +954,10 @@ describe("ManifestResourceScreen vs NestOperationsPanel — watch-mode operation
 
 // ---------------------------------------------------------------------------
 // database — Snapshots relationship tab (RelationshipSpec, parent_field
-// "sourcePVC") vs DatabaseTabs.tsx's hand-filtered SnapshotsTab
+// "sourcePVC") vs the deleted DatabaseTabs.tsx's hand-filtered SnapshotsTab
 // ---------------------------------------------------------------------------
 
-describe("ManifestResourceScreen's Snapshots tab vs DatabaseTabs.tsx's hand-filtered SnapshotsTab", () => {
+describe("ManifestResourceScreen's Snapshots tab (golden: matches the deleted DatabaseTabs.tsx's hand-filtered SnapshotsTab)", () => {
   // `sizeBytes: 2048` is deliberate — see this file's module doc. Chosen
   // >= 1024 specifically so the byte-format equivalence is exercised, not
   // dodged.
@@ -1168,8 +977,6 @@ describe("ManifestResourceScreen's Snapshots tab vs DatabaseTabs.tsx's hand-filt
   };
 
   beforeEach(() => {
-    nestApi.listDatabases.mockResolvedValue([RAW_DATABASE]);
-    nestApi.listSnapshots.mockResolvedValue([SNAPSHOT_MINE, SNAPSHOT_OTHER]);
     mockProxyRequest.mockImplementation(
       (_productId: number, _method: string, path: string) => {
         if (path === DATABASE_PROXY_PATH) {
@@ -1186,27 +993,9 @@ describe("ManifestResourceScreen's Snapshots tab vs DatabaseTabs.tsx's hand-filt
     );
   });
 
-  it("lists only the parent's own snapshots on both sides, matching sourcePVC===database.name — and proves byte-unit format EQUALITY rather than dodging it", async () => {
-    const { handWritten, manifestScreen } = renderDatabasesBoth();
-    await within(handWritten.container).findByTestId("datatable-row");
+  it("lists only the parent's own snapshots, matching sourcePVC===database.name — and renders the byte-unit format the deleted hand-written tab's own IEC humanBytes() produced", async () => {
+    const manifestScreen = renderDatabases();
     await within(manifestScreen.container).findByTestId("datatable-row");
-
-    fireEvent.click(screen.getByTestId("nest-database-open-orders-db"));
-    fireEvent.click(
-      within(screen.getByTestId("nest-database-drawer")).getByTestId(
-        "nest-database-drawer-tab-snapshots",
-      ),
-    );
-    const handSnapshots = await within(
-      screen.getByTestId("nest-database-drawer"),
-    ).findByTestId("nest-snapshots");
-    expect(
-      within(handSnapshots).getByText("orders-db-snap-1"),
-    ).toBeInTheDocument();
-    expect(
-      within(handSnapshots).queryByText("billing-db-snap-1"),
-    ).not.toBeInTheDocument();
-    expect(within(handSnapshots).getByText("ready")).toBeInTheDocument();
 
     fireEvent.click(
       screen.getByTestId("nest-manifest-database-open-orders-db"),
@@ -1230,45 +1019,30 @@ describe("ManifestResourceScreen's Snapshots tab vs DatabaseTabs.tsx's hand-filt
     ).not.toBeInTheDocument();
     expect(within(manifestPanel).getByText("ready")).toBeInTheDocument();
 
-    // EQUIVALENCE: the SAME 2048-byte value renders identically on both
-    // sides — "2.0 KiB" via DatabaseTabs.tsx's own IEC `humanBytes()`, and
-    // "2.0 KiB" via the manifest's generic `bytes` cell
-    // (`manifestCells.tsx`'s `formatBytes`, now IEC-labelled too). Asserted
-    // as equality, not a shared substring.
-    expect(within(handSnapshots).getByText(/2\.0 KiB/)).toBeInTheDocument();
+    // The SAME 2048-byte value renders as "2.0 KiB" — the deleted
+    // DatabaseTabs.tsx's own IEC `humanBytes()`'s output, now produced by
+    // the manifest's generic `bytes` cell (`manifestCells.tsx`'s
+    // `formatBytes`, IEC-labelled). Asserted as equality, not a substring.
     expect(within(manifestPanel).getByText("2.0 KiB")).toBeInTheDocument();
   });
 });
 
 // ---------------------------------------------------------------------------
-// database — Health detail_tab extension slot vs DatabaseTabs.tsx's
-// hand-written Health tab
+// database — Health detail_tab extension slot (golden: matches the deleted
+// DatabaseTabs.tsx's hand-written Health tab)
 // ---------------------------------------------------------------------------
 
-describe("ManifestResourceScreen's Health detail_tab slot vs DatabaseTabs.tsx's hand-written Health tab", () => {
+describe("ManifestResourceScreen's Health detail_tab slot (golden: matches the deleted DatabaseTabs.tsx's hand-written Health tab)", () => {
   beforeEach(() => {
-    nestApi.listDatabases.mockResolvedValue([RAW_DATABASE]);
-    nestApi.listSnapshots.mockResolvedValue([]);
     mockProxyRequest.mockResolvedValue({
       status: "success",
       items: [RAW_DATABASE],
     });
   });
 
-  it("renders the SAME six health facts, through the REAL registered DatabaseHealthTab extension (components/extensions/nest/register.ts)", async () => {
-    const { handWritten, manifestScreen } = renderDatabasesBoth();
-    await within(handWritten.container).findByTestId("datatable-row");
+  it("renders the SAME six health facts the deleted hand-written tab did, through the REAL registered DatabaseHealthTab extension (components/extensions/nest/register.ts)", async () => {
+    const manifestScreen = renderDatabases();
     await within(manifestScreen.container).findByTestId("datatable-row");
-
-    fireEvent.click(screen.getByTestId("nest-database-open-orders-db"));
-    fireEvent.click(
-      within(screen.getByTestId("nest-database-drawer")).getByTestId(
-        "nest-database-drawer-tab-health",
-      ),
-    );
-    const handFacts = within(
-      screen.getByTestId("nest-database-drawer"),
-    ).getByTestId("nest-facts");
 
     fireEvent.click(
       screen.getByTestId("nest-manifest-database-open-orders-db"),
@@ -1293,17 +1067,17 @@ describe("ManifestResourceScreen's Health detail_tab slot vs DatabaseTabs.tsx's 
       "db.example.com:5432",
       "us-east-1",
     ]) {
-      expect(within(handFacts).getByText(shared)).toBeInTheDocument();
       expect(within(manifestFacts).getByText(shared)).toBeInTheDocument();
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// billing — BillingPanel (page ExtensionSlot) vs the still-live BillingPage
+// billing — BillingPanel (page ExtensionSlot), golden: matches the deleted
+// standalone BillingPage's own output
 // ---------------------------------------------------------------------------
 
-describe("BillingPanel vs BillingPage — Nest billing equivalence", () => {
+describe("BillingPanel — Nest billing (golden: matches the deleted BillingPage's own output)", () => {
   const BILLING_SLOT: ExtensionSlot = {
     slot: "page",
     id: "billing",
@@ -1321,13 +1095,8 @@ describe("BillingPanel vs BillingPage — Nest billing equivalence", () => {
     },
   ];
 
-  function renderBillingBoth() {
-    const handWritten = render(
-      <QueryClientProvider client={createAppQueryClient()}>
-        <BillingPage />
-      </QueryClientProvider>,
-    );
-    const panel = render(
+  function renderBilling() {
+    return render(
       <QueryClientProvider client={createAppQueryClient()}>
         <BillingPanel
           productType="nest"
@@ -1337,12 +1106,9 @@ describe("BillingPanel vs BillingPage — Nest billing equivalence", () => {
         />
       </QueryClientProvider>,
     );
-    return { handWritten, panel };
   }
 
   beforeEach(() => {
-    nestApi.listDatabases.mockResolvedValue([]);
-    nestApi.listSnapshots.mockResolvedValue([]);
     nestApi.costReport.mockResolvedValue({
       available: true,
       data: { records: RECORDS },
@@ -1353,108 +1119,75 @@ describe("BillingPanel vs BillingPage — Nest billing equivalence", () => {
     });
   });
 
-  it("renders an equivalent usage table and summary tiles from the SAME two endpoints", async () => {
-    const { handWritten, panel } = renderBillingBoth();
+  it("renders the usage table and summary tiles the deleted BillingPage produced, from the SAME two endpoints", async () => {
+    const panel = renderBilling();
 
     // Scoped to the table specifically — "42.50" also appears in the
     // summary tile below, so an unscoped query is ambiguous the moment both
     // are on screen (BillingPanel.test.tsx's own precedent).
-    const handTable = within(
-      await within(handWritten.container).findByRole("table"),
-    );
     const panelTable = within(
       await within(panel.container).findByRole("table"),
     );
 
     for (const shared of ["2026-07", "42.50", "1,250"]) {
-      expect(handTable.getByText(shared)).toBeInTheDocument();
       expect(panelTable.getByText(shared)).toBeInTheDocument();
     }
 
-    const handSummary = within(
-      await within(handWritten.container).findByTestId("nest-billing-summary"),
-    );
     const panelSummary = within(
       await within(panel.container).findByTestId("nest-billing-summary"),
     );
-    expect(handSummary.getByText("42.50")).toBeInTheDocument();
     expect(panelSummary.getByText("42.50")).toBeInTheDocument();
-    expect(handSummary.getByText("1")).toBeInTheDocument();
     expect(panelSummary.getByText("1")).toBeInTheDocument();
   });
 
-  it("breaks usage down per resource type identically", async () => {
-    const { handWritten, panel } = renderBillingBoth();
-    const handBreakdown = await within(handWritten.container).findByTestId(
-      "nest-usage-breakdown-2026-07",
-    );
+  it("breaks usage down per resource type, matching the deleted UsageBreakdown's own output", async () => {
+    const panel = renderBilling();
     const panelBreakdown = await within(panel.container).findByTestId(
       "nest-usage-breakdown-2026-07",
     );
     for (const shared of ["postgres", "object"]) {
-      expect(within(handBreakdown).getByText(shared)).toBeInTheDocument();
       expect(within(panelBreakdown).getByText(shared)).toBeInTheDocument();
     }
   });
 
-  it("both say the cost service is absent rather than an empty table, on the SAME tri-state condition", async () => {
+  it("says the cost service is absent rather than an empty table, on the SAME tri-state condition the deleted screen used", async () => {
     nestApi.costReport.mockResolvedValue({ available: false, data: null });
     nestApi.costSummary.mockResolvedValue({ available: false, data: null });
 
-    const { handWritten, panel } = renderBillingBoth();
+    const panel = renderBilling();
 
-    expect(
-      await within(handWritten.container).findByTestId(
-        "nest-billing-unavailable",
-      ),
-    ).toBeInTheDocument();
     expect(
       await within(panel.container).findByTestId("nest-billing-unavailable"),
     ).toBeInTheDocument();
-    expect(
-      within(handWritten.container).queryByTestId("nest-billing-summary"),
-    ).toBeNull();
     expect(
       within(panel.container).queryByTestId("nest-billing-summary"),
     ).toBeNull();
   });
 
-  it("both distinguish a metered tenant with zero months from an absent service", async () => {
+  it("distinguishes a metered tenant with zero months from an absent service", async () => {
     nestApi.costReport.mockResolvedValue({
       available: true,
       data: { records: [] },
     });
 
-    const { handWritten, panel } = renderBillingBoth();
+    const panel = renderBilling();
     await waitFor(() => {
-      expect(
-        within(handWritten.container).queryByTestId("nest-billing-unavailable"),
-      ).not.toBeInTheDocument();
       expect(
         within(panel.container).queryByTestId("nest-billing-unavailable"),
       ).not.toBeInTheDocument();
     });
     expect(
-      within(handWritten.container).queryByTestId("nest-usage-breakdown"),
-    ).toBeNull();
-    expect(
       within(panel.container).queryByTestId("nest-usage-breakdown"),
     ).toBeNull();
   });
 
-  it("both dash an absent aggregate figure rather than rendering a false zero", async () => {
+  it("dashes an absent aggregate figure rather than rendering a false zero", async () => {
     nestApi.costSummary.mockResolvedValue({ available: false, data: null });
 
-    const { handWritten, panel } = renderBillingBoth();
-    expect(
-      await within(handWritten.container).findByTestId(
-        "nest-billing-summary-absent",
-      ),
-    ).toBeInTheDocument();
+    const panel = renderBilling();
     expect(
       await within(panel.container).findByTestId("nest-billing-summary-absent"),
     ).toBeInTheDocument();
-    expect(within(handWritten.container).queryByText("0.00")).toBeNull();
     expect(within(panel.container).queryByText("0.00")).toBeNull();
   });
 });
