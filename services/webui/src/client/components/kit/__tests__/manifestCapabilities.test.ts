@@ -62,13 +62,14 @@ function manifest(
 }
 
 describe("SUPPORTED_CAPABILITIES", () => {
-  it("today covers list, operations, actions, create and edit — each proven by an equivalence test against Gough, not merely rendered code", () => {
+  it("today covers list, operations, actions, create, edit and relationships — each proven by a dedicated test against real rendering, not merely rendered code", () => {
     expect([...SUPPORTED_CAPABILITIES]).toEqual([
       "list",
       "operations",
       "actions",
       "create",
       "edit",
+      "relationships",
     ]);
   });
 
@@ -154,6 +155,21 @@ describe("requiredCapabilities", () => {
     );
   });
 
+  it("adds 'relationships' when the resource declares a non-empty relationships tuple", () => {
+    const withRelationship = resource({
+      relationships: [{ child_kind: "parts", parent_field: "widget_id" }],
+    });
+    expect(
+      requiredCapabilities(manifest([withRelationship]), withRelationship),
+    ).toEqual(new Set(["list", "relationships"]));
+  });
+
+  it("leaves 'relationships' out for the default empty relationships tuple — gough/tobogganing/waddleai declare none today", () => {
+    expect(requiredCapabilities(manifest([resource()]), resource())).toEqual(
+      new Set(["list"]),
+    );
+  });
+
   it("unions every declared capability for a resource that declares them all", () => {
     const kitchenSink = resource({
       item_path: { prefix: "/api/v1/widgets", sample_id: "1" },
@@ -173,6 +189,7 @@ describe("requiredCapabilities", () => {
       create: { fields: [], submit_label: "Create", field_aliases: [] },
       edit: { fields: [], submit_label: "Save", field_aliases: [] },
       delete: { confirm: "Delete?", requires: "manage" },
+      relationships: [{ child_kind: "parts", parent_field: "widget_id" }],
     });
     const withOps = manifest([kitchenSink], {
       label: "Ops",
@@ -181,7 +198,14 @@ describe("requiredCapabilities", () => {
       show_logs: true,
     });
     expect(requiredCapabilities(withOps, kitchenSink)).toEqual(
-      new Set(["list", "operations", "actions", "create", "edit"]),
+      new Set([
+        "list",
+        "operations",
+        "actions",
+        "create",
+        "edit",
+        "relationships",
+      ]),
     );
   });
 });
@@ -232,5 +256,14 @@ describe("isManifestRoutable", () => {
       edit: { fields: [], submit_label: "Save", field_aliases: [] },
     });
     expect(isManifestRoutable(manifest([withEdit]), withEdit)).toBe(true);
+  });
+
+  it("routes a resource that declares a relationship — SUPPORTED_CAPABILITIES now covers 'relationships'", () => {
+    const withRelationship = resource({
+      relationships: [{ child_kind: "parts", parent_field: "widget_id" }],
+    });
+    expect(
+      isManifestRoutable(manifest([withRelationship]), withRelationship),
+    ).toBe(true);
   });
 });

@@ -231,6 +231,7 @@ export function ManifestResourceScreen({
         productType={productType}
         tenantId={tenantId}
         productId={productId}
+        manifest={manifest}
         resource={resource}
         rows={rows}
         watch={watchOperations.watch}

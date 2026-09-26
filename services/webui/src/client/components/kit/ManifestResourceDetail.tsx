@@ -36,6 +36,14 @@
  *
  * `useUpdateManifestResource`'s own doc names a found backend gap: the
  * portal registers no `PUT` route at this shape yet, only `POST`/`DELETE`.
+ *
+ * `RelationshipSpec` tabs (Nest-convergence): a resource declaring
+ * `relationships` gets one ADDITIONAL drawer tab per relationship, alongside
+ * Overview — never instead of it. Each tab is a `RelationshipChildTab`
+ * (see that file for the fetch + filter mechanics); a resource with no
+ * relationships renders byte-identically to before this existed, since
+ * `resource.relationships` is `[]` for every resource that does not declare
+ * one and the tabs array below then has exactly its original one entry.
  */
 import { useState } from "react";
 import { FormBuilder } from "@penguintechinc/react-libs";
@@ -47,13 +55,19 @@ import { FactList, type Fact } from "./FactList";
 import type { ManifestRow } from "./manifestCells";
 import { manifestItemPathBytes } from "./manifestItemPath";
 import { toFieldConfig, applyFieldAliases } from "./manifestFormFields";
+import { RelationshipChildTab } from "./RelationshipChildTab";
 import {
   useDeleteManifestResource,
   usePerformManifestAction,
   useUpdateManifestResource,
   startedManifestOperationIds,
 } from "./manifestMutations";
-import type { ActionSpec, ResourceDescriptor } from "./manifestTypes";
+import { findResource } from "./manifestTypes";
+import type {
+  ActionSpec,
+  ConsoleManifest,
+  ResourceDescriptor,
+} from "./manifestTypes";
 
 type Row = ManifestRow & { id: string };
 
@@ -102,6 +116,10 @@ export interface ManifestResourceDetailProps {
   productType: string;
   tenantId: number | undefined;
   productId: number | undefined;
+  /** The resource's own product manifest — needed only to resolve a
+   * `RelationshipSpec.child_kind` to that kind's own `ResourceDescriptor`
+   * (columns, list, id_field) via {@link findResource}. */
+  manifest: ConsoleManifest;
   resource: ResourceDescriptor;
   rows: Row[];
   /**
@@ -116,11 +134,13 @@ export function ManifestResourceDetail({
   productType,
   tenantId,
   productId,
+  manifest,
   resource,
   rows,
   watch,
 }: ManifestResourceDetailProps) {
   const [selected, setSelected] = useState<Row | null>(null);
+  const [activeTab, setActiveTab] = useState("overview");
   const [pendingAction, setPendingAction] = useState<ActionSpec | null>(null);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -156,6 +176,11 @@ export function ManifestResourceDetail({
       `[ManifestResourceDetail] OpenDetail { kind: "${resource.kind}", itemPath: "${manifestItemPathBytes(itemPath, row.id)}" }`,
     );
     setSelected(row);
+    // Every open starts back on Overview — a relationship tab left active
+    // from a previously-opened row would otherwise show a DIFFERENT row's
+    // tab selection on this one, purely by coincidence of state persisting
+    // across opens.
+    setActiveTab("overview");
   };
 
   const facts: Fact[] = selected
@@ -163,6 +188,31 @@ export function ManifestResourceDetail({
         column.label,
         factValue(column, selected),
       ])
+    : [];
+
+  // One additional tab per declared relationship whose `child_kind` this
+  // manifest actually declares — an edge naming an undeclared kind (never
+  // produced by a validated manifest, but not re-checked here) is skipped
+  // rather than crashing on a `ResourceDescriptor` that does not exist.
+  const relationshipTabs = selected
+    ? resource.relationships.flatMap((relationship) => {
+        const childResource = findResource(manifest, relationship.child_kind);
+        if (!childResource) return [];
+        return [
+          {
+            id: `rel-${relationship.child_kind}`,
+            label: childResource.plural_label,
+            content: (
+              <RelationshipChildTab
+                productType={productType}
+                relationship={relationship}
+                childResource={childResource}
+                parentId={selected.id}
+              />
+            ),
+          },
+        ];
+      })
     : [];
 
   return (
@@ -180,12 +230,8 @@ export function ManifestResourceDetail({
           selected ? String(selected[resource.name_field] ?? selected.id) : ""
         }
         subtitle={selected ? `${resource.label} ${selected.id}` : undefined}
-        activeTab="overview"
-        /* istanbul ignore next -- defensive: DetailDrawer only renders tab
-           buttons (and so ever calls onTabChange) when tabs.length > 1; this
-           drawer always declares exactly one "overview" tab, so the handler
-           is structurally unreachable through the UI, not untested behaviour. */
-        onTabChange={() => undefined}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
         onClose={() => setSelected(null)}
         testId={`${testIdPrefix}-drawer`}
         tabs={[
@@ -196,6 +242,7 @@ export function ManifestResourceDetail({
               <FactList testId={`${testIdPrefix}-facts`} facts={facts} />
             ),
           },
+          ...relationshipTabs,
         ]}
         actions={
           <>

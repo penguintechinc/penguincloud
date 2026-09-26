@@ -7,11 +7,34 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createAppQueryClient } from "../../../lib/queryClient";
 import { ManifestResourceDetail } from "../ManifestResourceDetail";
 import api from "../../../lib/api";
-import type { ResourceDescriptor } from "../manifestTypes";
+import type { ConsoleManifest, ResourceDescriptor } from "../manifestTypes";
 
 jest.mock("../../../lib/api", () => ({
   __esModule: true,
   default: { post: jest.fn(), delete: jest.fn(), put: jest.fn() },
+}));
+
+// Only exercised by the relationship-tab tests below (`useProductResource`,
+// via `RelationshipChildTab`) — every other test in this file declares no
+// `relationships`, so these mocks' default return values are never reached.
+const mockIsProductEnabled = jest.fn();
+jest.mock("../../../lib/featureGates", () => ({
+  useProductEnabled: (key: string) => mockIsProductEnabled(key),
+}));
+
+const mockConnections = jest.fn();
+jest.mock("../../../hooks/useProducts", () => ({
+  useProductConnections: () => mockConnections(),
+}));
+
+jest.mock("../../../stores/tenantStore", () => ({
+  useTenantStore: (selector: (state: unknown) => unknown) =>
+    selector({ currentTenant: { id: 42, name: "Acme" } }),
+}));
+
+const mockProxyRequest = jest.fn();
+jest.mock("../../../api/resources/products", () => ({
+  proxyApi: { request: (...args: unknown[]) => mockProxyRequest(...args) },
 }));
 
 const mockedApi = api as unknown as {
@@ -60,9 +83,23 @@ function resource(
 
 const ROWS = [{ id: "12", name: "rack-a-01", state: "ready" }];
 
+function manifestFixture(resources: ResourceDescriptor[]): ConsoleManifest {
+  return {
+    manifest_version: 2,
+    product_type: "gough",
+    display_name: "Gough",
+    nav: { items: [] },
+    resources,
+    operations: null,
+    metrics: null,
+    extensions: [],
+  };
+}
+
 function renderDetail(
   res: ResourceDescriptor,
   watch?: (ids: string[]) => void,
+  manifest: ConsoleManifest = manifestFixture([res]),
 ) {
   return render(
     <QueryClientProvider client={createAppQueryClient()}>
@@ -70,6 +107,7 @@ function renderDetail(
         productType="gough"
         tenantId={42}
         productId={7}
+        manifest={manifest}
         resource={res}
         rows={ROWS}
         watch={watch}
@@ -80,6 +118,11 @@ function renderDetail(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockIsProductEnabled.mockReturnValue(true);
+  mockConnections.mockReturnValue({
+    data: [{ id: 7, product_type: "gough" }],
+    isLoading: false,
+  });
 });
 
 it("renders nothing when the resource declares no item_path", () => {
@@ -213,6 +256,7 @@ it("falls back to the row's own id for the open-button label and drawer title wh
         productType="gough"
         tenantId={42}
         productId={7}
+        manifest={manifestFixture([resource()])}
         resource={resource()}
         rows={rows}
       />
@@ -260,6 +304,7 @@ it("renders an array-valued fact joined, and a null-valued fact as absent, witho
         productType="gough"
         tenantId={42}
         productId={7}
+        manifest={manifestFixture([res])}
         resource={res}
         rows={rows}
       />
@@ -520,4 +565,153 @@ it("disables an action that declares a form — unsupported without an approxima
   expect(
     screen.getByTestId("gough-manifest-nodes-action-deploy"),
   ).toBeDisabled();
+});
+
+// --- RelationshipSpec child-list tabs -------------------------------------
+
+function partsResource(
+  overrides: Partial<ResourceDescriptor> = {},
+): ResourceDescriptor {
+  return {
+    kind: "parts",
+    label: "Part",
+    plural_label: "Parts",
+    id_field: "id",
+    name_field: "name",
+    transport: "typed",
+    columns: [
+      {
+        field: "name",
+        label: "Name",
+        sortable: false,
+        cell: { kind: "text", styles: [], relative: false },
+      },
+    ],
+    empty_state: "No parts.",
+    error_state: "Unable to load parts.",
+    list: {
+      path_bytes: "/api/v1/parts/",
+      envelope: { keys: ["parts"] },
+      pagination: "none",
+    },
+    item_path: null,
+    detail: { tabs: [] },
+    actions: [],
+    create: null,
+    delete: null,
+    relationships: [],
+    ...overrides,
+  };
+}
+
+it("declares no extra tab and no tablist at all when the resource declares no relationships — byte-identical to before RelationshipSpec rendering existed", () => {
+  renderDetail(resource());
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+
+  expect(screen.getByTestId("gough-manifest-nodes-facts")).toBeInTheDocument();
+  // DetailDrawer only renders a tablist once tabs.length > 1 — one
+  // undeclared relationship means exactly one tab, so no tab bar at all.
+  expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+});
+
+it("renders one additional tab per RelationshipSpec, labelled from the child kind's plural_label, alongside Overview", () => {
+  const nodesWithRel = resource({
+    relationships: [{ child_kind: "parts", parent_field: "node_id" }],
+  });
+  renderDetail(
+    nodesWithRel,
+    undefined,
+    manifestFixture([nodesWithRel, partsResource()]),
+  );
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+
+  expect(
+    screen.getByTestId("gough-manifest-nodes-drawer-tab-overview"),
+  ).toHaveTextContent("Overview");
+  expect(
+    screen.getByTestId("gough-manifest-nodes-drawer-tab-rel-parts"),
+  ).toHaveTextContent("Parts");
+  // Overview stays the tab shown by default.
+  expect(screen.getByTestId("gough-manifest-nodes-facts")).toBeInTheDocument();
+});
+
+it("lists only child rows whose parent_field matches the open row's own id — a non-matching row is excluded (falsifiability)", async () => {
+  mockProxyRequest.mockResolvedValue({
+    parts: [
+      { id: "p1", name: "Fan", node_id: "12" },
+      { id: "p2", name: "Other-node's PSU", node_id: "99" },
+    ],
+  });
+  const nodesWithRel = resource({
+    relationships: [{ child_kind: "parts", parent_field: "node_id" }],
+  });
+  renderDetail(
+    nodesWithRel,
+    undefined,
+    manifestFixture([nodesWithRel, partsResource()]),
+  );
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  fireEvent.click(
+    screen.getByTestId("gough-manifest-nodes-drawer-tab-rel-parts"),
+  );
+
+  expect(await screen.findByText("Fan")).toBeInTheDocument();
+  expect(screen.queryByText("Other-node's PSU")).not.toBeInTheDocument();
+});
+
+it("resets the active tab back to Overview when a different row is opened, even after switching tabs", async () => {
+  mockProxyRequest.mockResolvedValue({
+    parts: [{ id: "p1", name: "Fan", node_id: "12" }],
+  });
+  const nodesWithRel = resource({
+    relationships: [{ child_kind: "parts", parent_field: "node_id" }],
+  });
+  renderDetail(
+    nodesWithRel,
+    undefined,
+    manifestFixture([nodesWithRel, partsResource()]),
+  );
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  fireEvent.click(
+    screen.getByTestId("gough-manifest-nodes-drawer-tab-rel-parts"),
+  );
+  await screen.findByText("Fan");
+
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-drawer-close"));
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+
+  expect(screen.getByTestId("gough-manifest-nodes-facts")).toBeInTheDocument();
+});
+
+it("shows the child's own no-list message inside its relationship tab, rather than crashing, when the child kind has no list endpoint", () => {
+  const nodesWithRel = resource({
+    relationships: [{ child_kind: "parts", parent_field: "node_id" }],
+  });
+  renderDetail(
+    nodesWithRel,
+    undefined,
+    manifestFixture([nodesWithRel, partsResource({ list: null })]),
+  );
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  fireEvent.click(
+    screen.getByTestId("gough-manifest-nodes-drawer-tab-rel-parts"),
+  );
+
+  expect(screen.getByTestId("gough-parts-no-list")).toBeInTheDocument();
+  expect(mockProxyRequest).not.toHaveBeenCalled();
+});
+
+it("skips a relationship naming a child_kind this manifest does not declare, rather than crashing", () => {
+  const nodesWithGhostRel = resource({
+    relationships: [{ child_kind: "ghost_kind", parent_field: "node_id" }],
+  });
+  renderDetail(
+    nodesWithGhostRel,
+    undefined,
+    manifestFixture([nodesWithGhostRel]),
+  );
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+
+  expect(screen.getByTestId("gough-manifest-nodes-facts")).toBeInTheDocument();
+  expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
 });

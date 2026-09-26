@@ -55,6 +55,11 @@ export {
   type ManifestResourceDetailProps,
 } from "./ManifestResourceDetail";
 export {
+  RelationshipChildTab,
+  matchesRelationshipParent,
+  type RelationshipChildTabProps,
+} from "./RelationshipChildTab";
+export {
   ManifestCreateForm,
   type ManifestCreateFormProps,
 } from "./ManifestCreateForm";
@@ -130,6 +135,7 @@ export {
   type DeleteSpec,
   type OperationsSpec,
   type ExtensionSlot,
+  type RelationshipSpec,
 } from "./manifestTypes";
 
 // Note: Breadcrumbs, TenantScopeSwitcher, and ActingAsBanner are exported from their own files
