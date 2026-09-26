@@ -704,6 +704,78 @@ def test_overlay_keeps_cancel_allowed_and_show_logs_when_capabilities_are_presen
     assert overlaid.operations.show_logs is True
 
 
+def test_overlay_drops_list_mode_operations_when_list_operations_capability_is_missing() -> None:
+    """mode="list" (the default) is dropped outright with no list_operations capability.
+
+    Distinct from the cancel/show_logs-forced-False tests above, which start
+    from a manifest that already has list_operations -- this is the "no
+    operations block at all" branch of the same table row.
+    """
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
+    manifest = _fake_manifest(resource, operations=OperationsSpec(label="Ops"))
+    overlaid = apply_capabilities_overlay(manifest, ["list_resources"])  # no "list_operations"
+    assert overlaid.operations is None
+
+
+def test_overlay_keeps_watch_mode_operations_when_get_operation_capability_is_present() -> None:
+    """mode="watch" (Nest) survives the overlay on get_operation alone."""
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
+    manifest = _fake_manifest(resource, operations=OperationsSpec(mode="watch"))
+    overlaid = apply_capabilities_overlay(manifest, ["list_resources", "get_operation"])
+    assert overlaid.operations is not None
+    assert overlaid.operations.mode == "watch"
+
+
+def test_overlay_drops_watch_mode_operations_when_get_operation_capability_is_absent() -> None:
+    """mode="watch" is dropped when get_operation is missing -- the mirror of the kept case."""
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
+    manifest = _fake_manifest(resource, operations=OperationsSpec(mode="watch"))
+    overlaid = apply_capabilities_overlay(manifest, ["list_resources"])  # no "get_operation"
+    assert overlaid.operations is None
+
+
+def test_overlay_watch_mode_operations_survive_without_list_operations_capability() -> None:
+    """Injection proof: a watch panel's survival hinges on get_operation, NOT list_operations.
+
+    This is exactly Nest's real shape (adapter.capabilities() reports
+    get_operation but never list_operations, since Nest returns 501 for
+    list_operations by design). If the overlay's mode dispatch regressed to
+    checking list_operations unconditionally, this would fail by dropping
+    the block despite get_operation being present.
+    """
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
+    manifest = _fake_manifest(resource, operations=OperationsSpec(mode="watch"))
+    overlaid = apply_capabilities_overlay(
+        manifest, ["list_resources", "get_operation"]
+    )  # deliberately no "list_operations"
+    assert overlaid.operations is not None
+
+
+def test_overlay_list_mode_operations_do_not_survive_on_get_operation_alone() -> None:
+    """Injection proof, the mirror: a list panel needs list_operations, not get_operation.
+
+    If the overlay's mode dispatch regressed to accepting either capability
+    for either mode, this would fail by keeping the block despite
+    list_operations being absent.
+    """
+    resource = _minimal_resource(
+        list=ListSpec(path_bytes="/widgets/", envelope=EnvelopeSpec(keys=("widgets",)))
+    )
+    manifest = _fake_manifest(resource, operations=OperationsSpec(mode="list"))
+    overlaid = apply_capabilities_overlay(
+        manifest, ["list_resources", "get_operation"]
+    )  # deliberately no "list_operations"
+    assert overlaid.operations is None
+
+
 # ---------------------------------------------------------------------------
 # Trivial-guard sweep -- every remaining "must not be empty"/"must be a
 # recognised value" branch, one assertion each. Compact on purpose: these
@@ -995,6 +1067,37 @@ def test_operations_spec_with_non_positive_interval_is_refused() -> None:
     """OperationsSpec refuses a zero or negative poll interval."""
     with pytest.raises(ManifestError, match="must be positive"):
         OperationsSpec(poll_interval_seconds=0)
+
+
+def test_operations_spec_with_unknown_mode_is_refused() -> None:
+    """OperationsSpec.mode is a closed set -- an unrecognised value refuses to load."""
+    with pytest.raises(ManifestError, match="is not one of"):
+        OperationsSpec(mode="poll")
+
+
+def test_operations_spec_watch_mode_with_cancel_allowed_is_refused() -> None:
+    """A mode="watch" panel has no collection to page through, so no Cancel control."""
+    with pytest.raises(ManifestError, match="has no list/cancel/logs surface"):
+        OperationsSpec(mode="watch", cancel_allowed=True)
+
+
+def test_operations_spec_watch_mode_with_show_logs_is_refused() -> None:
+    """Same refusal, for show_logs -- watch mode's exact parallel to cancel_allowed."""
+    with pytest.raises(ManifestError, match="has no list/cancel/logs surface"):
+        OperationsSpec(mode="watch", show_logs=True)
+
+
+def test_operations_spec_watch_mode_with_neither_cancel_nor_logs_loads_cleanly() -> None:
+    """The positive case: watch mode with no cancel/logs claim is valid."""
+    spec = OperationsSpec(mode="watch")
+    assert spec.mode == "watch"
+    assert spec.cancel_allowed is False
+    assert spec.show_logs is False
+
+
+def test_operations_spec_default_mode_is_list() -> None:
+    """Every manifest written before mode existed is still mode="list" -- no silent change."""
+    assert OperationsSpec().mode == "list"
 
 
 def test_extension_slot_with_an_unknown_kind_is_refused() -> None:
