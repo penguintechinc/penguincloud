@@ -12,7 +12,6 @@ import {
   Building,
   Users,
   Zap,
-  Receipt,
   Settings,
   Database,
   Shield,
@@ -77,9 +76,14 @@ export const PRODUCT_ITEMS: Record<
     // dead links behind an off-by-default flag. Filed upstream as
     // penguintechinc/nest#25 proposing prefix routes; they return when Nest
     // routes them. See task-4N-report.md.
+    //
+    // No Billing entry either, as of Phase 8 Nest convergence: `NEST_MANIFEST`
+    // declares Billing a `page` `ExtensionSlot` rather than a nav-linked
+    // resource, and it renders through the product's OWN page-slot nav merge
+    // (`extensionNav.ts`) straight into this category, not a hand-listed
+    // item here — listing it here too would duplicate the entry.
     items: [
       { name: "Databases", href: "/products/nest/databases", icon: Database },
-      { name: "Billing", href: "/products/nest/billing", icon: Receipt },
     ],
   },
   tobogganing: {

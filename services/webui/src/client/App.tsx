@@ -23,7 +23,6 @@ import Teams from "./pages/Teams";
 import { ProductResourceRoute } from "./components/kit";
 import { ExtensionPageRoute } from "./components/extensions";
 import DatabasesPage from "./pages/products/nest/DatabasesPage";
-import BillingPage from "./pages/products/nest/BillingPage";
 
 function App() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
@@ -171,29 +170,28 @@ function App() {
 
         {/* Nest. No RoleGuard, for the same reason as Gough: authority is a
             scope question answered server-side, and flag + connection gating
-            live in NestScreen. No Servers/Cloud/Workflows routes — those
-            services are not reachable at a Nest connection's origin, see
-            menuCategories.ts. Nest has no committed manifest yet
-            (`adapters/nest` carries none), so `ProductResourceRoute` always
-            falls back here today — wrapped anyway so Nest picks up manifest
-            routing for free the moment one is committed. */}
+            live in NestScreen (fallback) / ProductResourceRoute (manifest).
+            No Servers/Cloud/Workflows routes — those services are not
+            reachable at a Nest connection's origin, see menuCategories.ts.
+            `kind="database"` matches `NEST_MANIFEST`'s own resource kind
+            (`adapters/nest/manifest.py`'s `KIND_DATABASE`) — NOT the route
+            segment "databases" a resource-kind mismatch would silently miss
+            every manifest lookup and always fall back. `fallback` is kept
+            (equivalence proof + hand-written-screen deletion are later
+            convergence stages, not this one).
+            Billing is no longer a per-Nest route: `NEST_MANIFEST` declares
+            it a `page` `ExtensionSlot` (id="billing"), served generically at
+            `/products/nest/ext/billing` by `ExtensionPageRoute` above —
+            `BillingPage.tsx` stays uncommitted from routing but not yet
+            deleted, kept only as the adaptation source for
+            `components/extensions/nest/BillingPanel.tsx`. */}
         <Route
           path="/products/nest/databases"
           element={
             <ProductResourceRoute
               productType="nest"
-              kind="databases"
+              kind="database"
               fallback={DatabasesPage}
-            />
-          }
-        />
-        <Route
-          path="/products/nest/billing"
-          element={
-            <ProductResourceRoute
-              productType="nest"
-              kind="billing"
-              fallback={BillingPage}
             />
           }
         />

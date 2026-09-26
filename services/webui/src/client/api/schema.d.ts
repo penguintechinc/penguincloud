@@ -2414,6 +2414,17 @@ export interface components {
      *       for this mode, refused otherwise at construction (fail-closed, same
      *       posture as the ``supports_cancel``/``supports_operation_logs`` check
      *       above).
+     *
+     *     :attr:`operation_kind` closes the gap ``"watch"`` mode's own finding
+     *     above states but does not paper over: the resource's own ``kind`` is not
+     *     always the URL kind an adapter's ``get_operation`` requires (Nest's
+     *     ``NestAdapter`` only accepts ``kind="operation"``, unrelated to its
+     *     ``database`` resource kind). ``None`` (default) means "use the watched
+     *     resource's own kind" -- the prior, only behaviour; a set value overrides
+     *     it with a manifest-declared literal instead. Only meaningful alongside
+     *     ``mode="watch"`` -- refused at construction otherwise, since a
+     *     ``mode="list"`` panel has no single-operation URL for a kind override to
+     *     address.
      */
     OperationsSpec: {
       /**
@@ -2431,6 +2442,8 @@ export interface components {
        * @default list
        */
       mode: string;
+      /** Operation Kind */
+      operation_kind?: string | null;
       /**
        * Poll Interval Seconds
        * @default 5

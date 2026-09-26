@@ -145,13 +145,17 @@ describe("Layout", () => {
       items: Array<{ name: string; href: string }>;
     }>;
 
-    // Exactly one Nest category — the page slot rides alongside Databases
-    // and Billing, never a second "Nest Extensions" category.
+    // Exactly one Nest category — the page slot rides alongside Databases,
+    // never a second "Nest Extensions" category. This fixture's manifest
+    // declares only the synthetic "panel" slot (not Nest's real "billing"
+    // slot), so "Billing" is deliberately absent here — Phase 8 Nest
+    // convergence made it a merged page-slot item too, asserted for the
+    // real manifest by `menuCategories.test.ts`/`extensionNav.test.ts`, not
+    // duplicated in this synthetic fixture.
     const nestCategories = categories.filter((c) => c.key === "nest");
     expect(nestCategories).toHaveLength(1);
     expect(nestCategories[0]?.items.map((item) => item.name)).toEqual([
       "Databases",
-      "Billing",
       "Panel",
     ]);
     expect(

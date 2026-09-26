@@ -11,16 +11,21 @@
  * `manifestMutations.ts`'s `startedManifestOperationIds` for where those ids
  * come from.
  *
- * `kind` is the one piece Nest's version hardcoded
- * (`NEST_OPERATION_KIND = "operation"`, a constant of Nest's OWN adapter,
- * unrelated to Nest's resource kind `"database"`) that this generalisation
- * takes as a parameter instead: schema v2's `OperationsSpec` carries no
- * per-operation-kind field, so the resource's own `kind`
- * (`ResourceDescriptor.kind`) is the only manifest-declared value available
- * to address the watch route with. Correct for any adapter whose
- * operation-kind space is the resource's own kind; an adapter that needs a
- * distinct operation-kind literal (as Nest's actually does) is a stated
- * limitation of this first cut, not silently guessed past.
+ * `kind` is the resource's own kind (`ResourceDescriptor.kind`) — used to
+ * invalidate that resource's list query, which is always keyed off the
+ * resource's kind (`useProductResource.ts`), never an operation kind.
+ *
+ * `operationKind` is the Nest-convergence closure: schema v2's
+ * `OperationsSpec.operation_kind` lets a manifest override the URL kind the
+ * watch route addresses. Nest's own adapter hardcodes
+ * `NEST_OPERATION_KIND = "operation"`, unrelated to its resource kind
+ * `"database"` — `get_operation` 501s if addressed with `"database"`
+ * instead. `operationKind ?? kind` is the resolution: a manifest that
+ * declares no override (`operation_kind` absent) watches at the resource's
+ * own kind, the prior and still-default behaviour; one that does (Nest's)
+ * watches at the declared literal instead, while the resource-list
+ * invalidation still targets `kind` — the two are deliberately decoupled,
+ * not the same value reused twice.
  *
  * Both invalidation points `useNestOperationWatch`/`useRefetchOnSettled`
  * split across two files are folded into this one hook: `watch()` invalidates
@@ -71,6 +76,13 @@ export interface UseManifestOperationWatchResult {
 /**
  * Tracks the operation ids one `mode="watch"` resource screen started, and
  * polls each until it reports `is_terminal`.
+ *
+ * @param kind The resource's own kind — drives resource-list invalidation
+ * only, never the watch URL.
+ * @param operationKind `OperationsSpec.operation_kind`, when the manifest
+ * declares one. `undefined`/`null` falls back to `kind` for the watch URL
+ * too, matching every adapter whose operation-kind space is its own
+ * resource kind.
  */
 export function useManifestOperationWatch(
   productType: string,
@@ -79,8 +91,10 @@ export function useManifestOperationWatch(
   kind: string,
   enabled: boolean,
   pollIntervalMs: number,
+  operationKind?: string | null,
 ): UseManifestOperationWatchResult {
   const queryClient = useQueryClient();
+  const urlKind = operationKind ?? kind;
   const [watched, setWatched] = useState<string[]>([]);
   const settledIds = useRef<Set<string>>(new Set());
 
@@ -120,7 +134,7 @@ export function useManifestOperationWatch(
            the type checker rather than asserting past it. */
         if (productId === undefined) return null;
         const response = await api.get(
-          portalUrl.operation(productId, kind, operationId),
+          portalUrl.operation(productId, urlKind, operationId),
         );
         return response.data as OperationLike;
       },

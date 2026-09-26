@@ -65,14 +65,18 @@ describe("APP_ROUTES", () => {
     expect(MENU_ITEM_ROUTES.filter((href) => !served.has(href))).toEqual([]);
   });
 
-  it("serves a route for both Nest screens", () => {
+  it("serves a route for Nest's databases screen, and the generic extension route for Billing", () => {
     // Named rather than left to the set comparison: Servers, Cloud and
-    // Workflows were removed from the sidebar because nothing serves them, and
-    // the two that remain must be genuinely routed rather than merely listed.
+    // Workflows were removed from the sidebar because nothing serves them.
+    // Billing is no longer a per-Nest route — `NEST_MANIFEST` declares it a
+    // `page` `ExtensionSlot`, served generically at
+    // `/products/:productType/ext/:extensionId` by `ExtensionPageRoute`
+    // (Phase 8 Nest convergence), not a Nest-specific path.
     const served = new Set(routesDeclaredInApp());
 
     expect(served.has("/products/nest/databases")).toBe(true);
-    expect(served.has("/products/nest/billing")).toBe(true);
+    expect(served.has("/products/:productType/ext/:extensionId")).toBe(true);
+    expect(served.has("/products/nest/billing")).toBe(false);
     expect(served.has("/products/nest/servers")).toBe(false);
   });
 });

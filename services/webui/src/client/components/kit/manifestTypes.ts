@@ -365,6 +365,17 @@ export interface NavSpec {
  * (`OperationsSpec.__post_init__`) — this mirror does not re-enforce that,
  * the same "as strict as the dataclasses it copies, never stricter"
  * discipline this module's doc states for every other field here.
+ *
+ * `operation_kind` (schema v2, Nest-convergence) overrides the watch URL's
+ * kind segment: `null`/absent (default) means "use the watched resource's
+ * own `kind`", the prior, only behaviour; a set value is a manifest-declared
+ * literal instead. Nest declares `operation_kind="operation"` because its
+ * `get_operation` requires `kind="operation"`, unrelated to its `database`
+ * resource kind — see `useManifestOperationWatch.ts`'s own doc for the
+ * frontend-side consumption this field drives. Only meaningful alongside
+ * `mode="watch"`, refused otherwise server-side
+ * (`OperationsSpec.__post_init__`) — same "never stricter than the backend"
+ * discipline as every other field here.
  */
 export interface OperationsSpec {
   label: string;
@@ -372,6 +383,7 @@ export interface OperationsSpec {
   cancel_allowed: boolean;
   show_logs: boolean;
   mode?: "list" | "watch";
+  operation_kind?: string | null;
 }
 
 /** Presence + display config for the product's metrics tile. */
