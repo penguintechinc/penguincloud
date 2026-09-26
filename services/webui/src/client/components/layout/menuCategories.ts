@@ -179,6 +179,17 @@ const ORGANIZATION_ITEMS: MenuItem[] = [
   },
 ];
 
+/**
+ * Translates an API `product_type` into the sidebar category `key` it
+ * belongs under — the SAME lookup `buildMenuCategories` applies to
+ * connections below, exported so other nav-building code (page-slot
+ * extension placement, `extensionNav.ts`) can find a product's category by
+ * key without re-deriving or hardcoding this map itself.
+ */
+export function productCategoryKey(productType: string): string {
+  return PRODUCT_KEY_MAP[productType] ?? productType;
+}
+
 export type RoleChecker = (roles?: string[]) => boolean;
 
 /** Items with no `roles` are visible to everyone. */

@@ -16,7 +16,11 @@ export {
 } from "./ExtensionFallback";
 export { ExtensionSlotRenderer } from "./ExtensionSlotRenderer";
 export { ExtensionPageRoute } from "./ExtensionPageRoute";
-export { buildExtensionMenuCategories } from "./extensionNav";
+export {
+  buildExtensionMenuItems,
+  mergeExtensionMenuItems,
+  type ExtensionMenuItemGroup,
+} from "./extensionNav";
 export {
   registerCellExtension,
   resolveCellExtension,

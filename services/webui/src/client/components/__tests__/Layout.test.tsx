@@ -16,12 +16,22 @@ import { useProductConnections } from "../../hooks/useProducts";
 import { useTenantScopeBootstrap } from "../../hooks/useTenantScopeBootstrap";
 import { useFeatures } from "../../hooks/useFeatures";
 import { useConsoleManifests } from "../kit/useConsoleManifests";
+import { isProductEnabled } from "../../lib/featureGates";
 
 jest.mock("../../hooks/useAuth");
 jest.mock("../../stores/tenantStore");
 jest.mock("../../hooks/useProducts");
 jest.mock("../../hooks/useTenantScopeBootstrap");
 jest.mock("../../hooks/useFeatures");
+// Product categories default OFF (fail-closed, see featureGates.ts) — the
+// merge test below needs Nest's category to actually be built so there is
+// something to merge the page-slot item INTO. Only `isProductEnabled` is
+// mocked; `useDevMode` (read by DevModeBanner, mounted inside Layout) keeps
+// its real implementation.
+jest.mock("../../lib/featureGates", () => ({
+  ...jest.requireActual("../../lib/featureGates"),
+  isProductEnabled: jest.fn(),
+}));
 // Mocked at the hook boundary, same as `useProductConnections` above — Layout
 // reads `useConsoleManifests` only to build the extension nav categories
 // (`buildExtensionMenuCategories`, Design §4.1), not to prove the fetch
@@ -63,6 +73,7 @@ describe("Layout", () => {
     (useProductConnections as jest.Mock).mockReturnValue({ data: [] });
     (useTenantScopeBootstrap as jest.Mock).mockReturnValue(undefined);
     (useConsoleManifests as jest.Mock).mockReturnValue({ data: [] });
+    (isProductEnabled as jest.Mock).mockReturnValue(true);
   });
 
   it("passes the user's role to SidebarMenu", () => {
@@ -95,7 +106,63 @@ describe("Layout", () => {
     expect(sidebarProps[sidebarProps.length - 1].mobileOpen).toBe(true);
   });
 
-  it("appends a page-slot extension category after the hand-written ones (Design §4.1)", () => {
+  it("merges a page-slot item into its own product's category, not a separate one (Design §4.1)", () => {
+    (useProductConnections as jest.Mock).mockReturnValue({
+      data: [{ product_type: "nest" }],
+    });
+    (useConsoleManifests as jest.Mock).mockReturnValue({
+      data: [
+        {
+          product_id: 9,
+          product_type: "nest",
+          manifest: {
+            manifest_version: 2,
+            product_type: "nest",
+            display_name: "Nest",
+            nav: { items: [] },
+            resources: [],
+            operations: null,
+            metrics: null,
+            extensions: [
+              {
+                slot: "page",
+                id: "panel",
+                label: "Panel",
+                resource: null,
+                position: 0,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    render(<Layout />);
+
+    const categories = sidebarProps[0].categories as Array<{
+      header?: string;
+      key?: string;
+      items: Array<{ name: string; href: string }>;
+    }>;
+
+    // Exactly one Nest category — the page slot rides alongside Databases
+    // and Billing, never a second "Nest Extensions" category.
+    const nestCategories = categories.filter((c) => c.key === "nest");
+    expect(nestCategories).toHaveLength(1);
+    expect(nestCategories[0]?.items.map((item) => item.name)).toEqual([
+      "Databases",
+      "Billing",
+      "Panel",
+    ]);
+    expect(
+      nestCategories[0]?.items.find((item) => item.name === "Panel")?.href,
+    ).toBe("/products/nest/ext/panel");
+    expect(categories.some((c) => c.header?.includes("Extensions"))).toBe(
+      false,
+    );
+  });
+
+  it("drops a page-slot item whose product has no built category, rather than a dangling link", () => {
     (useConsoleManifests as jest.Mock).mockReturnValue({
       data: [
         {
@@ -123,16 +190,22 @@ describe("Layout", () => {
       ],
     });
 
+    // useProductConnections stays at the default `{ data: [] }` — no
+    // connection exists for "layout-ext-product", so no category is built
+    // for it to merge into.
     render(<Layout />);
 
     const categories = sidebarProps[0].categories as Array<{
       header?: string;
-      key?: string;
+      items: Array<{ name: string }>;
     }>;
-    expect(categories[categories.length - 1]).toMatchObject({
-      header: "Layout Ext Product Extensions",
-      key: "ext-layout-ext-product",
-    });
+
+    expect(categories.some((c) => c.header?.includes("Extensions"))).toBe(
+      false,
+    );
+    expect(
+      categories.flatMap((c) => c.items).some((i) => i.name === "Panel"),
+    ).toBe(false);
   });
 
   it("bootstraps the tenant scope", () => {
