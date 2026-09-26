@@ -1100,6 +1100,35 @@ def test_operations_spec_default_mode_is_list() -> None:
     assert OperationsSpec().mode == "list"
 
 
+def test_operations_spec_default_operation_kind_is_none() -> None:
+    """Every manifest written before operation_kind existed still defaults to None (unset)."""
+    assert OperationsSpec(mode="watch").operation_kind is None
+
+
+def test_operations_spec_watch_mode_with_operation_kind_loads_cleanly() -> None:
+    """A watch panel may override the watch URL kind with a manifest-declared literal."""
+    spec = OperationsSpec(mode="watch", operation_kind="operation")
+    assert spec.operation_kind == "operation"
+
+
+def test_operations_spec_empty_operation_kind_is_refused() -> None:
+    """An empty operation_kind is not a valid identifier -- refused, not silently ignored."""
+    with pytest.raises(ManifestError, match="must be a plain identifier"):
+        OperationsSpec(mode="watch", operation_kind="")
+
+
+def test_operations_spec_non_identifier_operation_kind_is_refused() -> None:
+    """operation_kind must be a plain identifier, not a path or computed expression."""
+    with pytest.raises(ManifestError, match="must be a plain identifier"):
+        OperationsSpec(mode="watch", operation_kind="not-an-identifier")
+
+
+def test_operations_spec_list_mode_with_operation_kind_is_refused() -> None:
+    """operation_kind only makes sense for mode="watch" -- refused, fail-closed, for mode="list"."""
+    with pytest.raises(ManifestError, match="only meaningful for mode='watch'"):
+        OperationsSpec(mode="list", operation_kind="operation")
+
+
 def test_extension_slot_with_an_unknown_kind_is_refused() -> None:
     """ExtensionSlot refuses a slot kind outside the closed set."""
     with pytest.raises(ManifestError, match="is not one of"):

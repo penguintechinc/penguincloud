@@ -96,16 +96,19 @@ either column; the colour is lost, the displayed text is not.
 
 Nest-convergence finding on ``OperationsSpec.mode="watch"`` — see the
 Session report for the full statement (not repeated in code): the generic
-``useManifestOperationWatch`` hook polls ``GET /operations/{kind}/{id}``
+``useManifestOperationWatch`` hook polled ``GET /operations/{kind}/{id}``
 using the RESOURCE's own kind (``"database"``, per that hook's own
 docstring), while :meth:`NestAdapter.get_operation` requires
 ``kind in OPERATION_KINDS`` (``{"operation"}``, :data:`~.mapping.OP_KIND`)
 and raises :class:`~app.adapter_errors.AdapterCapabilityError` for anything
-else — so wiring the frontend hook to this resource as-is 501s. This module
-still declares ``mode="watch"`` because the BACKEND capability
-(``get_operation`` is real) is what :class:`~app.adapters.manifest.OperationsSpec`
-states; reconciling the hook's ``kind`` parameter is frontend-stage work,
-not a manifest authoring choice.
+else — so wiring the frontend hook to this resource as-is 501s.
+:attr:`~app.adapters.manifest.OperationsSpec.operation_kind` closes this
+generically: this manifest now declares ``operation_kind=OP_KIND`` so the
+watch URL addresses ``"operation"`` instead of defaulting to ``"database"``.
+Consuming the field on the frontend side (having the hook prefer
+``operation_kind`` over the resource's own ``kind`` when present) is still
+frontend-stage work, not a manifest authoring choice — this module states
+the correct value, it does not wire the hook.
 """
 
 from __future__ import annotations
@@ -144,6 +147,7 @@ from .mapping import (
     KIND_PROTECTION_POLICY,
     KIND_SEARCH_POOL,
     KIND_SNAPSHOT,
+    OP_KIND,
 )
 from .routes import (
     COLLECTION_DATA_RESOURCES,
@@ -523,10 +527,14 @@ NEST_MANIFEST: Final[ConsoleManifest] = ConsoleManifest(
     nav=NavSpec(items=(NavItem(kind=KIND_DATABASE, label="Databases"),)),
     resources=(_DATABASE, _SEARCH_POOL, _SNAPSHOT, _PROTECTION_POLICY),
     # `mode="watch"`: `get_operation` is real, `list_operations` is not (see
-    # `adapter.py`'s own module docstring, "Operations"). See the module
-    # docstring's Nest-convergence finding for the frontend `kind` gap this
-    # does NOT paper over.
-    operations=OperationsSpec(label="Operations", poll_interval_seconds=5, mode="watch"),
+    # `adapter.py`'s own module docstring, "Operations"). `operation_kind`
+    # overrides the watch hook's default (the resource's own kind,
+    # `"database"`) with the literal `NestAdapter.get_operation` actually
+    # requires -- see the module docstring's Nest-convergence finding for why
+    # the two differ.
+    operations=OperationsSpec(
+        label="Operations", poll_interval_seconds=5, mode="watch", operation_kind=OP_KIND
+    ),
     # No metrics tile: "metrics_summary" is not among the capabilities
     # NestAdapter.capabilities() reports -- billing/cost data is its own
     # `page` extension slot instead (see `extensions` below).

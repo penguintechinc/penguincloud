@@ -1034,7 +1034,15 @@ components:
         \ (NOT ``list_operations``) to survive the overlay.\n  Has no collection to page through,\
         \ so no Cancel control and no log\n  stream either — ``cancel_allowed``/``show_logs``\
         \ must both be False\n  for this mode, refused otherwise at construction (fail-closed,\
-        \ same\n  posture as the ``supports_cancel``/``supports_operation_logs`` check\n  above)."
+        \ same\n  posture as the ``supports_cancel``/``supports_operation_logs`` check\n  above).\n\
+        \n:attr:`operation_kind` closes the gap ``\"watch\"`` mode's own finding\nabove states\
+        \ but does not paper over: the resource's own ``kind`` is not\nalways the URL kind an\
+        \ adapter's ``get_operation`` requires (Nest's\n``NestAdapter`` only accepts ``kind=\"\
+        operation\"``, unrelated to its\n``database`` resource kind). ``None`` (default) means\
+        \ \"use the watched\nresource's own kind\" -- the prior, only behaviour; a set value\
+        \ overrides\nit with a manifest-declared literal instead. Only meaningful alongside\n\
+        ``mode=\"watch\"`` -- refused at construction otherwise, since a\n``mode=\"list\"``\
+        \ panel has no single-operation URL for a kind override to\naddress."
       properties:
         cancel_allowed:
           default: false
@@ -1048,6 +1056,11 @@ components:
           default: list
           title: Mode
           type: string
+        operation_kind:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Operation Kind
         poll_interval_seconds:
           default: 5
           title: Poll Interval Seconds

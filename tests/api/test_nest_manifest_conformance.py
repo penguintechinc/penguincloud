@@ -23,6 +23,7 @@ from app.adapters import ADAPTER_REGISTRY, MANIFEST_REGISTRY
 from app.adapters.manifest import ItemPathSpec, ManifestError, validate_manifest
 from app.adapters.nest.adapter import NestAdapter
 from app.adapters.nest.manifest import _ACTION_VERBS, _ENVELOPE_PATHS
+from app.adapters.nest.mapping import OP_KIND
 from app.adapters.nest.routes import (
     NEST_ROUTE_ALLOWLIST,
     tenant_path,
@@ -136,6 +137,17 @@ def test_operations_panel_is_watch_mode_with_no_cancel_or_logs() -> None:
     assert _MANIFEST.operations.mode == "watch"
     assert _MANIFEST.operations.cancel_allowed is False
     assert _MANIFEST.operations.show_logs is False
+
+
+def test_operations_panel_operation_kind_matches_nest_adapter_op_kind() -> None:
+    """The watch URL kind is NestAdapter's own OP_KIND, not database's resource kind.
+
+    ``get_operation`` only accepts ``kind in OPERATION_KINDS`` (``{OP_KIND}``) --
+    without this override the generic watch hook's default (the resource's own
+    kind, ``"database"``) would 501 against a real Nest deployment.
+    """
+    assert _MANIFEST.operations is not None
+    assert _MANIFEST.operations.operation_kind == OP_KIND
 
 
 def test_manifest_declares_no_metrics_block() -> None:
