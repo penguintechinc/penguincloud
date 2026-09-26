@@ -44,6 +44,19 @@
  * relationships renders byte-identically to before this existed, since
  * `resource.relationships` is `[]` for every resource that does not declare
  * one and the tabs array below then has exactly its original one entry.
+ *
+ * `detail_tab` `ExtensionSlot`s (Design §3.4/§4.1's escape hatch, third
+ * variant): a resource named by a manifest-declared `ExtensionSlot{slot:
+ * "detail_tab", resource: <this kind>}` gets one MORE additional drawer tab
+ * per such slot, ordered by `position`, appended AFTER Overview and the
+ * relationship tabs above — for a case neither a fact list nor a
+ * `RelationshipSpec` child list can express (Nest's free-prose "Health" tab
+ * is the motivating case; see `ExtensionDetailTabRegistry.ts`'s module doc).
+ * Each tab body is `ExtensionDetailTabSlot`, which resolves-or-degrades
+ * exactly like a `page` slot does (`ExtensionSlotRenderer.tsx`) — a
+ * declared-but-unregistered slot renders `ExtensionFallback`, never a blank
+ * tab. A resource with no `detail_tab` slot renders byte-identically to
+ * before this existed, matching the relationship-tab guarantee above.
  */
 import { useState } from "react";
 import { FormBuilder } from "@penguintechinc/react-libs";
@@ -56,6 +69,7 @@ import type { ManifestRow } from "./manifestCells";
 import { manifestItemPathBytes } from "./manifestItemPath";
 import { toFieldConfig, applyFieldAliases } from "./manifestFormFields";
 import { RelationshipChildTab } from "./RelationshipChildTab";
+import { ExtensionDetailTabSlot } from "../extensions/ExtensionDetailTabSlot";
 import {
   useDeleteManifestResource,
   usePerformManifestAction,
@@ -215,6 +229,38 @@ export function ManifestResourceDetail({
       })
     : [];
 
+  // One additional tab per declared `detail_tab` slot naming this resource
+  // kind — gated on `tenantId`/`productId` being resolved (not just
+  // `selected`) since `ExtensionDetailTabProps` carries them as required
+  // numbers, the same required-number contract `ExtensionPageProps` holds
+  // page slots to; `ExtensionPageRoute.tsx` gates its own render on
+  // `tenantId !== undefined` for the identical reason. In practice a row
+  // only exists here via an already-resolved product connection, so this
+  // guard is defensive, not a real-world dead end.
+  const detailTabSlots =
+    selected && tenantId !== undefined && productId !== undefined
+      ? manifest.extensions
+          .filter(
+            (slot) =>
+              slot.slot === "detail_tab" && slot.resource === resource.kind,
+          )
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .map((slot) => ({
+            id: `ext-${slot.id}`,
+            label: slot.label,
+            content: (
+              <ExtensionDetailTabSlot
+                productType={productType}
+                productId={productId}
+                tenantId={tenantId}
+                row={selected}
+                slot={slot}
+              />
+            ),
+          }))
+      : [];
+
   return (
     <>
       <RowOpenButtons
@@ -243,6 +289,7 @@ export function ManifestResourceDetail({
             ),
           },
           ...relationshipTabs,
+          ...detailTabSlots,
         ]}
         actions={
           <>

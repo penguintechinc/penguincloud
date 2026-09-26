@@ -25,3 +25,12 @@ export {
   type ExtensionCellComponent,
 } from "./ExtensionCellRegistry";
 export { renderCellSlot } from "./ExtensionCellSlot";
+export {
+  registerDetailTabExtension,
+  resolveDetailTabExtension,
+  clearDetailTabExtensions,
+  type ExtensionDetailTabProps,
+  type ExtensionDetailTabComponent,
+  type ExtensionDetailTabLoader,
+} from "./ExtensionDetailTabRegistry";
+export { ExtensionDetailTabSlot } from "./ExtensionDetailTabSlot";

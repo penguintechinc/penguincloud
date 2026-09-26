@@ -7,7 +7,16 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createAppQueryClient } from "../../../lib/queryClient";
 import { ManifestResourceDetail } from "../ManifestResourceDetail";
 import api from "../../../lib/api";
-import type { ConsoleManifest, ResourceDescriptor } from "../manifestTypes";
+import type {
+  ConsoleManifest,
+  ExtensionSlot,
+  ResourceDescriptor,
+} from "../manifestTypes";
+import {
+  registerDetailTabExtension,
+  clearDetailTabExtensions,
+  type ExtensionDetailTabProps,
+} from "../../extensions/ExtensionDetailTabRegistry";
 
 jest.mock("../../../lib/api", () => ({
   __esModule: true,
@@ -83,7 +92,10 @@ function resource(
 
 const ROWS = [{ id: "12", name: "rack-a-01", state: "ready" }];
 
-function manifestFixture(resources: ResourceDescriptor[]): ConsoleManifest {
+function manifestFixture(
+  resources: ResourceDescriptor[],
+  extensions: ExtensionSlot[] = [],
+): ConsoleManifest {
   return {
     manifest_version: 2,
     product_type: "gough",
@@ -92,7 +104,7 @@ function manifestFixture(resources: ResourceDescriptor[]): ConsoleManifest {
     resources,
     operations: null,
     metrics: null,
-    extensions: [],
+    extensions,
   };
 }
 
@@ -115,6 +127,10 @@ function renderDetail(
     </QueryClientProvider>,
   );
 }
+
+afterEach(() => {
+  clearDetailTabExtensions();
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -710,6 +726,126 @@ it("skips a relationship naming a child_kind this manifest does not declare, rat
     undefined,
     manifestFixture([nodesWithGhostRel]),
   );
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+
+  expect(screen.getByTestId("gough-manifest-nodes-facts")).toBeInTheDocument();
+  expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+});
+
+// --- detail_tab ExtensionSlot tabs ----------------------------------------
+
+const healthSlot: ExtensionSlot = {
+  slot: "detail_tab",
+  id: "health",
+  label: "Health",
+  resource: "nodes",
+  position: 0,
+};
+
+function SyntheticHealthTab({ row }: ExtensionDetailTabProps) {
+  return (
+    <div data-testid="synthetic-health-tab">Health of {String(row.id)}</div>
+  );
+}
+
+it("declares no extra tab and no tablist at all when the resource declares no detail_tab slot — byte-identical to before this existed", () => {
+  renderDetail(resource());
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+
+  expect(screen.getByTestId("gough-manifest-nodes-facts")).toBeInTheDocument();
+  expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+});
+
+it("renders the registered component as an additional tab, alongside Overview, for a registered detail_tab slot", async () => {
+  registerDetailTabExtension("gough", "health", () =>
+    Promise.resolve({ default: SyntheticHealthTab }),
+  );
+  const nodesWithHealth = resource();
+  renderDetail(
+    nodesWithHealth,
+    undefined,
+    manifestFixture([nodesWithHealth], [healthSlot]),
+  );
+
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+
+  expect(
+    screen.getByTestId("gough-manifest-nodes-drawer-tab-overview"),
+  ).toHaveTextContent("Overview");
+  expect(
+    screen.getByTestId("gough-manifest-nodes-drawer-tab-ext-health"),
+  ).toHaveTextContent("Health");
+
+  fireEvent.click(
+    screen.getByTestId("gough-manifest-nodes-drawer-tab-ext-health"),
+  );
+
+  // The registered component is loaded lazily (`React.lazy`/`Suspense`,
+  // matching a `page` slot's own posture) — its resolution is a microtask,
+  // never synchronous.
+  expect(await screen.findByTestId("synthetic-health-tab")).toHaveTextContent(
+    "Health of 12",
+  );
+});
+
+it("degrades to the generic fallback tab body — never blank — when a detail_tab slot is declared but NOT registered", () => {
+  const nodesWithHealth = resource();
+  renderDetail(
+    nodesWithHealth,
+    undefined,
+    manifestFixture([nodesWithHealth], [healthSlot]),
+  );
+
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+  fireEvent.click(
+    screen.getByTestId("gough-manifest-nodes-drawer-tab-ext-health"),
+  );
+
+  // Unregistered resolution is synchronous (no lazy chunk to await) — the
+  // fallback is present immediately, matching `ExtensionSlotRenderer`'s own
+  // synchronous fallback path.
+  expect(screen.getByTestId("extension-fallback")).toBeInTheDocument();
+  expect(screen.queryByTestId("synthetic-health-tab")).not.toBeInTheDocument();
+});
+
+it("skips a detail_tab slot naming a DIFFERENT resource kind, rather than showing it on this one", () => {
+  registerDetailTabExtension("gough", "health", () =>
+    Promise.resolve({ default: SyntheticHealthTab }),
+  );
+  const nodesResource = resource();
+  renderDetail(
+    nodesResource,
+    undefined,
+    manifestFixture(
+      [nodesResource],
+      [{ ...healthSlot, resource: "some-other-kind" }],
+    ),
+  );
+
+  fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
+
+  expect(screen.getByTestId("gough-manifest-nodes-facts")).toBeInTheDocument();
+  expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+});
+
+it("does not render a detail_tab slot at all when tenantId is unresolved, rather than crashing on a required-number prop", () => {
+  registerDetailTabExtension("gough", "health", () =>
+    Promise.resolve({ default: SyntheticHealthTab }),
+  );
+  const nodesWithHealth = resource();
+  render(
+    <QueryClientProvider client={createAppQueryClient()}>
+      <ManifestResourceDetail
+        productType="gough"
+        tenantId={undefined}
+        productId={7}
+        manifest={manifestFixture([nodesWithHealth], [healthSlot])}
+        resource={nodesWithHealth}
+        rows={ROWS}
+      />
+    </QueryClientProvider>,
+  );
+
   fireEvent.click(screen.getByTestId("gough-manifest-nodes-open-12"));
 
   expect(screen.getByTestId("gough-manifest-nodes-facts")).toBeInTheDocument();
