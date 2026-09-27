@@ -29,6 +29,7 @@ from .gough import GoughAdapter
 from .gough.manifest import GOUGH_MANIFEST
 from .manifest import ConsoleManifest
 from .nest import NestAdapter
+from .nest.manifest import NEST_MANIFEST
 from .tobogganing import TobogganingAdapter
 from .tobogganing.manifest import TOBOGGANING_MANIFEST
 from .waddleai import WaddleAIAdapter
@@ -75,6 +76,7 @@ ADAPTER_REGISTRY: dict[str, type[Adapter]] = {
 #: ``validate_manifest`` call at the bottom of the file.
 MANIFEST_REGISTRY: dict[str, ConsoleManifest] = {
     "gough": GOUGH_MANIFEST,
+    "nest": NEST_MANIFEST,
     "tobogganing": TOBOGGANING_MANIFEST,
     "waddleai": WADDLEAI_MANIFEST,
 }

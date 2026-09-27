@@ -70,9 +70,11 @@ function enumBadgeClasses(style: string | undefined): string {
 
 /** Human-readable byte size, base-1024. `bytes` cell kind. Callers filter
  * out non-finite input before reaching here (see the `bytes` registry
- * entry below), so this has no finiteness check of its own to leave dead. */
+ * entry below), so this has no finiteness check of its own to leave dead.
+ * IEC unit labels (`KiB`/`MiB`/...) — base-1024 division must use IEC, not
+ * SI, labels; matches `DatabaseTabs.tsx`'s hand-written `humanBytes()`. */
 function formatBytes(value: number): string {
-  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
   let size = Math.abs(value);
   let unitIndex = 0;
   while (size >= 1024 && unitIndex < units.length - 1) {

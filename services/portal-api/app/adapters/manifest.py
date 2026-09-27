@@ -899,6 +899,17 @@ class OperationsSpec:
       for this mode, refused otherwise at construction (fail-closed, same
       posture as the ``supports_cancel``/``supports_operation_logs`` check
       above).
+
+    :attr:`operation_kind` closes the gap ``"watch"`` mode's own finding
+    above states but does not paper over: the resource's own ``kind`` is not
+    always the URL kind an adapter's ``get_operation`` requires (Nest's
+    ``NestAdapter`` only accepts ``kind="operation"``, unrelated to its
+    ``database`` resource kind). ``None`` (default) means "use the watched
+    resource's own kind" -- the prior, only behaviour; a set value overrides
+    it with a manifest-declared literal instead. Only meaningful alongside
+    ``mode="watch"`` -- refused at construction otherwise, since a
+    ``mode="list"`` panel has no single-operation URL for a kind override to
+    address.
     """
 
     label: str = "Operations"
@@ -912,6 +923,18 @@ class OperationsSpec:
     #: ``"list"`` (collection-fed, needs ``list_operations``) or ``"watch"``
     #: (single operation id from a 202, needs ``get_operation`` only).
     mode: str = "list"
+    #: The URL kind segment ``useManifestOperationWatch`` polls
+    #: (``GET /products/{id}/operations/{kind}/{operation_id}``). ``None``
+    #: (the default) means "use the watched resource's own ``kind``" --
+    #: correct for any adapter whose operation-kind space IS its resource
+    #: kind. Set this when an adapter's ``get_operation`` requires a
+    #: DIFFERENT, fixed kind literal instead -- e.g. Nest's ``NestAdapter``
+    #: only accepts ``kind in OPERATION_KINDS`` (``{"operation"}``), unrelated
+    #: to its ``database`` resource kind; see ``adapters/nest/manifest.py``.
+    #: Only meaningful for ``mode="watch"`` (a ``mode="list"`` panel has no
+    #: single-operation URL to address) -- refused at construction otherwise,
+    #: same fail-closed posture as every other cross-field check here.
+    operation_kind: str | None = None
 
     def __post_init__(self) -> None:
         """Refuse a non-positive poll interval, an unknown mode, or an invalid watch panel."""
@@ -926,6 +949,17 @@ class OperationsSpec:
                 "OperationsSpec.mode='watch' has no list/cancel/logs surface -- a "
                 "watched operation may not declare cancel_allowed or show_logs"
             )
+        if self.operation_kind is not None:
+            if not self.operation_kind.isidentifier():
+                raise ManifestError(
+                    f"OperationsSpec.operation_kind {self.operation_kind!r} must be a "
+                    f"plain identifier, not a computed expression or path"
+                )
+            if self.mode != "watch":
+                raise ManifestError(
+                    "OperationsSpec.operation_kind is only meaningful for mode='watch' "
+                    f"-- mode={self.mode!r} has no single-operation URL to address"
+                )
 
 
 @dataclass(slots=True, frozen=True)

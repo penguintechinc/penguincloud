@@ -199,10 +199,10 @@ describe("buildMenuCategories", () => {
       (category) => category.header === "Nest",
     );
 
-    expect(nest?.items.map((item) => item.name)).toEqual([
-      "Databases",
-      "Billing",
-    ]);
+    // Billing is no longer a static item here: `NEST_MANIFEST` declares it a
+    // `page` `ExtensionSlot`, merged in separately by `extensionNav.ts`'s
+    // `mergeExtensionMenuItems` — asserted there, not duplicated here.
+    expect(nest?.items.map((item) => item.name)).toEqual(["Databases"]);
   });
 
   it("omits a product category that has no screens yet", () => {

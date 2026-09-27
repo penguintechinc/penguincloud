@@ -26,6 +26,9 @@ from app.adapters.gough.adapter import _COLLECTION_ROUTES as _GOUGH_COLLECTION_R
 from app.adapters.gough.adapter import GoughAdapter
 from app.adapters.gough.manifest import _ENVELOPE_PATHS as _GOUGH_ENVELOPE_PATHS
 from app.adapters.manifest import _RouteSourceAdapter, apply_capabilities_overlay, validate_manifest
+from app.adapters.nest.adapter import NestAdapter
+from app.adapters.nest.manifest import _ACTION_VERBS as _NEST_ACTION_VERBS
+from app.adapters.nest.manifest import _ENVELOPE_PATHS as _NEST_ENVELOPE_PATHS
 from app.adapters.tobogganing.adapter import TobogganingAdapter
 from app.adapters.tobogganing.manifest import _ACTION_VERBS as _TOBOGGANING_ACTION_VERBS
 from app.adapters.tobogganing.manifest import _ENVELOPE_PATHS as _TOBOGGANING_ENVELOPE_PATHS
@@ -60,6 +63,14 @@ _CONFORMANCE_INPUTS: Final[dict[str, _ConformanceInputs]] = {
         envelope_paths=_GOUGH_ENVELOPE_PATHS,
         supports_cancel=GoughAdapter.SUPPORTS_OPERATION_CANCEL,
         supports_operation_logs=GoughAdapter.SUPPORTS_OPERATION_LOGS,
+    ),
+    "nest": _ConformanceInputs(
+        adapter_cls=NestAdapter,
+        action_verbs=dict(_NEST_ACTION_VERBS),
+        sensitive_fields=frozenset(),
+        envelope_paths=_NEST_ENVELOPE_PATHS,
+        supports_cancel=False,
+        supports_operation_logs=False,
     ),
     "tobogganing": _ConformanceInputs(
         adapter_cls=TobogganingAdapter,

@@ -241,9 +241,16 @@ async def test_deactivated_connection_is_excluded(
 async def test_a_product_with_no_committed_manifest_is_excluded(
     client: Any, app: Quart, console_flag_enabled: None
 ) -> None:
-    """Nest has an adapter but (as of Phase 8 Step 3) no manifest yet."""
-    assert "nest" not in MANIFEST_REGISTRY  # the fact this test depends on
-    _, headers, tenant_id = await _setup(client, app, product_type="nest")
+    """``generic`` has an active adapter but (deliberately) no manifest.
+
+    Nest was this test's subject through Phase 8 Step 3, but the Nest
+    convergence work registered ``NEST_MANIFEST`` — a manifest with no
+    committed backing is now a fact about ``generic`` (the health-only
+    fallback adapter with an empty proxy allowlist, see
+    ``adapters/__init__.py``), not about Nest.
+    """
+    assert "generic" not in MANIFEST_REGISTRY  # the fact this test depends on
+    _, headers, tenant_id = await _setup(client, app, product_type="generic")
 
     response = await client.get(f"/api/v1/console/manifests?tenant_id={tenant_id}", headers=headers)
 

@@ -177,3 +177,22 @@ describe("OperationsSpec.mode <-> app/adapters/manifest.py", () => {
     expect(source).toMatch(/mode\?:\s*"list"\s*\|\s*"watch"/);
   });
 });
+
+/**
+ * `OperationsSpec.operation_kind` <-> `app/adapters/manifest.py` — the
+ * Nest-convergence field that overrides `useManifestOperationWatch.ts`'s
+ * watch URL kind. Same field-presence technique as `mode`/`edit`/
+ * `fallback_fields` above: `str | None` is not a closed enum, so this checks
+ * the field still exists on both sides rather than diffing a member set.
+ */
+describe("OperationsSpec.operation_kind <-> app/adapters/manifest.py", () => {
+  it("the Python OperationsSpec still declares operation_kind: str | None = None", () => {
+    const source = readFileSync(MANIFEST_PY, "utf-8");
+    expect(source).toMatch(/operation_kind:\s*str \| None\s*=\s*None/);
+  });
+
+  it("the TS OperationsSpec mirror still declares operation_kind", () => {
+    const source = readFileSync(MANIFEST_TYPES_TS, "utf-8");
+    expect(source).toMatch(/operation_kind\?:\s*string \| null/);
+  });
+});

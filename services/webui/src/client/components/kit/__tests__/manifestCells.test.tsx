@@ -150,7 +150,7 @@ describe("renderCell — each CellKind", () => {
       cell: { kind: "bytes", styles: [], relative: false },
     });
     render(<div>{renderCell(col, { value: 1536 })}</div>);
-    expect(screen.getByText("1.5 KB")).toBeInTheDocument();
+    expect(screen.getByText("1.5 KiB")).toBeInTheDocument();
   });
 
   it("bytes — sub-KB values stay in whole bytes", () => {
@@ -166,7 +166,7 @@ describe("renderCell — each CellKind", () => {
       cell: { kind: "bytes", styles: [], relative: false },
     });
     render(<div>{renderCell(col, { value: -2048 })}</div>);
-    expect(screen.getByText("-2.0 KB")).toBeInTheDocument();
+    expect(screen.getByText("-2.0 KiB")).toBeInTheDocument();
   });
 
   it("bytes — a non-numeric value renders verbatim rather than crashing", () => {

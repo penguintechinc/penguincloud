@@ -146,6 +146,7 @@ export function ManifestResourceScreen({
     resource.kind,
     isWatchMode && productId !== undefined,
     (operationsSpec?.poll_interval_seconds ?? 5) * 1000,
+    operationsSpec?.operation_kind,
   );
 
   const rows = (data ?? []).map((row) => withStringId(row, resource.id_field));

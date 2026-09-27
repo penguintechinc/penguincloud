@@ -8,6 +8,8 @@ import "./index.css";
 // Cell-slot extension registrations — side-effect only, must run before the
 // first render so `ExtensionCellSlot.tsx`'s registry lookups can resolve.
 import "./components/extensions/tobogganing/register";
+// Page/detail-tab extension registrations — same side-effect-only contract.
+import "./components/extensions/nest/register";
 
 const queryClient = createAppQueryClient();
 

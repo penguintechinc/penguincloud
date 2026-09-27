@@ -96,8 +96,11 @@ export const queryKeys = {
     ] as const,
   // One entry per id `useManifestOperationWatch` is polling — the
   // `mode="watch"` analogue of `consoleManifestOperations` above (which keys
-  // the whole COLLECTION a `mode="list"` panel polls). Mirrors `nestOperation`
-  // below, generalised off product type instead of hardcoded to Nest.
+  // the whole COLLECTION a `mode="list"` panel polls). Generalised off
+  // product type instead of hardcoded to one product (the deleted
+  // `useNestOperations.ts`'s own `nestOperation` key was this factory's
+  // Nest-specific predecessor, removed with the rest of Nest's hand-written
+  // screens now that `useManifestOperationWatch` covers every product).
   consoleManifestOperationWatch: (
     tenantId: number | undefined,
     productId: number | undefined,
@@ -160,18 +163,6 @@ export const queryKeys = {
     productId: number | undefined,
     kind: string,
   ) => [...queryKeys.nest(), tenantId, productId, kind] as const,
-  nestOperation: (
-    tenantId: number | undefined,
-    productId: number | undefined,
-    operationId: string,
-  ) =>
-    [
-      ...queryKeys.nest(),
-      tenantId,
-      productId,
-      "operation",
-      operationId,
-    ] as const,
 
   // Tobogganing resources, all reached through the proxy.
   //

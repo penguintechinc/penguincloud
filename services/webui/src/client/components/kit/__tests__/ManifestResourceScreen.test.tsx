@@ -329,6 +329,73 @@ it('mounts a watch-fed operations panel for mode="watch" and never polls the lis
   ).not.toBeInTheDocument();
 });
 
+it('mode="watch" addresses the watch URL with OperationsSpec.operation_kind when the manifest declares one', async () => {
+  // Mirrors Nest's real shape: resource kind "agents" here (fixture reuses
+  // `baseResource`), operation kind declared as something else entirely —
+  // proving the watch URL follows `operation_kind`, not the resource's own
+  // kind, the same divergence Nest's `database`/`"operation"` pair has.
+  mockProxyRequest.mockResolvedValue({ agents: [] });
+  mockApiPost.mockResolvedValue({ data: { id: "9", operation_id: "op-1" } });
+  mockApiGet.mockResolvedValue({
+    data: {
+      id: "op-1",
+      kind: "operation",
+      state: "running",
+      status: "provisioning",
+      is_terminal: false,
+    },
+  });
+  const resource = baseResource({
+    create: {
+      fields: [
+        {
+          name: "name",
+          label: "Name",
+          field_type: "text",
+          required: true,
+          options: [],
+        },
+      ],
+      submit_label: "Create Agent",
+      field_aliases: [],
+    },
+  });
+
+  render(
+    <QueryClientProvider client={createAppQueryClient()}>
+      <ManifestResourceScreen
+        productType="gough"
+        productLabel="Gough"
+        manifest={manifest(resource, {
+          label: "Operations",
+          poll_interval_seconds: 5,
+          cancel_allowed: false,
+          show_logs: false,
+          mode: "watch",
+          operation_kind: "operation",
+        })}
+        resource={resource}
+      />
+    </QueryClientProvider>,
+  );
+
+  fireEvent.click(await screen.findByTestId("gough-manifest-agents-create"));
+  fireEvent.change(await screen.findByLabelText(/^Name\*$/), {
+    target: { value: "agent-9" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+
+  await waitFor(() =>
+    expect(mockApiGet).toHaveBeenCalledWith(
+      "/products/7/operations/operation/op-1",
+    ),
+  );
+  // Never the resource's own kind once operation_kind overrides it.
+  expect(mockApiGet).not.toHaveBeenCalledWith(
+    "/products/7/operations/agents/op-1",
+  );
+});
+
 it("renders a row-open button and detail drawer when the resource declares item_path", async () => {
   mockProxyRequest.mockResolvedValue({
     agents: [{ agent_id: "3f2b-aa", hostname: "agent-1" }],

@@ -202,6 +202,65 @@ describe("useManifestOperationWatch", () => {
     expect(mockedApi.get).not.toHaveBeenCalled();
   });
 
+  it("addresses the watch URL with operation_kind when the manifest declares one, while resource-list invalidation still uses the resource's own kind", async () => {
+    mockedApi.get.mockResolvedValue({ data: op({ is_terminal: false }) });
+    const qc = client();
+    const invalidateSpy = jest.spyOn(qc, "invalidateQueries");
+    const { result } = renderHook(
+      () =>
+        useManifestOperationWatch(
+          "nest",
+          42,
+          7,
+          "database",
+          true,
+          POLL_MS,
+          "operation",
+        ),
+      { wrapper: wrapper(qc) },
+    );
+
+    act(() => result.current.watch(["op-1"]));
+
+    // Resource-list invalidation is keyed off the RESOURCE's kind
+    // ("database"), never the operation kind — `useProductResource.ts`'s
+    // list query is keyed the same way.
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      resourceListKey("nest", "database"),
+    );
+    await waitFor(() => expect(result.current.operations).toHaveLength(1));
+    // The watch URL itself addresses "operation", not "database" — Nest's
+    // `get_operation` 501s on anything else.
+    expect(mockedApi.get).toHaveBeenCalledWith(
+      "/products/7/operations/operation/op-1",
+    );
+  });
+
+  it("falls back to the resource's own kind for the watch URL when operation_kind is null", async () => {
+    mockedApi.get.mockResolvedValue({ data: op({ is_terminal: false }) });
+    const qc = client();
+    const { result } = renderHook(
+      () =>
+        useManifestOperationWatch(
+          "nest",
+          42,
+          7,
+          "database",
+          true,
+          POLL_MS,
+          null,
+        ),
+      { wrapper: wrapper(qc) },
+    );
+
+    act(() => result.current.watch(["op-1"]));
+
+    await waitFor(() => expect(result.current.operations).toHaveLength(1));
+    expect(mockedApi.get).toHaveBeenCalledWith(
+      "/products/7/operations/database/op-1",
+    );
+  });
+
   it("never fires before a product id is known", () => {
     const qc = client();
     const { result } = renderHook(
