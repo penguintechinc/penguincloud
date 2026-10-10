@@ -325,17 +325,50 @@ export const handlers = [
     }
 
     const tokens = tokenPair(PROVIDER_ONE);
-    return HttpResponse.json({
-      success: true,
-      token: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      user: {
-        id: String(MOCK_USER.id),
-        email: body.email,
-        name: MOCK_USER.full_name,
-        roles: [MOCK_USER.role],
+    // Mirrors src/server/app.ts: the refresh token is set as an HttpOnly
+    // cookie (not represented in jsdom's document.cookie) and the readable
+    // `csrf` double-submit cookie is set; only the access token is returned
+    // in the body. `refreshToken` is deliberately NOT included.
+    return HttpResponse.json(
+      {
+        success: true,
+        token: tokens.access_token,
+        user: {
+          id: String(MOCK_USER.id),
+          email: body.email,
+          name: MOCK_USER.full_name,
+          roles: [MOCK_USER.role],
+        },
       },
-    });
+      {
+        headers: {
+          "Set-Cookie": `csrf=mock-csrf-token; Path=/; SameSite=Strict`,
+        },
+      },
+    );
+  }),
+
+  /**
+   * POST /api/ui/refresh — BFF cookie-based refresh. Reads the HttpOnly
+   * refresh cookie (opaque to the browser), rotates it server-side, and
+   * returns a fresh access token. Mirrors src/server/app.ts. Not part of
+   * `openapi/v1.yaml` (this app's own Express/BFF route), so unbound.
+   */
+  http.post("/api/ui/refresh", () => {
+    const tokens = tokenPair(PROVIDER_ONE);
+    return HttpResponse.json(
+      { access_token: tokens.access_token },
+      {
+        headers: {
+          "Set-Cookie": `csrf=mock-csrf-token; Path=/; SameSite=Strict`,
+        },
+      },
+    );
+  }),
+
+  /** POST /api/ui/logout — BFF cookie clear. Mirrors src/server/app.ts. */
+  http.post("/api/ui/logout", () => {
+    return HttpResponse.json({ success: true });
   }),
 
   /**

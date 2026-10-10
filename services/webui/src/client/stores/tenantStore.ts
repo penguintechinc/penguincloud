@@ -9,7 +9,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import api, { setTokens } from "../lib/api";
+import api, { setAccessToken } from "../lib/api";
 import { portalUrl } from "../api/portalPaths";
 import type { Tenant } from "../types";
 
@@ -31,22 +31,18 @@ export const useTenantStore = create<TenantStore>()(
       /**
        * Switches active scope. The server re-issues an access token whose
        * claims name the new tenant, so the token must be swapped before any
-       * subsequent request goes out.
+       * subsequent request goes out. Only the access token is adopted (in
+       * memory); any `refresh_token` the backend returns in the body is
+       * deliberately ignored — the refresh token lives only in the BFF's
+       * HttpOnly cookie and is never stored client-side.
        */
       switchTenant: async (tenantId: number): Promise<boolean> => {
         set({ isSwitching: true });
         try {
           const response = await api.post(portalUrl.tenantSwitch(tenantId));
-          const { access_token, refresh_token, tenant, tenant_role } =
-            response.data;
+          const { access_token, tenant, tenant_role } = response.data;
 
-          const stored = JSON.parse(
-            localStorage.getItem("auth-storage") || "{}",
-          );
-          setTokens(
-            access_token,
-            refresh_token || stored.state?.refreshToken || "",
-          );
+          setAccessToken(access_token);
 
           console.log("[TenantStore] Switched { tenantId:", tenantId, "}");
           set({

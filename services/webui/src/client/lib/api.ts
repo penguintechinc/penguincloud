@@ -9,50 +9,71 @@ const api = axios.create({
   },
 });
 
-// Token storage keys
-const ACCESS_TOKEN_KEY = "penguincloud_access_token";
-const REFRESH_TOKEN_KEY = "penguincloud_refresh_token";
+// BFF route that exchanges the HttpOnly refresh cookie for a fresh access
+// token. It is NOT under API_BASE_PATH (it is this app's own Express route,
+// not a portal API endpoint), so it is called with the raw axios instance.
+const REFRESH_URL = "/api/ui/refresh";
 
+// Double-submit CSRF: the BFF sets a readable `csrf` cookie alongside the
+// HttpOnly refresh cookie, and we echo it back in this header on the
+// cookie-authenticated POSTs. A cross-site request cannot read the cookie, so
+// it cannot forge the header.
+const CSRF_COOKIE = "csrf";
+export const CSRF_HEADER = "X-CSRF-Token";
+
+// The access token is kept in module memory ONLY — never localStorage, never
+// a cookie. It is short-lived; on a 401 (and on first load, via
+// useAuth.checkAuth) the client silently re-derives one from the HttpOnly
+// refresh cookie through the BFF. The refresh token is never visible to this
+// code. This removes the durable, XSS-readable token that previously sat in
+// localStorage.
 let accessToken: string | null = null;
-let refreshToken: string | null = null;
 
-// This module is browser-only — it is imported from React code and from
-// nothing the Express server loads — so localStorage is always present and the
-// former `typeof window !== "undefined"` guards were dead branches.
-function hydrateTokens(): void {
-  accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-  refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-  console.log(
-    "[ApiClient] Hydrate { hasAccess:",
-    !!accessToken,
-    "hasRefresh:",
-    !!refreshToken,
-    "}",
-  );
-}
-
-export function setTokens(access: string, refresh: string): void {
+export function setAccessToken(access: string): void {
   accessToken = access;
-  refreshToken = refresh;
-  localStorage.setItem(ACCESS_TOKEN_KEY, access);
-  localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
-  console.log("[ApiClient] SetTokens { stored: true }");
+  console.log("[ApiClient] SetAccessToken { stored: true }");
 }
 
-export function clearTokens(): void {
+export function clearAccessToken(): void {
   accessToken = null;
-  refreshToken = null;
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  console.log("[ApiClient] ClearTokens { cleared: true }");
+  console.log("[ApiClient] ClearAccessToken { cleared: true }");
 }
 
 export function getAccessToken(): string | null {
   return accessToken;
 }
 
-// Hydrate on module load
-hydrateTokens();
+/** Reads the readable `csrf` cookie for the double-submit header. Returns the
+ *  empty string when absent so the header is always present (the BFF rejects a
+ *  mismatch either way). */
+function readCsrfToken(): string {
+  const match = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${CSRF_COOKIE}=`));
+  return match ? decodeURIComponent(match.slice(CSRF_COOKIE.length + 1)) : "";
+}
+
+/**
+ * Exchanges the HttpOnly refresh cookie for a fresh access token via the BFF.
+ * The refresh token itself never passes through this code: the browser sends
+ * the cookie, the BFF calls the backend server-side and rotates the cookie.
+ * Resolves to the new access token (also stored in memory) or null when the
+ * BFF returned no token. Rejects when there is no valid session to refresh.
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  const response = await axios.post(
+    REFRESH_URL,
+    {},
+    { headers: { [CSRF_HEADER]: readCsrfToken() } },
+  );
+  const access =
+    typeof response.data?.access_token === "string"
+      ? response.data.access_token
+      : null;
+  if (access) setAccessToken(access);
+  return access;
+}
 
 // Request interceptor — attach access token and tenant scope
 api.interceptors.request.use(
@@ -75,7 +96,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error),
 );
 
-// Response interceptor — handle 401 and token refresh
+// Response interceptor — handle 401 by silently refreshing via the BFF cookie
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -83,25 +104,22 @@ api.interceptors.response.use(
 
     if (
       error.response?.status === 401 &&
-      !originalRequest._retry &&
-      refreshToken
+      originalRequest &&
+      !originalRequest._retry
     ) {
       originalRequest._retry = true;
 
       try {
-        const response = await axios.post("/api/v1/auth/refresh", {
-          refresh_token: refreshToken,
-        });
-
-        const { access_token, refresh_token: newRefresh } = response.data;
-        setTokens(access_token, newRefresh);
+        const access = await refreshAccessToken();
         console.log("[ApiClient] TokenRefresh { success: true }");
 
-        originalRequest.headers.Authorization = `Bearer ${access_token}`;
+        if (access && originalRequest.headers) {
+          originalRequest.headers.Authorization = `Bearer ${access}`;
+        }
         return api(originalRequest);
       } catch {
         console.log("[ApiClient] TokenRefresh { error: true }");
-        clearTokens();
+        clearAccessToken();
         // `assign` rather than setting `href`: identical behaviour, and it is
         // a method, so it can be observed in tests (jsdom's `location.href`
         // is non-configurable).

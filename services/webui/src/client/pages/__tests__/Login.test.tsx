@@ -39,10 +39,11 @@ function mockFetchOnce(status: number, payload: unknown) {
   });
 }
 
+// The BFF returns only the access token in the body now; the refresh token
+// was set as an HttpOnly cookie and is never present here.
 const SUCCESS_PAYLOAD = {
   success: true,
   token: "access-abc",
-  refreshToken: "refresh-def",
   user: { id: "1", email: "a@b.test", name: "Ada", roles: ["admin"] },
 };
 
@@ -142,17 +143,14 @@ describe("Login", () => {
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     await waitFor(() =>
-      expect(establishSession).toHaveBeenCalledWith(
-        "access-abc",
-        "refresh-def",
-      ),
+      expect(establishSession).toHaveBeenCalledWith("access-abc"),
     );
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledWith("/", { replace: true }),
     );
   });
 
-  it("ignores a success response that carries no tokens", async () => {
+  it("ignores a success response that carries no token", async () => {
     mockFetchOnce(200, { success: true });
     render(<Login />);
 
@@ -233,19 +231,18 @@ describe("useAuthStore.establishSession", () => {
     useAuthStore.setState({
       user: null,
       accessToken: null,
-      refreshToken: null,
       isAuthenticated: false,
       isLoading: true,
     });
   });
 
-  it("stores the token pair and hydrates the user from /auth/me", async () => {
+  it("stores the access token and hydrates the user from /auth/me", async () => {
     const api = (await import("../../lib/api")).default;
     const getSpy = jest
       .spyOn(api, "get")
       .mockResolvedValue({ data: { id: 1, email: "a@b.test" } });
 
-    await useAuthStore.getState().establishSession("acc", "ref");
+    await useAuthStore.getState().establishSession("acc");
 
     expect(getSpy).toHaveBeenCalledWith("/auth/me");
     const state = useAuthStore.getState();
@@ -261,7 +258,7 @@ describe("useAuthStore.establishSession", () => {
       .spyOn(api, "get")
       .mockRejectedValue(new Error("network"));
 
-    await useAuthStore.getState().establishSession("acc", "ref");
+    await useAuthStore.getState().establishSession("acc");
 
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(true);
