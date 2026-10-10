@@ -643,6 +643,13 @@ async def enable_mfa(user_id: int) -> bool:
     return bool(rows)
 
 
+async def update_mfa_last_counter(user_id: int, counter: int) -> bool:
+    """Record the highest accepted TOTP time-step counter (replay guard)."""
+    db = get_db()
+    rows = await db(db.mfa_secrets.user_id == user_id).update(last_totp_counter=counter)
+    return bool(rows)
+
+
 async def disable_mfa(user_id: int) -> bool:
     """Disable MFA for user (async)."""
     db = get_db()

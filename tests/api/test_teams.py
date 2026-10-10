@@ -370,6 +370,66 @@ class TestTeamRoles:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("enterprise_license")
+    async def test_team_admin_cannot_demote_or_remove_owner(
+        self, client: Any, app: Any, auth_headers: dict[str, str]
+    ) -> None:
+        """A teams:manage admin cannot strip the owner's role or membership.
+
+        team_scopes derives authority from the team_members.role row, so
+        demoting the owner to "member" or deleting the owner's row would
+        revoke the owner's own teams:manage/teams:delete. The owner must be
+        protected, as on the tenant member routes.
+        """
+        import uuid
+
+        import jwt
+        from penguin_dal.quart_ext import get_db
+
+        create = await client.post(
+            "/api/v1/teams",
+            headers=auth_headers,
+            json={"name": "OwnedTeam", "slug": f"owned-{uuid.uuid4().hex[:6]}"},
+        )
+        assert create.status_code == 201, await create.get_json()
+        team_id = (await create.get_json())["id"]
+
+        owner_token = auth_headers["Authorization"].split()[1]
+        owner_id = int(jwt.decode(owner_token, options={"verify_signature": False})["sub"])
+
+        # Register + log in a second user, enrolled directly as an ADMIN.
+        admin_email = f"teamadmin-{uuid.uuid4().hex[:8]}@example.com"
+        await client.post(
+            "/api/v1/auth/register",
+            json={"email": admin_email, "password": "testpass123", "full_name": "Team Admin"},
+        )
+        login = await client.post(
+            "/api/v1/auth/login", json={"email": admin_email, "password": "testpass123"}
+        )
+        admin_token = (await login.get_json())["access_token"]
+        admin_id = int(jwt.decode(admin_token, options={"verify_signature": False})["sub"])
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        async with app.app_context():
+            db = get_db()
+            await db.team_members.async_insert(team_id=team_id, user_id=admin_id, role="admin")
+            await db.commit()
+
+        # The admin holds teams:manage, so these reach the owner guard (not the
+        # scope gate) — and are refused there.
+        demote = await client.put(
+            f"/api/v1/teams/{team_id}/members/{owner_id}",
+            headers=admin_headers,
+            json={"role": "member"},
+        )
+        assert demote.status_code == 403, await demote.get_json()
+
+        remove = await client.delete(
+            f"/api/v1/teams/{team_id}/members/{owner_id}", headers=admin_headers
+        )
+        assert remove.status_code == 403, await remove.get_json()
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("enterprise_license")
     # Free licences one team, and registration already consumed it for a
     # personal team. This test creates a second, which is a paid shape.
     async def test_update_member_role(self, client: Any, auth_headers: dict[str, str]) -> None:

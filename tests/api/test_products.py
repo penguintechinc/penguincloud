@@ -625,6 +625,44 @@ async def test_product_tenant_mapping_rejects_cross_tenant_bind(
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("enterprise_license")
+async def test_get_product_in_another_tenant_is_404_not_403(client: Any) -> None:
+    """A connection in another tenant must read as 404, never 403.
+
+    Regression for a cross-tenant existence oracle: the product routes used
+    to return 404 for a missing id but 403 for an id that exists in a tenant
+    the caller has no role in, letting anyone walk the product_id space and
+    map every connection (and infer other tenants) across the deployment.
+    A non-member must get the same 404 as a nonexistent id.
+    """
+    owner_headers, _ = await _new_owner(client)
+    stranger_headers, _ = await _new_owner(client)
+
+    owner_tenant = await _make_tenant(client, owner_headers, "Owner")
+    await _make_tenant(client, stranger_headers, "Stranger")
+
+    created = await _register_product(client, owner_headers, owner_tenant)
+    product_id = created["id"]
+
+    # The stranger (member of no tenant that owns this connection) must not be
+    # able to tell this id apart from one that does not exist.
+    for path in (
+        f"/api/v1/products/{product_id}",
+        f"/api/v1/products/{product_id}/health",
+        f"/api/v1/products/{product_id}/schema",
+    ):
+        resp = await client.get(path, headers=stranger_headers)
+        assert resp.status_code == 404, (
+            f"{path} leaked existence to a non-member: "
+            f"{resp.status_code} {await resp.get_json()}"
+        )
+
+    # Same for a genuinely nonexistent id -- identical response.
+    missing = await client.get("/api/v1/products/99999999", headers=stranger_headers)
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("enterprise_license")
 # Builds a multi-tenant / delegated-admin structure, which the tier
 # model sells at Enterprise.
 async def test_product_tenant_mapping_allows_descendant_bind_by_admin(

@@ -241,6 +241,15 @@ async def update_member_role(team_id: int, member_user_id: int) -> tuple[dict[st
     if denied:
         return denied
 
+    # The team owner's role is not an admin's to change: team_scopes derives
+    # authority from the team_members.role row, so letting any teams:manage
+    # holder demote the owner to "member" would strip the owner's own
+    # teams:manage/teams:delete. Mirrors the owner protection on the tenant
+    # member routes (app/tenants.py).
+    team = await get_team_by_id(team_id)
+    if team and team.get("owner_id") == member_user_id:
+        return {"error": "Team owner's role cannot be changed"}, 403
+
     data = await request.get_json()
     if not data:
         return {"error": "Request body required"}, 400
@@ -273,6 +282,12 @@ async def remove_team_member(team_id: int, member_user_id: int) -> tuple[dict[st
     denied = await require_team_scope(user["id"], team_id, SCOPE_TEAMS_MANAGE)
     if denied:
         return denied
+
+    # Owner protection: an admin cannot remove the owner's membership row
+    # (which would revoke the owner's team authority). See update_member_role.
+    team = await get_team_by_id(team_id)
+    if team and team.get("owner_id") == member_user_id:
+        return {"error": "Team owner cannot be removed"}, 403
 
     db = get_db()
     deleted = await db(

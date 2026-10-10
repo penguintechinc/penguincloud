@@ -40,6 +40,20 @@ async def _setup_and_enable_mfa(client: Any, headers: dict[str, str]) -> dict[st
     return setup_body
 
 
+def _next_totp_code(secret: str) -> str:
+    """A TOTP code for the NEXT time-step.
+
+    TOTP codes are single-use (app.mfa.verify_totp_code records the last
+    accepted counter and rejects any code at or below it), so a second MFA
+    action in the same test cannot reuse the code that enabled MFA. The next
+    window's code is still inside the server's +/-1-step acceptance window and
+    carries a higher counter, so it is accepted exactly once.
+    """
+    import time as _time
+
+    return str(pyotp.TOTP(secret).at(int(_time.time()), counter_offset=1))
+
+
 class TestSetupMfa:
     """POST /api/v1/mfa/setup."""
 
@@ -227,7 +241,7 @@ class TestDisableMfa:
     ) -> None:
         """The genuine happy path actually removes the MFA secret row."""
         setup_body = await _setup_and_enable_mfa(client, auth_headers)
-        code = pyotp.TOTP(setup_body["secret"]).now()
+        code = _next_totp_code(setup_body["secret"])
 
         response = await client.post(
             "/api/v1/mfa/disable",
@@ -376,7 +390,7 @@ class TestRegenerateBackupCodes:
     ) -> None:
         """Regeneration actually persists a new set, not just returns one."""
         setup_body = await _setup_and_enable_mfa(client, auth_headers)
-        code = pyotp.TOTP(setup_body["secret"]).now()
+        code = _next_totp_code(setup_body["secret"])
 
         response = await client.post(
             "/api/v1/mfa/backup-codes/regenerate", headers=auth_headers, json={"code": code}
@@ -420,6 +434,38 @@ class TestLoginWithMfaEnabled:
     Previously untested end-to-end: an account with MFA enabled must
     supply a valid TOTP code to log in at all.
     """
+
+    @pytest.mark.asyncio
+    async def test_totp_code_cannot_be_replayed(
+        self, client: Any, auth_headers: dict[str, str]
+    ) -> None:
+        """A TOTP code is single-use: the code that enabled MFA is rejected on login.
+
+        _setup_and_enable_mfa consumes the current window's code; replaying
+        that same code at login must fail, while the next window's code (a
+        higher counter) succeeds.
+        """
+        setup_body = await _setup_and_enable_mfa(client, auth_headers)
+        replayed = pyotp.TOTP(setup_body["secret"]).now()  # same counter as enable
+
+        profile = await client.get("/api/v1/users/me", headers=auth_headers)
+        email = (await profile.get_json())["email"]
+
+        replay = await client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": "testpass123", "mfa_code": replayed},
+        )
+        assert replay.status_code == 401
+
+        fresh = await client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": email,
+                "password": "testpass123",
+                "mfa_code": _next_totp_code(setup_body["secret"]),
+            },
+        )
+        assert fresh.status_code == 200
 
     @pytest.mark.asyncio
     async def test_missing_code_is_rejected_with_mfa_required_flag(
@@ -467,7 +513,7 @@ class TestLoginWithMfaEnabled:
     ) -> None:
         """The genuine happy path: password + real TOTP code together succeed."""
         setup_body = await _setup_and_enable_mfa(client, auth_headers)
-        code = pyotp.TOTP(setup_body["secret"]).now()
+        code = _next_totp_code(setup_body["secret"])
 
         profile = await client.get("/api/v1/users/me", headers=auth_headers)
         email = (await profile.get_json())["email"]

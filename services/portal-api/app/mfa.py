@@ -2,6 +2,7 @@
 
 import json
 import secrets
+import time
 from typing import Any
 
 import pyotp
@@ -15,9 +16,46 @@ from .models import (
     enable_mfa,
     get_db,
     get_mfa_secret,
+    update_mfa_last_counter,
 )
 
 mfa_bp = Blueprint("mfa", __name__)
+
+#: TOTP step, in seconds (pyotp's default). One counter == one 30s window.
+_TOTP_STEP = 30
+
+
+async def verify_totp_code(
+    user_id: int, mfa_record: dict[str, Any], code: str, *, valid_window: int = 1
+) -> bool:
+    """Verify a TOTP code and consume it to prevent replay.
+
+    pyotp's ``TOTP.verify`` accepts any code inside ``valid_window`` but does
+    not record that it was used, so the same code is replayable for the whole
+    window. This instead finds the matching time-step counter, rejects it if
+    its counter is at or below the last one accepted for the user
+    (``last_totp_counter``), and otherwise advances the stored counter — so a
+    given code works exactly once.
+    """
+    secret = mfa_record.get("secret")
+    if not secret or not code:
+        return False
+
+    totp = pyotp.TOTP(secret)
+    now = int(time.time())
+    last = mfa_record.get("last_totp_counter")
+
+    # Check the window oldest-first so the recorded counter only ever moves
+    # forward to the step that actually matched.
+    for offset in range(-valid_window, valid_window + 1):
+        ts = now + offset * _TOTP_STEP
+        counter = ts // _TOTP_STEP
+        if pyotp.utils.strings_equal(str(totp.at(ts)), str(code)):
+            if last is not None and counter <= int(last):
+                return False  # already used (replay) or older than the last accepted
+            await update_mfa_last_counter(user_id, counter)
+            return True
+    return False
 
 
 def generate_backup_codes(count: int = 10) -> list[str]:
@@ -102,9 +140,8 @@ async def verify_mfa() -> tuple[Any, int]:
     if not mfa:
         return jsonify({"error": "MFA secret not found"}), 404
 
-    # Verify TOTP code (allow 30-second window)
-    totp = pyotp.TOTP(mfa["secret"])
-    if not totp.verify(totp_code, valid_window=1):
+    # Verify TOTP code (allow 30-second window), single-use
+    if not await verify_totp_code(user_id, mfa, totp_code):
         return jsonify({"error": "Invalid TOTP code"}), 401
 
     # Enable MFA
@@ -157,8 +194,7 @@ async def disable_mfa_endpoint() -> tuple[Any, int]:
     if not mfa:
         return jsonify({"error": "MFA not enabled"}), 404
 
-    totp = pyotp.TOTP(mfa["secret"])
-    if not totp.verify(totp_code, valid_window=1):
+    if not await verify_totp_code(user_id, mfa, totp_code):
         return jsonify({"error": "Invalid TOTP code"}), 401
 
     # Disable MFA
@@ -207,8 +243,7 @@ async def regenerate_backup_codes() -> tuple[Any, int]:
     if not mfa or not mfa.get("enabled_at"):
         return jsonify({"error": "MFA not enabled"}), 404
 
-    totp = pyotp.TOTP(mfa["secret"])
-    if not totp.verify(totp_code, valid_window=1):
+    if not await verify_totp_code(user_id, mfa, totp_code):
         return jsonify({"error": "Invalid TOTP code"}), 401
 
     # Generate new backup codes

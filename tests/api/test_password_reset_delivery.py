@@ -104,6 +104,23 @@ class _RefusingFakeSMTP(_FakeSMTP):
         raise smtplib.SMTPRecipientsRefused({message["To"]: (550, b"mailbox unavailable")})
 
 
+async def _drain_background_tasks(app: Quart) -> None:
+    """Await any fire-and-forget delivery tasks the endpoint scheduled.
+
+    forgot_password now schedules _deliver_password_reset_token via
+    current_app.add_background_task (so SMTP latency can't leak whether the
+    address exists), so the delivery no longer completes within the request.
+    Tests that assert on the delivery/counter/log must wait for it here.
+    """
+    import asyncio
+
+    for _ in range(100):
+        tasks = list(app.background_tasks)
+        if not tasks:
+            return
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def _register(client: Any, **overrides: Any) -> tuple[str, Any]:
     email = overrides.pop("email", f"resetdel-{uuid.uuid4().hex[:8]}@example.com")
     payload = {"email": email, "password": PASSWORD, "full_name": "Reset Delivery Test"}
@@ -116,7 +133,7 @@ class TestUnconfiguredTransport:
     """SMTP_HOST unset — the state this service shipped in before Job 2."""
 
     async def test_caller_still_gets_the_generic_ack(
-        self, client: Any, monkeypatch: pytest.MonkeyPatch
+        self, client: Any, app: Quart, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The HTTP response must not change when delivery cannot happen."""
         monkeypatch.delenv("SMTP_HOST", raising=False)
@@ -126,6 +143,8 @@ class TestUnconfiguredTransport:
         response = await client.post("/api/v1/auth/forgot-password", json={"email": email})
         assert response.status_code == 200
         assert (await response.get_json()) == auth.PASSWORD_RESET_ACK
+        # Drain the fire-and-forget delivery task so it does not outlive the test.
+        await _drain_background_tasks(app)
 
     async def test_operator_is_told_loudly(
         self, app: Quart, monkeypatch: pytest.MonkeyPatch
@@ -191,6 +210,7 @@ class TestConfiguredTransport:
         assert response.status_code == 200
         assert (await response.get_json()) == auth.PASSWORD_RESET_ACK
 
+        await _drain_background_tasks(app)
         assert len(sent) == 1, "delivery must be attempted exactly once"
         transport = sent[0]
         assert transport.host == "smtp.example.internal"
@@ -208,6 +228,7 @@ class TestConfiguredTransport:
     async def test_smtp_failure_does_not_change_the_response_but_is_counted(
         self,
         client: Any,
+        app: Quart,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A refused recipient must not surface as anything but the generic ACK."""
@@ -229,6 +250,7 @@ class TestConfiguredTransport:
         assert response.status_code == 200
         assert (await response.get_json()) == auth.PASSWORD_RESET_ACK
 
+        await _drain_background_tasks(app)
         after = auth.PASSWORD_RESET_DELIVERY_ERRORS_COUNTER.labels(reason="smtp_error")._value.get()
         assert after == before + 1
 
@@ -249,6 +271,7 @@ class TestNoLeakage:
     async def test_token_and_email_absent_from_every_log_call_on_success(
         self,
         client: Any,
+        app: Quart,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A successful delivery logs nothing that identifies the recipient."""
@@ -264,6 +287,7 @@ class TestNoLeakage:
         response = await client.post("/api/v1/auth/forgot-password", json={"email": email})
         assert response.status_code == 200
 
+        await _drain_background_tasks(app)
         # No error/warning on the happy path, and — the actual guarantee —
         # nothing logged anywhere carries the address.
         assert email not in fake_log.blob()

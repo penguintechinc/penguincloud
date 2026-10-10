@@ -11,7 +11,6 @@ from email.message import EmailMessage
 from typing import Any, Final
 
 import bcrypt
-import pyotp
 from penguin_aaa.authn.oidc_provider import OIDCProvider
 from penguin_aaa.authn.types import Claims
 from penguintechinc_utils.logging import get_logger
@@ -365,13 +364,14 @@ async def login() -> tuple[Any, int]:
         if not totp_code:
             return {"error": "MFA code required", "mfa_required": True}, 401
 
-        # Verify TOTP code
+        # Verify TOTP code (single-use: consumed to prevent replay)
         mfa = await get_mfa_secret(user["id"])
         if not mfa:
             return {"error": "MFA configuration error"}, 500
 
-        totp = pyotp.TOTP(mfa["secret"])
-        if not totp.verify(totp_code, valid_window=1):
+        from .mfa import verify_totp_code
+
+        if not await verify_totp_code(user["id"], mfa, totp_code):
             return {"error": "Invalid MFA code"}, 401
 
     # Generate tokens using penguin-aaa and record the refresh token so it
@@ -846,7 +846,17 @@ async def forgot_password() -> tuple[dict[str, Any], int]:
         from .auth_features import create_password_reset_token
 
         token, expires_at = await create_password_reset_token(user["id"])
-        await _deliver_password_reset_token(user["id"], user["email"], token, expires_at)
+        # Fire-and-forget: the token insert is cheap and constant, but SMTP
+        # delivery is slow and variable. Awaiting it here would make the
+        # response time depend on whether the address exists (only the
+        # user-exists branch sends mail), reopening the user-enumeration
+        # oracle the constant PASSWORD_RESET_ACK body exists to close.
+        # Delivery still runs (and still fails loudly to the operator via the
+        # error counter + log inside _deliver_password_reset_token); it just
+        # no longer gates the response.
+        current_app.add_background_task(
+            _deliver_password_reset_token, user["id"], user["email"], token, expires_at
+        )
 
     return dict(PASSWORD_RESET_ACK), 200
 
