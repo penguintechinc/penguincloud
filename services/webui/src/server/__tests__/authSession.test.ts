@@ -48,10 +48,7 @@ const CONFIG = {
 };
 
 /** Finds the Set-Cookie entry for a given cookie name. */
-function cookie(
-  res: request.Response,
-  name: string,
-): string | undefined {
+function cookie(res: request.Response, name: string): string | undefined {
   const raw = res.headers["set-cookie"] as unknown as string[] | undefined;
   return (raw ?? []).find((c) => c.startsWith(`${name}=`));
 }
