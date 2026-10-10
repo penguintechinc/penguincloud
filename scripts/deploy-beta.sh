@@ -7,11 +7,15 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 KUBE_CONTEXT="${KUBE_CONTEXT:-dal2-beta}"
 NAMESPACE="${NAMESPACE:-penguincloud-beta}"
-RELEASE_NAME="penguincloud"
-CHART_PATH="$PROJECT_ROOT/k8s/helm/project-template"
-VALUES_FILE="$CHART_PATH/values-beta.yaml"
+HELM_DIR="$PROJECT_ROOT/k8s/helm"
+VALUES_ENV="beta"
 IMAGE_REGISTRY="registry-dal2.penguintech.io"
 APP_HOST="penguincloud.penguintech.cloud"
+
+# Charts to deploy. The release name equals the chart dir name, which (via the
+# charts' <chart>.fullname helper) also becomes the Deployment name — e.g.
+# release "portal-api" -> deployment/portal-api in $NAMESPACE.
+DEPLOY_SERVICES=("portal-api" "webui" "valkey")
 
 DRY_RUN=0
 ROLLBACK=0
@@ -72,27 +76,58 @@ build_and_push_images() {
 
 do_deploy() {
     log_section "Deploying with Helm"
-    local helm_args=("upgrade" "--install" "$RELEASE_NAME" "$CHART_PATH" "--kube-context=$KUBE_CONTEXT" "--namespace=$NAMESPACE" "--values=$VALUES_FILE" "--set=image.tag=$IMAGE_TAG" "--wait" "--timeout=10m")
+    # portal-api / webui beta values require an explicit image tag; when images
+    # were not built this run, fall back to the floating "beta" tag that
+    # build_and_push_images also publishes.
+    if [ -z "$IMAGE_TAG" ]; then IMAGE_TAG="beta"; fi
+
+    local create_ns=()
     if ! kubectl --context="$KUBE_CONTEXT" get namespace "$NAMESPACE" &>/dev/null; then
-        helm_args+=("--create-namespace")
+        create_ns+=("--create-namespace")
     fi
-    if [ "$DRY_RUN" -eq 1 ]; then
-        helm_args+=("--dry-run")
-        log_warn "DRY RUN MODE"
-    fi
-    helm "${helm_args[@]}"
+
+    for svc in "${DEPLOY_SERVICES[@]}"; do
+        if [ -n "$SERVICE" ] && [ "$SERVICE" != "$svc" ]; then continue; fi
+        local chart_path="$HELM_DIR/$svc"
+        local values_file="$chart_path/$VALUES_ENV.yml"
+        if [ ! -d "$chart_path" ]; then log_error "Chart not found: $chart_path"; return 1; fi
+        if [ ! -f "$values_file" ]; then log_error "Values file not found: $values_file"; return 1; fi
+
+        log_info "Deploying chart: $svc (release=$svc)"
+        local helm_args=("upgrade" "--install" "$svc" "$chart_path" "--kube-context=$KUBE_CONTEXT" "--namespace=$NAMESPACE" "--values=$values_file" "--wait" "--timeout=10m")
+        if [ "${#create_ns[@]}" -gt 0 ]; then helm_args+=("${create_ns[@]}"); fi
+        # Only our own built/pushed images get an image override; valkey uses the
+        # pinned upstream image from its chart values.
+        case "$svc" in
+            portal-api|webui)
+                helm_args+=("--set=image.repository=$IMAGE_REGISTRY/penguincloud-$svc" "--set=image.tag=$IMAGE_TAG")
+                ;;
+        esac
+        if [ "$DRY_RUN" -eq 1 ]; then
+            helm_args+=("--dry-run")
+            log_warn "DRY RUN MODE"
+        fi
+        helm "${helm_args[@]}"
+    done
 }
 
 do_rollback() {
     log_section "Rolling Back"
-    helm rollback "$RELEASE_NAME" --kube-context="$KUBE_CONTEXT" -n "$NAMESPACE"
+    for svc in "${DEPLOY_SERVICES[@]}"; do
+        if [ -n "$SERVICE" ] && [ "$SERVICE" != "$svc" ]; then continue; fi
+        log_info "Rolling back release: $svc"
+        helm rollback "$svc" --kube-context="$KUBE_CONTEXT" -n "$NAMESPACE" || log_warn "No previous revision for $svc"
+    done
     log_info "Rollback completed"
 }
 
 verify_deployment() {
     if [ "$DRY_RUN" -eq 1 ]; then return 0; fi
     log_section "Verifying Deployment"
-    kubectl --context="$KUBE_CONTEXT" -n "$NAMESPACE" rollout status deployment/"$RELEASE_NAME" --timeout=300s || true
+    for svc in "${DEPLOY_SERVICES[@]}"; do
+        if [ -n "$SERVICE" ] && [ "$SERVICE" != "$svc" ]; then continue; fi
+        kubectl --context="$KUBE_CONTEXT" -n "$NAMESPACE" rollout status deployment/"$svc" --timeout=300s || true
+    done
     kubectl --context="$KUBE_CONTEXT" -n "$NAMESPACE" get pods
 }
 
@@ -118,7 +153,7 @@ main() {
     do_deploy || exit 3
     verify_deployment
     log_section "Deployment Summary"
-    echo -e "${GREEN}✓${NC} Release: $RELEASE_NAME"
+    echo -e "${GREEN}✓${NC} Releases: ${DEPLOY_SERVICES[*]}"
     echo -e "${GREEN}✓${NC} Namespace: $NAMESPACE"
     echo -e "${GREEN}✓${NC} Tag: $IMAGE_TAG"
     echo -e "${GREEN}✓${NC} URL: https://$APP_HOST"
