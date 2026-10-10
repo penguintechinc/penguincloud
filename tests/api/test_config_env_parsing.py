@@ -213,6 +213,10 @@ class TestSecretKeyEndToEndThroughARealEnvVar:
 
                 class _Cfg(config_module.TestingConfig):
                     TESTING = False
+                    # create_app() also requires a configured DB_PASS outside
+                    # TESTING; set a real one so this exercises the SECRET_KEY
+                    # wiring rather than tripping the DB_PASS guard.
+                    DB_PASS = "a-real-db-password-not-a-default"  # noqa: S105
 
                 app = create_app(config_class=_Cfg)
 

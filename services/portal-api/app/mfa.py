@@ -214,9 +214,14 @@ async def regenerate_backup_codes() -> tuple[Any, int]:
     # Generate new backup codes
     new_codes = generate_backup_codes()
 
-    # Update in database via penguin-dal
+    # Update in database via penguin-dal. Encrypt at rest to match
+    # create_mfa_secret (get_mfa_secret decrypts on read).
+    from .encryption import encrypt_value
+
     db = get_db()
-    await db(db.mfa_secrets.user_id == user_id).update(backup_codes=format_backup_codes(new_codes))
+    await db(db.mfa_secrets.user_id == user_id).update(
+        backup_codes=encrypt_value(format_backup_codes(new_codes))
+    )
 
     return (
         jsonify({"message": "Backup codes regenerated", "backup_codes": new_codes}),

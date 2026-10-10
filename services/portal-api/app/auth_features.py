@@ -22,9 +22,26 @@ SQL_TRUE: Any = True
 SQL_FALSE: Any = False
 
 
+def _hash_token(token: str) -> str:
+    """Return the SHA-256 digest used to store bearer tokens at rest.
+
+    Password-reset and email-confirmation tokens are account-takeover-grade
+    credentials, so — like refresh tokens and API keys in this module — only
+    their digest is persisted. The 128-bit random token value (``token_hex(16)``)
+    carries its own entropy, so an unsalted SHA-256 is appropriate and keeps
+    the indexed equality lookup intact. A database read therefore never yields
+    a usable live token.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 # Password reset
 async def create_password_reset_token(user_id: int) -> tuple[str, datetime]:
-    """Create password reset token (async)."""
+    """Create password reset token (async).
+
+    The plaintext token is returned to the caller (emailed to the user); only
+    its SHA-256 digest is stored.
+    """
     token = secrets.token_hex(16)
     expires = datetime.now(UTC) + timedelta(hours=1)
     db = get_db()
@@ -33,7 +50,7 @@ async def create_password_reset_token(user_id: int) -> tuple[str, datetime]:
     # support the context manager protocol".
     await db.password_reset_tokens.async_insert(
         user_id=user_id,
-        token=token,
+        token=_hash_token(token),
         expires_at=expires,
     )
     return token, expires
@@ -43,7 +60,7 @@ async def validate_password_reset_token(token: str) -> int | None:
     """Validate reset token, return user_id or None (async)."""
     db = get_db()
     rows = await db(
-        (db.password_reset_tokens.token == token)
+        (db.password_reset_tokens.token == _hash_token(token))
         & (db.password_reset_tokens.expires_at > datetime.now(UTC))
         & (db.password_reset_tokens.used_at == SQL_NULL)
     ).select()
@@ -53,18 +70,22 @@ async def validate_password_reset_token(token: str) -> int | None:
 async def mark_token_used(token: str) -> None:
     """Mark password reset token as used (async)."""
     db = get_db()
-    await db(db.password_reset_tokens.token == token).update(used_at=datetime.now(UTC))
+    await db(db.password_reset_tokens.token == _hash_token(token)).update(used_at=datetime.now(UTC))
 
 
 # Email confirmation
 async def create_email_confirmation_token(user_id: int) -> tuple[str, datetime]:
-    """Create email confirmation token (async)."""
+    """Create email confirmation token (async).
+
+    As with reset tokens, only the SHA-256 digest is persisted; the plaintext
+    is returned for delivery to the user.
+    """
     token = secrets.token_hex(16)
     expires = datetime.now(UTC) + timedelta(hours=24)
     db = get_db()
     await db.email_confirmation_tokens.async_insert(
         user_id=user_id,
-        token=token,
+        token=_hash_token(token),
         expires_at=expires,
     )
     return token, expires
@@ -74,7 +95,7 @@ async def validate_email_token(token: str) -> int | None:
     """Validate email token, return user_id or None (async)."""
     db = get_db()
     rows = await db(
-        (db.email_confirmation_tokens.token == token)
+        (db.email_confirmation_tokens.token == _hash_token(token))
         & (db.email_confirmation_tokens.expires_at > datetime.now(UTC))
         & (db.email_confirmation_tokens.confirmed_at == SQL_NULL)
     ).select()
@@ -84,7 +105,9 @@ async def validate_email_token(token: str) -> int | None:
 async def confirm_email(token: str) -> bool:
     """Mark email as confirmed (async)."""
     db = get_db()
-    await db(db.email_confirmation_tokens.token == token).update(confirmed_at=datetime.now(UTC))
+    await db(db.email_confirmation_tokens.token == _hash_token(token)).update(
+        confirmed_at=datetime.now(UTC)
+    )
     return True
 
 

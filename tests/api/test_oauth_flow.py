@@ -359,7 +359,7 @@ class TestOAuthCallback:
                 {"access_token": "at1", "refresh_token": "rt1", "expires_in": 3600}
             ),
             userinfo_response=_FakeOAuthResponse(
-                {"sub": provider_sub, "email": email, "name": "SSO User"}
+                {"sub": provider_sub, "email": email, "email_verified": True, "name": "SSO User"}
             ),
         )
         state = await _get_state_from_redirect(client)
@@ -414,7 +414,12 @@ class TestOAuthCallback:
             monkeypatch,
             token_response=_FakeOAuthResponse({"access_token": "at1", "expires_in": 3600}),
             userinfo_response=_FakeOAuthResponse(
-                {"sub": f"g-{uuid.uuid4().hex[:8]}", "email": email, "name": "Ignored Name"}
+                {
+                    "sub": f"g-{uuid.uuid4().hex[:8]}",
+                    "email": email,
+                    "email_verified": True,
+                    "name": "Ignored Name",
+                }
             ),
         )
         state = await _get_state_from_redirect(client)
@@ -433,6 +438,54 @@ class TestOAuthCallback:
 
             connection = await get_oauth_connection(existing_user_id, "google")
         assert connection is not None
+
+    @pytest.mark.asyncio
+    async def test_unverified_email_cannot_link_to_existing_account(
+        self,
+        client: Any,
+        app: Quart,
+        google_provider: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Account-takeover guard: an unverified provider email is refused.
+
+        Without the email_verified check a user who controls an account at a
+        configured IdP could set its email to a victim's and be handed the
+        victim's existing account plus a full token set. The callback must
+        refuse to use an unverified address as an account key, and must not
+        link a connection to the victim.
+        """
+        email = f"victim-{uuid.uuid4().hex[:8]}@example.com"
+        register = await client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": "victimpass123", "full_name": "Victim User"},
+        )
+        assert register.status_code in (200, 201)
+        victim_user_id = int((await register.get_json())["user"]["id"])
+
+        _install_fake_exchange(
+            monkeypatch,
+            token_response=_FakeOAuthResponse({"access_token": "at1", "expires_in": 3600}),
+            userinfo_response=_FakeOAuthResponse(
+                {
+                    "sub": f"g-{uuid.uuid4().hex[:8]}",
+                    "email": email,
+                    "email_verified": False,  # attacker-controlled, unverified
+                    "name": "Attacker",
+                }
+            ),
+        )
+        state = await _get_state_from_redirect(client)
+
+        response = await client.get(f"/api/v1/auth/oauth/google/callback?state={state}&code=abc123")
+
+        assert response.status_code == 400
+        # No connection was linked to the victim's account.
+        async with app.app_context():
+            from app.models import get_oauth_connection
+
+            connection = await get_oauth_connection(victim_user_id, "google")
+        assert connection is None
 
     @pytest.mark.asyncio
     async def test_existing_oauth_connection_links_by_provider_id(
@@ -500,6 +553,7 @@ class TestOAuthCallback:
                 {
                     "sub": f"g-{uuid.uuid4().hex[:8]}",
                     "email": f"cap-{uuid.uuid4().hex[:8]}@example.com",
+                    "email_verified": True,
                 }
             ),
         )

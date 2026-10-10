@@ -447,6 +447,12 @@ async def change_password() -> tuple[dict[str, Any], int]:
 
     new_hash = await hash_password_async(data["new_password"])
     await update_user(user["id"], password_hash=new_hash)
+    # Invalidate all existing refresh tokens on credential change so a
+    # previously-stolen session cannot outlive the password it was tied to
+    # (see the same guard in auth.reset_password).
+    from .models import revoke_all_user_tokens
+
+    await revoke_all_user_tokens(user["id"])
     return {"message": "Password changed"}, 200
 
 

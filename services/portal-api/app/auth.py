@@ -200,6 +200,17 @@ async def verify_password_async(password: str, password_hash: str) -> bool:
     return await loop.run_in_executor(None, lambda: bcrypt.checkpw(pwd_bytes, hash_bytes))
 
 
+#: Fixed dummy bcrypt hash used to equalize login timing when the submitted
+#: email matches no account. Verifying against it makes the not-found path do
+#: the same (deliberately slow) bcrypt work as the found path, so response
+#: latency no longer distinguishes "registered" from "not registered" (user
+#: enumeration). Not a credential — it is the hash of a throwaway constant,
+#: never compared for authentication.
+_DUMMY_PASSWORD_HASH = bcrypt.hashpw(b"timing-equalizer-not-a-credential", bcrypt.gensalt()).decode(
+    "utf-8"
+)
+
+
 async def create_token_set_async(
     user_id: int,
     tenant_id: str,
@@ -333,6 +344,10 @@ async def login() -> tuple[Any, int]:
     # Find user
     user = await get_user_by_email(email)
     if not user:
+        # Perform a dummy bcrypt verification so an unknown email costs the
+        # same as a known one — otherwise the latency gap is a user-
+        # enumeration oracle despite the constant error body.
+        await verify_password_async(password, _DUMMY_PASSWORD_HASH)
         return {"error": "Invalid email or password"}, 401
 
     # Verify password
@@ -854,11 +869,18 @@ async def reset_password() -> tuple[dict[str, Any], int]:
     if len(password) < 8:
         return {"error": "Password must be 8+ characters"}, 400
 
-    from .models import update_user
+    from .models import revoke_all_user_tokens, update_user
 
     password_hash = await hash_password_async(password)
     await update_user(user_id, password_hash=password_hash)
     await mark_token_used(data["token"])
+    # Credential rotation must invalidate every outstanding session: a reset
+    # is the standard "someone has my account" remediation, so any refresh
+    # token an attacker already holds has to die here. /auth/refresh only
+    # re-checks is_active, not a credential version, so without this a stolen
+    # refresh token would keep minting access tokens for up to its full TTL
+    # after the victim reset their password.
+    await revoke_all_user_tokens(user_id)
     return {"message": "Password reset successful"}, 200
 
 

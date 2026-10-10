@@ -19,6 +19,7 @@ from .adapter_errors import UPSTREAM_RESPONSE_HEADER
 from .background import get_background_manager
 from .config import (
     MIN_SECRET_KEY_LENGTH,
+    PUBLISHED_INSECURE_DB_PASSWORDS,
     PUBLISHED_INSECURE_SECRET_KEY_VALUES,
     Config,
 )
@@ -101,6 +102,33 @@ def _require_configured_secret_key(app: Quart) -> None:
         "or trivial key makes that state forgeable. Set SECRET_KEY to a "
         "real, unpredictable secret (see docs/DEVELOPMENT.md) before "
         "starting outside TESTING."
+    )
+
+
+def _require_configured_db_password(app: Quart) -> None:
+    """Refuse to start with a published default DB password outside TESTING.
+
+    Unlike SECRET_KEY, an unset DB_PASS resolves to the repository-published
+    literal ``"app_pass"`` rather than failing closed, so a deployment run
+    outside docker-compose (which wires DB_PASS from a required
+    ``${POSTGRES_PASSWORD:?...}``) would silently connect with — or, on first
+    provisioning, set — a guessable credential. Same TESTING carve-out and
+    same fail-closed stance as ``_require_configured_secret_key``.
+    """
+    if app.config.get("TESTING"):
+        return
+
+    raw = app.config.get("DB_PASS")
+    normalized = raw.strip() if isinstance(raw, str) else ""
+
+    if normalized and normalized not in PUBLISHED_INSECURE_DB_PASSWORDS:
+        return
+
+    raise RuntimeError(
+        "DB_PASS is not configured with a real secret (unset, empty, "
+        "whitespace-only, or a known published default). Set DB_PASS to the "
+        "real database password (see docs/DEVELOPMENT.md) before starting "
+        "outside TESTING."
     )
 
 
@@ -259,6 +287,7 @@ def create_app(config_class: type[Config] = Config) -> Quart:
     # config load, before anything (session, CORS, blueprints) could rely
     # on it. See _require_configured_secret_key's docstring.
     _require_configured_secret_key(app)
+    _require_configured_db_password(app)
 
     # Set session/cookie configuration
     app.config["SESSION_COOKIE_SECURE"] = True

@@ -171,14 +171,29 @@ class TestForgotPasswordTokenLeak:
         assert "expires_at" not in body
 
     @pytest.mark.asyncio
-    async def test_reset_token_still_persisted_and_usable(self, client: Any, app: Quart) -> None:
-        """The token still reaches the DB, so a legitimately-obtained one works.
+    async def test_reset_token_still_persisted_and_usable(
+        self, client: Any, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The token still works end to end, and only its hash is stored.
 
         Paired with the rejection test above: suppressing the token from the
         response would also "fix" the leak by breaking password reset
-        entirely. This proves the flow still completes end to end for a
-        holder who obtained the token out of band.
+        entirely. This proves the flow still completes end to end for the
+        holder of the delivered (plaintext) token, while the database row
+        persists only a SHA-256 digest — so a DB read cannot recover a live
+        reset credential.
         """
+        from app import auth
+
+        delivered: dict[str, str] = {}
+
+        async def _capture_delivery(
+            user_id: int, user_email: str, token: str, expires_at: Any
+        ) -> None:
+            delivered["token"] = token
+
+        monkeypatch.setattr(auth, "_deliver_password_reset_token", _capture_delivery)
+
         email = f"leak-usable-{uuid.uuid4().hex[:8]}@example.com"
         register = await client.post(
             "/api/v1/auth/register",
@@ -201,12 +216,17 @@ class TestForgotPasswordTokenLeak:
             rows = await db(db.password_reset_tokens.user_id == user_id).select()
 
         assert len(rows) == 1, "forgot-password must still create a reset token"
-        token = rows[0]["token"]
-        assert token not in (await response.get_data()).decode()
+        # The plaintext token reaches the user via delivery; the DB stores
+        # only its SHA-256 digest, never the plaintext.
+        plaintext = delivered["token"]
+        stored = rows[0]["token"]
+        assert stored == hashlib.sha256(plaintext.encode()).hexdigest()
+        assert stored != plaintext
+        assert plaintext not in (await response.get_data()).decode()
 
         reset = await client.post(
             "/api/v1/auth/reset-password",
-            json={"token": token, "password": "resetpass123"},
+            json={"token": plaintext, "password": "resetpass123"},
         )
         assert reset.status_code == 200, await reset.get_json()
 

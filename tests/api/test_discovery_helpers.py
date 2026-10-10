@@ -270,9 +270,14 @@ class _FakeSession:
     def __init__(self, response: _FakeResponse | Exception) -> None:
         """Init."""
         self._response = response
+        self.last_allow_redirects: bool | None = None
 
-    def get(self, url: str) -> Any:
+    def get(self, url: str, allow_redirects: bool = True) -> Any:
         """Get."""
+        # Record the redirect policy so tests can assert the probe never
+        # follows redirects (SSRF hardening: the validated IP is only the
+        # first hop).
+        self.last_allow_redirects = allow_redirects
         if isinstance(self._response, Exception):
             raise self._response
         return self._response
@@ -292,6 +297,9 @@ class TestProbeEndpoint:
         assert result["product_type"] == "testproduct"
         assert result["base_url"] == "http://10.0.0.5:8080"
         assert "unconfirmed" not in result
+        # SSRF hardening: the probe must never follow redirects, so a host
+        # inside an allowlisted range cannot 302 it to a blocked target.
+        assert session.last_allow_redirects is False
 
     @pytest.mark.asyncio
     async def test_server_header_signature_match_is_reported(self) -> None:

@@ -73,6 +73,13 @@ def _config_class(*, secret_key: str, testing: bool = False) -> type[TestingConf
     class _Cfg(TestingConfig):
         SECRET_KEY = secret_key
         TESTING = testing
+        # A real DB_PASS so these startup tests exercise the SECRET_KEY guard
+        # in isolation: create_app() also enforces a configured DB_PASS
+        # outside TESTING (_require_configured_db_password), which runs after
+        # the SECRET_KEY check, so the "refuses" cases still raise on
+        # SECRET_KEY first while the "starts fine" cases are not tripped by
+        # the default DB password.
+        DB_PASS = "a-real-db-password-not-a-default"  # noqa: S105
 
     return _Cfg
 
@@ -211,6 +218,49 @@ def test_denylist_covers_both_published_defaults() -> None:
 
     assert INSECURE_DEFAULT_SECRET_KEY in PUBLISHED_INSECURE_SECRET_KEY_VALUES
     assert "change-me-in-production" in PUBLISHED_INSECURE_SECRET_KEY_VALUES
+
+
+class TestDatabasePasswordStartupCheck:
+    """DB_PASS must carry a non-default secret outside TESTING.
+
+    Mirrors the SECRET_KEY guard: an unset DB_PASS resolves to the
+    repository-published default "app_pass", so without this a deployment
+    that forgot to set it would silently use (or provision) a guessable,
+    public credential.
+    """
+
+    def test_published_default_db_pass_refuses_to_start(self) -> None:
+        """The published default DB_PASS refuses app creation outside TESTING."""
+        cfg = _config_class(secret_key=_REAL_SECRET)  # noqa: S106
+        cfg.DB_PASS = "app_pass"  # published default  # noqa: S105
+
+        with pytest.raises(RuntimeError, match="DB_PASS"):
+            create_app(config_class=cfg)
+
+    def test_empty_db_pass_refuses_to_start(self) -> None:
+        """An empty/whitespace DB_PASS is rejected the same way."""
+        cfg = _config_class(secret_key=_REAL_SECRET)  # noqa: S106
+        cfg.DB_PASS = "   "
+
+        with pytest.raises(RuntimeError, match="DB_PASS"):
+            create_app(config_class=cfg)
+
+    def test_real_db_pass_outside_testing_starts_fine(self) -> None:
+        """A genuinely configured DB_PASS never trips the check."""
+        cfg = _config_class(secret_key=_REAL_SECRET)  # noqa: S106 (sets a real DB_PASS)
+
+        app = create_app(config_class=cfg)
+
+        assert app.config["DB_PASS"] == "a-real-db-password-not-a-default"
+
+    def test_testing_mode_allows_default_db_pass(self) -> None:
+        """TESTING is the carve-out -- mirrors the SECRET_KEY guard."""
+        cfg = _config_class(secret_key=INSECURE_DEFAULT_SECRET_KEY, testing=True)
+        cfg.DB_PASS = "app_pass"  # noqa: S105
+
+        app = create_app(config_class=cfg)
+
+        assert app is not None
 
 
 def test_jwt_secret_key_attribute_removed() -> None:
