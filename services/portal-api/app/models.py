@@ -359,10 +359,36 @@ async def consume_device_authorization(auth_id: int) -> bool:
 
 
 async def get_mfa_secret(user_id: int) -> dict[str, Any] | None:
-    """Get MFA secret (async)."""
+    """Get MFA secret (async).
+
+    Decrypts the at-rest ``secret``/``backup_codes`` written by
+    ``create_mfa_secret`` so callers receive plaintext. Decryption is
+    best-effort: a value that is not valid ciphertext (e.g. a row written
+    before encryption was introduced) is returned as-is rather than raising,
+    so an upgrade does not lock existing users out of MFA.
+    """
     db = get_db()
     row = await db(db.mfa_secrets.user_id == user_id).select()
-    return dict(row[0]) if row else None
+    if not row:
+        return None
+
+    from .encryption import decrypt_value
+
+    def _maybe_decrypt(value: Any) -> Any:
+        if not value or not isinstance(value, str):
+            return value
+        try:
+            return decrypt_value(value)
+        except ValueError:
+            # Not Fernet ciphertext (legacy plaintext row) — leave unchanged.
+            return value
+
+    record = dict(row[0])
+    if "secret" in record:
+        record["secret"] = _maybe_decrypt(record["secret"])
+    if "backup_codes" in record:
+        record["backup_codes"] = _maybe_decrypt(record["backup_codes"])
+    return record
 
 
 async def is_mfa_enabled(user_id: int) -> bool:
@@ -585,12 +611,22 @@ async def list_users(page: int = 1, per_page: int = 20) -> tuple[list[dict[str, 
 
 
 async def create_mfa_secret(user_id: int, secret: str, backup_codes: str) -> dict[str, Any] | None:
-    """Store MFA secret for user (async)."""
+    """Store MFA secret for user (async).
+
+    The TOTP shared secret and backup codes are encrypted at rest with the
+    same Fernet layer used for OAuth/product credentials. A database read
+    (SQLi, leaked backup, over-broad DB creds) therefore cannot recover the
+    seed that would let an attacker mint valid 6-digit codes, nor the backup
+    codes that bypass TOTP entirely. ``get_mfa_secret`` decrypts on read, so
+    callers still see plaintext.
+    """
+    from .encryption import encrypt_value
+
     db = get_db()
     await db.mfa_secrets.async_insert(
         user_id=user_id,
-        secret=secret,
-        backup_codes=backup_codes,
+        secret=encrypt_value(secret),
+        backup_codes=encrypt_value(backup_codes) if backup_codes else backup_codes,
     )
     return await get_mfa_secret(user_id)
 
@@ -604,6 +640,13 @@ async def enable_mfa(user_id: int) -> bool:
         # the timezone-aware values written everywhere else in this module.
         enabled_at=datetime.now(UTC)
     )
+    return bool(rows)
+
+
+async def update_mfa_last_counter(user_id: int, counter: int) -> bool:
+    """Record the highest accepted TOTP time-step counter (replay guard)."""
+    db = get_db()
+    rows = await db(db.mfa_secrets.user_id == user_id).update(last_totp_counter=counter)
     return bool(rows)
 
 

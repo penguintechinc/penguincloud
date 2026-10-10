@@ -40,10 +40,31 @@ from .models import (
 from .product_view import ProductConnection, to_product_connections
 from .tenancy import (
     may_bind_tenant,
+    resolve_effective_role,
     tenancy_aware,
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _authorize_connection_access(
+    user_id: int, tenant_id: int, scope: str
+) -> tuple[dict[str, Any], int] | None:
+    """Membership-first authorization for a product connection.
+
+    Returns an error response to return to the caller, or ``None`` when
+    access is allowed. A non-member gets the SAME 404 as a missing
+    connection — never a 403 — so walking ``product_id`` values cannot turn
+    the route into a cross-tenant existence oracle (how many connections and
+    tenants exist, roughly when each was created). Only a caller already
+    established as a member of the connection's tenant reaches the scope
+    check, whose 403 then discloses nothing new. This mirrors the ordering
+    in app.product_access.resolve_product_context.
+    """
+    if await resolve_effective_role(user_id, tenant_id) is None:
+        return {"error": "Product connection not found"}, 404
+    return await require_tenant_scope(user_id, tenant_id, scope)
+
 
 products_bp = Blueprint("products", __name__)
 
@@ -243,7 +264,7 @@ async def get_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ)
+    denied = await _authorize_connection_access(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ)
     if denied:
         return denied
 
@@ -263,7 +284,9 @@ async def update_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE)
+    denied = await _authorize_connection_access(
+        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE
+    )
     if denied:
         return denied
 
@@ -317,7 +340,9 @@ async def delete_product(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE)
+    denied = await _authorize_connection_access(
+        user["id"], conn["tenant_id"], SCOPE_PRODUCTS_MANAGE
+    )
     if denied:
         return denied
 
@@ -350,7 +375,9 @@ async def test_product_connection(product_id: int) -> tuple[Any, int]:
     if not conn_masked:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(user["id"], conn_masked["tenant_id"], SCOPE_PRODUCTS_READ)
+    denied = await _authorize_connection_access(
+        user["id"], conn_masked["tenant_id"], SCOPE_PRODUCTS_READ
+    )
     if denied:
         return denied
 
@@ -426,7 +453,7 @@ async def get_product_health(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ)
+    denied = await _authorize_connection_access(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ)
     if denied:
         return denied
 
@@ -450,7 +477,7 @@ async def get_product_schema(product_id: int) -> tuple[dict[str, Any], int]:
     if not conn:
         return {"error": "Product connection not found"}, 404
 
-    denied = await require_tenant_scope(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ)
+    denied = await _authorize_connection_access(user["id"], conn["tenant_id"], SCOPE_PRODUCTS_READ)
     if denied:
         return denied
 
@@ -539,7 +566,7 @@ async def get_product_tenant_mapping(product_id: int, tenant_id: int) -> tuple[A
         return {"error": "Product connection not found"}, 404
 
     scope_tenant_id = int(conn["tenant_id"])
-    denied = await require_tenant_scope(user["id"], scope_tenant_id, SCOPE_PRODUCTS_READ)
+    denied = await _authorize_connection_access(user["id"], scope_tenant_id, SCOPE_PRODUCTS_READ)
     if denied:
         return denied
 
@@ -585,7 +612,7 @@ async def set_product_tenant_mapping(
         return ({"error": "Product connection not found"}, 404)
 
     scope_tenant_id = int(conn["tenant_id"])
-    denied = await require_tenant_scope(user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE)
+    denied = await _authorize_connection_access(user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 
@@ -655,7 +682,7 @@ async def update_product_tenant_mapping(
         return ({"error": "Product connection not found"}, 404)
 
     scope_tenant_id = int(conn["tenant_id"])
-    denied = await require_tenant_scope(user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE)
+    denied = await _authorize_connection_access(user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 
@@ -727,7 +754,7 @@ async def delete_product_tenant_mapping(
         return {"error": "Product connection not found"}, 404
 
     scope_tenant_id = int(conn["tenant_id"])
-    denied = await require_tenant_scope(user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE)
+    denied = await _authorize_connection_access(user["id"], scope_tenant_id, SCOPE_PRODUCTS_MANAGE)
     if denied:
         return denied
 

@@ -37,12 +37,15 @@ export default function Login() {
 
   const handleSuccess = useCallback(
     (response: LoginResponse) => {
-      if (!response.token || !response.refreshToken) {
-        console.log("[Login] Success without tokens { ignored: true }");
+      // Only the short-lived access token comes back in the body now; the
+      // refresh token was set as an HttpOnly cookie by the BFF and is never
+      // seen here (see src/server/app.ts).
+      if (!response.token) {
+        console.log("[Login] Success without token { ignored: true }");
         return;
       }
       console.log("[Login] Authenticated { redirectTo:", from, "}");
-      void establishSession(response.token, response.refreshToken).then(() => {
+      void establishSession(response.token).then(() => {
         navigate(from, { replace: true });
       });
     },

@@ -11,7 +11,6 @@ from email.message import EmailMessage
 from typing import Any, Final
 
 import bcrypt
-import pyotp
 from penguin_aaa.authn.oidc_provider import OIDCProvider
 from penguin_aaa.authn.types import Claims
 from penguintechinc_utils.logging import get_logger
@@ -200,6 +199,17 @@ async def verify_password_async(password: str, password_hash: str) -> bool:
     return await loop.run_in_executor(None, lambda: bcrypt.checkpw(pwd_bytes, hash_bytes))
 
 
+#: Fixed dummy bcrypt hash used to equalize login timing when the submitted
+#: email matches no account. Verifying against it makes the not-found path do
+#: the same (deliberately slow) bcrypt work as the found path, so response
+#: latency no longer distinguishes "registered" from "not registered" (user
+#: enumeration). Not a credential — it is the hash of a throwaway constant,
+#: never compared for authentication.
+_DUMMY_PASSWORD_HASH = bcrypt.hashpw(b"timing-equalizer-not-a-credential", bcrypt.gensalt()).decode(
+    "utf-8"
+)
+
+
 async def create_token_set_async(
     user_id: int,
     tenant_id: str,
@@ -333,6 +343,10 @@ async def login() -> tuple[Any, int]:
     # Find user
     user = await get_user_by_email(email)
     if not user:
+        # Perform a dummy bcrypt verification so an unknown email costs the
+        # same as a known one — otherwise the latency gap is a user-
+        # enumeration oracle despite the constant error body.
+        await verify_password_async(password, _DUMMY_PASSWORD_HASH)
         return {"error": "Invalid email or password"}, 401
 
     # Verify password
@@ -350,13 +364,14 @@ async def login() -> tuple[Any, int]:
         if not totp_code:
             return {"error": "MFA code required", "mfa_required": True}, 401
 
-        # Verify TOTP code
+        # Verify TOTP code (single-use: consumed to prevent replay)
         mfa = await get_mfa_secret(user["id"])
         if not mfa:
             return {"error": "MFA configuration error"}, 500
 
-        totp = pyotp.TOTP(mfa["secret"])
-        if not totp.verify(totp_code, valid_window=1):
+        from .mfa import verify_totp_code
+
+        if not await verify_totp_code(user["id"], mfa, totp_code):
             return {"error": "Invalid MFA code"}, 401
 
     # Generate tokens using penguin-aaa and record the refresh token so it
@@ -831,7 +846,17 @@ async def forgot_password() -> tuple[dict[str, Any], int]:
         from .auth_features import create_password_reset_token
 
         token, expires_at = await create_password_reset_token(user["id"])
-        await _deliver_password_reset_token(user["id"], user["email"], token, expires_at)
+        # Fire-and-forget: the token insert is cheap and constant, but SMTP
+        # delivery is slow and variable. Awaiting it here would make the
+        # response time depend on whether the address exists (only the
+        # user-exists branch sends mail), reopening the user-enumeration
+        # oracle the constant PASSWORD_RESET_ACK body exists to close.
+        # Delivery still runs (and still fails loudly to the operator via the
+        # error counter + log inside _deliver_password_reset_token); it just
+        # no longer gates the response.
+        current_app.add_background_task(
+            _deliver_password_reset_token, user["id"], user["email"], token, expires_at
+        )
 
     return dict(PASSWORD_RESET_ACK), 200
 
@@ -854,11 +879,18 @@ async def reset_password() -> tuple[dict[str, Any], int]:
     if len(password) < 8:
         return {"error": "Password must be 8+ characters"}, 400
 
-    from .models import update_user
+    from .models import revoke_all_user_tokens, update_user
 
     password_hash = await hash_password_async(password)
     await update_user(user_id, password_hash=password_hash)
     await mark_token_used(data["token"])
+    # Credential rotation must invalidate every outstanding session: a reset
+    # is the standard "someone has my account" remediation, so any refresh
+    # token an attacker already holds has to die here. /auth/refresh only
+    # re-checks is_active, not a credential version, so without this a stolen
+    # refresh token would keep minting access tokens for up to its full TTL
+    # after the victim reset their password.
+    await revoke_all_user_tokens(user_id)
     return {"message": "Password reset successful"}, 200
 
 

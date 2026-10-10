@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -165,6 +166,10 @@ class MfaSecret(Base):
     secret = Column(String(255), nullable=False)
     backup_codes = Column(Text)
     enabled_at = Column(DateTime)
+    # Highest TOTP time-step counter already accepted for this user. A code
+    # is rejected if its counter is <= this, which makes each code single-use
+    # and prevents replay of an observed code within its validity window.
+    last_totp_counter = Column(BigInteger)
     created_at = Column(
         DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
     )

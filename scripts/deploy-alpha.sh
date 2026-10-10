@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # PenguinCloud Alpha Deployment Script
-# Local MicroK8s Deployment via Kustomize
+# Local MicroK8s Deployment via Helm (per-service charts)
 #
 # Usage:
 #   ./scripts/deploy-alpha.sh [OPTIONS]
@@ -20,8 +20,9 @@
 #   NAMESPACE             Target namespace (default: penguincloud-alpha)
 #   APP_HOST              Application hostname (default: penguincloud.localhost.local)
 #
-# NOTE: The kustomization overlay may reference "project-template-alpha" — that
-# is a template artifact. The actual namespace used here is penguincloud-alpha.
+# NOTE: Each service is its own Helm chart under k8s/helm/<svc> with an
+# alpha.yml values file. The release name equals the chart dir name, so the
+# resulting Deployment is deployment/<svc> in namespace penguincloud-alpha.
 #
 # =============================================================================
 
@@ -40,10 +41,15 @@ readonly APP_NAME="${APP_NAME:-penguincloud}"
 readonly KUBE_CONTEXT="${KUBE_CONTEXT:-local-alpha}"
 readonly NAMESPACE="${NAMESPACE:-penguincloud-alpha}"
 readonly APP_HOST="${APP_HOST:-penguincloud.localhost.local}"
-readonly OVERLAY_PATH="${OVERLAY_PATH:-k8s/kustomize/overlays/alpha}"
+readonly HELM_DIR="${PROJECT_ROOT}/k8s/helm"
 
-# Services with Dockerfiles (customize per repo)
+# Services with Dockerfiles that get built + imported into MicroK8s.
 declare -a SERVICES=("portal-api" "webui")
+
+# Charts deployed via Helm. Release name == chart dir name == Deployment name
+# (via each chart's <chart>.fullname helper). valkey has no image build; it
+# uses the pinned upstream image from its chart values.
+declare -a DEPLOY_SERVICES=("portal-api" "webui" "valkey")
 
 # Image name prefix (used for docker build tags)
 readonly IMAGE_PREFIX="${APP_NAME}"
@@ -97,7 +103,7 @@ check_prerequisites() {
     print_info "Checking prerequisites..."
     local missing=()
 
-    for cmd in kubectl docker microk8s; do
+    for cmd in kubectl docker microk8s helm; do
         if ! command -v "${cmd}" &>/dev/null; then
             missing+=("${cmd}")
         fi
@@ -123,11 +129,17 @@ check_prerequisites() {
         exit 1
     fi
 
-    # Verify overlay exists
-    if [[ ! -d "${PROJECT_ROOT}/${OVERLAY_PATH}" ]]; then
-        print_error "Kustomize overlay not found: ${OVERLAY_PATH}"
-        exit 1
-    fi
+    # Verify each service's Helm chart and alpha values file exist
+    for svc in "${DEPLOY_SERVICES[@]}"; do
+        if [[ ! -f "${HELM_DIR}/${svc}/Chart.yaml" ]]; then
+            print_error "Helm chart not found: ${HELM_DIR}/${svc}"
+            exit 1
+        fi
+        if [[ ! -f "${HELM_DIR}/${svc}/alpha.yml" ]]; then
+            print_error "Alpha values file not found: ${HELM_DIR}/${svc}/alpha.yml"
+            exit 1
+        fi
+    done
 
     print_success "All prerequisites satisfied"
 }
@@ -181,35 +193,72 @@ build_and_import() {
 }
 
 # =============================================================================
-# Kustomize deployment
+# Helm deployment
 # =============================================================================
 
 do_deploy() {
     print_info "Deploying to local MicroK8s cluster..."
     print_info "  Context:   ${KUBE_CONTEXT}"
     print_info "  Namespace: ${NAMESPACE}"
-    print_info "  Overlay:   ${OVERLAY_PATH}"
+    print_info "  Charts:    ${HELM_DIR}/{$(IFS=,; echo "${DEPLOY_SERVICES[*]}")}"
     print_info "  Host:      ${APP_HOST}"
 
-    # Create namespace if missing
+    # Create namespace if missing (skip the live mutation on a dry-run)
     if ! kctl get namespace "${NAMESPACE}" &>/dev/null; then
         print_info "Creating namespace: ${NAMESPACE}"
-        kctl create namespace "${NAMESPACE}"
+        if [[ "${DRY_RUN}" != "true" ]]; then
+            kctl create namespace "${NAMESPACE}"
+        fi
     fi
 
-    # Apply kustomize overlay
+    local svc chart_path values_file
+    for svc in "${DEPLOY_SERVICES[@]}"; do
+        if [[ -n "${SERVICE_FILTER}" ]] && [[ "${SERVICE_FILTER}" != "${svc}" ]]; then
+            continue
+        fi
+
+        chart_path="${HELM_DIR}/${svc}"
+        values_file="${chart_path}/alpha.yml"
+        if [[ ! -d "${chart_path}" ]]; then
+            print_error "Helm chart not found: ${chart_path}"
+            return 1
+        fi
+        if [[ ! -f "${values_file}" ]]; then
+            print_error "Alpha values file not found: ${values_file}"
+            return 1
+        fi
+
+        local -a helm_args=(upgrade --install "${svc}" "${chart_path}"
+            --kube-context "${KUBE_CONTEXT}"
+            --namespace "${NAMESPACE}"
+            --values "${values_file}"
+            --wait --timeout 5m)
+
+        # Our own built+imported images get an image override so the release
+        # uses what build_and_import produced; valkey keeps its chart image.
+        case "${svc}" in
+            portal-api|webui)
+                helm_args+=(--set "image.repository=${IMAGE_PREFIX}/${svc}" --set "image.tag=${TAG}")
+                ;;
+        esac
+
+        if [[ "${DRY_RUN}" == "true" ]]; then
+            print_info "DRY-RUN: Rendering Helm manifests for ${svc}..."
+            helm "${helm_args[@]}" --dry-run
+        else
+            print_info "Deploying chart: ${svc} (release=${svc})"
+            if ! helm "${helm_args[@]}"; then
+                print_error "Failed to deploy chart ${svc}"
+                return 1
+            fi
+        fi
+    done
+
     if [[ "${DRY_RUN}" == "true" ]]; then
-        print_info "DRY-RUN: Rendering kustomize output..."
-        kctl apply -k "${PROJECT_ROOT}/${OVERLAY_PATH}" --dry-run=client -o yaml
         return 0
     fi
 
-    if ! kctl apply -k "${PROJECT_ROOT}/${OVERLAY_PATH}"; then
-        print_error "Failed to apply kustomize overlay"
-        return 1
-    fi
-
-    print_success "Kustomize manifests applied"
+    print_success "Helm charts applied"
 }
 
 # =============================================================================
@@ -308,7 +357,7 @@ show_help() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Deploy ${APP_NAME} to local MicroK8s alpha environment using Kustomize.
+Deploy ${APP_NAME} to local MicroK8s alpha environment using Helm.
 
 OPTIONS:
     --build               Build images and import into MicroK8s (default)
@@ -323,8 +372,9 @@ ENVIRONMENT:
     KUBE_CONTEXT:   ${KUBE_CONTEXT}
     NAMESPACE:      ${NAMESPACE}
     APP_HOST:       ${APP_HOST}
-    OVERLAY_PATH:   ${OVERLAY_PATH}
+    HELM_DIR:       ${HELM_DIR}
     SERVICES:       ${SERVICES[*]}
+    CHARTS:         ${DEPLOY_SERVICES[*]}
 
 EXAMPLES:
     # Full build and deploy

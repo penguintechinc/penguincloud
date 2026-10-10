@@ -4,6 +4,7 @@ Tests for password reset, email confirmation, profile management, and
 session management. Includes regression tests for security fix.
 """
 
+import asyncio
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -17,6 +18,15 @@ from app.models import (
     store_refresh_token,
 )
 from quart import Quart
+
+
+async def _drain_background_tasks(app: Quart) -> None:
+    """Await fire-and-forget tasks (e.g. password-reset delivery) scheduled by a request."""
+    for _ in range(100):
+        tasks = list(app.background_tasks)
+        if not tasks:
+            return
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @pytest.mark.usefixtures("app_context")
@@ -137,7 +147,9 @@ class TestForgotPasswordTokenLeak:
     ACK_FIELDS = {"message"}
 
     @pytest.mark.asyncio
-    async def test_known_and_unknown_email_get_identical_response(self, client: Any) -> None:
+    async def test_known_and_unknown_email_get_identical_response(
+        self, client: Any, app: Quart
+    ) -> None:
         """A registered address is indistinguishable from an unregistered one.
 
         Covers both halves of the vulnerability at once: byte-identical
@@ -164,6 +176,8 @@ class TestForgotPasswordTokenLeak:
         assert known.status_code == 200
         assert unknown.status_code == known.status_code
         assert await known.get_data() == await unknown.get_data()
+        # Drain the fire-and-forget delivery task scheduled for the known email.
+        await _drain_background_tasks(app)
 
         body = await known.get_json()
         assert set(body) == self.ACK_FIELDS, f"unexpected fields in body: {body}"
@@ -171,14 +185,29 @@ class TestForgotPasswordTokenLeak:
         assert "expires_at" not in body
 
     @pytest.mark.asyncio
-    async def test_reset_token_still_persisted_and_usable(self, client: Any, app: Quart) -> None:
-        """The token still reaches the DB, so a legitimately-obtained one works.
+    async def test_reset_token_still_persisted_and_usable(
+        self, client: Any, app: Quart, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The token still works end to end, and only its hash is stored.
 
         Paired with the rejection test above: suppressing the token from the
         response would also "fix" the leak by breaking password reset
-        entirely. This proves the flow still completes end to end for a
-        holder who obtained the token out of band.
+        entirely. This proves the flow still completes end to end for the
+        holder of the delivered (plaintext) token, while the database row
+        persists only a SHA-256 digest — so a DB read cannot recover a live
+        reset credential.
         """
+        from app import auth
+
+        delivered: dict[str, str] = {}
+
+        async def _capture_delivery(
+            user_id: int, user_email: str, token: str, expires_at: Any
+        ) -> None:
+            delivered["token"] = token
+
+        monkeypatch.setattr(auth, "_deliver_password_reset_token", _capture_delivery)
+
         email = f"leak-usable-{uuid.uuid4().hex[:8]}@example.com"
         register = await client.post(
             "/api/v1/auth/register",
@@ -194,6 +223,10 @@ class TestForgotPasswordTokenLeak:
         response = await client.post("/api/v1/auth/forgot-password", json={"email": email})
         assert response.status_code == 200
 
+        # Delivery is now fire-and-forget (constant-time response); wait for the
+        # background task so the captured plaintext token is available.
+        await _drain_background_tasks(app)
+
         async with app.app_context():
             from penguin_dal.quart_ext import get_db
 
@@ -201,12 +234,17 @@ class TestForgotPasswordTokenLeak:
             rows = await db(db.password_reset_tokens.user_id == user_id).select()
 
         assert len(rows) == 1, "forgot-password must still create a reset token"
-        token = rows[0]["token"]
-        assert token not in (await response.get_data()).decode()
+        # The plaintext token reaches the user via delivery; the DB stores
+        # only its SHA-256 digest, never the plaintext.
+        plaintext = delivered["token"]
+        stored = rows[0]["token"]
+        assert stored == hashlib.sha256(plaintext.encode()).hexdigest()
+        assert stored != plaintext
+        assert plaintext not in (await response.get_data()).decode()
 
         reset = await client.post(
             "/api/v1/auth/reset-password",
-            json={"token": token, "password": "resetpass123"},
+            json={"token": plaintext, "password": "resetpass123"},
         )
         assert reset.status_code == 200, await reset.get_json()
 

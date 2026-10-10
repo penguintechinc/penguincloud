@@ -270,7 +270,14 @@ async def _probe_endpoint(
     try:
         async with asyncio.timeout(5):
             started = time.perf_counter()
-            async with session.get(f"{base_url}{health_ep}") as resp:
+            # allow_redirects=False: the validated literal IP is only the
+            # FIRST hop. With redirects followed (aiohttp's default), a host
+            # answering inside an allowlisted range could 302 the probe to
+            # 169.254.169.254 (cloud metadata) or a loopback-only internal
+            # port, defeating resolve_scan_targets' special-use blocklist.
+            # A 3xx is treated as "no product here". Matches the explicit
+            # follow_redirects=False stance in app/adapters/transport.py.
+            async with session.get(f"{base_url}{health_ep}", allow_redirects=False) as resp:
                 body = (await resp.text()).lower()
                 status = resp.status
                 # aiohttp's ClientResponse has no `.elapsed` (that is a
@@ -307,16 +314,30 @@ async def _probe_endpoint(
     return None
 
 
+#: Cap on concurrent in-flight probes. The target set is already bounded
+#: (MAX_SCAN_TARGETS) but targets x profiles x ports fans out well beyond
+#: that; a semaphore keeps the scan from opening thousands of sockets at
+#: once, matching the Semaphore(50) pattern in app/health_poller.py.
+_MAX_CONCURRENT_PROBES = 50
+
+
 async def _scan_network(network_ranges: list[str]) -> list[dict[str, Any]]:
     """Scan network ranges for PenguinTech products (async)."""
     discovered: list[dict[str, Any]] = []
     tasks: list[Any] = []
+    semaphore = asyncio.Semaphore(_MAX_CONCURRENT_PROBES)
+
+    async def _bounded_probe(
+        host: str, port: int, profile: DiscoveryProfile, session: aiohttp.ClientSession
+    ) -> dict[str, Any] | None:
+        async with semaphore:
+            return await _probe_endpoint(host, port, profile, session)
 
     async with aiohttp.ClientSession() as session:
         for host in network_ranges:
             for profile in DISCOVERY_PROFILES.values():
                 for port in profile.ports:
-                    tasks.append(_probe_endpoint(host, port, profile, session))
+                    tasks.append(_bounded_probe(host, port, profile, session))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 

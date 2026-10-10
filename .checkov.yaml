@@ -9,10 +9,11 @@ skip-check:
   # devops-kubernetes.md mandates runAsUser: 1000 explicitly (matches
   # services/portal-api/Dockerfile's baked-in UID); checkov's generic
   # >10000 preference is a looser best-practice, not a house requirement.
-  # (k8s/helm/webui deliberately uses the real UID its Dockerfile bakes --
-  # 999, not 1000 -- see k8s/helm/webui/values.yaml for why; same rationale
-  # applies: an explicit, documented, non-root UID beats this check's
-  # generic preference either way.)
+  # (k8s/helm/webui also uses runAsUser: 1000, matching the UID its
+  # Dockerfile bakes (services/webui/Dockerfile: USER 1000) -- see
+  # k8s/helm/webui/values.yaml; same rationale applies: an explicit,
+  # documented, non-root UID beats this check's generic preference either
+  # way.)
   - CKV_K8S_40
 
   # services/portal-api/app/config.py (Config class) and the webui Express

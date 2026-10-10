@@ -4,6 +4,11 @@
  * The interceptors are exercised through real requests against a stubbed
  * adapter rather than by reaching into axios internals, so the assertions
  * cover the chain a caller actually gets.
+ *
+ * The client no longer holds a refresh token: it lives only in the BFF's
+ * HttpOnly cookie. These tests reflect that — the access token is memory-only
+ * (never localStorage), and a 401 is recovered by POSTing to the BFF
+ * `/api/ui/refresh` route (cookie-based), not by replaying a stored token.
  */
 
 import type { AxiosRequestConfig, AxiosResponse } from "axios";
@@ -37,8 +42,8 @@ function headersOf(adapter: jest.Mock, call = 0): Record<string, unknown> {
 }
 
 /**
- * Loads a fresh copy of the client. The module hydrates tokens from
- * localStorage at import time, so each scenario needs its own instance.
+ * Loads a fresh copy of the client. The module keeps the access token in a
+ * module-scoped variable, so each scenario needs its own instance.
  */
 async function loadApi() {
   jest.resetModules();
@@ -50,56 +55,48 @@ async function loadApi() {
   return { ...mod, api: mod.default, tenantStore, axios };
 }
 
-const ACCESS_KEY = "penguincloud_access_token";
-const REFRESH_KEY = "penguincloud_refresh_token";
-
 beforeEach(() => {
   localStorage.clear();
+  // Clear any csrf cookie left over from another test.
+  document.cookie = "csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
   jest.restoreAllMocks();
 });
 
-describe("token storage", () => {
-  it("hydrates tokens written before the module loaded", async () => {
-    localStorage.setItem(ACCESS_KEY, "stored-access");
-    localStorage.setItem(REFRESH_KEY, "stored-refresh");
-
-    const { getAccessToken } = await loadApi();
-
-    expect(getAccessToken()).toBe("stored-access");
-  });
-
-  it("starts with no token when storage is empty", async () => {
+describe("access token storage", () => {
+  it("starts with no token", async () => {
     const { getAccessToken } = await loadApi();
 
     expect(getAccessToken()).toBeNull();
   });
 
-  it("persists a token pair", async () => {
-    const { setTokens, getAccessToken } = await loadApi();
+  it("holds the access token in memory only — never localStorage", async () => {
+    const { setAccessToken, getAccessToken } = await loadApi();
 
-    setTokens("a", "r");
+    setAccessToken("a");
 
     expect(getAccessToken()).toBe("a");
-    expect(localStorage.getItem(ACCESS_KEY)).toBe("a");
-    expect(localStorage.getItem(REFRESH_KEY)).toBe("r");
+    // Nothing is written to localStorage: the old penguincloud_access_token /
+    // penguincloud_refresh_token keys are gone for good.
+    expect(localStorage.getItem("penguincloud_access_token")).toBeNull();
+    expect(localStorage.getItem("penguincloud_refresh_token")).toBeNull();
+    expect(localStorage.length).toBe(0);
   });
 
-  it("clears both tokens", async () => {
-    const { setTokens, clearTokens, getAccessToken } = await loadApi();
-    setTokens("a", "r");
+  it("clears the access token", async () => {
+    const { setAccessToken, clearAccessToken, getAccessToken } =
+      await loadApi();
+    setAccessToken("a");
 
-    clearTokens();
+    clearAccessToken();
 
     expect(getAccessToken()).toBeNull();
-    expect(localStorage.getItem(ACCESS_KEY)).toBeNull();
-    expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
   });
 });
 
 describe("request interceptor", () => {
   it("attaches the bearer token", async () => {
-    const { api, setTokens } = await loadApi();
-    setTokens("access-1", "refresh-1");
+    const { api, setAccessToken } = await loadApi();
+    setAccessToken("access-1");
     const adapter = jest.fn(ok);
     api.defaults.adapter = adapter;
 
@@ -176,12 +173,12 @@ describe("response interceptor", () => {
     expect(response.data).toEqual({ ok: true });
   });
 
-  it("refreshes on 401 and replays the original request", async () => {
-    const { api, setTokens, getAccessToken, axios } = await loadApi();
-    setTokens("stale-access", "refresh-1");
+  it("refreshes on 401 via the BFF cookie route and replays the request", async () => {
+    const { api, getAccessToken, axios } = await loadApi();
+    document.cookie = "csrf=csrf-abc; path=/";
 
     const post = jest.spyOn(axios, "post").mockResolvedValue({
-      data: { access_token: "fresh-access", refresh_token: "refresh-2" },
+      data: { access_token: "fresh-access" },
     } as never);
 
     let attempt = 0;
@@ -193,13 +190,37 @@ describe("response interceptor", () => {
 
     const response = await api.get("/widgets");
 
-    expect(post).toHaveBeenCalledWith("/api/v1/auth/refresh", {
-      refresh_token: "refresh-1",
-    });
+    // Refresh is a cookie-based POST to the BFF — no refresh token in the
+    // body — carrying the double-submit CSRF header from the readable cookie.
+    expect(post).toHaveBeenCalledWith(
+      "/api/ui/refresh",
+      {},
+      { headers: { "X-CSRF-Token": "csrf-abc" } },
+    );
     expect(response.data).toEqual({ ok: true });
     expect(getAccessToken()).toBe("fresh-access");
     // The replay carries the new token, not the one that was rejected.
     expect(headersOf(adapter, 1).Authorization).toBe("Bearer fresh-access");
+  });
+
+  it("sends an empty CSRF header when no csrf cookie is present", async () => {
+    const { api, axios } = await loadApi();
+    const post = jest.spyOn(axios, "post").mockResolvedValue({
+      data: { access_token: "fresh-access" },
+    } as never);
+    let attempt = 0;
+    api.defaults.adapter = jest.fn((config: AxiosRequestConfig) => {
+      attempt += 1;
+      return attempt === 1 ? unauthorized(config) : ok(config);
+    }) as never;
+
+    await api.get("/widgets");
+
+    expect(post).toHaveBeenCalledWith(
+      "/api/ui/refresh",
+      {},
+      { headers: { "X-CSRF-Token": "" } },
+    );
   });
 
   it("clears the session and redirects when the refresh fails", async () => {
@@ -207,49 +228,36 @@ describe("response interceptor", () => {
     // redirect is observed through the "Not implemented: navigation" error
     // jsdom raises when the client calls location.assign.
     const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
-    const { api, setTokens, getAccessToken, axios } = await loadApi();
-    setTokens("stale-access", "refresh-1");
+    const { api, setAccessToken, getAccessToken, axios } = await loadApi();
+    setAccessToken("stale-access");
     jest.spyOn(axios, "post").mockRejectedValue(new Error("refresh rejected"));
     api.defaults.adapter = jest.fn(unauthorized) as never;
 
     await expect(api.get("/widgets")).rejects.toBeDefined();
 
     expect(getAccessToken()).toBeNull();
-    expect(localStorage.getItem(ACCESS_KEY)).toBeNull();
     expect(errorSpy.mock.calls.flat().map(String).join(" ")).toContain(
       "Not implemented: navigation",
     );
     errorSpy.mockRestore();
   });
 
-  it("does not attempt a refresh without a refresh token", async () => {
-    const { api, axios } = await loadApi();
-    const post = jest.spyOn(axios, "post");
-    api.defaults.adapter = jest.fn(unauthorized) as never;
-
-    await expect(api.get("/widgets")).rejects.toBeDefined();
-
-    expect(post).not.toHaveBeenCalled();
-  });
-
   it("retries a 401 only once", async () => {
-    const { api, setTokens, axios } = await loadApi();
-    setTokens("stale-access", "refresh-1");
+    const { api, axios } = await loadApi();
     jest.spyOn(axios, "post").mockResolvedValue({
-      data: { access_token: "fresh", refresh_token: "r2" },
+      data: { access_token: "fresh" },
     } as never);
     const adapter = jest.fn(unauthorized);
     api.defaults.adapter = adapter as never;
 
     await expect(api.get("/widgets")).rejects.toBeDefined();
 
-    // Original + one replay; a loop here would hammer the API on every 401.
+    // Original + one replay; a loop here would hammer the BFF on every 401.
     expect(adapter).toHaveBeenCalledTimes(2);
   });
 
   it("passes non-401 failures through untouched", async () => {
-    const { api, setTokens, axios } = await loadApi();
-    setTokens("access-1", "refresh-1");
+    const { api, axios } = await loadApi();
     const post = jest.spyOn(axios, "post");
     api.defaults.adapter = jest.fn((config: AxiosRequestConfig) => {
       const error = new Error("boom") as Error & {
@@ -266,17 +274,40 @@ describe("response interceptor", () => {
   });
 });
 
+describe("refreshAccessToken", () => {
+  it("stores and returns the access token from the BFF", async () => {
+    const { refreshAccessToken, getAccessToken, axios } = await loadApi();
+    jest
+      .spyOn(axios, "post")
+      .mockResolvedValue({ data: { access_token: "new-access" } } as never);
+
+    const token = await refreshAccessToken();
+
+    expect(token).toBe("new-access");
+    expect(getAccessToken()).toBe("new-access");
+  });
+
+  it("returns null and stores nothing when the BFF sends no token", async () => {
+    const { refreshAccessToken, getAccessToken, axios } = await loadApi();
+    jest.spyOn(axios, "post").mockResolvedValue({ data: {} } as never);
+
+    const token = await refreshAccessToken();
+
+    expect(token).toBeNull();
+    expect(getAccessToken()).toBeNull();
+  });
+});
+
 describe("logging hygiene", () => {
   it("never writes a token value to the console", async () => {
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
-    localStorage.setItem(ACCESS_KEY, "hydrated-secret");
-    localStorage.setItem(REFRESH_KEY, "hydrated-refresh-secret");
+    document.cookie = "csrf=csrf-secret; path=/";
 
-    const { api, setTokens, clearTokens, axios } = await loadApi();
-    setTokens("set-secret", "set-refresh-secret");
+    const { api, setAccessToken, clearAccessToken, axios } = await loadApi();
+    setAccessToken("set-secret");
 
     jest.spyOn(axios, "post").mockResolvedValue({
-      data: { access_token: "refreshed-secret", refresh_token: "r2-secret" },
+      data: { access_token: "refreshed-secret" },
     } as never);
     let attempt = 0;
     api.defaults.adapter = jest.fn((config: AxiosRequestConfig) => {
@@ -284,13 +315,11 @@ describe("logging hygiene", () => {
       return attempt === 1 ? unauthorized(config) : ok(config);
     }) as never;
     await api.get("/widgets");
-    clearTokens();
+    clearAccessToken();
 
     const logged = logSpy.mock.calls.flat().join(" ");
-    expect(logged).not.toContain("hydrated-secret");
     expect(logged).not.toContain("set-secret");
     expect(logged).not.toContain("refreshed-secret");
-    expect(logged).not.toContain("r2-secret");
     // It still reports that the events happened.
     expect(logged).toContain("[ApiClient] TokenRefresh");
     logSpy.mockRestore();
@@ -298,8 +327,9 @@ describe("logging hygiene", () => {
 
   it("reports a failed refresh without the token that failed", async () => {
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
-    const { api, setTokens, axios } = await loadApi();
-    setTokens("access-secret", "refresh-secret");
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    const { api, setAccessToken, axios } = await loadApi();
+    setAccessToken("access-secret");
     jest.spyOn(axios, "post").mockRejectedValue(new Error("nope"));
     api.defaults.adapter = jest.fn(unauthorized) as never;
 
@@ -307,7 +337,8 @@ describe("logging hygiene", () => {
 
     const logged = logSpy.mock.calls.flat().join(" ");
     expect(logged).toContain("[ApiClient] TokenRefresh { error: true }");
-    expect(logged).not.toContain("refresh-secret");
+    expect(logged).not.toContain("access-secret");
     logSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });

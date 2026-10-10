@@ -173,6 +173,20 @@ async def oauth_callback(provider: str) -> tuple[dict[str, Any], int]:
             user_id = existing_connection["user_id"]
             user = await get_user_by_id(user_id)
         else:
+            # No OAuth connection for this provider identity yet, so the
+            # provider-asserted email is about to be used as the account key
+            # (either to link to an existing local user, or to create one).
+            # That is an account-takeover primitive unless the email is
+            # actually verified by the IdP: a user who controls an account at
+            # a configured provider (e.g. a Google Workspace / Okta org they
+            # administer) can set its profile email to victim@customer and,
+            # without this check, get_user_by_email would hand them the
+            # victim's existing account and a full token set as that user.
+            # OIDC requires trusting email-based linking only when the
+            # provider marks the address verified; enforce exactly that.
+            if not _provider_email_is_verified(provider, userinfo):
+                return {"error": "Provider did not verify this email address"}, 400
+
             # Check if user with email exists
             user = await get_user_by_email(email)
 
@@ -281,6 +295,25 @@ def _extract_provider_email(provider: str, userinfo: dict[str, Any]) -> str | No
     elif provider == "okta":
         return userinfo.get("email")
     return None
+
+
+def _provider_email_is_verified(provider: str, userinfo: dict[str, Any]) -> bool:
+    """Whether the IdP asserts the user's email address is verified.
+
+    Google and Okta return an explicit ``email_verified`` boolean in
+    userinfo; require it to be truthy (OIDC permits the string "true" as
+    well as the JSON boolean). Microsoft Entra does not expose a per-claim
+    verified flag — the ``userPrincipalName``/``mail`` value is asserted by
+    the directory the application is registered against, so it is treated as
+    verified. Any other/unknown provider is treated as NOT verified
+    (fail closed) rather than trusting an unvalidated address.
+    """
+    if provider in ("google", "okta"):
+        verified = userinfo.get("email_verified")
+        return verified is True or str(verified).lower() == "true"
+    if provider == "microsoft":
+        return True
+    return False
 
 
 def _extract_provider_name(provider: str, userinfo: dict[str, Any]) -> str:

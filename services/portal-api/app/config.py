@@ -56,6 +56,23 @@ PUBLISHED_INSECURE_SECRET_KEY_VALUES = frozenset(
 #: _require_configured_secret_key docstring for why that's out of scope).
 MIN_SECRET_KEY_LENGTH = 32
 
+#: Published default DB passwords denylisted the same way as the SECRET_KEY
+#: values above. ``Config.DB_PASS`` keeps a non-empty default ("app_pass") so
+#: a developer who forgets the env var gets a clear connection error rather
+#: than a confusing empty-password one, but app/__init__.py refuses to start
+#: outside TESTING while DB_PASS still resolves to one of these — otherwise a
+#: deployment that forgets DB_PASS silently connects with (or provisions) a
+#: guessable, repository-published credential. docker-compose.yml already
+#: wires DB_PASS from a required ``${POSTGRES_PASSWORD:?...}``; this closes the
+#: same gap for deployments that run the app outside that compose file.
+PUBLISHED_INSECURE_DB_PASSWORDS = frozenset(
+    {
+        "app_pass",  # app/config.py's own default
+        "postgres",  # services/portal-api/.envrc dev default
+        "password",  # common throwaway default
+    }
+)
+
 
 def _declared_positive_int_env(name: str, default: int) -> tuple[int, bool]:
     """Parse a positive-int env var; return ``(value, was_explicitly_set)``.

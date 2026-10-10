@@ -41,8 +41,10 @@ export interface AuthTokens {
 
 export interface AuthState {
   user: User | null;
+  // Short-lived, in-memory only. The refresh token is NOT modelled here: it
+  // lives solely in the BFF's HttpOnly cookie and is never visible to the
+  // client (see src/client/lib/api.ts and src/server/app.ts).
   accessToken: string | null;
-  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
 }
