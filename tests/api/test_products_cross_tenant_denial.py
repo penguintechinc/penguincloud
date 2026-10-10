@@ -4,10 +4,16 @@ test_products_validation.py already covers request-validation and
 not-found branches, and list_products' own denial (TestListProductsValidation
 .test_non_member_is_denied). What it does not cover is the SAME denial
 shape repeated on get/update/delete/test/health/schema -- each of those
-functions has its own ``if denied: return denied`` after its own
-``require_tenant_scope`` call, and coverage.py tracks each occurrence
-independently, so covering it on one endpoint does not cover it on
-another.
+functions routes through ``_authorize_connection_access``, and coverage.py
+tracks each occurrence independently, so covering it on one endpoint does
+not cover it on another.
+
+A caller with NO membership in the connection's tenant (``_new_owner`` below
+registers exactly such an outsider) must get a 404, identical to a
+nonexistent id -- never a 403. A 403 would answer "this id exists, in a
+tenant that is not yours", turning the product_id space into a cross-tenant
+existence oracle. Only a member who lacks the required scope sees a 403, and
+that is not an oracle because they already belong to the tenant.
 """
 
 from __future__ import annotations
@@ -63,7 +69,7 @@ class TestCrossTenantDenial:
         outsider = await _new_owner(client)
 
         response = await client.get(f"/api/v1/products/{product_id}", headers=outsider)
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_update_product_is_denied(
@@ -76,7 +82,7 @@ class TestCrossTenantDenial:
         response = await client.put(
             f"/api/v1/products/{product_id}", headers=outsider, json={"display_name": "Hijack"}
         )
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_delete_product_is_denied(
@@ -87,7 +93,7 @@ class TestCrossTenantDenial:
         outsider = await _new_owner(client)
 
         response = await client.delete(f"/api/v1/products/{product_id}", headers=outsider)
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_connection_test_is_denied(
@@ -98,7 +104,7 @@ class TestCrossTenantDenial:
         outsider = await _new_owner(client)
 
         response = await client.post(f"/api/v1/products/{product_id}/test", headers=outsider)
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_health_is_denied(
@@ -109,7 +115,7 @@ class TestCrossTenantDenial:
         outsider = await _new_owner(client)
 
         response = await client.get(f"/api/v1/products/{product_id}/health", headers=outsider)
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_tenant_mapping_conn_not_found(
@@ -148,7 +154,7 @@ class TestCrossTenantDenial:
         outsider = await _new_owner(client)
 
         response = await client.get(f"/api/v1/products/{product_id}/schema", headers=outsider)
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_tenant_mapping_is_denied(
@@ -161,7 +167,7 @@ class TestCrossTenantDenial:
         response = await client.get(
             f"/api/v1/products/{product_id}/tenants/{tenant_id}/map", headers=outsider
         )
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_update_tenant_mapping_is_denied(
@@ -176,4 +182,4 @@ class TestCrossTenantDenial:
             headers=outsider,
             json={"external_id": "ext-1"},
         )
-        assert response.status_code == 403
+        assert response.status_code == 404
