@@ -90,3 +90,4 @@ secrets.env
 secrets/
 *-secrets.yaml
 *-secrets.yml
+.claude/worktrees/
