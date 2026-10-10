@@ -24,7 +24,7 @@ The checked set is DERIVED, from two structural signals, unioned
    with a reason) rather than a silent gap.
 2. **Any route, in any blueprint, whose call graph reaches a credential-
    verification primitive** -- ``verify_password_async`` (bcrypt),
-   ``.verify()`` (pyotp TOTP), ``is_refresh_token_valid``,
+   ``verify_totp_code`` (pyotp TOTP + replay guard), ``is_refresh_token_valid``,
    ``validate_password_reset_token``, ``validate_email_token``. This is
    what pulls in the three MFA routes AND
    ``PUT /api/v1/users/me/password`` (``app/users.py::change_password``) --
@@ -69,11 +69,13 @@ _APP_DIR: Final[Path] = Path(__file__).resolve().parents[2] / "services" / "port
 CREDENTIAL_VERIFICATION_PRIMITIVES: Final[frozenset[str]] = frozenset(
     {
         "verify_password_async",  # bcrypt password compare (app/auth.py)
-        "verify",  # pyotp TOTP.verify(...) -- scoped to auth.py/mfa.py by
-        # construction: grep across services/portal-api/app confirms no
-        # OTHER `.verify(` call site exists anywhere else in the package
-        # (test_the_verify_primitive_is_not_a_false_positive_magnet below
-        # pins that).
+        # TOTP verification is centralised in app/mfa.py::verify_totp_code
+        # (which does the pyotp check AND consumes the code to prevent
+        # replay). Login, verify_mfa, disable_mfa_endpoint and
+        # regenerate_backup_codes all reach it. It is a locally-defined
+        # function (one def), so it resolves unambiguously by bare name --
+        # unlike the old external ``.verify()`` attribute call it replaced.
+        "verify_totp_code",
         "is_refresh_token_valid",
         "validate_password_reset_token",
         "validate_email_token",
@@ -245,28 +247,26 @@ class TestScannerSeesWhatItIsMeantToCheck:
     def test_the_names_this_guard_resolves_are_unambiguous(self, analysis: _Analysis) -> None:
         """Bare-name resolution is only sound while these names are unique.
 
-        ``verify`` is deliberately excluded: it names pyotp's
-        ``TOTP.verify`` method, an external-library attribute call with no
-        local ``def verify`` anywhere in this package to collide with --
-        see ``test_the_verify_primitive_is_not_a_false_positive_magnet``
-        for the check that instead bounds ITS blast radius (by call site,
-        not by definition count).
+        Every primitive is now a locally-defined function (TOTP checking
+        moved from pyotp's external ``.verify()`` attribute call into the
+        local ``verify_totp_code``), so each must be defined in exactly one
+        place for bare-name resolution to be sound.
         """
-        for name in {*CREDENTIAL_VERIFICATION_PRIMITIVES, RATE_LIMIT_GATE} - {"verify"}:
+        for name in {*CREDENTIAL_VERIFICATION_PRIMITIVES, RATE_LIMIT_GATE}:
             sites = analysis.definitions.get(name, [])
             assert len(sites) == 1, f"{name} defined in {len(sites)} places: {sites}"
 
-    def test_the_verify_primitive_is_not_a_false_positive_magnet(self) -> None:
-        """`.verify(` is a common method name -- pin that it stays scoped here.
+    def test_totp_verification_is_centralised_in_one_primitive(self) -> None:
+        """TOTP checking must stay funnelled through ``verify_totp_code``.
 
-        If this ever finds a call site outside auth.py/mfa.py, `verify` in
-        CREDENTIAL_VERIFICATION_PRIMITIVES would start pulling in unrelated
-        routes (or -- the safe-but-wrong direction -- an unrelated `.verify(`
-        call inside a genuinely credential-accepting route would already be
-        covered, but a call OUTSIDE any route would falsely mark a caller
-        of that function as credential-accepting).
+        The replay guard (single-use codes) lives inside verify_totp_code, so
+        a route calling pyotp's ``TOTP.verify``/``.at`` directly would both
+        bypass that guard AND be invisible to signal 2 above. Pin that the
+        only module doing raw pyotp verification is mfa.py (where
+        verify_totp_code itself lives); any new ``.verify(`` elsewhere is a
+        regression to catch here.
         """
-        hits: list[str] = []
+        raw_pyotp_verify: list[str] = []
         for path, tree in _iter_app_modules():
             for node in ast.walk(tree):
                 if (
@@ -274,9 +274,8 @@ class TestScannerSeesWhatItIsMeantToCheck:
                     and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "verify"
                 ):
-                    hits.append(path.name)
-        assert hits, "the .verify( scanner found nothing -- it has stopped working"
-        assert set(hits) <= {"auth.py", "mfa.py"}, sorted(set(hits))
+                    raw_pyotp_verify.append(path.name)
+        assert set(raw_pyotp_verify) <= {"mfa.py"}, sorted(set(raw_pyotp_verify))
 
     def test_the_front_door_signal_finds_the_known_unauthenticated_routes(
         self, analysis: _Analysis
