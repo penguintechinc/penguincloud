@@ -1,0 +1,32 @@
+{{/*
+Cluster Security Baseline — Tetragon TracingPolicy, enforcing (Sigkill).
+Two entries (valkey-server + valkey-cli), no shell: templates/
+deployment.yaml's command: bypasses the official image's shell-script
+ENTRYPOINT to exec valkey-server directly, and the liveness probe execs
+valkey-cli directly via its native REDISCLI_AUTH support — see values.yaml
+tracingPolicy comment for the full reasoning.
+*/}}
+{{- if .Values.tracingPolicy.enabled }}
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: {{ include "valkey.fullname" . }}-exec-allowlist
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "valkey.selectorLabels" . | nindent 6 }}
+  kprobes:
+    - call: "sys_execve"
+      syscall: true
+      args:
+        - index: 0
+          type: "string"
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: "NotEquals"
+              values:
+                {{- toYaml .Values.tracingPolicy.allowedBinaries | nindent 16 }}
+          matchActions:
+            - action: Sigkill
+{{- end }}

@@ -1,0 +1,112 @@
+[tool.ruff]
+target-version = "py313"     # py312 only while migrating
+line-length = 100            # matches Prettier printWidth + dart format
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ASYNC", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest expresses every assertion with `assert`, so bandit's S101 ("assert
+# detected") flags every test in the repo — 373 findings across the suite,
+# none of them a defect. S101 exists because `python -O` strips asserts from
+# PRODUCTION code; a test runner never runs under -O, and rewriting pytest
+# assertions to satisfy it would make the suite worse, not safer.
+#
+# Without this, `ruff` fails on any commit that stages a test file, so no
+# test in this repo could be changed at all.
+#
+# This ignore is ruff-only. The bandit pre-push hook (.pre-commit-config.yaml)
+# has no path restriction and DOES scan tests/ -- confirmed by a real B104
+# finding at tests/api/test_discovery_helpers.py's parametrize table, fixed
+# with bandit's own `# nosec B104` (not `# noqa`, which is ruff's mechanism
+# and does nothing for bandit). That's deliberate, not a gap to close: S101's
+# assert-detected pattern is uniquely and universally a pytest false positive
+# (see above), but bandit's other checks can still catch a genuine issue in
+# test setup code, so bandit keeps scanning the whole tree and individual
+# findings get suppressed at the line, not the tree.
+#
+# Deliberately narrow — one rule, one tree. Everything else in `select`
+# still applies to tests.
+#
+# Discovered while adding Task 6's tests: ruff only just landed in
+# pre-commit (staged-files-only, see .pre-commit-config.yaml), so this had
+# never been surfaced against the existing suite before a Task 6 test file
+# was the first to be staged post-migration.
+#
+# S105/S107 (hardcoded-password string / default arg) joined S101 here
+# during the Phase 5 merge for the same reason: bandit's password/token
+# heuristics pattern-match variable and parameter NAMES
+# (password/secret/token/...), not values, and every test fixture in this
+# repo that registers or logs in a user needs a `password=` literal or
+# parameter to do it. Three call sites (test_products.py, test_scope_
+# enforcement.py) had picked up inline `# noqa: S105`/`# noqa: S107`
+# instead of landing here, which left the codebase disagreeing with
+# itself -- identical fixture patterns in untouched files were still
+# unsuppressed findings waiting to surface the next time ruff touched
+# them. Consolidated to this one rule, one tree, stated once.
+#
+# S106 (hardcoded-password-func-arg) joined during the dependency-hygiene
+# lint cleanup for the identical reason as S105/S107 above -- it is the
+# keyword-argument form of the same name-pattern heuristic
+# (`password="short"`, `password_hash="hashedpwd"` in auth fixtures), just
+# a rule ruff hadn't been actually running long enough to surface before.
+#
+# S603 (subprocess-call-check) joined the same day: several test files
+# invoke `subprocess.run([sys.executable, "script.py", ...])` with a fully
+# static argv to exercise a script in-process-adjacent (no shell, no
+# untrusted input, nothing caller-controlled) -- test_declared_dependencies_
+# suffice.py, product_source_fixtures.py, and tobogganing_route_source.py
+# had each independently landed an identical inline `# noqa: S603` for this
+# exact pattern before test_openapi_spec.py hit the same finding and had no
+# precedent to follow. Consolidating avoids a fifth scattered copy.
+"tests/**" = ["S101", "S105", "S106", "S107", "S603"]
+
+# `token_type: str = "Bearer"` is the literal OAuth2 response field name
+# (RFC 6749 §5.1) holding the auth scheme, not a credential -- S105 matches
+# on the identifier containing "token", not on the value. See the tests/**
+# S105 rationale above for the same bandit heuristic.
+"services/portal-api/app/killkrill_client/client.py" = ["S105"]
+
+# `TOKEN_USE_ACCESS = "access"` is the literal value of penguin-aaa's
+# `token_use` JWT claim (see the constant's own docstring), not a
+# credential -- same S105 name-pattern false positive as above.
+"services/portal-api/app/middleware.py" = ["S105"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.coverage.report]
+# Org standard (testing-python.md): 90% minimum, configured here so
+# `pytest --cov=app` (or plain `coverage report`) enforces the same floor
+# CI's dedicated coverage-gate step passes on the command line
+# (.github/workflows/ci.yml's "Backend coverage gate" step) -- that step's
+# explicit `--cov-fail-under=90` still wins in CI (a CLI flag overrides this
+# file), but a developer running `pytest tests/ --cov=app` locally without
+# repeating the flag now gets the same enforcement rather than a silent
+# green pass at any coverage level.
+#
+# This repo went from 78% (a deliberately temporary regression floor, see
+# ci.yml's step comment) to 90% (measured, not aspirational) in the same
+# change that added this section -- do not lower it.
+#
+# This is LINE/STATEMENT coverage only (statement coverage IS line coverage
+# in coverage.py; the two are the same number here). critical-rules.md's
+# Coverage standard is four dimensions -- lines, branches, functions,
+# statements -- and this repo had never measured or gated branches before
+# this comment was added; a file could read 100% here while every
+# `if`/`else` it contains took only one path. Deliberately NOT adding
+# `branch = true` to a `[tool.coverage.run]` section here: coverage.py
+# blends lines+branches into one "Cover%" once branch measurement is on
+# (measured: 88.24% blended vs. 91.00% line-only), which would silently
+# redefine what this file's `fail_under = 90` enforces for every local
+# `pytest --cov=app` run instead of adding a second, honest dimension.
+# Branch coverage is measured and gated SEPARATELY, at its own honestly-set
+# floor (86%, not 90 -- not yet earned; raised from a first-ever 77% by a
+# real-test + proven-dead-branch push, see scripts/check-coverage-dimensions.py's
+# module docstring for the breakdown of what remains and why), in ci.yml's
+# "Backend coverage gate" step via `scripts/check-coverage-dimensions.py`. Python's
+# coverage.py has no native "function" coverage concept -- that dimension
+# is only tracked on the webui side (`services/webui/jest.config.js`'s
+# `coverageThreshold`).
+fail_under = 90
+show_missing = true

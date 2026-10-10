@@ -1,0 +1,30 @@
+{{/*
+Cluster Security Baseline — Tetragon TracingPolicy, enforcing (Sigkill).
+webui's only legitimate runtime process is node; scoped to this pod only
+(devops-kubernetes.md — a policy loose enough to cover every service stops
+covering any of them).
+*/}}
+{{- if .Values.tracingPolicy.enabled }}
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: {{ include "webui.fullname" . }}-exec-allowlist
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "webui.selectorLabels" . | nindent 6 }}
+  kprobes:
+    - call: "sys_execve"
+      syscall: true
+      args:
+        - index: 0
+          type: "string"
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: "NotEquals"
+              values:
+                {{- toYaml .Values.tracingPolicy.allowedBinaries | nindent 16 }}
+          matchActions:
+            - action: Sigkill
+{{- end }}

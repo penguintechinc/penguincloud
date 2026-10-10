@@ -1,0 +1,39 @@
+# pcli -- CLI Client Requirements
+# Python 3.13+
+#
+# Compile with: uv pip compile requirements.in --generate-hashes -o requirements.txt
+# Install with: uv pip install --require-hashes -r requirements.txt
+# (see make venv-cli / make cli-test)
+
+# CLI framework -- Group.list_commands/get_command give the manifest-
+# discovered command tree its lazy-loading hook (see cli.py, commands/
+# resource_group.py).
+click>=8.1.7,<9.0.0
+
+# HTTP client -- async, matches the httpx-everywhere convention the portal
+# API itself uses (services/portal-api/requirements.in).
+httpx>=0.28.0,<1.0.0
+
+# Platform-secure token storage (macOS Keychain / Windows Credential
+# Manager / Secret Service on Linux) -- client.md: tokens NEVER in a
+# plaintext file.
+keyring>=25.5.0,<26.0.0
+
+# --query <jmespath> for scripting output.
+jmespath>=1.0.1,<2.0.0
+
+# --output yaml
+PyYAML>=6.0.2,<7.0.0
+
+# Development & Testing
+pytest>=9.0.0
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0
+ruff==0.8.4                 # PINNED to match .pre-commit-config.yaml's
+                             # ruff-pre-commit rev exactly, same reasoning
+                             # as services/portal-api/requirements.in.
+mypy>=1.14.0
+types-PyYAML>=6.0.0
+types-jmespath>=1.0.0
+bandit>=1.8.0
+pip-audit>=2.7.0

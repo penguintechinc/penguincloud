@@ -1,0 +1,94 @@
+portal-api deployed as {{ include "portal-api.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+{{- if eq .Values.service.type "NodePort" }}
+Alpha NodePort: http://localhost:{{ .Values.service.nodePort }}/healthz
+{{- else }}
+In-cluster: http://{{ include "portal-api.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- end }}
+
+{{- if and (gt (int (include "portal-api.effectiveReplicas" .)) 1) (not .Values.persistence.jwtKeystore.enabled) }}
+WARNING: effective replica count > 1 without persistence.jwtKeystore.enabled
+would have failed rendering — if you see this, the guard in
+templates/deployment.yaml was bypassed. Do not deploy.
+{{- end }}
+
+{{- if .Values.persistence.jwtKeystore.enabled }}
+
+FIRST DEPLOY: JWT keystore bootstrap (READ BEFORE INSTALLING)
+===============================================================
+This chart mounts a PRE-POPULATED, READ-ONLY Secret at
+{{ .Values.persistence.jwtKeystore.mountPath }}/{{ .Values.persistence.jwtKeystore.fileName }} —
+it does NOT provision a writable volume, and nothing in this chart or the
+running app ever GENERATES the key file's content. penguin-aaa's
+FileKeyStore only writes via an unconditionally-overwriting, non-atomic
+_save(), reached solely through its self-bootstrap path when the target
+file does not yet exist — letting N replicas race to self-bootstrap on a
+shared writable volume is the exact multi-writer key-loss bug this shape
+avoids. Something MUST generate the initial key exactly once, from a
+single process, before the FIRST replica of a multi-replica install ever
+starts:
+
+  1. Run FileKeyStore locally, ONCE, as a single process (safe: no
+     concurrent writer exists in this context):
+
+       python3 -c "
+       from pathlib import Path
+       from penguin_aaa.crypto.keystore import FileKeyStore
+       FileKeyStore(Path('/tmp/keystore.json'), algorithm='RS256')
+       "
+
+  2. Store /tmp/keystore.json's content at the Vault path this release
+     points {{ if .Values.externalSecrets.enabled }}ITS ExternalSecret{{ else }}--set persistence.jwtKeystore.json{{ end }} at:
+     {{ if .Values.externalSecrets.enabled }}{{ .Values.persistence.jwtKeystore.externalSecretKey }}{{ else }}(secrets.create path — pass the file's content directly, see below){{ end }}
+
+  3. THEN install/upgrade this release. ESO (if externalSecrets.enabled)
+     syncs the Vault value into the {{ include "portal-api.jwtKeystoreSecretName" . }}
+     Secret before any replica starts reading it.
+
+  Alpha/local (secrets.create): pass the generated file directly —
+  `--set-file persistence.jwtKeystore.json=/tmp/keystore.json` — never
+  bare `--set` (the value is multi-line JSON).
+
+  Delete /tmp/keystore.json after step 2 — it held real private key
+  material on local disk only as long as the copy step required.
+
+  Key ROTATION is a separate, later concern (nothing in this codebase
+  calls FileKeyStore.rotate_key() today) and is out of scope for this
+  bootstrap note.
+{{- end }}
+
+{{- if .Values.tracingPolicy.enabled }}
+
+FIRST DEPLOY: Tetragon TracingPolicy validation (READ BEFORE RELYING ON IT)
+=============================================================================
+This chart's TracingPolicy enforces (Sigkill, not observe-only) an
+allowlist of exactly this pod's legitimate runtime binaries. Two questions
+about how Tetragon actually behaves on THIS cluster/kernel/runtime
+combination could not be settled without a live cluster (local-alpha's
+kubeconfig points at a stale IP, unreachable all session):
+
+  1. Whether Tetragon's podSelector-scoped kprobe observes the container's
+     very FIRST execve (the runtime's own entrypoint/init exec), or only
+     execve calls after some attachment delay.
+  2. Whether the container runtime (containerd/runc) invokes the
+     entrypoint via its fully-resolved absolute path (matching this
+     policy's allowedBinaries) or a bare/relative name Tetragon would see
+     differently.
+
+If either resolves unfavourably, the allowlist's NotEquals + Sigkill
+action kills PID 1 — a CRASH-LOOP, not a degraded mode, for portal-api and
+webui alike. BEFORE relying on this policy in a real environment: deploy
+to a real Tetragon-enforcing cluster first with a single replica, confirm
+the pod reaches Ready and stays there (not CrashLoopBackOff), and only
+then roll out further. If it crash-loops, check
+`kubectl logs -p <pod> -c <container>` for a Sigkill with no application
+log output at all (vs. a normal app crash, which logs something first) —
+that signature means Tetragon killed the entrypoint exec itself, and
+tracingPolicy.enabled needs to be set to false until the allowlist is
+corrected for this cluster's actual exec-attribution behaviour.
+{{- end }}
+
+{{- if not .Values.metrics.serviceMonitor.enabled }}
+Note: :9090 metrics are exposed but NOT scraped (metrics.serviceMonitor.enabled
+is false). Enable once Prometheus Operator CRDs are confirmed installed.
+{{- end }}

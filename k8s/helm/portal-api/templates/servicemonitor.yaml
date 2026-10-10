@@ -1,0 +1,26 @@
+{{/*
+Prometheus Operator ServiceMonitor. Requires the monitoring.coreos.com CRDs
+— disabled by default because this repo has no confirmed Prometheus Operator
+install (infrastructure/monitoring/prometheus/ referenced by the deprecated
+docker-compose.yml does not exist here). Enable once confirmed installed;
+until then, nothing scrapes :9090 and the metrics listener is dead weight
+guarded only by the NetworkPolicy above.
+*/}}
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "portal-api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "portal-api.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "portal-api.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+{{- end }}

@@ -1,0 +1,163 @@
+#!/bin/bash
+# Deploy to Beta - penguincloud
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+KUBE_CONTEXT="${KUBE_CONTEXT:-dal2-beta}"
+NAMESPACE="${NAMESPACE:-penguincloud-beta}"
+HELM_DIR="$PROJECT_ROOT/k8s/helm"
+VALUES_ENV="beta"
+IMAGE_REGISTRY="registry-dal2.penguintech.io"
+APP_HOST="penguincloud.penguintech.cloud"
+
+# Charts to deploy. The release name equals the chart dir name, which (via the
+# charts' <chart>.fullname helper) also becomes the Deployment name — e.g.
+# release "portal-api" -> deployment/portal-api in $NAMESPACE.
+DEPLOY_SERVICES=("portal-api" "webui" "valkey")
+
+DRY_RUN=0
+ROLLBACK=0
+BUILD_IMAGES=1
+SERVICE=""
+IMAGE_TAG=""
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_section() { echo ""; echo -e "${BLUE}========================================${NC}"; echo -e "${BLUE}$1${NC}"; echo -e "${BLUE}========================================${NC}"; echo ""; }
+
+check_prerequisites() {
+    log_section "Checking Prerequisites"
+    for cmd in docker kubectl helm; do
+        if ! command -v "$cmd" &>/dev/null; then
+            log_error "$cmd is not installed"
+            return 1
+        fi
+        log_info "$cmd: found"
+    done
+}
+
+build_and_push_images() {
+    log_section "Building and Pushing Docker Images"
+    local EPOCH
+    EPOCH=$(date +%s)
+    if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "beta" ]; then
+        IMAGE_TAG="beta-${EPOCH}"
+    fi
+    local SERVICES=("portal-api" "webui")
+    for svc in "${SERVICES[@]}"; do
+        if [ -n "$SERVICE" ] && [ "$SERVICE" != "$svc" ]; then continue; fi
+        local service_path="$PROJECT_ROOT/services/$svc"
+        local dockerfile="$service_path/Dockerfile"
+        if [ ! -f "$dockerfile" ]; then
+            log_warn "Dockerfile not found for $svc at $dockerfile, skipping..."
+            continue
+        fi
+        log_info "Building $svc..."
+        # Build context is the service's own directory, not the repo root —
+        # services/portal-api/Dockerfile does `COPY requirements.txt .`,
+        # which resolves against the context root. Matches deploy-alpha.sh,
+        # check-docker.sh, docker-compose.yml and docker-compose.dev.yml,
+        # which all already scope the context to the service directory.
+        docker build -t "$IMAGE_REGISTRY/penguincloud-$svc:$IMAGE_TAG" -t "$IMAGE_REGISTRY/penguincloud-$svc:beta" -f "$dockerfile" "$service_path"
+        docker push "$IMAGE_REGISTRY/penguincloud-$svc:$IMAGE_TAG"
+        docker push "$IMAGE_REGISTRY/penguincloud-$svc:beta"
+        log_info "✓ $svc pushed successfully"
+    done
+}
+
+do_deploy() {
+    log_section "Deploying with Helm"
+    # portal-api / webui beta values require an explicit image tag; when images
+    # were not built this run, fall back to the floating "beta" tag that
+    # build_and_push_images also publishes.
+    if [ -z "$IMAGE_TAG" ]; then IMAGE_TAG="beta"; fi
+
+    local create_ns=()
+    if ! kubectl --context="$KUBE_CONTEXT" get namespace "$NAMESPACE" &>/dev/null; then
+        create_ns+=("--create-namespace")
+    fi
+
+    for svc in "${DEPLOY_SERVICES[@]}"; do
+        if [ -n "$SERVICE" ] && [ "$SERVICE" != "$svc" ]; then continue; fi
+        local chart_path="$HELM_DIR/$svc"
+        local values_file="$chart_path/$VALUES_ENV.yml"
+        if [ ! -d "$chart_path" ]; then log_error "Chart not found: $chart_path"; return 1; fi
+        if [ ! -f "$values_file" ]; then log_error "Values file not found: $values_file"; return 1; fi
+
+        log_info "Deploying chart: $svc (release=$svc)"
+        local helm_args=("upgrade" "--install" "$svc" "$chart_path" "--kube-context=$KUBE_CONTEXT" "--namespace=$NAMESPACE" "--values=$values_file" "--wait" "--timeout=10m")
+        if [ "${#create_ns[@]}" -gt 0 ]; then helm_args+=("${create_ns[@]}"); fi
+        # Only our own built/pushed images get an image override; valkey uses the
+        # pinned upstream image from its chart values.
+        case "$svc" in
+            portal-api|webui)
+                helm_args+=("--set=image.repository=$IMAGE_REGISTRY/penguincloud-$svc" "--set=image.tag=$IMAGE_TAG")
+                ;;
+        esac
+        if [ "$DRY_RUN" -eq 1 ]; then
+            helm_args+=("--dry-run")
+            log_warn "DRY RUN MODE"
+        fi
+        helm "${helm_args[@]}"
+    done
+}
+
+do_rollback() {
+    log_section "Rolling Back"
+    for svc in "${DEPLOY_SERVICES[@]}"; do
+        if [ -n "$SERVICE" ] && [ "$SERVICE" != "$svc" ]; then continue; fi
+        log_info "Rolling back release: $svc"
+        helm rollback "$svc" --kube-context="$KUBE_CONTEXT" -n "$NAMESPACE" || log_warn "No previous revision for $svc"
+    done
+    log_info "Rollback completed"
+}
+
+verify_deployment() {
+    if [ "$DRY_RUN" -eq 1 ]; then return 0; fi
+    log_section "Verifying Deployment"
+    for svc in "${DEPLOY_SERVICES[@]}"; do
+        if [ -n "$SERVICE" ] && [ "$SERVICE" != "$svc" ]; then continue; fi
+        kubectl --context="$KUBE_CONTEXT" -n "$NAMESPACE" rollout status deployment/"$svc" --timeout=300s || true
+    done
+    kubectl --context="$KUBE_CONTEXT" -n "$NAMESPACE" get pods
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --tag=*) IMAGE_TAG="${1#*=}"; shift;;
+        --tag) IMAGE_TAG="$2"; shift 2;;
+        --service=*) SERVICE="${1#*=}"; shift;;
+        --service) SERVICE="$2"; shift 2;;
+        --skip-build) BUILD_IMAGES=0; shift;;
+        --dry-run) DRY_RUN=1; shift;;
+        --rollback) ROLLBACK=1; shift;;
+        -h|--help) echo "Usage: $0 [--tag=TAG] [--service=SVC] [--skip-build] [--dry-run] [--rollback]"; exit 0;;
+        *) log_error "Unknown: $1"; exit 1;;
+    esac
+done
+
+main() {
+    log_section "PenguinCloud - Beta Deployment"
+    check_prerequisites || exit 1
+    if [ "$ROLLBACK" -eq 1 ]; then do_rollback; exit $?; fi
+    if [ "$BUILD_IMAGES" -eq 1 ]; then build_and_push_images || exit 2; fi
+    do_deploy || exit 3
+    verify_deployment
+    log_section "Deployment Summary"
+    echo -e "${GREEN}✓${NC} Releases: ${DEPLOY_SERVICES[*]}"
+    echo -e "${GREEN}✓${NC} Namespace: $NAMESPACE"
+    echo -e "${GREEN}✓${NC} Tag: $IMAGE_TAG"
+    echo -e "${GREEN}✓${NC} URL: https://$APP_HOST"
+    log_info "Deployment complete!"
+}
+
+main

@@ -1,0 +1,2 @@
+/* Re-export theme from styles directory */
+@import "./styles/theme.css";

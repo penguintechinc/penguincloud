@@ -1,0 +1,15 @@
+apiVersion: v2
+name: webui
+description: >-
+  PenguinCloud WebUI - Node.js/Express server serving the built React shell
+  and proxying /api to portal-api. The product's single public entry point.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://penguincloud.io
+sources:
+  - https://github.com/penguintechinc/penguincloud
+keywords:
+  - penguincloud
+  - webui
+  - express

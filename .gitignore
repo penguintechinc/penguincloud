@@ -1,12 +1,16 @@
-*.yaml
-*secret*
+.worktrees/
+.PLAN
+.TODO
 id_rsa*
 *.key
 .idea/
 *.log
 *.log.*
-*.key
-*.yaml
+node_modules/
+venv/
+.venv/
+__pycache__/
+.superpowers/
 */*.7z
 */*.apk
 */*.asc
@@ -49,8 +53,7 @@ id_rsa*
 */*.tgz
 */*.whl
 */*.zip
-*/password.txt 
-*secret*
+*/password.txt
 .idea/
 id_rsa*
 */web/apps/.service/*/*
@@ -63,3 +66,28 @@ id_rsa*
 */*.pyc
 *.pyc
 
+
+# Go coverage profile (build artifact)
+coverage-go.out
+
+# Secret material -- narrowed to filename shapes that genuinely hold
+# credentials, not any path containing the substring "secret". The old
+# blanket `*secret*` glob matched on name only, not content, so it could
+# not tell a credential file from prose about one: it blocked legitimate
+# Helm Secret/ExternalSecret chart *templates* (k8s/helm/**/templates/
+# secret.yaml, externalsecret.yaml -- no real secret material, template
+# syntax only) and, worse, silently untracked tests/api/test_secret_key.py
+# -- a test *about* secret handling, ignored without any error, which is
+# indistinguishable from a test that was never written. Content-based
+# detection (gitleaks, detect-private-key -- both in the pre-commit hooks)
+# is the real control against committed secret material; this glob is
+# belt-and-braces for the predictable filename shapes credentials
+# actually take. Narrowed this way, the Helm templates above no longer
+# match, so no negation exception is needed for them.
+*.secret
+*.secrets
+secrets.env
+secrets/
+*-secrets.yaml
+*-secrets.yml
+.claude/worktrees/

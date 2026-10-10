@@ -8,7 +8,7 @@ This directory contains focused standards files for Claude Code to reference whe
 
 Files you must **NEVER modify**:
 - `go.md`, `python.md`, `react.md` (language standards)
-- `flask-backend.md`, `go-backend.md`, `webui.md` (service standards)
+- `portal-api.md`, `go-backend.md`, `webui.md` (service standards)
 - `database.md`, `security.md`, `testing.md`, `containers.md`, `kubernetes.md` (domain standards)
 - `README.md` (this file)
 
@@ -35,7 +35,7 @@ Every file in this directory starts with a "CRITICAL RULES" section. Claude shou
 ### Service Standards
 | File | When to Read |
 |------|--------------|
-| `flask-backend.md` | Working on Flask backend service |
+| `portal-api.md` | Working on Flask backend service |
 | `go-backend.md` | Working on Go backend service |
 | `webui.md` | Working on WebUI/React service |
 

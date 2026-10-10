@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+/* PenguinCloud unified theme — Tailwind v4 with custom tokens */
+@source "../../../node_modules/@penguintechinc/react-libs";
+
+@theme {
+  --color-brand: #fbbf24; /* amber-400 — primary gold */
+  --color-accent: #0ea5e9; /* sky-500 — interactive */
+
+  /* Surfaces */
+  --color-surface-primary: #0f172a; /* slate-900 — main bg */
+  --color-surface-secondary: #1e293b; /* slate-800 — cards */
+  --color-surface-tertiary: #334155; /* slate-700 — borders */
+
+  /* Text */
+  --color-text-primary: #fbbf24; /* amber-400 — headings */
+  --color-text-secondary: #cbd5e1; /* slate-300 — body text */
+  --color-text-tertiary: #94a3b8; /* slate-400 — muted */
+
+  /* Status colors */
+  --color-status-healthy: #10b981; /* emerald-500 */
+  --color-status-degraded: #f59e0b; /* amber-500 */
+  --color-status-down: #ef4444; /* red-500 */
+  --color-status-unknown: #64748b; /* slate-500 */
+
+  /* Fonts */
+  --font-sans: Inter;
+  --font-mono: "JetBrains Mono";
+}
+
+/* Base styles */
+html {
+  @apply bg-surface-primary text-text-primary;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    sans-serif;
+  line-height: 1.5;
+}
+
+body {
+  @apply min-h-screen antialiased;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  @apply w-2;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface-primary;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-500;
+}
+
+/*
+ * Composable button base. Declared with v4's `@utility` (not a plain class in
+ * `@layer components`) because `@apply btn` below can only inline a REGISTERED
+ * utility — v4 errors with "Cannot apply unknown utility class" on custom
+ * component classes, unlike v3.
+ */
+@utility btn {
+  @apply px-4 py-2 rounded-lg font-medium transition-colors duration-200;
+}
+
+/* Component layer — migrate from old index.css */
+@layer components {
+  /* Card component */
+  .card {
+    @apply bg-surface-secondary border border-surface-tertiary rounded-lg p-4 shadow-lg;
+  }
+
+  .btn-primary {
+    @apply btn bg-amber-500 text-slate-900 hover:bg-amber-400;
+  }
+
+  .btn-secondary {
+    @apply btn bg-slate-700 text-amber-400 hover:bg-slate-600 border border-slate-600;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-500;
+  }
+
+  /* Input styles */
+  .input {
+    @apply w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg
+           text-amber-400 placeholder-slate-400
+           focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500;
+  }
+
+  /* Sidebar styles (Elder pattern) */
+  .sidebar {
+    @apply fixed left-0 top-0 h-full bg-slate-900 border-r border-slate-700
+           transition-all duration-300 ease-in-out z-40;
+  }
+
+  .sidebar-collapsed {
+    @apply w-16;
+  }
+
+  .sidebar-expanded {
+    @apply w-64;
+  }
+
+  .sidebar-item {
+    @apply flex items-center px-4 py-3 text-amber-400 hover:bg-slate-800
+           transition-colors duration-200 cursor-pointer;
+  }
+
+  .sidebar-item-active {
+    @apply bg-slate-800 border-l-2 border-amber-400;
+  }
+
+  .sidebar-category {
+    @apply px-4 py-2 text-xs uppercase tracking-wider text-slate-400 font-semibold;
+  }
+
+  /* Tab navigation (WaddlePerf pattern) */
+  .tab-nav {
+    @apply flex border-b border-slate-700;
+  }
+
+  .tab-item {
+    @apply px-4 py-3 text-slate-400 hover:text-amber-400
+           transition-colors duration-200 cursor-pointer
+           border-b-2 border-transparent -mb-px;
+  }
+
+  .tab-item-active {
+    @apply text-amber-400 border-amber-400;
+  }
+
+  /* Table styles */
+  .table {
+    @apply w-full text-left;
+  }
+
+  .table th {
+    @apply px-4 py-3 text-xs uppercase tracking-wider text-slate-400
+           border-b border-slate-700 font-semibold;
+  }
+
+  .table td {
+    @apply px-4 py-3 border-b border-slate-800;
+  }
+
+  .table tr:hover {
+    @apply bg-slate-800/50;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
+  }
+
+  .badge-admin {
+    @apply bg-red-900/50 text-red-400;
+  }
+
+  .badge-maintainer {
+    @apply bg-sky-900/50 text-sky-400;
+  }
+
+  .badge-viewer {
+    @apply bg-emerald-900/50 text-emerald-400;
+  }
+}
+
+/*
+ * Gradient heading text. Named `text-amber-gradient` to match the call sites
+ * (Sidebar brand + shell heading) — the palette is amber, there is no "gold"
+ * token in the theme. `bg-linear-to-r` is the v4 name for v3's `bg-gradient-to-r`.
+ */
+@utility text-amber-gradient {
+  @apply bg-linear-to-r from-amber-500 to-amber-300 bg-clip-text text-transparent;
+}

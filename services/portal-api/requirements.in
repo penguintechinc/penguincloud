@@ -1,0 +1,95 @@
+# Quart Backend - Requirements
+# Python 3.13+
+
+# Web Framework & ASGI
+Quart>=0.20.0
+hypercorn>=0.17.0
+quart-cors>=0.7.0
+quart-schema==0.19.0  # PINNED, not a floor: app/openapi.py imports the
+                       # private quart_schema.extension._build_openapi_schema,
+                       # which does not exist past 0.19 - see app/openapi.py
+
+# PenguinTech Libraries
+penguin-dal>=0.4.0
+penguin-aaa>=0.2.0
+penguin-utils>=0.1.0
+penguin-licensing>=0.1.0
+
+# Feature flags. penguin-licensing covers license ENTITLEMENT but ships no
+# flag client on the Python side (the Rust libs have one), so the portal
+# talks to the self-hosted PostHog inside license.penguintech.io through the
+# vendor SDK — see app/flags.py. penguin-libs issue filed proposing this be
+# contributed upstream into penguin-licensing; until it lands, the local
+# wrapper is the whole integration and is deliberately thin.
+posthog>=3.7.0,<4.0.0
+
+# Database ORM & Migrations (schema authority only)
+SQLAlchemy>=2.0.0
+greenlet>=3.5.0              # required by SQLAlchemy's AsyncEngine
+                              # (util/concurrency.py run_in_greenlet) - not
+                              # pulled in automatically by base SQLAlchemy
+alembic>=1.14.0
+
+# Database Drivers (PostgreSQL async, MySQL/MariaDB, SQLite)
+asyncpg>=0.31.0              # PostgreSQL async driver (preferred over psycopg2)
+PyMySQL>=1.1.0               # MySQL/MariaDB driver (pure Python, sync)
+cryptography>=50.0.0          # Required for MySQL/MariaDB SSL connections
+aiosqlite>=0.20.0            # penguin_dal.backends maps DB_TYPE=sqlite to the
+                              # sqlite+aiosqlite dialect for AsyncDB - stdlib
+                              # sqlite3 alone is not enough for the async engine
+
+# Authentication & Cryptography
+bcrypt>=4.2.0
+pyotp>=2.9.0
+PyJWT>=2.10.0               # JWKS verification in app/middleware.py
+
+# Validation
+email-validator>=2.2.0
+pydantic>=2.10.0
+
+# HTTP clients
+aiohttp>=3.11.0              # SOLE remaining use: the concurrent network
+                             # sweep in app/discovery.py. Not a second
+                             # general-purpose client — do not reach for it
+                             # in new code; see httpx below.
+httpx>=0.28.0                # the default HTTP client everywhere else:
+                             # adapter transport,
+                             # OAuth, license server, KillKrill REST.
+                             # `requests` was dropped in Task 3 — do not
+                             # reintroduce it; sync calls in an async
+                             # service is what that rewrite removed.
+
+# gRPC (KillKrill submission only — no gRPC service surface in this app; see app/grpc/__init__.py)
+grpcio>=1.82.0                # KillKrill gRPC client (app/killkrill_client/grpc_client.py)
+
+# Monitoring & Metrics
+prometheus-client>=0.21.0
+valkey>=6.0.0                # penguin_dal.cache.valkey.AsyncValkeyCache client
+                              # (Valkey is the org-standard cache/stream
+                              # backend, protocol-compatible with Redis -
+                              # see devops-containers.md) - health poller
+                              # cache in app/health_cache.py
+
+# Configuration
+python-decouple>=3.8
+
+# Development & Testing
+pytest>=9.0.0
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0
+ruff==0.8.4                 # PINNED to match .pre-commit-config.yaml's
+                             # ruff-pre-commit rev exactly - the hook runs in
+                             # its OWN isolated env (mirrors-ruff), so this is
+                             # what `make lint`/`make lint-python` use to get
+                             # the same answer locally without needing a
+                             # second install. Bump both together, never one
+                             # alone (same drift class the mypy hook hit -
+                             # see docs/DEVELOPMENT.md). Replaces
+                             # flake8/black/isort, which ruff replaced
+                             # repo-wide (PR #18) and which are no longer the
+                             # gate anywhere.
+mypy>=1.14.0
+types-PyYAML>=6.0.0         # stubs for `yaml` (scripts/export-openapi.py);
+                            # PyYAML ships none inline, and mypy --strict
+                            # errors rather than inferring Any
+bandit>=1.8.0

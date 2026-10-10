@@ -1,0 +1,340 @@
+# portal-api — Helm default values (prod-safe baseline).
+#
+# This file is Helm's IMPLICIT default and represents the production-safe
+# baseline (devops-kubernetes.md): 3+ replicas, prod resource tier,
+# autoscaling on, hardened security, digest-pinned image. alpha.yml/
+# beta.yml/gamma.yml scale this DOWN for cheap non-prod environments;
+# production.yml only layers what must differ per real deployment (image
+# digest, ingress host, secrets wiring). Install target namespace is
+# "penguincloud" — the product name only, never environment-suffixed.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 3
+
+image:
+  repository: ghcr.io/penguintechinc/penguincloud/portal-api
+  # Production MUST pin by SHA256 digest (devops-containers.md). Leave tag
+  # empty when digest is set — digest takes precedence in deployment.yaml.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+  # production.yml sets this true so an empty digest fails chart rendering
+  # instead of silently falling back to a mutable tag in prod.
+  requireDigest: false
+  # beta.yml/gamma.yml set this true so a CI pipeline that forgot to inject
+  # its beta-<epoch64>/gamma-<epoch64> tag fails chart rendering instead of
+  # silently deploying whatever image Chart.AppVersion + IfNotPresent
+  # happens to resolve to (likely a stale or wrong image already on the
+  # node, not a loud failure).
+  requireTag: false
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+
+podLabels: {}
+
+# securityContext (devops-kubernetes.md — mandatory, no exceptions without
+# explicit user approval; portal-api has no networking/root need).
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+
+podSecurityContext:
+  fsGroup: 1000
+
+service:
+  type: ClusterIP
+  port: 8000
+  metricsPort: 9090
+
+# Resource tier — production (devops-kubernetes.md). ephemeral-storage
+# isn't in the house resource-tier table but is cheap DDOS-of-node
+# protection (kube-score "Container Ephemeral Storage Request and Limit")
+# for the /tmp emptyDir the container writes to.
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+    ephemeral-storage: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+    ephemeral-storage: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# app/__init__.py: /healthz probes DB connectivity, /readyz is a bare liveness
+# ack. Both unauthenticated by design (kubelet sends no bearer token).
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# License entitlement — gates the backend-node (replica) cap per
+# docs/APP_STANDARDS.md "Backend nodes per service type — NOT a portal-
+# runtime concern. Helm replica counts, set at deploy time." See
+# templates/deployment.yaml's license-node-cap fail-fast guard.
+# Secure by default: this product's founding principle is "you turn
+# security OFF, not ON" — the base values.yaml default is deliberately the
+# most RESTRICTIVE tier (community, 1 node), matching
+# _helpers.tpl::portal-api.licenseTier's own fallback. Only production.yml
+# explicitly opts up to a higher tier (with an OPERATOR-facing comment);
+# alpha/beta/gamma never override this at all, since replicaCount is
+# always 1 there regardless of tier.
+#
+# No numeric override field: a plain Helm value is self-assertable (an
+# operator can just set it), which is not a hard block (general.md).
+# _helpers.tpl::portal-api.maxReplicas is tier -> cap only.
+license:
+  tier: community  # community | professional | enterprise
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls: []
+
+# JWT signing key persistence (app/__init__.py::_build_oidc_provider). A
+# FileKeyStore is REQUIRED whenever effectiveReplicas > 1: an unset
+# JWT_KEYSTORE_PATH now makes the APP ITSELF refuse to boot when
+# DEPLOYMENT_REPLICAS > 1 (see the config.DEPLOYMENT_REPLICAS entry below —
+# this is a config value the app trusts, not something it can autodetect,
+# so this chart is the single source of truth for it, always derived from
+# the SAME effectiveReplicas helper the guards below use, never a
+# separately-authored value that could disagree).
+#
+# NOT a PersistentVolumeClaim. penguin-aaa's FileKeyStore was read directly
+# (services/portal-api/.venv, byte-identical to the penguin-libs checkout —
+# see docs/DEVELOPMENT.md "JWT Signing Keystore" for the exact source
+# lines): it only ever WRITES via _save(), which unconditionally
+# OVERWRITES (builds the file fresh from in-memory state, no read-merge,
+# no lock, no atomic rename) and is reached ONLY through the self-bootstrap
+# path taken when the file does not yet exist. N replicas starting
+# concurrently against an empty SHARED WRITABLE volume (the RWX PVC this
+# chart used before this comment was rewritten) would all observe "file
+# does not exist", all generate their OWN key, and all overwrite each
+# other — the exact cross-pod signature mismatch this mechanism exists to
+# prevent, just moved from "every boot" to "the first concurrent rollout".
+#
+# Correct shape: a PRE-POPULATED, READ-ONLY Secret volume. FileKeyStore's
+# _load() path (taken whenever the file already exists) is provably
+# read-only — no write calls anywhere in its body — so a Secret volume
+# (not a PVC; kubelet projects it per-node, not RWX-constrained, and mounts
+# fine under readOnlyRootFilesystem: true) works with any number of
+# replicas and has no race. secrets.data.JWT_KEYSTORE_JSON /
+# externalSecrets.keys.JWT_KEYSTORE_JSON hold FileKeyStore's own JSON shape
+# ({"keys": [{"kid": ..., "pem": ...}, ...]}), generated ONCE, out-of-band,
+# before first deploy — see templates/NOTES.txt "First deploy: JWT
+# keystore bootstrap" for the exact procedure; nothing in this chart or
+# the running app generates it.
+#
+# Base values.yaml is the prod-safe baseline (replicaCount: 3 above), so
+# this defaults ENABLED for internal consistency with that replica count;
+# alpha/beta/gamma (replicaCount: 1) turn it back off.
+persistence:
+  jwtKeystore:
+    enabled: true
+    mountPath: /var/run/penguincloud/jwt-keystore
+    fileName: keystore.json
+    # Own dedicated Secret (templates/secret.yaml + externalsecret.yaml),
+    # deliberately NOT part of the general secrets.data map below and
+    # NEVER referenced via envFrom: this is a private signing key, not an
+    # API credential, and belongs only in the mounted file the
+    # FileKeyStore reads — env vars are a strictly worse place for it
+    # (kubectl exec env, /proc/<pid>/environ, crash dumps, child-process
+    # inheritance all read environment before they read a tightly-scoped
+    # mounted file).
+    #
+    # json: alpha convenience only (mirrors secrets.data.KEY="" below) --
+    # multi-line JSON, so pass via `--set-file
+    # persistence.jwtKeystore.json=<path>`, never bare --set.
+    # externalSecretKey: Vault path for the externalSecrets.enabled path
+    # (mirrors externalSecrets.keys.KEY: "vault/path#field" below).
+    json: ""
+    externalSecretKey: ""
+
+# Non-secret runtime configuration -> ConfigMap (backend.md CACHE_*
+# convention, devops-kubernetes.md per-env BASE_URL/LOG_LEVEL table).
+# CACHE_HOST intentionally has a real value here (unlike upstream
+# config.py's default of "") — an unset CACHE_HOST silently degrades the
+# health poller to a per-process-only cache with no cross-replica
+# consistency (app/health_cache.py); every environment this chart deploys
+# wires the valkey dependency chart's Service by default.
+config:
+  PRODUCT_NAME: penguincloud
+  BASE_URL: ""
+  LOG_LEVEL: warn
+  RELEASE_MODE: "true"
+  DB_TYPE: postgres
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: penguincloud
+  DB_POOL_SIZE: "20"
+  JWT_ISSUER: ""
+  JWT_AUDIENCES: penguincloud-portal
+  JWT_ALGORITHM: RS256
+  JWT_ACCESS_TOKEN_MINUTES: "30"
+  JWT_REFRESH_TOKEN_DAYS: "7"
+  CORS_ORIGINS: ""
+  OAUTH_ENABLED: "false"
+  LICENSE_SERVER_URL: https://license.penguintech.io
+  CACHE_HOST: valkey
+  CACHE_PORT: "6379"
+  CACHE_DB: "0"
+  CACHE_SSL: "false"
+  HEALTH_POLL_CACHE_TTL_SECONDS: "60"
+  HEALTH_METRICS_PORT: "9090"
+  KILLKRILL_ENABLED: "true"
+  KILLKRILL_API_URL: http://killkrill-receiver:8081
+  KILLKRILL_GRPC_URL: killkrill-receiver:50051
+  # NOT set here: DEPLOYMENT_REPLICAS is rendered directly in
+  # templates/configmap.yaml from the SAME effectiveReplicas helper the
+  # jwtKeystore guards use, deliberately outside this map — putting it here
+  # would let `--set config.DEPLOYMENT_REPLICAS=X` desync it from the
+  # replica count that actually governs the Deployment, which is exactly
+  # the drift app/__init__.py's boot-time refusal depends on not happening.
+
+# Secret-managed values. NEVER commit real values here — this chart only
+# ships the *shape*. Populate via `--set secrets.data.KEY=value` at install
+# time (alpha convenience only) or, preferred for beta/gamma/prod, via
+# externalSecrets below (Vault / External Secrets Operator / Sealed
+# Secrets — see security.md "Secrets & Credentials").
+secrets:
+  create: false
+  data:
+    SECRET_KEY: ""
+    # JWT_SECRET_KEY is NOT here: signing is RS256 via the FileKeyStore/
+    # MemoryKeyStore (app/__init__.py::_build_oidc_provider), never the
+    # HS256 shared-secret path JWT_SECRET_KEY would imply — plumbing an
+    # unread key through Secret + Vault in every env is needless secret
+    # surface for a value nothing consumes.
+    DB_PASS: ""
+    ENCRYPTION_KEY: ""
+    LICENSE_KEY: ""
+    CACHE_PASS: ""
+    KILLKRILL_CLIENT_ID: ""
+    KILLKRILL_CLIENT_SECRET: ""
+    OAUTH_GOOGLE_CLIENT_ID: ""
+    OAUTH_GOOGLE_CLIENT_SECRET: ""
+
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: ""
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Remote key name per local Secret key -- see templates/externalsecret.yaml.
+  keys: {}
+
+networkPolicy:
+  enabled: true
+  # Extra cross-namespace ingress allow rules beyond same-namespace and the
+  # metrics scrape (security.md: "cross-namespace: explicit allowlist per
+  # source/dest/port—no blanket allow"). Each entry:
+  #   namespaceLabels: {"k8s:io.kubernetes.pod.namespace": some-ns}
+  #   ports: [{port: 8000, protocol: TCP}]
+  # The key MUST be the Cilium-reserved endpoint label
+  # "k8s:io.kubernetes.pod.namespace" — plain K8s NetworkPolicy's
+  # namespaceSelector convention (kubernetes.io/metadata.name, a label on
+  # the Namespace OBJECT) does not apply here; fromEndpoints/toEndpoints
+  # matchLabels match ENDPOINT identity labels, and this reserved key is
+  # the one Cilium attaches automatically to every endpoint. Using the
+  # wrong key renders a rule that matches nothing, denying the traffic it
+  # was meant to allow — silently, since the policy still applies cleanly.
+  extraIngress: []
+  # Scrape source for the unauthenticated :9090 metrics listener
+  # (security.md "Port-Scoped External Access" — 9090 must not be reachable
+  # from anywhere else). Secure by default: enabled: false means NO
+  # ingress rule renders for :9090 at all, so nothing can reach it —
+  # matches metrics.serviceMonitor.enabled's own "not confirmed installed"
+  # default. Flip to true (typically alongside metrics.serviceMonitor)
+  # once a real scrape source exists; namespaceLabels then scopes it
+  # (empty = same-namespace only, non-empty = a specific monitoring
+  # namespace).
+  metricsScrapeFrom:
+    enabled: false
+    namespaceLabels: {}
+  egress:
+    # DNS is required for every other egress rule to resolve.
+    allowDNS: true
+    # License/flag server — always reachable (see penguintech.md).
+    allowLicenseServer: true
+    # KillKrill log/metric sink.
+    allowKillKrill: true
+
+# services/portal-api/Dockerfile CMD is exec-form ["hypercorn", ...], not
+# python3 — the container's actual sys_execve target at startup is
+# /usr/local/bin/hypercorn (verified against the python:3.13-slim-bookworm
+# base: `pip install hypercorn` puts a script there with shebang
+# `#!/usr/local/bin/python3.13`). The shebang re-exec into python3 is
+# handled by the KERNEL's binfmt_script loader, not a second userspace
+# execve, so Tetragon's sys_execve kprobe never observes "python3" for the
+# main process at all — only "hypercorn". Kubernetes liveness/readiness use
+# httpGet (see livenessProbe/readinessProbe above), not exec, and nothing
+# in services/portal-api/app/*.py shells out (no subprocess/os.system/
+# Popen), so hypercorn is this container's complete legitimate exec
+# surface under a K8s-managed liveness/readiness setup.
+tracingPolicy:
+  enabled: true
+  allowedBinaries:
+    - /usr/local/bin/hypercorn
+
+# Pod Security Admission labels on the shared "penguincloud" namespace.
+# portal-api is the designated namespace owner (installed first) so exactly
+# one chart creates/labels it — see templates/namespace.yaml. webui and
+# valkey assume it already exists (manageNamespace: false in their values).
+podSecurityAdmission:
+  manageNamespace: true
+  namespace: penguincloud
+  enforce: restricted
+
+metrics:
+  # Requires Prometheus Operator CRDs (ServiceMonitor) — enable only once
+  # confirmed installed in-cluster; infrastructure/monitoring/prometheus/
+  # referenced by the deprecated docker-compose.yml does not exist in this
+  # repo, so nothing scrapes :9090 today regardless of this flag.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

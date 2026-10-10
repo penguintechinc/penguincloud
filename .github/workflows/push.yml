@@ -9,55 +9,203 @@
 
 name: Publish Docker image on push
 
+permissions:
+  contents: read
+
+# devops.md CI/CD Tag Naming (five-tier table):
+#   Pre-alpha -> feature/fix/chore/hotfix branches, LOCAL only.
+#   Alpha     -> release/v{Major}.{Minor}.X branches, LOCAL today (CI only
+#                once "dal3" exists) -- NOT this workflow.
+#   Beta      -> merge to `main`, CI build.
+#   Gamma     -> GitHub release flagged pre-release, CI build, upgrade-in-place.
+#   Prod      -> GitHub release, non-pre-release, v1.x+ only, CI build,
+#                upgrade-in-place.
+# Release-branch pushes are intentionally NOT a trigger here: that tier is
+# local-only until dal3 exists, and building it in CI produced the
+# multi-arch imagetools merge failure on every release/v*.x push (this
+# workflow's failure history before this fix).
 on:
   push:
-    branches: ['main']
-env:
-  REPO:  insert-repo-name-here
+    branches:
+      - main
+  release:
+    types: [prereleased, released]
+
+concurrency:
+  group: publish-push-${{ github.ref }}
+  cancel-in-progress: false
+
+# See ci.yml's identical block for why: unspecified shell is `bash -e {0}`
+# (no pipefail), which can silently swallow a failed left-hand command in
+# any `cmd | other` pipeline. No such pipe exists in this file today, but
+# setting this workflow-wide means one added later doesn't quietly
+# reintroduce that failure mode.
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  push_to_registries:
-    name: Push Docker image to multiple registries
+  # The final image tag (sans per-arch suffix) is resolved ONCE here and
+  # passed to every other job via outputs -- computing epoch/version
+  # independently in multiple jobs previously produced tags that were never
+  # actually pushed (imagetools tried to merge mismatched timestamps).
+  #
+  # Tag format per devops.md:
+  #   beta-<epoch64>   (push to main)
+  #   gamma-<epoch64>  (GitHub release, prereleased)
+  #   v{Major}.{Minor}.{Patch}  (GitHub release, released, v1.x+ only)
+  #
+  # Prod is fail-closed: a missing/empty/unparseable release tag or a
+  # major version below 1 aborts this job (exit 1) before any image is
+  # built or pushed -- downstream jobs `needs: prepare` are skipped by
+  # GitHub Actions when this job fails, so a bad prod trigger never
+  # partially publishes.
+  prepare:
+    name: Resolve build tag
     runs-on: ubuntu-latest
+    outputs:
+      final_tag: ${{ steps.vars.outputs.final_tag }}
+    steps:
+      - name: Resolve final image tag
+        id: vars
+        env:
+          # Never interpolate ${{ }} directly into a run: script (zizmor
+          # template-injection) -- route it through env: and reference the
+          # shell variable instead.
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_ACTION: ${{ github.event.action }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          EPOCH=$(date +%s)
+          if [ "$EVENT_NAME" = "push" ]; then
+            # Only main pushes reach this workflow (release/v*.x branches
+            # are alpha, local-only until dal3 exists -- see `on:` above).
+            echo "final_tag=beta-${EPOCH}" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "release" ] && [ "$RELEASE_ACTION" = "prereleased" ]; then
+            echo "final_tag=gamma-${EPOCH}" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "release" ] && [ "$RELEASE_ACTION" = "released" ]; then
+            if [ -z "$RELEASE_TAG" ]; then
+              echo "::error::Prod release triggered with a missing/empty tag_name -- refusing to publish" >&2
+              exit 1
+            fi
+            if ! printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[1-9][0-9]*\.[0-9]+\.[0-9]+$'; then
+              echo "::error::Release tag '${RELEASE_TAG}' is not a valid v{Major>=1}.{Minor}.{Patch} -- refusing to publish" >&2
+              exit 1
+            fi
+            echo "final_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Unhandled trigger (event=${EVENT_NAME}, action=${RELEASE_ACTION}) -- refusing to publish" >&2
+            exit 1
+          fi
+
+  build-platform:
+    name: Build ${{ matrix.service }} (${{ matrix.platform }})
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+        service: [portal-api, webui]
+        include:
+          # portal-api's Dockerfile does `COPY requirements.txt .` with a
+          # bare filename -- the build context is what decides which
+          # requirements.txt that resolves to. Context MUST be the service
+          # directory itself so it can only ever resolve to
+          # services/portal-api/requirements.txt, never the stale root one.
+          - service: portal-api
+            context: services/portal-api
+            dockerfile: services/portal-api/Dockerfile
+          # webui's Dockerfile COPYs `./services/webui/...` relative to the
+          # repo root, so its context must stay the root.
+          - service: webui
+            context: .
+            dockerfile: services/webui/Dockerfile
     permissions:
       packages: write
       contents: read
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v3
-        
-      - name: Ansible Lint
-        uses: ansible/ansible-lint-action@v6.11.0
-        
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v3
-             
-      - name: Log in to Docker Hub
-        uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4
+
       - name: Log in to the Container registry
-        uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+
+      - name: Determine build tag
+        id: tag
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          SERVICE: ${{ matrix.service }}
+          FINAL_TAG: ${{ needs.prepare.outputs.final_tag }}
+        run: |
+          ARCH=$(printf '%s\n' "$PLATFORM" | sed 's|/|-|g')
+          # Per-service image name (devops-containers.md):
+          # ghcr.io/{org}/{repo}/{service} -- NOT one shared image for the
+          # whole product.
+          IMAGE="ghcr.io/${{ github.repository }}/${SERVICE}"
+          BUILD_TAG="${IMAGE}:${FINAL_TAG}-${ARCH}"
+          printf '%s\n' "build_tag=${BUILD_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7
         with:
-          images: |
-            penguincloud/${{ env.REPO }}
-            ghcr.io/${{ github.repository }}
-      
-      - name: Build and push Docker images
-        uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
-        with:
-          context: .
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v3
+          platforms: ${{ matrix.platform }}
+          tags: ${{ steps.tag.outputs.build_tag }}
+          # docker/build-push-action defaults to emitting provenance/SBOM
+          # attestations, which makes each single-platform push an OCI
+          # index rather than a plain manifest. `imagetools create` cannot
+          # cleanly merge two attestation-bearing indexes into one
+          # multi-arch manifest -- disabling both here is what makes the
+          # merge-manifests step below succeed.
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.platform }}
+          cache-to: type=gha,scope=${{ matrix.service }}-${{ matrix.platform }},mode=max
+
+  merge-manifests:
+    name: Merge manifests (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    needs: [prepare, build-platform]
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [portal-api, webui]
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge manifests
+        env:
+          SERVICE: ${{ matrix.service }}
+          FINAL_TAG: ${{ needs.prepare.outputs.final_tag }}
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}/${SERVICE}"
+          docker buildx imagetools create \
+            -t "${IMAGE}:${FINAL_TAG}" \
+            "${IMAGE}:${FINAL_TAG}-amd64" \
+            "${IMAGE}:${FINAL_TAG}-arm64"

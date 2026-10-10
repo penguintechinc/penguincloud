@@ -1,0 +1,249 @@
+/**
+ * Builds the sidebar's category tree.
+ *
+ * Split out of Layout.tsx so the gating rules — a product category appears
+ * only when a connection for it exists AND its feature gate is on — are
+ * testable without rendering the whole shell.
+ */
+
+import {
+  Home,
+  Activity,
+  Building,
+  Users,
+  Zap,
+  Settings,
+  Database,
+  Shield,
+  Gauge,
+  FileText,
+  Lock,
+} from "lucide-react";
+import type { MenuCategory, MenuItem } from "@penguintechinc/react-libs";
+import { isProductEnabled } from "../../lib/featureGates";
+import type { ProductConnection, UserRole } from "../../types";
+
+/** product_type as reported by the API → feature gate key. */
+const PRODUCT_KEY_MAP: Record<string, string> = {
+  gough: "gough",
+  nest: "nest",
+  tobogganing: "tobogganing",
+  waddleai: "waddleai",
+  waddlebot: "waddlebot",
+  elder: "elder",
+};
+
+/**
+ * Every product that declares a sidebar category, keyed by feature-gate key.
+ *
+ * Exported so the dead-link regression test can derive the connections it
+ * builds the menu with, instead of listing them by hand. It listed three
+ * products, so a fourth category added here would be invisible to the only
+ * check that looks for dead links — the same shape as the original defect,
+ * where the test built the menu with NO connections at all and therefore never
+ * saw a single product entry.
+ */
+export const PRODUCT_ITEMS: Record<
+  string,
+  { header: string; items: MenuItem[] }
+> = {
+  gough: {
+    header: "Gough",
+    // No Clusters entry: Gough registers no cluster collection endpoint, and
+    // no cluster id is reachable from any screen here. Its Node and Biome
+    // models carry no cluster column, so nothing a nodes/biomes drill-down
+    // could hand a detail view. A cluster is only addressable at
+    // /clusters/{id}/... by an id the portal has no way to obtain, so the
+    // entry would be a link to a form asking the operator to type a UUID.
+    // See task-4G-report.md §Session 2.
+    items: [
+      { name: "Nodes", href: "/products/gough/nodes", icon: Gauge },
+      { name: "Biomes", href: "/products/gough/biomes", icon: Building },
+      { name: "Agents", href: "/products/gough/agents", icon: Shield },
+    ],
+  },
+  nest: {
+    header: "Nest",
+    // No Servers, Cloud or Workflows entries. Those screens are not descoped
+    // for effort reasons — they are unreachable. "Nest" is four services, and
+    // its deployed HTTPRoute sends ALL of /api to nest-api, so `apps/manager`
+    // (servers, cloud providers, scaling) and `saga-engine` (workflows) have
+    // no route at the origin a Nest connection points at. The portal's
+    // transport pins every call to that one origin — a credential-egress
+    // control, not an inconvenience.
+    //
+    // The three entries existed here before the routes did, which made them
+    // dead links behind an off-by-default flag. Filed upstream as
+    // penguintechinc/nest#25 proposing prefix routes; they return when Nest
+    // routes them. See task-4N-report.md.
+    //
+    // No Billing entry either, as of Phase 8 Nest convergence: `NEST_MANIFEST`
+    // declares Billing a `page` `ExtensionSlot` rather than a nav-linked
+    // resource, and it renders through the product's OWN page-slot nav merge
+    // (`extensionNav.ts`) straight into this category, not a hand-listed
+    // item here — listing it here too would duplicate the entry.
+    items: [
+      { name: "Databases", href: "/products/nest/databases", icon: Database },
+    ],
+  },
+  tobogganing: {
+    header: "Tobogganing",
+    // No Firewall or Headend entries, and they are not coming back without a
+    // change in Tobogganing itself. Both are its MACHINE control plane:
+    // `@require_machine_jwt` rejects any token whose `aud` is not "headend"
+    // (hub_api/auth/middleware.py:516-517), and a portal connection credential
+    // comes from POST /api/v1/auth/login, which issues aud == product_name ==
+    // "tobogganing" (auth/service.py:341). That is an AUDIENCE mismatch, not a
+    // scope one — ROLE_SCOPES already grants the wildcards those routes ask
+    // for, and the audience check fails first. No token the portal can obtain
+    // will ever satisfy them.
+    //
+    // The one way to reach them would be storing Tobogganing's fleet-wide
+    // HEADEND_API_TOKEN as a connection credential, which the legacy
+    // dual-accept branch would accept with g.machine_tenant hardcoded to
+    // "default" (middleware.py:619) — a cross-tenant credential behind a
+    // per-tenant UI. Rejected in session 1.
+    //
+    // "WireGuard Peers" below is the SD-WAN peer list
+    // (/api/v1/sdwan/wireguard/peers), NOT the flat /api/v1/wireguard/peers,
+    // which is machine-plane and one segment away from it.
+    //
+    // These five replace the five 4N removed: those had no route behind any of
+    // them, so every one was a dead link. `MENU_ITEM_ROUTES` is now asserted to
+    // be a subset of `APP_ROUTES`, which is in turn asserted against App.tsx's
+    // real <Route> table — so an entry can only be added alongside the route
+    // that serves it. See task-4T-report.md.
+    items: [
+      { name: "Clients", href: "/products/tobogganing/clients", icon: Gauge },
+      {
+        name: "Clusters",
+        href: "/products/tobogganing/clusters",
+        icon: Building,
+      },
+      {
+        name: "WireGuard Peers",
+        href: "/products/tobogganing/peers",
+        icon: Shield,
+      },
+      {
+        name: "Block Pages",
+        href: "/products/tobogganing/block-pages",
+        icon: FileText,
+      },
+      {
+        name: "SWG Policy",
+        href: "/products/tobogganing/swg-policy",
+        icon: Lock,
+      },
+    ],
+  },
+};
+
+const HOME_ITEMS: MenuItem[] = [
+  {
+    name: "Dashboard",
+    href: "/",
+    icon: Home,
+    roles: ["admin", "maintainer", "viewer"],
+  },
+  {
+    name: "Health",
+    href: "/health",
+    icon: Activity,
+    roles: ["admin", "maintainer", "viewer"],
+  },
+];
+
+const ORGANIZATION_ITEMS: MenuItem[] = [
+  {
+    name: "Tenants",
+    href: "/tenants",
+    icon: Building,
+    roles: ["admin", "maintainer"],
+  },
+  { name: "Users", href: "/users", icon: Users, roles: ["admin"] },
+  {
+    name: "Teams",
+    href: "/teams",
+    icon: Users,
+    roles: ["admin", "maintainer"],
+  },
+  {
+    name: "Connections",
+    href: "/connections",
+    icon: Zap,
+    roles: ["admin", "maintainer"],
+  },
+  { name: "Audit", href: "/audit", icon: Shield, roles: ["admin"] },
+  {
+    name: "Settings",
+    href: "/settings",
+    icon: Settings,
+    roles: ["admin", "maintainer"],
+  },
+];
+
+/**
+ * Translates an API `product_type` into the sidebar category `key` it
+ * belongs under — the SAME lookup `buildMenuCategories` applies to
+ * connections below, exported so other nav-building code (page-slot
+ * extension placement, `extensionNav.ts`) can find a product's category by
+ * key without re-deriving or hardcoding this map itself.
+ */
+export function productCategoryKey(productType: string): string {
+  return PRODUCT_KEY_MAP[productType] ?? productType;
+}
+
+export type RoleChecker = (roles?: string[]) => boolean;
+
+/** Items with no `roles` are visible to everyone. */
+function visible(items: MenuItem[], hasRoles: RoleChecker): MenuItem[] {
+  return items.filter((item) => hasRoles(item.roles as UserRole[] | undefined));
+}
+
+export function buildMenuCategories(
+  connections: ProductConnection[],
+  hasRoles: RoleChecker,
+): MenuCategory[] {
+  const connected = new Set(
+    connections.map((c) => PRODUCT_KEY_MAP[c.product_type] ?? c.product_type),
+  );
+
+  const categories: MenuCategory[] = [
+    {
+      header: "Home",
+      collapsible: false,
+      items: visible(HOME_ITEMS, hasRoles),
+      key: "home",
+      defaultOpen: true,
+    },
+  ];
+
+  Object.entries(PRODUCT_ITEMS).forEach(([key, { header, items }]) => {
+    // `items.length > 0` for the same reason the Organization block below
+    // checks it: a category header with nothing under it reads as a screen
+    // that failed to load rather than one that does not exist yet.
+    if (connected.has(key) && isProductEnabled(key) && items.length > 0) {
+      categories.push({
+        header,
+        collapsible: true,
+        items,
+        key,
+        defaultOpen: false,
+      });
+    }
+  });
+
+  const orgItems = visible(ORGANIZATION_ITEMS, hasRoles);
+  if (orgItems.length > 0) {
+    categories.push({
+      header: "Organization",
+      collapsible: true,
+      items: orgItems,
+      key: "organization",
+      defaultOpen: false,
+    });
+  }
+
+  return categories;
+}

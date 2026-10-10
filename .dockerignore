@@ -1,0 +1,37 @@
+# Root-level .dockerignore -- used only by services/webui/Dockerfile,
+# whose build context is the repo root (it COPYs `./services/webui/...`
+# relative to root; see .github/workflows push.yml/release.yml/cron.yml/
+# ci.yml for why). webui's Dockerfile only ever COPYs from within
+# services/webui/, so nothing below can land in the built image regardless
+# -- this exists to keep the context Docker transfers to the daemon small,
+# not as a security boundary (see services/portal-api/.dockerignore for
+# that; portal-api's context is narrower and does a bare `COPY . .`).
+
+.git/
+.worktrees/
+docs/
+tests/
+k8s/
+config/
+libs/
+web/
+openapi/
+scripts/
+
+# Other services -- webui's Dockerfile never reads these, no reason to
+# ship them into the build context.
+services/portal-api/
+services/mobile/
+
+# VCS/tooling/build noise, wherever it appears
+**/node_modules/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/dist/
+**/.env
+**/.env.*
+**/.envrc

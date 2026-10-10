@@ -1,0 +1,30 @@
+# valkey — alpha overrides (local-alpha MicroK8s). No NodePort — valkey is
+# never directly internet/host reachable, alpha included; only portal-api's
+# pods reach it (networkPolicy.allowFrom), and there is no alpha exemption
+# for that rule the way there is for HTTP NodePort exposure.
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+    ephemeral-storage: 128Mi
+
+maxmemory: 96mb
+
+persistence:
+  enabled: false
+
+secrets:
+  create: true  # alpha convenience only — populate via --set secrets.data.VALKEY_PASSWORD=...
+
+externalSecrets:
+  enabled: false
+
+podSecurityAdmission:
+  manageNamespace: false
+  namespace: penguincloud
+  enforce: restricted

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: portal-api
+description: >-
+  PenguinCloud Portal API - Quart/hypercorn backend orchestration layer
+  (auth, tenancy, health polling, product proxying) over Gough/Nest/
+  Tobogganing and later WaddleAI/Elder/Waddles/Current.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://penguincloud.io
+sources:
+  - https://github.com/penguintechinc/penguincloud
+keywords:
+  - penguincloud
+  - portal-api
+  - quart

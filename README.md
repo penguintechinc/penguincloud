@@ -1,52 +1,135 @@
-[![Publish Docker image](https://github.com/PenguinCloud/project-template/actions/workflows/docker-image.yml/badge.svg)](https://github.com/PenguinCloud/core/actions/workflows/docker-image.yml) [![version](https://img.shields.io/badge/version-5.1.1-blue.svg)](https://semver.org) 
+[![CI](https://github.com/PenguinCloud/project-template/actions/workflows/ci.yml/badge.svg)](https://github.com/PenguinCloud/project-template/actions/workflows/ci.yml)
+[![Docker Build](https://github.com/PenguinCloud/project-template/actions/workflows/docker-build.yml/badge.svg)](https://github.com/PenguinCloud/project-template/actions/workflows/docker-build.yml)
+[![codecov](https://codecov.io/gh/PenguinCloud/project-template/branch/main/graph/badge.svg)](https://codecov.io/gh/PenguinCloud/project-template)
+[![Go Report Card](https://goreportcard.com/badge/github.com/PenguinCloud/project-template)](https://goreportcard.com/report/github.com/PenguinCloud/project-template)
+[![version](https://img.shields.io/badge/version-5.1.1-blue.svg)](https://semver.org)
+[![License](https://img.shields.io/badge/License-Limited%20AGPL3-blue.svg)](LICENSE.md)
 
-# Project Overview
-PenguinCloud was based on an idea of a method to deploy workloads, storage, etc. in a multi-cloud / hybrid-cloud scenario securely and easily. It was started by a crew of folks who have a rich background in fighting advanced actors and whom saw the defecits in the current offerings on the market.
-Moreso, the crew was made up of folks with decads of Open Source background and a strong desire to provide the core of the product as open source to help those in Non-Profits, startups, and more have a chance!
+```
+ ____            _           _     _____                    _       _
+|  _ \ _ __ ___ (_) ___  ___| |_  |_   _|__ _ __ ___  _ __ | | __ _| |_ ___
+| |_) | '__/ _ \| |/ _ \/ __| __|   | |/ _ \ '_ ` _ \| '_ \| |/ _` | __/ _ \
+|  __/| | | (_) | |  __/ (__| |_    | |  __/ | | | | | |_) | | (_| | ||  __/
+|_|   |_|  \___/| |\___|\___|\__|   |_|\___|_| |_| |_| .__/|_|\__,_|\__\___|
+               _/ |                                  |_|
+              |__/
+```
 
-# Why this image vs others
-## Built in self testing and healing
-All of our builds have unit and dynamic tests as part of the build of their images, as well as during runtime to ensure the system keeps running as expected. If the system falls out of bounds of the test, the images have some self healing capabilities fix common minor problems.
-Security and stability are our priorities!
+# 🏗️ Enterprise Project Template
 
-## Secured... even if the software isn'template
-All of our images under go a 8 stage security check to ensure not only is the PTG portion of the code secure, but to also identify and help remediate the underlying libraries and software security. 
-That being said, we're human, so if you find something, let us know and there might just be something in it for you other then helping out the global community!
+**The Ultimate Multi-Language Development Foundation**
 
-## Updated Weekly
-All of our latest images are checked daily for updates from upstream sources. Look for our stable-updated image to get our latest version with patches!
-In addition, all of our images update themselves for core libraries on launch! We want to make updating easy and less impactful as possible!
+This comprehensive project template provides a production-ready foundation for enterprise software development, incorporating best practices from Penguin Tech Inc projects. Built with security, scalability, and developer experience at its core, it offers standardized tooling for Go, Python, and Node.js applications with integrated licensing, monitoring, and enterprise-grade infrastructure.
+## ✨ Why Choose This Template?
 
-## Designed for air-gapped or for internet facing
-All Pengiun Technologies images are designed to be ran inside of air gapped environments with no internet, allowing datacenters to use a local cache as well saving bandwidth.
-This is why we always allow for URL to be changed. However, you will still need your own apt cache and image registry if air-gapped. We may deploy something for this as part of PenguinCloud in the future, however.
+### 🏭 Enterprise-Ready Architecture
+Built for production from day one with multi-language support (Go 1.24+, Python 3.12/3.13, Node.js 18+), comprehensive CI/CD pipelines, and enterprise-grade security scanning.
 
-## Active contribution and maintenance
-PTG is a company with funding and full time contributors to ensure our images aren't stale.
+### 🔒 Security First
+- **8-stage security validation** including Trivy, CodeQL, and Semgrep scanning
+- **TLS 1.2 minimum enforcement**, preferring TLS 1.3
+- **Automated vulnerability detection** with Dependabot and Socket.dev integration
+- **Secrets management** with environment-based configuration
 
-## Scalable
-ALl PTG images are designs to be micro-containers, ensuring easy verical and horizontal scaling is possible.
+### 🚀 Performance Optimized
+- **Multi-architecture Docker builds** (amd64/arm64) with Debian-slim base images
+- **Parallel CI/CD workflows** for optimized build times
+- **eBPF/XDP networking** support for high-performance applications
+- **Connection pooling** and caching strategies built-in
 
-## PTG drinks it's own koolaid
-PTG actively uses it's own images for everything so we can identify bugs which our automation misses.
+### 🏢 PenguinTech License Server Integration
+- **Centralized feature gating** with `https://license.penguintech.io`
+- **Universal JSON response format** across all products
+- **Multi-tier licensing** (community/professional/enterprise)
+- **Usage tracking and compliance** reporting
 
-## Beta testing
-PTG relies on volunteer customers and community members to beta test images, ensuring our stable / production images are well baked and as bug free as possible solutions.
+### 🔄 Self-Healing & Monitoring
+- **Built-in health checks** and self-healing capabilities
+- **Prometheus metrics** and Grafana dashboard integration
+- **Structured logging** with configurable verbosity levels
+- **Real-time monitoring** and alerting
 
-# Contributors
-## PTG
-Maintainer: creatorsemailhere@penguintech.group
-General: info@penguintech.group
+### 🌐 Multi-Environment Support
+- **Air-gapped deployment** ready with local caching
+- **Container orchestration** with Kubernetes and Helm
+- **Environment-specific configurations** for dev/staging/production
+- **Blue-green deployment** support with automated rollbacks
 
-## community
-* PenguinzTech
+## 🛠️ Quick Start
 
-# Related Penguin Technologies Inc. Projects
-* Squawk - Secure DNS over HTTPS
-* WaddleBot - AI Chatbot with Infrastructure Plugins
-* WaddlePerf - End to end multi-protocol testing and monitoring
+```bash
+# Clone and setup
+git clone <your-repository-url>
+cd your-project
+make setup                    # Install dependencies and setup environment
+make dev                      # Start development environment
+```
 
-# Resources
-Documentation: ./docs/
-Premium Support: https://support.penguintech.io
-Community Bugs / Issues: -/issues
+## 📚 Key Components
+
+### Core Technologies
+- **Languages**: Go 1.24+, Python 3.12/3.13, Node.js 18+
+- **Databases**: PostgreSQL with PyDAL/GORM, Redis/Valkey caching
+- **Containers**: Docker with multi-stage builds, Kubernetes deployment
+- **Monitoring**: Prometheus, Grafana, structured logging
+- **Teams Management**: Team-based multi-tenancy with role-based access control
+
+### Security Features
+- Multi-factor authentication (MFA) and JWT tokens
+- Role-based access control (RBAC) with team-scoped permissions
+- Team-based multi-tenancy with invitations and member management
+- Automated security scanning and vulnerability management
+- Compliance audit logging (SOC2, ISO27001 ready)
+
+### Development Workflow
+- Comprehensive test coverage (unit, integration, e2e)
+- Automated code quality checks (linting, formatting, type checking)
+- Version management with semantic versioning
+- Feature branch workflow with required reviews
+
+## 📖 Documentation
+
+- **Getting Started**: [docs/development/](docs/development/)
+- **API Reference**: [docs/api/](docs/api/)
+- **Deployment Guide**: [docs/deployment/](docs/deployment/)
+- **Architecture Overview**: [docs/architecture/](docs/architecture/)
+- **License Integration**: [docs/licensing/](docs/licensing/)
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Maintainers
+- **Primary**: creatorsemailhere@penguintech.group
+- **General**: info@penguintech.group
+- **Company**: [www.penguintech.io](https://www.penguintech.io)
+
+### Community Contributors
+- *Your name could be here! Submit a PR to get started.*
+
+## 📞 Support & Resources
+
+- **Documentation**: [./docs/](docs/)
+- **Premium Support**: https://support.penguintech.group
+- **Community Issues**: [GitHub Issues](../../issues)
+- **License Server Status**: https://status.penguintech.io
+
+## 📄 License
+
+This project is licensed under the Limited AGPL3 with preamble for fair use - see [LICENSE.md](docs/LICENSE.md) for details.
+
+**License Highlights:**
+- **Personal & Internal Use**: Free under AGPL-3.0
+- **Commercial Use**: Requires commercial license
+- **SaaS Deployment**: Requires commercial license if providing as a service
+
+### Contributor Employer Exception (GPL-2.0 Grant)
+
+Companies employing official contributors receive GPL-2.0 access to community features:
+
+- **Perpetual for Contributed Versions**: GPL-2.0 rights to versions where the employee contributed remain valid permanently, even after the employee leaves the company
+- **Attribution Required**: Employee must be credited in CONTRIBUTORS, AUTHORS, commit history, or release notes
+- **Future Versions**: New versions released after employment ends require standard licensing
+- **Community Only**: Enterprise features still require a commercial license
+
+This exception rewards contributors by providing lasting fair use rights to their employers. See [LICENSE.md](docs/LICENSE.md) for full terms.

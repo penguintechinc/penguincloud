@@ -1,0 +1,30 @@
+{
+  "services": [
+    {
+      "name": "projectname-flask-api",
+      "ip_fqdn": "portal-api",
+      "port": 8080,
+      "protocol": "http",
+      "collection": "projectname",
+      "auth_type": "jwt",
+      "tls_enabled": false,
+      "tls_verify": true,
+      "health_check_enabled": true,
+      "health_check_path": "/healthz",
+      "health_check_interval": 30
+    },
+    {
+      "name": "projectname-webui",
+      "ip_fqdn": "webui",
+      "port": 80,
+      "protocol": "http",
+      "collection": "projectname",
+      "auth_type": "none",
+      "tls_enabled": false,
+      "tls_verify": true,
+      "health_check_enabled": true,
+      "health_check_path": "/",
+      "health_check_interval": 30
+    }
+  ]
+}

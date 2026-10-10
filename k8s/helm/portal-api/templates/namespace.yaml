@@ -1,0 +1,24 @@
+{{/*
+Namespace + Pod Security Admission labels (devops-kubernetes.md Cluster
+Security Baseline — mandatory on every product). portal-api is installed
+first and is the designated owner of the shared "penguincloud" namespace;
+webui and valkey (podSecurityAdmission.manageNamespace: false in their own
+values) assume it already exists rather than each independently declaring
+ownership, which is what causes "invalid ownership metadata" conflicts
+across separate Helm releases sharing one namespace.
+
+`helm.sh/resource-policy: keep` so `helm uninstall portal-api` never
+deletes the namespace webui/valkey are still running in.
+*/}}
+{{- if .Values.podSecurityAdmission.manageNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.podSecurityAdmission.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: {{ .Values.podSecurityAdmission.enforce }}
+    pod-security.kubernetes.io/audit: {{ .Values.podSecurityAdmission.enforce }}
+    pod-security.kubernetes.io/warn: {{ .Values.podSecurityAdmission.enforce }}
+  annotations:
+    helm.sh/resource-policy: keep
+{{- end }}

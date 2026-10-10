@@ -1,0 +1,14 @@
+apiVersion: v2
+name: valkey
+description: >-
+  Valkey cache tier for portal-api's health-poller cache (app/health_cache.py).
+  Hand-authored (never bitnami/redis or bitnami/valkey — commercial-use
+  licensing restriction, devops-kubernetes.md Sub-Chart Dependencies).
+type: application
+version: 0.1.0
+appVersion: "8.0"
+home: https://valkey.io
+keywords:
+  - penguincloud
+  - valkey
+  - cache

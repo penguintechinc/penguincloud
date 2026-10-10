@@ -1,0 +1,33 @@
+{{/*
+Cluster Security Baseline — Cilium Tetragon TracingPolicy, ENFORCING
+(Sigkill), not observe-only. portal-api's only legitimate runtime process is
+python3 (hypercorn); a shell dropped by a compromised dependency
+(bash/sh/curl/nc/wget) must never be allowed to exec inside this container.
+TracingPolicy is cluster-scoped (no namespace field) but this one is scoped
+to THIS pod via podSelector — a policy loose enough to cover every service
+stops covering any of them (devops-kubernetes.md).
+*/}}
+{{- if .Values.tracingPolicy.enabled }}
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: {{ include "portal-api.fullname" . }}-exec-allowlist
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "portal-api.selectorLabels" . | nindent 6 }}
+  kprobes:
+    - call: "sys_execve"
+      syscall: true
+      args:
+        - index: 0
+          type: "string"
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: "NotEquals"
+              values:
+                {{- toYaml .Values.tracingPolicy.allowedBinaries | nindent 16 }}
+          matchActions:
+            - action: Sigkill
+{{- end }}

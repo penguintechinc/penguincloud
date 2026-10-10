@@ -1,0 +1,154 @@
+{{/*
+Auth is mandatory (no anonymous Valkey access) and the container below
+references the Secret unconditionally via secretKeyRef/volume — fail
+loudly at render time rather than shipping a Deployment that will
+CreateContainerConfigError because the Secret does not exist. (The
+empty-password case for the secrets.create path is guarded in
+templates/secret.yaml, where the plaintext value is actually visible to
+Helm; this guard only proves a source exists at all.)
+*/}}
+{{- if not (or .Values.secrets.create .Values.externalSecrets.enabled) }}
+{{- fail "valkey: neither secrets.create nor externalSecrets.enabled is true — VALKEY_PASSWORD has no source. Set one (alpha convenience: secrets.create + --set secrets.data.VALKEY_PASSWORD=...; beta/gamma/prod: externalSecrets)." }}
+{{- end }}
+{{/*
+Cap guard: unlike portal-api/webui's licensed backend-node cap, this
+instance's design (Recreate strategy, single non-clustered valkey-server,
+one shared /data) assumes exactly one replica everywhere, always -- see
+values.yaml's Chart-level comment. Nothing else in this chart enforces
+that, so `--set replicaCount=3` would otherwise render happily and produce
+N independent, non-clustered caches sharing one Service, not a scaled
+cache.
+*/}}
+{{- if ne (int .Values.replicaCount) 1 }}
+{{- fail (printf "valkey: replicaCount must be exactly 1 (got %d) — this chart is not a clustered/HA deployment; portal-api already degrades to a per-process fallback cache if this single instance is unreachable (see app/health_cache.py), so it does not scale with portal-api's own replica count." (int .Values.replicaCount)) }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "valkey.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+  {{- if .Values.externalSecrets.enabled }}
+  annotations:
+    # stakater/Reloader watches THIS annotation on the Deployment's own
+    # metadata, not the pod template's -- see portal-api's identical
+    # annotation/comment.
+    reloader.stakater.com/auto: "true"
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    # A rolling update would leave the OLD and NEW pod both bound briefly,
+    # but this is a single-instance cache with no leader election —
+    # Recreate avoids two valkey-server processes racing to write /data.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "valkey.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "valkey.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.secrets.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "valkey.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: valkey
+          image: >-
+            {{ .Values.image.repository }}@{{ .Values.image.digest }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          # Bypasses the official image's ENTRYPOINT (docker-entrypoint.sh,
+          # a shell script) and execs valkey-server directly as PID 1. Safe
+          # for this exact deployment: docker-entrypoint.sh's only other
+          # logic is a root->non-root chown+setpriv dance (never taken --
+          # securityContext already runs non-root) and a default umask
+          # (irrelevant -- save "" and no unix socket mean nothing this
+          # container writes depends on it). This is also what lets the
+          # Tetragon allowlist below hold at 2 binaries instead of 3 -- see
+          # values.yaml tracingPolicy comment.
+          command:
+            - /usr/local/bin/valkey-server
+          args:
+            - /etc/valkey/valkey.conf
+            - --aclfile
+            - /etc/valkey-runtime/users.acl
+          ports:
+            - name: valkey
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            # valkey-cli (liveness probe below) honours REDISCLI_AUTH
+            # natively -- no shell substitution needed for the probe either.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "valkey.secretName" . }}
+                  key: VALKEY_PASSWORD
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/valkey
+              readOnly: true
+            - name: acl-runtime
+              mountPath: /etc/valkey-runtime
+              readOnly: true
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "valkey.configMapName" . }}
+        # Projected secret file, not an init-container-rendered one: the
+        # Secret already carries a fully-composed users.acl key (Helm-
+        # templated for the secrets.create path in templates/secret.yaml,
+        # ESO-templated server-side for the externalSecrets path in
+        # templates/externalsecret.yaml) -- no shell substitution happens
+        # inside this pod at all, which is what lets /usr/bin/sh come out
+        # of the Tetragon allowlist entirely.
+        - name: acl-runtime
+          secret:
+            secretName: {{ include "valkey.secretName" . }}
+            items:
+              - key: users.acl
+                path: users.acl
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "valkey.pvcName" . }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ index .Values.resources.limits "ephemeral-storage" | default "128Mi" }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,5265 @@
+# GENERATED FILE — DO NOT EDIT.
+# Regenerate with: make openapi
+# Source: services/portal-api route table (API v1).
+components:
+  schemas:
+    ActionResourceView:
+      description: 'The affected resource''s post-action state, when the product returned it.
+
+
+        A named subset rather than the whole :class:`~app.adapters.base.Resource`:
+
+        ``metadata`` is the adapter''s free-form bag and is not published here for
+
+        the same reason :class:`OperationView` omits it.'
+      properties:
+        id:
+          title: Id
+          type: string
+        kind:
+          title: Kind
+          type: string
+        name:
+          title: Name
+          type: string
+        status:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Status
+      required:
+        - id
+        - kind
+        - name
+        - status
+      title: ActionResourceView
+      type: object
+    ActionSpec:
+      description: 'One non-CRUD verb offered on a resource row.
+
+
+        ``starts_operations`` is the field :func:`validate_manifest` and Design
+
+        §3.3 both key off: an action that starts pollable work returns
+
+        ``ActionResult.operations``, which is unreachable through the byte
+
+        proxy by construction, so the owning :class:`ResourceDescriptor` MUST
+
+        be ``transport == "typed"`` whenever any of its actions sets this True.
+
+
+        ``confirm`` MAY contain the literal token ``{name}`` — the renderer
+
+        substitutes it with the acted-on row''s ``name_field`` value before
+
+        display. Gough convergence finding (Phase 8 Step 5): ``NodesPage``''s
+
+        confirm copy is ``f"{action.confirmation} This affects node
+
+        "{selected.name}"."`` — a per-row fact a manifest string, composed
+
+        once at import time, cannot embed directly. ``{name}`` is the one
+
+        substitution this schema authorises; no other braced token is
+
+        interpreted (a manifest containing one renders it verbatim).'
+      properties:
+        confirm:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Confirm
+        enabled_when_field:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Enabled When Field
+        enabled_when_in:
+          default: []
+          items:
+            type: string
+          maxItems: 10000
+          title: Enabled When In
+          type: array
+        form:
+          anyOf:
+            - $ref: '#/components/schemas/FormSpec'
+            - type: 'null'
+        label:
+          title: Label
+          type: string
+        requires:
+          default: manage
+          title: Requires
+          type: string
+        starts_operations:
+          default: false
+          title: Starts Operations
+          type: boolean
+        variant:
+          default: default
+          title: Variant
+          type: string
+        verb:
+          title: Verb
+          type: string
+      required:
+        - verb
+        - label
+      title: ActionSpec
+      type: object
+    AuditRecord:
+      description: "One entry in a tenant's audit trail.\n\nAttributes:\n    id: Identifier\
+        \ of this audit entry.\n    user_id: Identifier of the user who performed the action,\
+        \ if the\n        action had an authenticated actor.\n    action: The event that was\
+        \ recorded, e.g. ``product.register``.\n    resource_type: The kind of resource acted\
+        \ on, e.g. ``tenant``.\n    resource_id: Identifier of the resource acted on.\n    tenant_id:\
+        \ The tenant this entry belongs to.\n    product_connection_id: The product connection\
+        \ involved, when the\n        action was performed against a connected product.\n  \
+        \  ip_address: Source address the action came from.\n    created_at: When the action\
+        \ occurred, ISO-8601."
+      properties:
+        action:
+          title: Action
+          type: string
+        created_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Created At
+        id:
+          title: Id
+          type: integer
+        ip_address:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Ip Address
+        product_connection_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: Product Connection Id
+        resource_id:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource Id
+        resource_type:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource Type
+        tenant_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: Tenant Id
+        user_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: User Id
+      required:
+        - id
+        - user_id
+        - action
+        - resource_type
+        - resource_id
+        - tenant_id
+        - product_connection_id
+        - ip_address
+        - created_at
+      title: AuditRecord
+      type: object
+    AuthenticatedUser:
+      description: "The caller's own profile, as login echoes it back.\n\nDeliberately narrower\
+        \ than the full user row fetched from the\ndatabase: no password_hash, no MFA secret,\
+        \ no internal flags. Nothing\nadded to that row tomorrow reaches this response unless\
+        \ it is added\nhere too — see security.md Output Validation.\n\nAttributes:\n    id:\
+        \ Identifier of the authenticated user.\n    email: The user's email address.\n    full_name:\
+        \ Display name.\n    role: Global role: admin, maintainer or viewer."
+      properties:
+        email:
+          title: Email
+          type: string
+        full_name:
+          title: Full Name
+          type: string
+        id:
+          title: Id
+          type: integer
+        role:
+          title: Role
+          type: string
+      required:
+        - id
+        - email
+        - full_name
+        - role
+      title: AuthenticatedUser
+      type: object
+    BooleanLabels:
+      description: Display text for a ``boolean`` cell's two states.
+      properties:
+        false_label:
+          title: False Label
+          type: string
+        true_label:
+          title: True Label
+          type: string
+      required:
+        - true_label
+        - false_label
+      title: BooleanLabels
+      type: object
+    CellSpec:
+      description: 'How one column''s value is rendered — a CLOSED union, see :data:`CELL_KINDS`.
+
+
+        Only the fields a given ``kind`` actually uses are meaningful; the rest
+
+        stay at their default. Validated together so a ``money`` cell with no
+
+        ``currency_field`` or a ``link`` cell with no ``to_kind`` fails at
+
+        manifest construction, not when a renderer tries to draw the first row.'
+      properties:
+        currency_field:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Currency Field
+        id_field:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Id Field
+        kind:
+          title: Kind
+          type: string
+        labels:
+          anyOf:
+            - $ref: '#/components/schemas/BooleanLabels'
+            - type: 'null'
+        relative:
+          default: false
+          title: Relative
+          type: boolean
+        styles:
+          default: []
+          items:
+            $ref: '#/components/schemas/EnumStyle'
+          maxItems: 10000
+          title: Styles
+          type: array
+        to_kind:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: To Kind
+        unit:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Unit
+      required:
+        - kind
+      title: CellSpec
+      type: object
+    ColumnSpec:
+      description: 'One column of a resource''s list/detail table.
+
+
+        ``fallback_fields`` is a schema generalisation from the Gough
+
+        convergence (Phase 8 Step 5): ``agentColumns.tsx``''s ``hostname`` column
+
+        renders ``String(value || row.agent_id || row.id)`` — the FIRST
+
+        non-null of a chain of fields on the same row, not a single
+
+        ``field`` binding. A plain ``field`` cannot express that fallback
+
+        chain, and it is not Gough-specific (any product whose primary display
+
+        field is sometimes absent needs the same "fall back to the id" idiom),
+
+        so it is a column-level list here rather than a one-off on
+
+        :class:`ResourceDescriptor`.'
+      properties:
+        absent_as:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Absent As
+        cell:
+          $ref: '#/components/schemas/CellSpec'
+        fallback_fields:
+          default: []
+          items:
+            type: string
+          maxItems: 10000
+          title: Fallback Fields
+          type: array
+        field:
+          title: Field
+          type: string
+        label:
+          title: Label
+          type: string
+        sortable:
+          default: false
+          title: Sortable
+          type: boolean
+      required:
+        - field
+        - label
+        - cell
+      title: ColumnSpec
+      type: object
+    ConsoleManifest:
+      description: 'The complete descriptor for one product''s console screens.
+
+
+        Composed once, at import time, by each product''s own ``manifest.py``
+
+        (never assembled from live data — see the module docstring). Immediately
+
+        passed to :func:`validate_manifest` by its own module before being
+
+        exposed via :data:`app.adapters.MANIFEST_REGISTRY` — an invalid manifest
+
+        therefore fails at import, not at the first request that reaches it.'
+      properties:
+        display_name:
+          title: Display Name
+          type: string
+        extensions:
+          default: []
+          items:
+            $ref: '#/components/schemas/ExtensionSlot'
+          maxItems: 10000
+          title: Extensions
+          type: array
+        manifest_version:
+          title: Manifest Version
+          type: integer
+        metrics:
+          anyOf:
+            - $ref: '#/components/schemas/MetricsSpec'
+            - type: 'null'
+        nav:
+          $ref: '#/components/schemas/NavSpec'
+        operations:
+          anyOf:
+            - $ref: '#/components/schemas/OperationsSpec'
+            - type: 'null'
+        product_type:
+          title: Product Type
+          type: string
+        resources:
+          items:
+            $ref: '#/components/schemas/ResourceDescriptor'
+          maxItems: 10000
+          title: Resources
+          type: array
+      required:
+        - manifest_version
+        - product_type
+        - display_name
+        - nav
+        - resources
+      title: ConsoleManifest
+      type: object
+    DashboardStats:
+      description: "Aggregate counters for the overview's stats block.\n\nAttributes:\n    total_products:\
+        \ Number of product connections in this tenant.\n    total_members: Number of members\
+        \ in this tenant.\n    health: Connections grouped by cached health state.\n    categories:\
+        \ Connection count by product category, e.g. networking."
+      properties:
+        categories:
+          additionalProperties:
+            type: integer
+          title: Categories
+          type: object
+        health:
+          $ref: '#/components/schemas/HealthCounts'
+        total_members:
+          title: Total Members
+          type: integer
+        total_products:
+          title: Total Products
+          type: integer
+      required:
+        - total_products
+        - total_members
+        - health
+        - categories
+      title: DashboardStats
+      type: object
+    DeleteSpec:
+      description: 'Delete affordance for a resource. ``confirm`` is mandatory copy.
+
+
+        ``confirm`` MAY contain the literal token ``{name}`` — same
+
+        per-row-interpolation contract as :attr:`ActionSpec.confirm` (see that
+
+        docstring): the renderer substitutes it with the acted-on row''s
+
+        ``name_field`` value before display. A delete confirm is a row action
+
+        just like any :class:`ActionSpec`, so it gets the identical
+
+        substitution rather than a second, divergent template language.'
+      properties:
+        confirm:
+          title: Confirm
+          type: string
+        requires:
+          default: manage
+          title: Requires
+          type: string
+      required:
+        - confirm
+      title: DeleteSpec
+      type: object
+    DetailSpec:
+      description: Tab layout for a resource's detail view. Empty means a single pane.
+      properties:
+        tabs:
+          default: []
+          items:
+            type: string
+          maxItems: 10000
+          title: Tabs
+          type: array
+      title: DetailSpec
+      type: object
+    EnumStyle:
+      description: 'One ``enum_badge`` value -> style-name mapping, e.g. ``("healthy", "success")``.
+
+
+        A named object rather than a bare 2-tuple: pydantic/quart-schema renders
+
+        a fixed-length tuple as a JSON Schema ``prefixItems`` array with no
+
+        sibling ``items``, which ``spectral``''s ``array-items`` rule (run over
+
+        ``openapi/v1.yaml`` in CI) refuses — a real, caught-in-review defect,
+
+        not a hypothetical one. An object with named fields sidesteps the whole
+
+        class of problem and is more self-documenting besides.'
+      properties:
+        style:
+          title: Style
+          type: string
+        value:
+          title: Value
+          type: string
+      required:
+        - value
+        - style
+      title: EnumStyle
+      type: object
+    EnvelopeSpec:
+      description: "The exact unwrap path from a proxied collection's RAW body to its array.\n\
+        \nSchema v2 finding: a single ``envelope_key`` string cannot express\nGough's real wire\
+        \ shapes. ``keys`` is the ordered sequence of keys to\ndescend through the raw HTTP\
+        \ body the BROWSER receives via the byte\nproxy (not the adapter's own already-unwrapped\
+        \ ``GoughResponse`` —\nthose are different documents; see\n:mod:`app.adapters.gough.responses`'s\
+        \ module docstring) to reach the\nitem array:\n\n* ``(\"data\", \"nodes\")`` for Gough\
+        \ nodes — ``list_nodes`` answers via\n  ``_helpers.envelope_success``, which wraps the\
+        \ array inside an outer\n  ``data`` key: ``{\"status\": \"success\", \"data\": {\"nodes\"\
+        : [...]},\n  \"meta\": {...}}``.\n* ``(\"groups\",)`` for Gough biome_groups — BARE,\
+        \ despite\n  ``list_biome_groups`` living in the same blueprint MODULE as\n  ``list_biomes``.\
+        \ It answers ``jsonify({\"groups\": [...], \"total\":\n  ...})`` directly, never ``envelope_success``.\
+        \ Verified by reading\n  Gough's own source (``services/api-manager/app/api/biomes.py``)\
+        \ at\n  ``~/code/gough``, not guessed by analogy with the enveloped\n  ``biomes`` route\
+        \ it sits beside — that analogy is exactly the trap\n  this field exists to close off.\n\
+        \nNever derive one resource's envelope from a sibling's shape. Two\nresources declared\
+        \ in the same source module can answer differently,\nand only the product's own handler\
+        \ code says which."
+      properties:
+        keys:
+          items:
+            type: string
+          maxItems: 10000
+          title: Keys
+          type: array
+      required:
+        - keys
+      title: EnvelopeSpec
+      type: object
+    ExtensionSlot:
+      description: 'A named escape hatch — Design §4.1. NEVER carries code, only a name.
+
+
+        The console resolves ``"{product_type}.{id}"`` against a
+
+        lazily-imported registry in ``components/extensions/``; a slot with no
+
+        matching registry entry degrades to a generic fallback, per Design §3.4.'
+      properties:
+        id:
+          title: Id
+          type: string
+        label:
+          title: Label
+          type: string
+        position:
+          default: 0
+          title: Position
+          type: integer
+        resource:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource
+        slot:
+          title: Slot
+          type: string
+      required:
+        - slot
+        - id
+        - label
+      title: ExtensionSlot
+      type: object
+    FieldAlias:
+      description: One portal-facing -> product-facing form field rename. See :class:`FormSpec`.
+      properties:
+        portal_name:
+          title: Portal Name
+          type: string
+        product_name:
+          title: Product Name
+          type: string
+      required:
+        - portal_name
+        - product_name
+      title: FieldAlias
+      type: object
+    FormField:
+      description: "One field of a create form — a real react-libs ``FieldConfig``, not a lookalike.\n\
+        \nSchema v2 finding: schema v1's docstring here claimed to mirror\n``@penguintechinc/react-libs``'\
+        \ \"``FormField`` shape closely enough to\nserialise straight into it\" — unverified\
+        \ at the time, per that\ndocstring, and wrong on inspection of the actual checkout\n\
+        (``~/code/penguin-libs/packages/react-libs/src/components/FormBuilder/\ntypes.ts``):\n\
+        \n1. react-libs exports NO data type named ``FormField`` at all —\n   ``FormField``\
+        \ there is a React component\n   (``React.FC<FormFieldProps>``). The data shape a caller\
+        \ actually\n   builds is ``FieldConfig``, consumed as ``FormConfig.fields:\n   FieldConfig[]``.\
+        \ This class keeps the name ``FormField`` anyway —\n   unlike its TypeScript mirror\
+        \ (``ManifestFormField`` in\n   ``manifestTypes.ts``), there is no Python symbol it\
+        \ would collide\n   with, so the rename that file needed is not needed here.\n2. ``field_type``\
+        \ is now closed (:data:`FIELD_TYPES`, byte-exact with\n   react-libs' own ``FieldType``\
+        \ union) rather than free text — a\n   manifest naming a type ``FormBuilder`` does not\
+        \ recognise used to\n   pass validation and then be silently unrenderable; refused at\n\
+        \   construction instead.\n3. ``options`` is ``tuple[SelectOption, ...]``, matching\n\
+        \   ``FieldConfig.options: SelectOption[]`` — NOT the bare\n   ``tuple[str, ...]`` schema\
+        \ v1 shipped, which cannot express a\n   value/label split (react-libs' ``SelectOption``\
+        \ always has both) and\n   would need a synthetic ``options.map(o => ({value: o, label:\
+        \ o}))``\n   mapping step at the renderer that does not exist anywhere.\n4. ``default_value``\
+        \ renames schema v1's ``default`` to match react-libs'\n   own ``defaultValue`` — cheap,\
+        \ but a real field name a caller would\n   otherwise get wrong binding this to ``FormBuilder``."
+      properties:
+        default_value:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Default Value
+        field_type:
+          default: text
+          title: Field Type
+          type: string
+        label:
+          title: Label
+          type: string
+        name:
+          title: Name
+          type: string
+        options:
+          default: []
+          items:
+            $ref: '#/components/schemas/SelectOption'
+          maxItems: 10000
+          title: Options
+          type: array
+        placeholder:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Placeholder
+        required:
+          default: false
+          title: Required
+          type: boolean
+      required:
+        - name
+        - label
+      title: FormField
+      type: object
+    FormSpec:
+      description: 'A create form: its fields, and the rename a create payload needs.
+
+
+        ``field_aliases`` is Design §3.3''s Nest finding: a create handler that
+
+        *reads* ``type``/``class`` but *serialises* ``resourceType``/
+
+        ``storageClass`` needs the portal-facing name mapped to the
+
+        product-facing one, or a form posting what it read gets a 400.'
+      properties:
+        field_aliases:
+          default: []
+          items:
+            $ref: '#/components/schemas/FieldAlias'
+          maxItems: 10000
+          title: Field Aliases
+          type: array
+        fields:
+          items:
+            $ref: '#/components/schemas/FormField'
+          maxItems: 10000
+          title: Fields
+          type: array
+        submit_label:
+          title: Submit Label
+          type: string
+      required:
+        - fields
+        - submit_label
+      title: FormSpec
+      type: object
+    HealthCounts:
+      description: "Count of connections in each cached health state.\n\nAttributes:\n    healthy:\
+        \ Connections last observed healthy.\n    degraded: Connections last observed degraded.\n\
+        \    unhealthy: Connections last observed unhealthy.\n    unknown: Connections never\
+        \ yet probed, or with no cached result."
+      properties:
+        degraded:
+          title: Degraded
+          type: integer
+        healthy:
+          title: Healthy
+          type: integer
+        unhealthy:
+          title: Unhealthy
+          type: integer
+        unknown:
+          title: Unknown
+          type: integer
+      required:
+        - healthy
+        - degraded
+        - unhealthy
+        - unknown
+      title: HealthCounts
+      type: object
+    HealthMatrixEntry:
+      description: "One connection's row in the dashboard health matrix.\n\nAttributes:\n  \
+        \  id: Identifier of the connection.\n    product_type: Which product this connects\
+        \ to.\n    display_name: Operator-assigned label for this connection.\n    health_status:\
+        \ Cached health result: healthy, degraded, unhealthy\n        or unknown.\n    last_health_check:\
+        \ When the health status was last refreshed,\n        ISO-8601.\n    base_url: The connected\
+        \ product's base URL."
+      properties:
+        base_url:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Base Url
+        display_name:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Display Name
+        health_status:
+          title: Health Status
+          type: string
+        id:
+          title: Id
+          type: integer
+        last_health_check:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Last Health Check
+        product_type:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Product Type
+      required:
+        - id
+        - product_type
+        - display_name
+        - health_status
+        - last_health_check
+        - base_url
+      title: HealthMatrixEntry
+      type: object
+    ItemPathSpec:
+      description: 'The item-level route for one resource — distinct from ``list.path_bytes``.
+
+
+        Schema v2 finding: the renderer cannot safely derive an item path from
+
+        ``list.path_bytes`` by string-munging. Gough''s own item-route base
+
+        (``_COLLECTIONS[kind]``, no trailing slash) and its LIST route
+
+        (``_COLLECTION_ROUTES[kind]``, used by :attr:`ListSpec.path_bytes`) are
+
+        DIFFERENT strings for three of four resources — ``biome_groups``'' list
+
+        route (``/api/v1/biomes/groups``, no trailing slash) and item-route
+
+        base (also ``/api/v1/biomes/groups``, also no trailing slash) happen to
+
+        be identical, while nodes/biomes/agents'' list routes carry a trailing
+
+        slash their item-route bases do not. Concatenating ``list.path_bytes``
+
+        directly with an id therefore works for three resources and silently
+
+        produces ``/api/v1/biomes/groups42`` for the fourth — the exact defect
+
+        named in ``adapters/gough/manifest.py``''s module docstring. This class
+
+        exists so the renderer never has to make that derivation at all.
+
+
+        ``prefix`` is byte-equal to the adapter''s own item-route base constant
+
+        (e.g. ``app.adapters.gough.adapter._COLLECTIONS[kind]``) — never
+
+        re-typed; import the constant. The real item path for one id is always
+
+        ``f"{prefix}/{id}"``: ``prefix`` never carries a trailing slash, and an
+
+        id is never embedded inside it.
+
+
+        ``sample_id`` is a representative id matching the SHAPE of a real id for
+
+        this resource (e.g. ``"1"`` for an integer id, a real UUID string for a
+
+        UUID id) — used ONLY by :func:`validate_manifest` to prove
+
+        ``f"{prefix}/{sample_id}"`` is admitted by the adapter''s own
+
+        ``route_allowlist``, the same proof :func:`validate_manifest` already
+
+        performs for ``list.path_bytes``. It is never rendered and never sent
+
+        to the product; it is a probe value, not data.'
+      properties:
+        prefix:
+          title: Prefix
+          type: string
+        sample_id:
+          title: Sample Id
+          type: string
+      required:
+        - prefix
+        - sample_id
+      title: ItemPathSpec
+      type: object
+    ListSpec:
+      description: 'Where a resource''s collection lives and how it paginates.
+
+
+        ``path_bytes`` MUST be byte-equal to the adapter''s own route constant
+
+        (e.g. ``app.adapters.gough.adapter._COLLECTION_ROUTES[kind]``), trailing
+
+        slash included — see the module docstring on
+
+        ``tests/api/test_gough_webui_paths.py`` for the defect this exists to
+
+        prevent. Never re-type this string; import the constant.'
+      properties:
+        envelope:
+          $ref: '#/components/schemas/EnvelopeSpec'
+        pagination:
+          default: cursor
+          title: Pagination
+          type: string
+        path_bytes:
+          title: Path Bytes
+          type: string
+      required:
+        - path_bytes
+        - envelope
+      title: ListSpec
+      type: object
+    MetricPointView:
+      description: One sample in a series.
+      properties:
+        timestamp:
+          title: Timestamp
+          type: string
+        value:
+          title: Value
+          type: number
+      required:
+        - timestamp
+        - value
+      title: MetricPointView
+      type: object
+    MetricSeriesView:
+      description: A named, unit-carrying sequence of samples.
+      properties:
+        key:
+          title: Key
+          type: string
+        label:
+          title: Label
+          type: string
+        points:
+          items:
+            $ref: '#/components/schemas/MetricPointView'
+          maxItems: 10000
+          title: Points
+          type: array
+        unit:
+          title: Unit
+          type: string
+      required:
+        - key
+        - label
+        - unit
+        - points
+      title: MetricSeriesView
+      type: object
+    MetricsSpec:
+      description: Presence + display config for the product's metrics tile.
+      properties:
+        label:
+          default: Metrics
+          title: Label
+          type: string
+      title: MetricsSpec
+      type: object
+    NavItem:
+      description: One entry in the product's nav menu.
+      properties:
+        icon:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Icon
+        kind:
+          title: Kind
+          type: string
+        label:
+          title: Label
+          type: string
+      required:
+        - kind
+        - label
+      title: NavItem
+      type: object
+    NavSpec:
+      description: 'The product''s nav menu, derived into ``MENU_ITEM_ROUTES`` by the console.
+
+
+        Deliberately no non-empty check here: :func:`apply_capabilities_overlay`
+
+        can legitimately reconstruct one with zero items when a live connection''s
+
+        ``capabilities()`` has dropped every listable resource, and that must
+
+        degrade the served manifest to "no nav", not raise and take the whole
+
+        tenant''s console response down with it. A COMMITTED manifest with an
+
+        empty nav is still a reviewable-in-PR authoring choice, not a structural
+
+        impossibility this module needs to police.'
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/NavItem'
+          maxItems: 10000
+          title: Items
+          type: array
+      required:
+        - items
+      title: NavSpec
+      type: object
+    OperationLogLineView:
+      description: Wire shape for one log line.
+      properties:
+        level:
+          title: Level
+          type: string
+        message:
+          title: Message
+          type: string
+        timestamp:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Timestamp
+      required:
+        - message
+        - level
+        - timestamp
+      title: OperationLogLineView
+      type: object
+    OperationView:
+      description: 'Wire shape for one operation.
+
+
+        An explicit DTO rather than serialising the dataclass directly: the
+
+        response schema is enforced field by field, so a future field added to
+
+        :class:`Operation` for internal use cannot silently start being published
+
+        (see the output-validation rule — an unvalidated response is as dangerous
+
+        as an unvalidated request, just harder to notice).'
+      properties:
+        completed_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Completed At
+        created_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Created At
+        detail:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Detail
+        error:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Error
+        id:
+          title: Id
+          type: string
+        is_terminal:
+          title: Is Terminal
+          type: boolean
+        kind:
+          title: Kind
+          type: string
+        progress:
+          anyOf:
+            - type: number
+            - type: 'null'
+          title: Progress
+        resource_id:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource Id
+        resource_kind:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Resource Kind
+        result:
+          anyOf:
+            - additionalProperties: true
+              type: object
+            - type: 'null'
+          title: Result
+        state:
+          title: State
+          type: string
+        status:
+          title: Status
+          type: string
+        updated_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Updated At
+      required:
+        - id
+        - kind
+        - state
+        - status
+        - is_terminal
+        - resource_id
+        - resource_kind
+        - progress
+        - detail
+        - error
+        - result
+        - created_at
+        - updated_at
+        - completed_at
+      title: OperationView
+      type: object
+    OperationsSpec:
+      description: "Presence + display config for the product's operations panel.\n\nSchema\
+        \ v2 finding: schema v1 carried only ``label`` and\n``poll_interval_seconds``, so ``ManifestResourceScreen``\
+        \ had no field to\nread a real capability from and always rendered a READ-ONLY panel\n\
+        (``cancelAllowed: false``, ``showLogs: false``) regardless of what the\nproduct actually\
+        \ supports — see ``useManifestOperations.ts``'s module\ndoc for that gap named precisely.\
+        \ ``cancel_allowed``/``show_logs`` close\nit, matching the webui's own ``OperationsPanelSpec``\
+        \ socket\n(``components/kit/operationsPanelTypes.ts``) field for field; ``title``\n\
+        and ``pollIntervalMs`` there are already served by ``label`` and\n``poll_interval_seconds``\
+        \ × 1000, and ``testIdPrefix`` is computed by\nthe renderer per resource, not carried\
+        \ on the manifest.\n\nBoth new fields are checked by :func:`validate_manifest` against\
+        \ the\ncaller-supplied ``supports_cancel``/``supports_operation_logs`` —\n``True`` here\
+        \ is a claim about the adapter's real behaviour, not a\ndisplay preference, so an adapter\
+        \ with no cancellable operation kind\nmust refuse a manifest that claims one exists,\
+        \ the same way an unknown\naction verb already refuses to load.\n\nNest-convergence\
+        \ finding: Nest's create/action endpoints return\n``202 + operationId`` and the operation\
+        \ is watched one-at-a-time via\n``get_operation`` — Nest does not implement ``list_operations``,\n\
+        ``cancel_operation``, or ``operation_logs`` at all (501 by design, see\n``adapters/nest/adapter.py``).\
+        \ :attr:`mode` distinguishes the two panel\nshapes so :func:`apply_capabilities_overlay`\
+        \ can key its subtract-only\nstrip off the right capability instead of unconditionally\
+        \ requiring\n``list_operations``, which would drop Nest's operations block entirely\n\
+        even though ``get_operation`` is live:\n\n* ``\"list\"`` (default) — the pre-existing\
+        \ collection-fed panel: rows\n  come from a live ``list_operations()`` poll. Requires\
+        \ ``list_operations``\n  to survive the overlay; ``cancel_allowed``/``show_logs`` behave\
+        \ exactly\n  as before.\n* ``\"watch\"`` — response-driven: the panel watches one operation\
+        \ id\n  handed back by a 202 response, via ``get_operation``. Requires\n  ``get_operation``\
+        \ (NOT ``list_operations``) to survive the overlay.\n  Has no collection to page through,\
+        \ so no Cancel control and no log\n  stream either — ``cancel_allowed``/``show_logs``\
+        \ must both be False\n  for this mode, refused otherwise at construction (fail-closed,\
+        \ same\n  posture as the ``supports_cancel``/``supports_operation_logs`` check\n  above).\n\
+        \n:attr:`operation_kind` closes the gap ``\"watch\"`` mode's own finding\nabove states\
+        \ but does not paper over: the resource's own ``kind`` is not\nalways the URL kind an\
+        \ adapter's ``get_operation`` requires (Nest's\n``NestAdapter`` only accepts ``kind=\"\
+        operation\"``, unrelated to its\n``database`` resource kind). ``None`` (default) means\
+        \ \"use the watched\nresource's own kind\" -- the prior, only behaviour; a set value\
+        \ overrides\nit with a manifest-declared literal instead. Only meaningful alongside\n\
+        ``mode=\"watch\"`` -- refused at construction otherwise, since a\n``mode=\"list\"``\
+        \ panel has no single-operation URL for a kind override to\naddress."
+      properties:
+        cancel_allowed:
+          default: false
+          title: Cancel Allowed
+          type: boolean
+        label:
+          default: Operations
+          title: Label
+          type: string
+        mode:
+          default: list
+          title: Mode
+          type: string
+        operation_kind:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Operation Kind
+        poll_interval_seconds:
+          default: 5
+          title: Poll Interval Seconds
+          type: integer
+        show_logs:
+          default: false
+          title: Show Logs
+          type: boolean
+      title: OperationsSpec
+      type: object
+    Pagination:
+      description: "Page metadata shared by the portal's paginated list endpoints.\n\nAttributes:\n\
+        \    page: The page returned.\n    per_page: Page size used.\n    total: Total matching\
+        \ rows across every page.\n    pages: Total number of pages."
+      properties:
+        page:
+          title: Page
+          type: integer
+        pages:
+          title: Pages
+          type: integer
+        per_page:
+          title: Per Page
+          type: integer
+        total:
+          title: Total
+          type: integer
+      required:
+        - page
+        - per_page
+        - total
+        - pages
+      title: Pagination
+      type: object
+    ProductConnection:
+      description: "One tenant's connection to a product.\n\n``api_key``/``api_secret`` are\
+        \ always ``***`` when a credential is\nconfigured, or empty when none is — never the\
+        \ stored ciphertext.\n\nAttributes:\n    id: Identifier of this connection.\n    tenant_id:\
+        \ The tenant this connection belongs to.\n    product_type: Which product this connects\
+        \ to, e.g. ``gough``.\n    display_name: Operator-assigned label for this connection.\n\
+        \    base_url: The connected product's base URL.\n    api_key: Masked — ``***`` if configured,\
+        \ else empty.\n    api_secret: Masked — ``***`` if configured, else empty.\n    auth_type:\
+        \ How the portal authenticates to the product.\n    health_endpoint: Path the health\
+        \ poller probes on this connection.\n    api_version: API major version the portal addresses\
+        \ on this product.\n    is_active: Whether the health poller and proxy still serve this\n\
+        \        connection.\n    health_status: Last cached health result: healthy, degraded,\n\
+        \        unhealthy or unknown.\n    discovered: True when this connection was created\
+        \ by network\n        discovery rather than entered by an operator.\n    last_health_check:\
+        \ When the health status was last refreshed,\n        ISO-8601.\n    created_at: When\
+        \ this connection was registered, ISO-8601.\n    updated_at: When this connection was\
+        \ last modified, ISO-8601."
+      properties:
+        api_key:
+          title: Api Key
+          type: string
+        api_secret:
+          title: Api Secret
+          type: string
+        api_version:
+          title: Api Version
+          type: string
+        auth_type:
+          title: Auth Type
+          type: string
+        base_url:
+          title: Base Url
+          type: string
+        created_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Created At
+        discovered:
+          title: Discovered
+          type: boolean
+        display_name:
+          title: Display Name
+          type: string
+        health_endpoint:
+          title: Health Endpoint
+          type: string
+        health_status:
+          title: Health Status
+          type: string
+        id:
+          title: Id
+          type: integer
+        is_active:
+          title: Is Active
+          type: boolean
+        last_health_check:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Last Health Check
+        product_type:
+          title: Product Type
+          type: string
+        tenant_id:
+          title: Tenant Id
+          type: integer
+        updated_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Updated At
+      required:
+        - id
+        - tenant_id
+        - product_type
+        - display_name
+        - base_url
+        - api_key
+        - api_secret
+        - auth_type
+        - health_endpoint
+        - api_version
+        - is_active
+        - health_status
+        - discovered
+        - last_health_check
+        - created_at
+        - updated_at
+      title: ProductConnection
+      type: object
+    ProductHealthEntry:
+      description: One product connection's cached health, as the endpoint reports it.
+      properties:
+        checked_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Checked At
+        connection_id:
+          title: Connection Id
+          type: integer
+        display_name:
+          title: Display Name
+          type: string
+        error:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Error
+        latency_ms:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: Latency Ms
+        product_type:
+          title: Product Type
+          type: string
+        status:
+          title: Status
+          type: string
+        tenant_id:
+          title: Tenant Id
+          type: integer
+      required:
+        - connection_id
+        - tenant_id
+        - product_type
+        - display_name
+        - status
+        - latency_ms
+        - checked_at
+      title: ProductHealthEntry
+      type: object
+    ProductManifestEntry:
+      description: One product's overlaid manifest plus the connection it came from.
+      properties:
+        manifest:
+          $ref: '#/components/schemas/ConsoleManifest'
+        product_id:
+          title: Product Id
+          type: integer
+        product_type:
+          title: Product Type
+          type: string
+      required:
+        - product_id
+        - product_type
+        - manifest
+      title: ProductManifestEntry
+      type: object
+    RelationshipSpec:
+      description: A parent/child edge between two resource kinds in this manifest.
+      properties:
+        child_kind:
+          title: Child Kind
+          type: string
+        parent_field:
+          title: Parent Field
+          type: string
+      required:
+        - child_kind
+        - parent_field
+      title: RelationshipSpec
+      type: object
+    ResourceDescriptor:
+      description: 'One resource kind: its shape, its columns, and how it is reached.
+
+
+        ``transport`` governs the TYPED-MUTATION surface (create/edit/delete,
+
+        and whether an operation-starting action is reachable), never reads.
+
+        Every read in this schema version — list AND detail — goes through the
+
+        byte proxy; that is the only read path this codebase has (see
+
+        ``app/resources_api.py``''s module docstring: "Reads are not here").
+
+        ``transport == "proxy"`` means "no typed mutation backing": this schema
+
+        version declares no mechanism for a proxy-transport resource to carry a
+
+        typed create/edit/delete, or an action whose result the portal must
+
+        interpret (``starts_operations=True``) — both enforced below. A
+
+        proxy-transport resource MAY still declare a plain action reachable
+
+        through the ordinary allowlisted proxy POST (Gough''s own
+
+        ``evacuate``/``reject``/``suspend``/``resume`` all qualify).
+
+
+        ``edit`` (:class:`FormSpec` or ``None``) is the exact parallel of
+
+        ``create`` for an update: same dataclass, same field-level validation
+
+        (``FormField.field_type`` closed to :data:`FIELD_TYPES`,
+
+        select/radio requiring options), just posted against the existing row
+
+        instead of a new one. Gough convergence finding (Phase 8 Step 5):
+
+        ``BiomesPage`` opens the SAME ``FormModalBuilder`` for both "New biome"
+
+        and "Edit biome", so a manifest resource with editable rows needs a
+
+        form to describe here — schema v2 had no field for this at all, only
+
+        ``create``.
+
+
+        ``list`` is ``None`` for a resource with no collection endpoint at all
+
+        (Gough''s ``clusters`` — see ``adapters/gough/manifest.py`` for why it is
+
+        NOT expressed as a ``ResourceDescriptor`` in this step; a schema finding,
+
+        not a workaround). Schema v1 left the item path undeclared entirely — "a
+
+        resource descriptor that DOES declare list is assumed reachable at
+
+        ``{list.path_bytes}{id}`` by nothing in THIS module — that derivation is
+
+        deliberately not attempted here." Schema v2 closes that gap explicitly:
+
+        ``item_path`` (:class:`ItemPathSpec` or ``None``) is the resource''s own
+
+        declared item route, never derived by concatenating ``list.path_bytes``
+
+        with an id — see :class:`ItemPathSpec`''s docstring for the exact defect
+
+        that derivation produces. ``None`` means "this resource genuinely has no
+
+        item endpoint" (Gough''s ``clusters``, whose single-item route is the
+
+        irregular ``/api/v1/clusters/{id}/lxd/status``, not
+
+        ``{collection}/{id}``, would be the case in point — clusters stays
+
+        unexpressed as a resource in this schema version regardless) — an
+
+        explicit fact a manifest states, never a default a caller''s omission
+
+        falls into.'
+      properties:
+        actions:
+          default: []
+          items:
+            $ref: '#/components/schemas/ActionSpec'
+          maxItems: 10000
+          title: Actions
+          type: array
+        columns:
+          items:
+            $ref: '#/components/schemas/ColumnSpec'
+          maxItems: 10000
+          title: Columns
+          type: array
+        create:
+          anyOf:
+            - $ref: '#/components/schemas/FormSpec'
+            - type: 'null'
+        delete:
+          anyOf:
+            - $ref: '#/components/schemas/DeleteSpec'
+            - type: 'null'
+        detail:
+          $ref: '#/components/schemas/DetailSpec'
+        edit:
+          anyOf:
+            - $ref: '#/components/schemas/FormSpec'
+            - type: 'null'
+        empty_state:
+          title: Empty State
+          type: string
+        error_state:
+          title: Error State
+          type: string
+        id_field:
+          title: Id Field
+          type: string
+        item_path:
+          anyOf:
+            - $ref: '#/components/schemas/ItemPathSpec'
+            - type: 'null'
+        kind:
+          title: Kind
+          type: string
+        label:
+          title: Label
+          type: string
+        list:
+          anyOf:
+            - $ref: '#/components/schemas/ListSpec'
+            - type: 'null'
+        name_field:
+          title: Name Field
+          type: string
+        plural_label:
+          title: Plural Label
+          type: string
+        relationships:
+          default: []
+          items:
+            $ref: '#/components/schemas/RelationshipSpec'
+          maxItems: 10000
+          title: Relationships
+          type: array
+        transport:
+          title: Transport
+          type: string
+      required:
+        - kind
+        - label
+        - plural_label
+        - id_field
+        - name_field
+        - transport
+        - columns
+        - empty_state
+        - error_state
+      title: ResourceDescriptor
+      type: object
+    RollupEntry:
+      description: Per-tenant rollup row.
+      properties:
+        products:
+          items:
+            $ref: '#/components/schemas/RollupProduct'
+          maxItems: 10000
+          title: Products
+          type: array
+        tenant_id:
+          title: Tenant Id
+          type: integer
+        tenant_name:
+          title: Tenant Name
+          type: string
+      required:
+        - tenant_id
+        - tenant_name
+        - products
+      title: RollupEntry
+      type: object
+    RollupProduct:
+      description: One product connection's status inside a rollup row.
+      properties:
+        connection_id:
+          title: Connection Id
+          type: integer
+        product:
+          title: Product
+          type: string
+        status:
+          title: Status
+          type: string
+      required:
+        - connection_id
+        - product
+        - status
+      title: RollupProduct
+      type: object
+    SelectOption:
+      description: 'One selectable choice — mirrors react-libs'' own ``SelectOption`` exactly.
+
+
+        ``value`` is ``str`` here even though react-libs types it
+
+        ``string | number``: nothing in this schema has a numeric select option
+
+        yet, and widening to ``str | int`` is a decision to make when a real one
+
+        shows up, not before.'
+      properties:
+        disabled:
+          default: false
+          title: Disabled
+          type: boolean
+        label:
+          title: Label
+          type: string
+        value:
+          title: Value
+          type: string
+      required:
+        - value
+        - label
+      title: SelectOption
+      type: object
+    TenantDetail:
+      description: The projection a member (or delegated admin) may see.
+      properties:
+        depth:
+          title: Depth
+          type: integer
+        display_name:
+          title: Display Name
+          type: string
+        id:
+          title: Id
+          type: integer
+        kind:
+          title: Kind
+          type: string
+        max_products:
+          title: Max Products
+          type: integer
+        max_users:
+          title: Max Users
+          type: integer
+        name:
+          title: Name
+          type: string
+        owner_id:
+          title: Owner Id
+          type: integer
+        parent_tenant_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: Parent Tenant Id
+        plan:
+          title: Plan
+          type: string
+        slug:
+          title: Slug
+          type: string
+        status:
+          title: Status
+          type: string
+        user_role:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: User Role
+      required:
+        - id
+        - name
+        - slug
+        - display_name
+        - kind
+        - status
+        - plan
+        - parent_tenant_id
+        - depth
+        - owner_id
+        - max_users
+        - max_products
+        - user_role
+      title: TenantDetail
+      type: object
+    TenantMemberResponse:
+      description: 'A tenant membership row plus the member''s contact identity.
+
+
+        PII policy (deliberate, not incidental): ``user_email`` and
+
+        ``user_full_name`` ARE included, because administering a tenant means
+
+        administering its member accounts and an MSP admin cannot do that
+
+        against opaque user ids. NO other column from the users table is
+
+        exposed here — not role, not is_active, not timestamps, not
+
+        password_hash — and this DTO is the only path membership data takes to a
+
+        response body. Adding a column to `users` must not widen this.
+
+
+        Field set is reconciled with the webui''s TenantMember interface
+
+        (services/webui/src/client/types/index.ts).'
+      properties:
+        id:
+          title: Id
+          type: integer
+        invited_by_id:
+          anyOf:
+            - type: integer
+            - type: 'null'
+          title: Invited By Id
+        joined_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Joined At
+        role:
+          title: Role
+          type: string
+        tenant_id:
+          title: Tenant Id
+          type: integer
+        user_email:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: User Email
+        user_full_name:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: User Full Name
+        user_id:
+          title: User Id
+          type: integer
+      required:
+        - id
+        - tenant_id
+        - user_id
+        - role
+        - invited_by_id
+        - joined_at
+        - user_email
+        - user_full_name
+      title: TenantMemberResponse
+      type: object
+    TenantSummary:
+      description: "The active tenant, as the dashboard overview names it.\n\nAttributes:\n\
+        \    id: Identifier of the tenant.\n    name: Display name.\n    plan: Licensed plan\
+        \ tier for this tenant."
+      properties:
+        id:
+          title: Id
+          type: integer
+        name:
+          title: Name
+          type: string
+        plan:
+          title: Plan
+          type: string
+      required:
+        - id
+        - name
+        - plan
+      title: TenantSummary
+      type: object
+    UserSummary:
+      description: "One user row, as the admin listing publishes it.\n\nNever carries ``password_hash``\
+        \ — the route pops it before this DTO is\nbuilt. Nothing else on the users table is\
+        \ sensitive today, but pinning\nthe field set means a column added tomorrow (an MFA\
+        \ secret, an SSO\nsubject id) does not reach this response without a deliberate edit\n\
+        here.\n\nAttributes:\n    id: Identifier of the user.\n    email: The user's email address.\n\
+        \    full_name: Display name.\n    role: Global role: admin, maintainer or viewer.\n\
+        \    is_active: Whether the account can currently authenticate.\n    created_at: When\
+        \ the account was created, ISO-8601.\n    updated_at: When the account was last modified,\
+        \ ISO-8601."
+      properties:
+        created_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Created At
+        email:
+          title: Email
+          type: string
+        full_name:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Full Name
+        id:
+          title: Id
+          type: integer
+        is_active:
+          title: Is Active
+          type: boolean
+        role:
+          title: Role
+          type: string
+        updated_at:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Updated At
+      required:
+        - id
+        - email
+        - full_name
+        - role
+        - is_active
+        - created_at
+        - updated_at
+      title: UserSummary
+      type: object
+  securitySchemes:
+    bearerAuth:
+      bearerFormat: JWT
+      scheme: bearer
+      type: http
+info:
+  title: PenguinCloud Portal API
+  version: 1.0.0
+openapi: 3.1.0
+paths:
+  /api/v1/audit/export:
+    get:
+      description: ''
+      operationId: get_export_audit_logs
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Export audit logs as CSV or JSON.
+  /api/v1/audit/logs:
+    get:
+      description: ''
+      operationId: get_get_audit_logs
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/audit/logs.\n\nAttributes:\n    logs:\
+                  \ The matching audit entries, newest first.\n    total: Total matching rows\
+                  \ across every page.\n    page: The page returned.\n    per_page: Page size\
+                  \ used.\n    pages: Total number of pages."
+                properties:
+                  logs:
+                    items:
+                      $ref: '#/components/schemas/AuditRecord'
+                    maxItems: 10000
+                    title: Logs
+                    type: array
+                  page:
+                    title: Page
+                    type: integer
+                  pages:
+                    title: Pages
+                    type: integer
+                  per_page:
+                    title: Per Page
+                    type: integer
+                  total:
+                    title: Total
+                    type: integer
+                required:
+                  - logs
+                  - total
+                  - page
+                  - per_page
+                  - pages
+                title: AuditLogsResponse
+                type: object
+          description: "Envelope for GET /api/v1/audit/logs.\n\nAttributes:\n    logs: The matching\
+            \ audit entries, newest first.\n    total: Total matching rows across every page.\n\
+            \    page: The page returned.\n    per_page: Page size used.\n    pages: Total number\
+            \ of pages."
+      summary: Get audit logs with filtering and pagination.
+  /api/v1/auth/confirm-email/{token}:
+    post:
+      description: '
+
+        Both helpers are async coroutines; awaiting them directly (rather than
+
+        scheduling them on an executor, which would just hand back an
+
+        un-awaited coroutine object) is what actually runs the DB work.'
+      operationId: post_confirm_email_endpoint
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Confirm a user's email address with a confirmation token.
+  /api/v1/auth/device/approve:
+    post:
+      description: '
+
+        The approving user''s identity comes ENTIRELY from their own already-
+
+        verified JWT (get_current_user, via @auth_required) -- user_code
+
+        selects WHICH pending authorization to resolve, never WHO it resolves
+
+        to. There is deliberately no tenant selection here: see
+
+        app.models_sqlalchemy.DeviceAuthorization''s docstring for why the
+
+        resulting grant mirrors login''s own current unscoped-tenant shape.'
+      operationId: post_device_approve
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: Request body shared by POST .../device/approve and .../device/deny.
+              properties:
+                user_code:
+                  title: User Code
+                  type: string
+              required:
+                - user_code
+              title: DeviceUserCodeRequest
+              type: object
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST .../device/approve and .../device/deny.\n\n\
+                  Attributes:\n    status: \"approved\" or \"denied\".\n    user_code: Echoes\
+                  \ the resolved code back, formatted, for the\n        browser page's own confirmation\
+                  \ display."
+                properties:
+                  status:
+                    title: Status
+                    type: string
+                  user_code:
+                    title: User Code
+                    type: string
+                required:
+                  - status
+                  - user_code
+                title: DeviceResolutionResponse
+                type: object
+          description: "Envelope for POST .../device/approve and .../device/deny.\n\nAttributes:\n\
+            \    status: \"approved\" or \"denied\".\n    user_code: Echoes the resolved code\
+            \ back, formatted, for the\n        browser page's own confirmation display."
+      summary: Bind a pending device authorization to the CALLING user. RFC 8628 SS3.3.
+  /api/v1/auth/device/authorize:
+    post:
+      description: ''
+      operationId: post_device_authorize
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST /api/v1/auth/device/authorize (RFC 8628 SS3.2).\n\
+                  \nAttributes:\n    device_code: High-entropy opaque secret; the CLI polls\n\
+                  \        /device/token with this. Never displayed to the user.\n    user_code:\
+                  \ Short, human-typeable code; the CLI displays this and\n        the user\
+                  \ enters it at verification_uri.\n    verification_uri: Where the user goes\
+                  \ to enter user_code.\n    verification_uri_complete: Same, with user_code\
+                  \ pre-filled --\n        lets a CLI print one clickable link.\n    expires_in:\
+                  \ Seconds until device_code/user_code both expire.\n    interval: Minimum\
+                  \ seconds the CLI must wait between polls."
+                properties:
+                  device_code:
+                    title: Device Code
+                    type: string
+                  expires_in:
+                    title: Expires In
+                    type: integer
+                  interval:
+                    title: Interval
+                    type: integer
+                  user_code:
+                    title: User Code
+                    type: string
+                  verification_uri:
+                    title: Verification Uri
+                    type: string
+                  verification_uri_complete:
+                    title: Verification Uri Complete
+                    type: string
+                required:
+                  - device_code
+                  - user_code
+                  - verification_uri
+                  - verification_uri_complete
+                  - expires_in
+                  - interval
+                title: DeviceAuthorizationResponse
+                type: object
+          description: "Envelope for POST /api/v1/auth/device/authorize (RFC 8628 SS3.2).\n\n\
+            Attributes:\n    device_code: High-entropy opaque secret; the CLI polls\n      \
+            \  /device/token with this. Never displayed to the user.\n    user_code: Short,\
+            \ human-typeable code; the CLI displays this and\n        the user enters it at\
+            \ verification_uri.\n    verification_uri: Where the user goes to enter user_code.\n\
+            \    verification_uri_complete: Same, with user_code pre-filled --\n        lets\
+            \ a CLI print one clickable link.\n    expires_in: Seconds until device_code/user_code\
+            \ both expire.\n    interval: Minimum seconds the CLI must wait between polls."
+      summary: Mint a device_code/user_code pair. Unauthenticated. RFC 8628 SS3.1/3.2.
+  /api/v1/auth/device/deny:
+    post:
+      description: ''
+      operationId: post_device_deny
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: Request body shared by POST .../device/approve and .../device/deny.
+              properties:
+                user_code:
+                  title: User Code
+                  type: string
+              required:
+                - user_code
+              title: DeviceUserCodeRequest
+              type: object
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST .../device/approve and .../device/deny.\n\n\
+                  Attributes:\n    status: \"approved\" or \"denied\".\n    user_code: Echoes\
+                  \ the resolved code back, formatted, for the\n        browser page's own confirmation\
+                  \ display."
+                properties:
+                  status:
+                    title: Status
+                    type: string
+                  user_code:
+                    title: User Code
+                    type: string
+                required:
+                  - status
+                  - user_code
+                title: DeviceResolutionResponse
+                type: object
+          description: "Envelope for POST .../device/approve and .../device/deny.\n\nAttributes:\n\
+            \    status: \"approved\" or \"denied\".\n    user_code: Echoes the resolved code\
+            \ back, formatted, for the\n        browser page's own confirmation display."
+      summary: Reject a pending device authorization. The next poll gets access_denied.
+  /api/v1/auth/device/token:
+    post:
+      description: '
+
+        Order of checks is deliberate: expiry is checked BEFORE slow_down (an
+
+        expired code must never yield a token no matter how it is polled), and
+
+        slow_down is enforced UNIFORMLY across every status (including
+
+        "approved") before branching on status -- a client that ignores
+
+        `interval` gets throttled the same way regardless of how close the
+
+        flow is to finishing.'
+      operationId: post_device_token
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: Request body for POST /api/v1/auth/device/token.
+              properties:
+                device_code:
+                  title: Device Code
+                  type: string
+              required:
+                - device_code
+              title: DeviceTokenRequest
+              type: object
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST /api/v1/auth/login.\n\nNo ``id_token``: id tokens\
+                  \ are OIDC \"who is this\" material, not bearer\ncredentials — TestTokenTypeConfusion\
+                  \ (tests/api/test_auth.py) requires\npenguin-aaa's id token to be REFUSED\
+                  \ on every protected route, so\nreturning one alongside the access token here\
+                  \ would hand the client a\nvalue it is equally likely to just replay as a\
+                  \ bearer.\n\nAttributes:\n    access_token: Bearer token for subsequent requests.\n\
+                  \    refresh_token: Opaque token to exchange for a new pair via\n        /api/v1/auth/refresh.\n\
+                  \    token_type: Always \"Bearer\".\n    expires_in: Seconds until access_token\
+                  \ expires.\n    user: The authenticated caller's profile."
+                properties:
+                  access_token:
+                    title: Access Token
+                    type: string
+                  expires_in:
+                    title: Expires In
+                    type: integer
+                  refresh_token:
+                    title: Refresh Token
+                    type: string
+                  token_type:
+                    title: Token Type
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/AuthenticatedUser'
+                required:
+                  - access_token
+                  - refresh_token
+                  - token_type
+                  - expires_in
+                  - user
+                title: LoginResponse
+                type: object
+          description: "Envelope for POST /api/v1/auth/login.\n\nNo ``id_token``: id tokens\
+            \ are OIDC \"who is this\" material, not bearer\ncredentials — TestTokenTypeConfusion\
+            \ (tests/api/test_auth.py) requires\npenguin-aaa's id token to be REFUSED on every\
+            \ protected route, so\nreturning one alongside the access token here would hand\
+            \ the client a\nvalue it is equally likely to just replay as a bearer.\n\nAttributes:\n\
+            \    access_token: Bearer token for subsequent requests.\n    refresh_token: Opaque\
+            \ token to exchange for a new pair via\n        /api/v1/auth/refresh.\n    token_type:\
+            \ Always \"Bearer\".\n    expires_in: Seconds until access_token expires.\n    user:\
+            \ The authenticated caller's profile."
+      summary: Poll for a token. Unauthenticated. RFC 8628 SS3.4/3.5.
+  /api/v1/auth/forgot-password:
+    post:
+      description: '
+
+        Unauthenticated. Always answers with :data:`PASSWORD_RESET_ACK` and 200,
+
+        whether or not the address is registered, and never returns the reset
+
+        token itself.
+
+
+        Both properties are load-bearing security controls, not cosmetics:
+
+        returning the token handed any anonymous caller a full account takeover
+
+        for any address they could name, and returning a distinct message for
+
+        the not-found case made the endpoint a user-enumeration oracle. Any
+
+        change here that reintroduces a branch-dependent body reintroduces one
+
+        of those two bugs.'
+      operationId: post_forgot_password
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Request a password reset link.
+  /api/v1/auth/login:
+    post:
+      description: ''
+      operationId: post_login
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST /api/v1/auth/login.\n\nNo ``id_token``: id tokens\
+                  \ are OIDC \"who is this\" material, not bearer\ncredentials — TestTokenTypeConfusion\
+                  \ (tests/api/test_auth.py) requires\npenguin-aaa's id token to be REFUSED\
+                  \ on every protected route, so\nreturning one alongside the access token here\
+                  \ would hand the client a\nvalue it is equally likely to just replay as a\
+                  \ bearer.\n\nAttributes:\n    access_token: Bearer token for subsequent requests.\n\
+                  \    refresh_token: Opaque token to exchange for a new pair via\n        /api/v1/auth/refresh.\n\
+                  \    token_type: Always \"Bearer\".\n    expires_in: Seconds until access_token\
+                  \ expires.\n    user: The authenticated caller's profile."
+                properties:
+                  access_token:
+                    title: Access Token
+                    type: string
+                  expires_in:
+                    title: Expires In
+                    type: integer
+                  refresh_token:
+                    title: Refresh Token
+                    type: string
+                  token_type:
+                    title: Token Type
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/AuthenticatedUser'
+                required:
+                  - access_token
+                  - refresh_token
+                  - token_type
+                  - expires_in
+                  - user
+                title: LoginResponse
+                type: object
+          description: "Envelope for POST /api/v1/auth/login.\n\nNo ``id_token``: id tokens\
+            \ are OIDC \"who is this\" material, not bearer\ncredentials — TestTokenTypeConfusion\
+            \ (tests/api/test_auth.py) requires\npenguin-aaa's id token to be REFUSED on every\
+            \ protected route, so\nreturning one alongside the access token here would hand\
+            \ the client a\nvalue it is equally likely to just replay as a bearer.\n\nAttributes:\n\
+            \    access_token: Bearer token for subsequent requests.\n    refresh_token: Opaque\
+            \ token to exchange for a new pair via\n        /api/v1/auth/refresh.\n    token_type:\
+            \ Always \"Bearer\".\n    expires_in: Seconds until access_token expires.\n    user:\
+            \ The authenticated caller's profile."
+      summary: Login endpoint - returns access and refresh tokens.
+  /api/v1/auth/logout:
+    post:
+      description: ''
+      operationId: post_logout
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST /api/v1/auth/logout.\n\nAttributes:\n    message:\
+                  \ Human-readable confirmation.\n    tokens_revoked: Number of the caller's\
+                  \ refresh tokens revoked."
+                properties:
+                  message:
+                    title: Message
+                    type: string
+                  tokens_revoked:
+                    title: Tokens Revoked
+                    type: integer
+                required:
+                  - message
+                  - tokens_revoked
+                title: LogoutResponse
+                type: object
+          description: "Envelope for POST /api/v1/auth/logout.\n\nAttributes:\n    message:\
+            \ Human-readable confirmation.\n    tokens_revoked: Number of the caller's refresh\
+            \ tokens revoked."
+      summary: Logout endpoint - revokes all refresh tokens for user.
+  /api/v1/auth/me:
+    get:
+      description: ''
+      operationId: get_get_me
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/auth/me.\n\nWider than :class:`AuthenticatedUser`\
+                  \ (adds ``is_active`` and\n``created_at``) because this route's whole purpose\
+                  \ is the caller's own\nprofile — the same reasoning that keeps LoginResponse's\
+                  \ embedded user\nnarrow applies in reverse here: this IS the profile view.\
+                  \ Never\n``password_hash``, MFA secret, or any other row internal.\n\nAttributes:\n\
+                  \    id: Identifier of the authenticated user.\n    email: The user's email\
+                  \ address.\n    full_name: Display name.\n    role: Global role: admin, maintainer\
+                  \ or viewer.\n    is_active: Whether the account can currently authenticate.\n\
+                  \    created_at: When the account was created, ISO-8601."
+                properties:
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  email:
+                    title: Email
+                    type: string
+                  full_name:
+                    title: Full Name
+                    type: string
+                  id:
+                    title: Id
+                    type: integer
+                  is_active:
+                    title: Is Active
+                    type: boolean
+                  role:
+                    title: Role
+                    type: string
+                required:
+                  - id
+                  - email
+                  - full_name
+                  - role
+                  - is_active
+                  - created_at
+                title: MeResponse
+                type: object
+          description: "Envelope for GET /api/v1/auth/me.\n\nWider than :class:`AuthenticatedUser`\
+            \ (adds ``is_active`` and\n``created_at``) because this route's whole purpose is\
+            \ the caller's own\nprofile — the same reasoning that keeps LoginResponse's embedded\
+            \ user\nnarrow applies in reverse here: this IS the profile view. Never\n``password_hash``,\
+            \ MFA secret, or any other row internal.\n\nAttributes:\n    id: Identifier of the\
+            \ authenticated user.\n    email: The user's email address.\n    full_name: Display\
+            \ name.\n    role: Global role: admin, maintainer or viewer.\n    is_active: Whether\
+            \ the account can currently authenticate.\n    created_at: When the account was\
+            \ created, ISO-8601."
+      summary: Get current user profile.
+  /api/v1/auth/oauth/connections:
+    get:
+      description: ''
+      operationId: get_get_oauth_connections
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get OAuth connections for current user.
+  /api/v1/auth/oauth/{provider}:
+    get:
+      description: ''
+      operationId: get_oauth_redirect
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Redirect to OAuth provider for authorization.
+  /api/v1/auth/oauth/{provider}/callback:
+    get:
+      description: ''
+      operationId: get_oauth_callback
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Handle OAuth2 callback and create/link user account.
+  /api/v1/auth/oauth/{provider}/disconnect:
+    post:
+      description: ''
+      operationId: post_disconnect_oauth
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Disconnect OAuth connection for current user.
+  /api/v1/auth/refresh:
+    post:
+      description: '
+
+        Rotation is one-use: the presented token is revoked before its
+
+        replacement is issued, so replaying it afterwards fails even if
+
+        issuance errors partway through.'
+      operationId: post_refresh
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST /api/v1/auth/refresh.\n\nNo ``user``: a refresh\
+                  \ proves possession of a still-valid refresh\ntoken, not a fresh credential\
+                  \ check, so re-stating the profile here\nwould imply a re-authentication this\
+                  \ endpoint does not perform. Callers\nthat need the current profile call GET\
+                  \ /api/v1/auth/me.\n\nAttributes:\n    access_token: Newly issued bearer token.\n\
+                  \    refresh_token: Newly issued refresh token — the presented one was\n \
+                  \       revoked as part of rotation and is no longer valid.\n    token_type:\
+                  \ Always \"Bearer\".\n    expires_in: Seconds until access_token expires."
+                properties:
+                  access_token:
+                    title: Access Token
+                    type: string
+                  expires_in:
+                    title: Expires In
+                    type: integer
+                  refresh_token:
+                    title: Refresh Token
+                    type: string
+                  token_type:
+                    title: Token Type
+                    type: string
+                required:
+                  - access_token
+                  - refresh_token
+                  - token_type
+                  - expires_in
+                title: RefreshResponse
+                type: object
+          description: "Envelope for POST /api/v1/auth/refresh.\n\nNo ``user``: a refresh proves\
+            \ possession of a still-valid refresh\ntoken, not a fresh credential check, so re-stating\
+            \ the profile here\nwould imply a re-authentication this endpoint does not perform.\
+            \ Callers\nthat need the current profile call GET /api/v1/auth/me.\n\nAttributes:\n\
+            \    access_token: Newly issued bearer token.\n    refresh_token: Newly issued refresh\
+            \ token — the presented one was\n        revoked as part of rotation and is no longer\
+            \ valid.\n    token_type: Always \"Bearer\".\n    expires_in: Seconds until access_token\
+            \ expires."
+      summary: Exchange a refresh token for a new token pair, rotating the old one.
+  /api/v1/auth/register:
+    post:
+      description: '
+
+        Closed by default (Config.ALLOW_SELF_REGISTRATION) — checked before
+
+        anything else runs, including request-body validation, so a closed
+
+        deployment never even parses an anonymous caller''s payload.'
+      operationId: post_register
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Register new user (creates viewer role by default + personal team).
+  /api/v1/auth/reset-password:
+    post:
+      description: ''
+      operationId: post_reset_password
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Reset password with token.
+  /api/v1/auth/sessions:
+    get:
+      description: ''
+      operationId: get_list_sessions
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: List active sessions for the authenticated user.
+  /api/v1/auth/sessions/{session_id}:
+    delete:
+      description: ''
+      operationId: delete_revoke_session_endpoint
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Revoke one of the authenticated user's sessions.
+  /api/v1/console/manifests:
+    get:
+      description: '
+
+        Pruned by (in order): flag, membership+per-product-scope+licence+
+
+        deactivation (all via :func:`resolve_product_context`), and finally the
+
+        subtract-only ``capabilities()`` overlay. See the module docstring for
+
+        why there is no separate top-level membership check.'
+      operationId: get_list_console_manifests
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for ``GET /api/v1/console/manifests``.
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  manifests:
+                    items:
+                      $ref: '#/components/schemas/ProductManifestEntry'
+                    maxItems: 10000
+                    title: Manifests
+                    type: array
+                required:
+                  - manifests
+                  - count
+                title: ConsoleManifestsResponse
+                type: object
+          description: Envelope for ``GET /api/v1/console/manifests``.
+      summary: Every product this tenant is connected to that has a committed manifest.
+  /api/v1/dashboard/activity:
+    get:
+      description: ''
+      operationId: get_dashboard_activity
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Recent audit events for one tenant, newest first.\n\nAttributes:\n\
+                  \    activity: The audit entries.\n    count: Number of entries returned."
+                properties:
+                  activity:
+                    items:
+                      $ref: '#/components/schemas/AuditRecord'
+                    maxItems: 10000
+                    title: Activity
+                    type: array
+                  count:
+                    title: Count
+                    type: integer
+                required:
+                  - activity
+                  - count
+                title: ActivityResponse
+                type: object
+          description: "Recent audit events for one tenant, newest first.\n\nAttributes:\n \
+            \   activity: The audit entries.\n    count: Number of entries returned."
+      summary: Recent audit events for the tenant.
+  /api/v1/dashboard/alerts:
+    get:
+      description: ''
+      operationId: get_dashboard_alerts
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Aggregated alerts — products with non-healthy status.
+  /api/v1/dashboard/health:
+    get:
+      description: ''
+      operationId: get_dashboard_health
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/dashboard/health.\n\nAttributes:\n  \
+                  \  health: One entry per product connection in the tenant.\n    count: Number\
+                  \ of entries returned."
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  health:
+                    items:
+                      $ref: '#/components/schemas/HealthMatrixEntry'
+                    maxItems: 10000
+                    title: Health
+                    type: array
+                required:
+                  - health
+                  - count
+                title: HealthMatrixResponse
+                type: object
+          description: "Envelope for GET /api/v1/dashboard/health.\n\nAttributes:\n    health:\
+            \ One entry per product connection in the tenant.\n    count: Number of entries\
+            \ returned."
+      summary: Health matrix for all products.
+  /api/v1/dashboard/overview:
+    get:
+      description: ''
+      operationId: get_dashboard_overview
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/dashboard/overview.\n\nAttributes:\n\
+                  \    tenant: The active tenant this overview describes.\n    stats: Aggregate\
+                  \ counters across the tenant's connections.\n    products: The tenant's product\
+                  \ connections, credentials masked —\n        the same projection GET /api/v1/products\
+                  \ publishes."
+                properties:
+                  products:
+                    items:
+                      $ref: '#/components/schemas/ProductConnection'
+                    maxItems: 10000
+                    title: Products
+                    type: array
+                  stats:
+                    $ref: '#/components/schemas/DashboardStats'
+                  tenant:
+                    $ref: '#/components/schemas/TenantSummary'
+                required:
+                  - tenant
+                  - stats
+                  - products
+                title: DashboardOverviewResponse
+                type: object
+          description: "Envelope for GET /api/v1/dashboard/overview.\n\nAttributes:\n    tenant:\
+            \ The active tenant this overview describes.\n    stats: Aggregate counters across\
+            \ the tenant's connections.\n    products: The tenant's product connections, credentials\
+            \ masked —\n        the same projection GET /api/v1/products publishes."
+      summary: Aggregated stats for all products in the current tenant.
+  /api/v1/discovery/accept/{discovery_id}:
+    post:
+      description: '
+
+        Gated on ``products:manage`` for the target tenant. The previous check
+
+        compared a direct membership row against the literals ``owner``/``admin``
+
+        — both halves wrong under this phase''s model: it branched on role names,
+
+        and it refused a delegated admin who holds no membership row in the
+
+        tenant they administer.'
+      operationId: post_accept_discovered_product
+      parameters:
+        - in: path
+          name: discovery_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Accept a discovered product and create a connection.
+  /api/v1/discovery/results:
+    get:
+      description: '
+
+        Gated on ``products:read`` for the target tenant. The previous
+
+        ``get_user_tenant_role`` check required a direct membership row, which
+
+        denied a delegated MSP admin their own customer''s scan results — the
+
+        same defect this phase fixed in the dashboard and audit routes.'
+      operationId: get_get_scan_results
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get latest scan results for a tenant.
+  /api/v1/discovery/scan:
+    post:
+      description: '
+
+        Requires ``products:manage`` on the target tenant — a scan exists to
+
+        produce product connections, so it is gated as the write it leads to.
+
+        Scans only addresses inside the operator''s DISCOVERY_RANGES allowlist;
+
+        caller-supplied ``ranges`` narrow that allowlist and can never widen it.'
+      operationId: post_trigger_scan
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Trigger a network scan for PenguinTech products.
+  /api/v1/features:
+    get:
+      description: '
+
+        Flags are evaluated against the authenticated user as the PostHog
+
+        ``distinct_id``, so a percentage rollout is stable per person rather
+
+        than per request.'
+      operationId: get_get_features
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Everything the UI needs to decide what to render.
+
+
+                  An explicit DTO rather than a dict: the response schema is enforced
+
+                  field by field, so nothing added to the flag or licensing modules for
+
+                  internal use can start being published by accident.'
+                properties:
+                  dev_mode:
+                    title: Dev Mode
+                    type: boolean
+                  dev_mode_max_users:
+                    title: Dev Mode Max Users
+                    type: integer
+                  flags:
+                    additionalProperties:
+                      type: boolean
+                    title: Flags
+                    type: object
+                  licensed_features:
+                    additionalProperties:
+                      type: string
+                    title: Licensed Features
+                    type: object
+                  limits:
+                    additionalProperties:
+                      type: integer
+                    title: Limits
+                    type: object
+                  tier:
+                    title: Tier
+                    type: string
+                  tiers:
+                    items:
+                      type: string
+                    maxItems: 10000
+                    title: Tiers
+                    type: array
+                required:
+                  - flags
+                  - tier
+                  - tiers
+                  - licensed_features
+                  - dev_mode
+                  - dev_mode_max_users
+                  - limits
+                title: FeaturesResponse
+                type: object
+          description: 'Everything the UI needs to decide what to render.
+
+
+            An explicit DTO rather than a dict: the response schema is enforced
+
+            field by field, so nothing added to the flag or licensing modules for
+
+            internal use can start being published by accident.'
+      summary: Report flag state, licensed tier and dev-mode status for this caller.
+  /api/v1/hello:
+    get:
+      description: ''
+      operationId: get_hello
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Hello world endpoint - requires authentication.
+  /api/v1/hello/protected:
+    get:
+      description: '
+
+        ``platform:read`` is carried by the platform admin and maintainer
+
+        bundles and by nothing else, so this admits exactly the callers the
+
+        previous ``@maintainer_or_admin_required`` did, decided on the token''s
+
+        scope claim instead of a role-name comparison.'
+      operationId: get_hello_protected
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Protected hello — requires the ``platform:read`` scope.
+  /api/v1/license/status:
+    get:
+      description: "\nGated on the ``license:read`` scope, which the platform-admin bundle\n\
+        carries and no other role does — the same authority the previous\n``@admin_required``\
+        \ conferred, expressed as a scope so the decision is\nmade on the token claim rather\
+        \ than on a role-name comparison\n(security.md: authorization decisions on scope, never\
+        \ role names).\n\nReturns:\n    JSON response with license details."
+      operationId: get_get_license_status
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get license status.
+  /api/v1/mfa/backup-codes:
+    get:
+      description: ''
+      operationId: get_get_backup_codes
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: View backup codes.
+  /api/v1/mfa/backup-codes/regenerate:
+    post:
+      description: ''
+      operationId: post_regenerate_backup_codes
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Regenerate backup codes.
+  /api/v1/mfa/disable:
+    post:
+      description: ''
+      operationId: post_disable_mfa_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Disable MFA (requires password and TOTP verification).
+  /api/v1/mfa/setup:
+    post:
+      description: ''
+      operationId: post_setup_mfa
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Generate TOTP secret and QR code for 2FA setup.
+  /api/v1/mfa/verify:
+    post:
+      description: ''
+      operationId: post_verify_mfa
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Verify TOTP code and enable MFA.
+  /api/v1/products:
+    get:
+      description: ''
+      operationId: get_list_products
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/products.\n\nAttributes:\n    products:\
+                  \ The tenant's product connections, credentials masked.\n    count: Number\
+                  \ of connections returned."
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  products:
+                    items:
+                      $ref: '#/components/schemas/ProductConnection'
+                    maxItems: 10000
+                    title: Products
+                    type: array
+                required:
+                  - products
+                  - count
+                title: ProductsListResponse
+                type: object
+          description: "Envelope for GET /api/v1/products.\n\nAttributes:\n    products: The\
+            \ tenant's product connections, credentials masked.\n    count: Number of connections\
+            \ returned."
+      summary: List connected products for current tenant.
+    post:
+      description: ''
+      operationId: post_register_product
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Register a new product connection (manual).
+  /api/v1/products/health:
+    get:
+      description: "\nQuery params:\n  - tenant_id: required unless the token carries an active\n\
+        \    tenant claim.\n  - include_children=true: also include descendant tenants'\n  \
+        \  connections, when the caller holds tenants:manage on\n    tenant_id (see module docstring)."
+      operationId: get_get_products_health
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for GET /api/v1/products/health.
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  products:
+                    items:
+                      $ref: '#/components/schemas/ProductHealthEntry'
+                    maxItems: 10000
+                    title: Products
+                    type: array
+                required:
+                  - products
+                  - count
+                title: ProductsHealthResponse
+                type: object
+          description: Envelope for GET /api/v1/products/health.
+      summary: Cached health for the caller's tenant, optionally + its subtree.
+  /api/v1/products/types:
+    get:
+      description: ''
+      operationId: get_list_product_types
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: List all available product types with metadata.
+  /api/v1/products/{connection_id}/proxy/{proxy_path}:
+    delete:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: delete_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Forward request to a connected product's API.
+    get:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: get_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Forward request to a connected product's API.
+    options:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: options_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Forward request to a connected product's API.
+    patch:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: patch_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Forward request to a connected product's API.
+    post:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: post_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Forward request to a connected product's API.
+    put:
+      description: '
+
+        Deny-by-default: request must match adapter''s route_allowlist.'
+      operationId: put_proxy_request
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: proxy_path
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Forward request to a connected product's API.
+  /api/v1/products/{product_id}:
+    delete:
+      description: ''
+      operationId: delete_delete_product
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Remove product connection.
+    get:
+      description: ''
+      operationId: get_get_product
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get product connection details.
+    put:
+      description: ''
+      operationId: put_update_product
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Update product connection config.
+  /api/v1/products/{product_id}/health:
+    get:
+      description: ''
+      operationId: get_get_product_health
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get latest health status for a product.
+  /api/v1/products/{product_id}/metrics:
+    get:
+      description: '
+
+        The adapter has implemented and tested ``metrics_summary`` since Phase 4G,
+
+        but nothing exposed it — so the dashboard card counted rows from the
+
+        resource lists instead. That is not the same number: a list page is capped
+
+        (Gough''s ``page_size`` maxes at 500) and Gough''s own ``total`` is the
+
+        length of the page it just serialised, so a fleet larger than one page
+
+        rendered as the page size. ``totals`` here comes from the product''s
+
+        ``/metrics`` scrape and is the real figure.'
+      operationId: get_product_metrics
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Headline metrics for one product connection.
+
+
+                  ``series`` may legitimately be empty — Gough''s ``/metrics`` is an
+
+                  instantaneous scrape with no time dimension, and the adapter refuses to
+
+                  fabricate a two-point series from one sample. ``totals`` is the part the
+
+                  dashboard counter tiles read.'
+                properties:
+                  end:
+                    title: End
+                    type: string
+                  series:
+                    items:
+                      $ref: '#/components/schemas/MetricSeriesView'
+                    maxItems: 10000
+                    title: Series
+                    type: array
+                  start:
+                    title: Start
+                    type: string
+                  totals:
+                    additionalProperties:
+                      type: number
+                    title: Totals
+                    type: object
+                required:
+                  - start
+                  - end
+                  - series
+                  - totals
+                title: MetricsSummaryResponse
+                type: object
+          description: 'Headline metrics for one product connection.
+
+
+            ``series`` may legitimately be empty — Gough''s ``/metrics`` is an
+
+            instantaneous scrape with no time dimension, and the adapter refuses to
+
+            fabricate a two-point series from one sample. ``totals`` is the part the
+
+            dashboard counter tiles read.'
+      summary: Return the product's headline metrics.
+  /api/v1/products/{product_id}/operations:
+    get:
+      description: ''
+      operationId: get_list_operations
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for a page of operations.
+                properties:
+                  has_more:
+                    title: Has More
+                    type: boolean
+                  operations:
+                    items:
+                      $ref: '#/components/schemas/OperationView'
+                    maxItems: 10000
+                    title: Operations
+                    type: array
+                  page:
+                    title: Page
+                    type: integer
+                  per_page:
+                    title: Per Page
+                    type: integer
+                  total:
+                    anyOf:
+                      - type: integer
+                      - type: 'null'
+                    title: Total
+                required:
+                  - operations
+                  - page
+                  - per_page
+                  - total
+                  - has_more
+                title: OperationListResponse
+                type: object
+          description: Envelope for a page of operations.
+      summary: List a product's long-running operations, newest first.
+  /api/v1/products/{product_id}/operations/{kind}/{operation_id}:
+    get:
+      description: ''
+      operationId: get_get_operation
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: operation_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Wire shape for one operation.
+
+
+                  An explicit DTO rather than serialising the dataclass directly: the
+
+                  response schema is enforced field by field, so a future field added to
+
+                  :class:`Operation` for internal use cannot silently start being published
+
+                  (see the output-validation rule — an unvalidated response is as dangerous
+
+                  as an unvalidated request, just harder to notice).'
+                properties:
+                  completed_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Completed At
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  detail:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Detail
+                  error:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Error
+                  id:
+                    title: Id
+                    type: string
+                  is_terminal:
+                    title: Is Terminal
+                    type: boolean
+                  kind:
+                    title: Kind
+                    type: string
+                  progress:
+                    anyOf:
+                      - type: number
+                      - type: 'null'
+                    title: Progress
+                  resource_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Resource Id
+                  resource_kind:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Resource Kind
+                  result:
+                    anyOf:
+                      - additionalProperties: true
+                        type: object
+                      - type: 'null'
+                    title: Result
+                  state:
+                    title: State
+                    type: string
+                  status:
+                    title: Status
+                    type: string
+                  updated_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Updated At
+                required:
+                  - id
+                  - kind
+                  - state
+                  - status
+                  - is_terminal
+                  - resource_id
+                  - resource_kind
+                  - progress
+                  - detail
+                  - error
+                  - result
+                  - created_at
+                  - updated_at
+                  - completed_at
+                title: OperationView
+                type: object
+          description: 'Wire shape for one operation.
+
+
+            An explicit DTO rather than serialising the dataclass directly: the
+
+            response schema is enforced field by field, so a future field added to
+
+            :class:`Operation` for internal use cannot silently start being published
+
+            (see the output-validation rule — an unvalidated response is as dangerous
+
+            as an unvalidated request, just harder to notice).'
+      summary: Poll one operation. This is the route the UI's refetch loop calls.
+  /api/v1/products/{product_id}/operations/{kind}/{operation_id}/cancel:
+    post:
+      description: '
+
+        Requires ``products:manage``: cancelling a deploy mid-flight changes what
+
+        the product does with real hardware, which is not a read.'
+      operationId: post_cancel_operation
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: operation_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Wire shape for one operation.
+
+
+                  An explicit DTO rather than serialising the dataclass directly: the
+
+                  response schema is enforced field by field, so a future field added to
+
+                  :class:`Operation` for internal use cannot silently start being published
+
+                  (see the output-validation rule — an unvalidated response is as dangerous
+
+                  as an unvalidated request, just harder to notice).'
+                properties:
+                  completed_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Completed At
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  detail:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Detail
+                  error:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Error
+                  id:
+                    title: Id
+                    type: string
+                  is_terminal:
+                    title: Is Terminal
+                    type: boolean
+                  kind:
+                    title: Kind
+                    type: string
+                  progress:
+                    anyOf:
+                      - type: number
+                      - type: 'null'
+                    title: Progress
+                  resource_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Resource Id
+                  resource_kind:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Resource Kind
+                  result:
+                    anyOf:
+                      - additionalProperties: true
+                        type: object
+                      - type: 'null'
+                    title: Result
+                  state:
+                    title: State
+                    type: string
+                  status:
+                    title: Status
+                    type: string
+                  updated_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Updated At
+                required:
+                  - id
+                  - kind
+                  - state
+                  - status
+                  - is_terminal
+                  - resource_id
+                  - resource_kind
+                  - progress
+                  - detail
+                  - error
+                  - result
+                  - created_at
+                  - updated_at
+                  - completed_at
+                title: OperationView
+                type: object
+          description: 'Wire shape for one operation.
+
+
+            An explicit DTO rather than serialising the dataclass directly: the
+
+            response schema is enforced field by field, so a future field added to
+
+            :class:`Operation` for internal use cannot silently start being published
+
+            (see the output-validation rule — an unvalidated response is as dangerous
+
+            as an unvalidated request, just harder to notice).'
+      summary: Request cancellation and return the operation's resulting state.
+  /api/v1/products/{product_id}/operations/{kind}/{operation_id}/logs:
+    get:
+      description: '
+
+        ``since`` lets the DetailDrawer''s log tab fetch only what is new on each
+
+        poll instead of re-reading the whole stream every interval.'
+      operationId: get_operation_logs
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: operation_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for an operation's log lines, oldest first.
+                properties:
+                  kind:
+                    title: Kind
+                    type: string
+                  logs:
+                    items:
+                      $ref: '#/components/schemas/OperationLogLineView'
+                    maxItems: 10000
+                    title: Logs
+                    type: array
+                  operation_id:
+                    title: Operation Id
+                    type: string
+                required:
+                  - logs
+                  - operation_id
+                  - kind
+                title: OperationLogsResponse
+                type: object
+          description: Envelope for an operation's log lines, oldest first.
+      summary: Return an operation's log lines, oldest first.
+  /api/v1/products/{product_id}/resources/{kind}:
+    post:
+      description: '
+
+        ``201`` even when the product answered ``202``: from the portal''s side the
+
+        resource now exists and is addressable. Whether it is finished provisioning
+
+        is what ``operation_id`` is for — collapsing the two into a ``202`` here
+
+        would leave a client that ignores the body unable to tell a created
+
+        resource from a rejected one.'
+      operationId: post_create_resource
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: 'Wire shape for one resource.
+
+
+                  A named projection rather than the dataclass itself, for the reason
+
+                  :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+
+                  adapter''s free-form bag with no declared schema, so publishing it wholesale
+
+                  would make every key an adapter happens to stash there part of the portal''s
+
+                  wire contract by accident.
+
+
+                  ``operation_id`` is the one thing lifted out of it, and only because the
+
+                  contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+
+                  for exactly this purpose — a create the product completes asynchronously.
+
+                  ``None`` means the create finished synchronously, which is how the UI tells
+
+                  "nothing to poll" from "poll this".'
+                properties:
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  id:
+                    title: Id
+                    type: string
+                  kind:
+                    title: Kind
+                    type: string
+                  name:
+                    title: Name
+                    type: string
+                  operation_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Operation Id
+                  parent_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Parent Id
+                  parent_kind:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Parent Kind
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Status
+                  updated_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Updated At
+                required:
+                  - id
+                  - kind
+                  - name
+                  - status
+                  - parent_id
+                  - parent_kind
+                  - operation_id
+                  - created_at
+                  - updated_at
+                title: ResourceView
+                type: object
+          description: 'Wire shape for one resource.
+
+
+            A named projection rather than the dataclass itself, for the reason
+
+            :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+
+            adapter''s free-form bag with no declared schema, so publishing it wholesale
+
+            would make every key an adapter happens to stash there part of the portal''s
+
+            wire contract by accident.
+
+
+            ``operation_id`` is the one thing lifted out of it, and only because the
+
+            contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+
+            for exactly this purpose — a create the product completes asynchronously.
+
+            ``None`` means the create finished synchronously, which is how the UI tells
+
+            "nothing to poll" from "poll this".'
+      summary: Create one resource in the connected product.
+  /api/v1/products/{product_id}/resources/{kind}/{resource_id}:
+    delete:
+      description: '
+
+        A product that refuses because the resource is still referenced surfaces as
+
+        ``409`` through the shared taxonomy, which is the distinction a confirm
+
+        dialog needs — see the module docstring.'
+      operationId: delete_delete_resource
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: resource_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Acknowledgement that a resource was deleted.
+
+
+                  A body rather than a bare ``204`` because the deletion may be the start of
+
+                  teardown rather than the end of it, and the UI needs somewhere to read that
+
+                  from. ``kind`` and ``id`` are echoed so a client handling several deletions
+
+                  can attribute the answer without tracking request order.'
+                properties:
+                  deleted:
+                    default: true
+                    title: Deleted
+                    type: boolean
+                  id:
+                    title: Id
+                    type: string
+                  kind:
+                    title: Kind
+                    type: string
+                required:
+                  - kind
+                  - id
+                title: ResourceDeletedResponse
+                type: object
+          description: 'Acknowledgement that a resource was deleted.
+
+
+            A body rather than a bare ``204`` because the deletion may be the start of
+
+            teardown rather than the end of it, and the UI needs somewhere to read that
+
+            from. ``kind`` and ``id`` are echoed so a client handling several deletions
+
+            can attribute the answer without tracking request order.'
+      summary: Delete one resource from the connected product.
+    put:
+      description: '
+
+        Typed for the same reason create is: the adapter maps the product''s own
+
+        not-found/conflict response onto the shared taxonomy, which a proxied
+
+        write cannot interpret — see the module docstring. Requires ``manage``,
+
+        the same scope create and delete require, since an update is a mutation.'
+      operationId: put_update_resource
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: resource_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Wire shape for one resource.
+
+
+                  A named projection rather than the dataclass itself, for the reason
+
+                  :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+
+                  adapter''s free-form bag with no declared schema, so publishing it wholesale
+
+                  would make every key an adapter happens to stash there part of the portal''s
+
+                  wire contract by accident.
+
+
+                  ``operation_id`` is the one thing lifted out of it, and only because the
+
+                  contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+
+                  for exactly this purpose — a create the product completes asynchronously.
+
+                  ``None`` means the create finished synchronously, which is how the UI tells
+
+                  "nothing to poll" from "poll this".'
+                properties:
+                  created_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Created At
+                  id:
+                    title: Id
+                    type: string
+                  kind:
+                    title: Kind
+                    type: string
+                  name:
+                    title: Name
+                    type: string
+                  operation_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Operation Id
+                  parent_id:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Parent Id
+                  parent_kind:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Parent Kind
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Status
+                  updated_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Updated At
+                required:
+                  - id
+                  - kind
+                  - name
+                  - status
+                  - parent_id
+                  - parent_kind
+                  - operation_id
+                  - created_at
+                  - updated_at
+                title: ResourceView
+                type: object
+          description: 'Wire shape for one resource.
+
+
+            A named projection rather than the dataclass itself, for the reason
+
+            :class:`~app.operations_api.OperationView` gives: ``metadata`` is the
+
+            adapter''s free-form bag with no declared schema, so publishing it wholesale
+
+            would make every key an adapter happens to stash there part of the portal''s
+
+            wire contract by accident.
+
+
+            ``operation_id`` is the one thing lifted out of it, and only because the
+
+            contract names that key (:data:`~app.adapters.base.RESOURCE_OPERATION_ID_KEY`)
+
+            for exactly this purpose — a create the product completes asynchronously.
+
+            ``None`` means the create finished synchronously, which is how the UI tells
+
+            "nothing to poll" from "poll this".'
+      summary: Update one resource in the connected product.
+  /api/v1/products/{product_id}/resources/{kind}/{resource_id}/actions/{action}:
+    post:
+      description: '
+
+        This is the TYPED path for actions, and it exists because the proxy
+
+        cannot serve this case. Proxying ``POST /nodes/{id}/deploy`` forwards
+
+        Gough''s raw ``202`` body to the browser, which leaves the UI holding a
+
+        product-specific payload with no :class:`ActionResult`, no normalised
+
+        state, and no poll key — so it can only invalidate its queries and hope
+
+        the deploy it just started eventually shows up somewhere.
+
+
+        Going through :meth:`Adapter.perform_action` instead means the response
+
+        carries the deployment ids as :class:`OperationView` objects, each already
+
+        addressable at ``/operations/{kind}/{id}``. The UI learns exactly what it
+
+        started. See "Which mutations go through which path" in
+
+        :mod:`app.adapters.base`.
+
+
+        Requires ``manage``: every action reaching here changes product state.
+
+        ``kind`` and ``action`` are validated by the adapter against literal
+
+        tables before any URL is built — neither is interpolated into a path here.'
+      operationId: post_perform_resource_action
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: kind
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: resource_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: action
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Outcome of a product action, including anything left to poll.
+
+
+                  ``operations`` is the field this route exists for. It is a LIST because a
+
+                  single Gough node deploy returns one deployment per assigned biome, and a
+
+                  caller handed only the first would poll a fraction of the work it started.
+
+                  An empty list means the action completed synchronously — which is how the
+
+                  UI tells "nothing to poll" from "poll these".'
+                properties:
+                  accepted:
+                    title: Accepted
+                    type: boolean
+                  action:
+                    title: Action
+                    type: string
+                  message:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Message
+                  operations:
+                    items:
+                      $ref: '#/components/schemas/OperationView'
+                    maxItems: 10000
+                    title: Operations
+                    type: array
+                  resource:
+                    anyOf:
+                      - $ref: '#/components/schemas/ActionResourceView'
+                      - type: 'null'
+                required:
+                  - action
+                  - accepted
+                  - operations
+                  - resource
+                  - message
+                title: ActionResultResponse
+                type: object
+          description: 'Outcome of a product action, including anything left to poll.
+
+
+            ``operations`` is the field this route exists for. It is a LIST because a
+
+            single Gough node deploy returns one deployment per assigned biome, and a
+
+            caller handed only the first would poll a fraction of the work it started.
+
+            An empty list means the action completed synchronously — which is how the
+
+            UI tells "nothing to poll" from "poll these".'
+      summary: Invoke a product action and return the operations it started.
+  /api/v1/products/{product_id}/schema:
+    get:
+      description: ''
+      operationId: get_get_product_schema
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get management schema (available actions) for a product.
+  /api/v1/products/{product_id}/tenants/{tenant_id}/map:
+    delete:
+      description: ''
+      operationId: delete_delete_product_tenant_mapping
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Delete product tenant external mapping.
+    get:
+      description: ''
+      operationId: get_get_product_tenant_mapping
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Response DTO for product tenant mapping.
+                properties:
+                  connection_id:
+                    title: Connection Id
+                    type: integer
+                  created_at:
+                    title: Created At
+                    type: string
+                  external_id:
+                    title: External Id
+                    type: string
+                  external_kind:
+                    title: External Kind
+                    type: string
+                  id:
+                    title: Id
+                    type: integer
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  updated_at:
+                    title: Updated At
+                    type: string
+                required:
+                  - id
+                  - connection_id
+                  - tenant_id
+                  - external_kind
+                  - external_id
+                  - created_at
+                  - updated_at
+                title: ProductTenantMapResponse
+                type: object
+          description: Response DTO for product tenant mapping.
+      summary: Get product tenant external mapping.
+    post:
+      description: ''
+      operationId: post_set_product_tenant_mapping
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: Request DTO for product tenant mapping.
+              properties:
+                external_id:
+                  title: External Id
+                  type: string
+              required:
+                - external_id
+              title: ProductTenantMapRequest
+              type: object
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: Response DTO for product tenant mapping.
+                properties:
+                  connection_id:
+                    title: Connection Id
+                    type: integer
+                  created_at:
+                    title: Created At
+                    type: string
+                  external_id:
+                    title: External Id
+                    type: string
+                  external_kind:
+                    title: External Kind
+                    type: string
+                  id:
+                    title: Id
+                    type: integer
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  updated_at:
+                    title: Updated At
+                    type: string
+                required:
+                  - id
+                  - connection_id
+                  - tenant_id
+                  - external_kind
+                  - external_id
+                  - created_at
+                  - updated_at
+                title: ProductTenantMapResponse
+                type: object
+          description: Response DTO for product tenant mapping.
+      summary: Set product tenant external mapping.
+    put:
+      description: ''
+      operationId: put_update_product_tenant_mapping
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: Request DTO for product tenant mapping.
+              properties:
+                external_id:
+                  title: External Id
+                  type: string
+              required:
+                - external_id
+              title: ProductTenantMapRequest
+              type: object
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Response DTO for product tenant mapping.
+                properties:
+                  connection_id:
+                    title: Connection Id
+                    type: integer
+                  created_at:
+                    title: Created At
+                    type: string
+                  external_id:
+                    title: External Id
+                    type: string
+                  external_kind:
+                    title: External Kind
+                    type: string
+                  id:
+                    title: Id
+                    type: integer
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  updated_at:
+                    title: Updated At
+                    type: string
+                required:
+                  - id
+                  - connection_id
+                  - tenant_id
+                  - external_kind
+                  - external_id
+                  - created_at
+                  - updated_at
+                title: ProductTenantMapResponse
+                type: object
+          description: Response DTO for product tenant mapping.
+      summary: Update product tenant external mapping.
+  /api/v1/products/{product_id}/test:
+    post:
+      description: ''
+      operationId: post_test_product_connection
+      parameters:
+        - in: path
+          name: product_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Test a product connection.
+  /api/v1/registration-status:
+    get:
+      description: '
+
+        Deliberately unauthenticated, and deliberately the ONLY thing this route
+
+        reports. ``Config.ALLOW_SELF_REGISTRATION`` closed by default is correct
+
+        (app/auth.py''s ``register`` checks it before anything else runs) — but a
+
+        visitor deciding whether to look for a sign-up button has no token by
+
+        definition, so the one place that already answers "what is on for this
+
+        deployment" (``GET /api/v1/features``) cannot be the one that answers
+
+        this: it is auth-gated on purpose, for the same reason the full OpenAPI
+
+        document is (app/openapi.py) — publishing the whole commercial/flag
+
+        surface to an anonymous caller is reconnaissance, not a feature.
+
+
+        This route is the narrow exception, not a second unauthenticated
+
+        features endpoint: it names exactly one boolean, never anything else a
+
+        future flag or licensed capability might add to ``/features``. Whether a
+
+        caller can currently self-register is not secret — the sign-up button''s
+
+        presence or absence would tell an anonymous visitor the same thing — so
+
+        the risk here is scope creep on THIS route, not disclosure.'
+      operationId: get_registration_status
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for the public, unauthenticated GET /api/v1/registration-status.\n\
+                  \nAttributes:\n    self_registration_enabled: Whether ``Config.ALLOW_SELF_REGISTRATION``\n\
+                  \        is currently on for this deployment."
+                properties:
+                  self_registration_enabled:
+                    title: Self Registration Enabled
+                    type: boolean
+                required:
+                  - self_registration_enabled
+                title: RegistrationStatusResponse
+                type: object
+          description: "Envelope for the public, unauthenticated GET /api/v1/registration-status.\n\
+            \nAttributes:\n    self_registration_enabled: Whether ``Config.ALLOW_SELF_REGISTRATION``\n\
+            \        is currently on for this deployment."
+      summary: 'Public: whether this deployment currently allows self-service signup.'
+  /api/v1/status:
+    get:
+      description: ''
+      operationId: get_status
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for the public, unauthenticated GET /api/v1/status.\n\
+                  \nAttributes:\n    status: Liveness state — always \"running\" once the process\
+                  \ is\n        serving requests.\n    service: Which service answered.\n  \
+                  \  version: Deployed service version.\n    timestamp: When this response was\
+                  \ generated, ISO-8601."
+                properties:
+                  service:
+                    title: Service
+                    type: string
+                  status:
+                    title: Status
+                    type: string
+                  timestamp:
+                    title: Timestamp
+                    type: string
+                  version:
+                    title: Version
+                    type: string
+                required:
+                  - status
+                  - service
+                  - version
+                  - timestamp
+                title: StatusResponse
+                type: object
+          description: "Envelope for the public, unauthenticated GET /api/v1/status.\n\nAttributes:\n\
+            \    status: Liveness state — always \"running\" once the process is\n        serving\
+            \ requests.\n    service: Which service answered.\n    version: Deployed service\
+            \ version.\n    timestamp: When this response was generated, ISO-8601."
+      summary: Public status endpoint - no authentication required.
+  /api/v1/teams:
+    get:
+      description: ''
+      operationId: get_list_user_teams
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: List user's teams.
+    post:
+      description: ''
+      operationId: post_create_team_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Create new team (authenticated users).
+  /api/v1/teams/invitations/{token}/accept:
+    post:
+      description: ''
+      operationId: post_accept_invitation
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Accept team invitation.
+  /api/v1/teams/{team_id}:
+    delete:
+      description: ''
+      operationId: delete_delete_team_endpoint
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Delete team (owner only).
+    get:
+      description: ''
+      operationId: get_get_team_endpoint
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get team details (team members only).
+    put:
+      description: ''
+      operationId: put_update_team_endpoint
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Update team (team admin only).
+  /api/v1/teams/{team_id}/invitations:
+    post:
+      description: ''
+      operationId: post_send_invitation
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Send team invitation via email.
+  /api/v1/teams/{team_id}/invitations/{invite_id}:
+    delete:
+      description: ''
+      operationId: delete_cancel_invitation
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: invite_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Cancel team invitation (team admin only).
+  /api/v1/teams/{team_id}/members:
+    get:
+      description: ''
+      operationId: get_list_team_members
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: List team members.
+    post:
+      description: ''
+      operationId: post_add_team_member_endpoint
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Add member to team (team admin only).
+  /api/v1/teams/{team_id}/members/{member_user_id}:
+    delete:
+      description: ''
+      operationId: delete_remove_team_member
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: member_user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Remove member from team (team admin only).
+    put:
+      description: ''
+      operationId: put_update_member_role
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: member_user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Update member role (team admin only).
+  /api/v1/tenants:
+    get:
+      description: "\nQuery params:\n  - include_children=true: also list tenants in subtrees\
+        \ the caller\n    administers. Those rows come back as TenantSummary, not\n    TenantDetail:\
+        \ holding admin over an ancestor grants the right to\n    know a descendant exists,\
+        \ not to read its plan, quotas or owner\n    without switching into it."
+      operationId: get_list_user_tenants
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for tenant listings; rows are mixed detail/summary.
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  tenants:
+                    items:
+                      additionalProperties: true
+                      type: object
+                    maxItems: 10000
+                    title: Tenants
+                    type: array
+                required:
+                  - tenants
+                  - count
+                title: TenantListResponse
+                type: object
+          description: Envelope for tenant listings; rows are mixed detail/summary.
+      summary: List user's tenants (with optional subtree expansion).
+    post:
+      description: '
+
+        ``parent_tenant_id`` is what makes a hierarchy constructible at all: with
+
+        no way to set it at creation, every tenant is a root and the delegated
+
+        admin model has nothing to delegate over. The parent is validated for
+
+        existence, caller authority, and depth before any row is written.'
+      operationId: post_create_tenant_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Create new tenant, optionally beneath an existing parent tenant.
+  /api/v1/tenants/{tenant_id}:
+    delete:
+      description: '
+
+        Stays strictly owner-gated at both layers. ``tenants:delete`` appears in
+
+        the owner bundle alone — notably NOT in the delegated-admin bundle,
+
+        which is what keeps delegation conferring management rather than
+
+        destruction of a tenant somebody else owns. The ownership check below
+
+        is retained on top: the scope answers "an owner of this tenant", the
+
+        row check answers "*the* owner", and only the second is authoritative
+
+        for an irreversible delete.'
+      operationId: delete_delete_tenant_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Delete tenant (owner only).
+    get:
+      description: ''
+      operationId: get_get_tenant_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get tenant details (members and delegated admins only).
+    put:
+      description: ''
+      operationId: put_update_tenant_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Update tenant (holders of tenants:manage, incl. delegated admins).
+  /api/v1/tenants/{tenant_id}/dashboard/rollup:
+    get:
+      description: '
+
+        Available to holders of ``tenants:manage`` here, which includes admins
+
+        acting by delegation from an ancestor. Product health is stubbed until
+
+        the Phase 4 adapters land; the product identity is not — it comes from
+
+        ``product_type``.'
+      operationId: get_get_dashboard_rollup
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Provider dashboard rollup envelope.
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  rollup:
+                    items:
+                      $ref: '#/components/schemas/RollupEntry'
+                    maxItems: 10000
+                    title: Rollup
+                    type: array
+                required:
+                  - rollup
+                  - count
+                title: RollupResponse
+                type: object
+          description: Provider dashboard rollup envelope.
+      summary: Get per-child-tenant × per-product rollup for provider dashboard.
+  /api/v1/tenants/{tenant_id}/members:
+    get:
+      description: '
+
+        Now reachable by delegated admins as well as direct members, which is
+
+        precisely why the rows go through TenantMemberResponse: get_tenant_members
+
+        returns raw joined rows, so a wider audience on the endpoint would have
+
+        meant a wider audience for every column that join happens to carry.'
+      operationId: get_list_tenant_members
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Envelope for a tenant's membership list.
+                properties:
+                  count:
+                    title: Count
+                    type: integer
+                  members:
+                    items:
+                      $ref: '#/components/schemas/TenantMemberResponse'
+                    maxItems: 10000
+                    title: Members
+                    type: array
+                required:
+                  - members
+                  - count
+                title: TenantMemberListResponse
+                type: object
+          description: Envelope for a tenant's membership list.
+      summary: List tenant members.
+    post:
+      description: ''
+      operationId: post_add_tenant_member_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: 'A tenant membership row plus the member''s contact identity.
+
+
+                  PII policy (deliberate, not incidental): ``user_email`` and
+
+                  ``user_full_name`` ARE included, because administering a tenant means
+
+                  administering its member accounts and an MSP admin cannot do that
+
+                  against opaque user ids. NO other column from the users table is
+
+                  exposed here — not role, not is_active, not timestamps, not
+
+                  password_hash — and this DTO is the only path membership data takes to a
+
+                  response body. Adding a column to `users` must not widen this.
+
+
+                  Field set is reconciled with the webui''s TenantMember interface
+
+                  (services/webui/src/client/types/index.ts).'
+                properties:
+                  id:
+                    title: Id
+                    type: integer
+                  invited_by_id:
+                    anyOf:
+                      - type: integer
+                      - type: 'null'
+                    title: Invited By Id
+                  joined_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Joined At
+                  role:
+                    title: Role
+                    type: string
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  user_email:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: User Email
+                  user_full_name:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: User Full Name
+                  user_id:
+                    title: User Id
+                    type: integer
+                required:
+                  - id
+                  - tenant_id
+                  - user_id
+                  - role
+                  - invited_by_id
+                  - joined_at
+                  - user_email
+                  - user_full_name
+                title: TenantMemberResponse
+                type: object
+          description: 'A tenant membership row plus the member''s contact identity.
+
+
+            PII policy (deliberate, not incidental): ``user_email`` and
+
+            ``user_full_name`` ARE included, because administering a tenant means
+
+            administering its member accounts and an MSP admin cannot do that
+
+            against opaque user ids. NO other column from the users table is
+
+            exposed here — not role, not is_active, not timestamps, not
+
+            password_hash — and this DTO is the only path membership data takes to a
+
+            response body. Adding a column to `users` must not widen this.
+
+
+            Field set is reconciled with the webui''s TenantMember interface
+
+            (services/webui/src/client/types/index.ts).'
+      summary: Add member to tenant (holders of members:manage, incl. delegated).
+  /api/v1/tenants/{tenant_id}/members/{member_user_id}:
+    delete:
+      description: ''
+      operationId: delete_remove_tenant_member
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: member_user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Remove member from tenant (holders of members:manage, incl. delegated).
+    put:
+      description: ''
+      operationId: put_update_tenant_member_role
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+        - in: path
+          name: member_user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'A tenant membership row plus the member''s contact identity.
+
+
+                  PII policy (deliberate, not incidental): ``user_email`` and
+
+                  ``user_full_name`` ARE included, because administering a tenant means
+
+                  administering its member accounts and an MSP admin cannot do that
+
+                  against opaque user ids. NO other column from the users table is
+
+                  exposed here — not role, not is_active, not timestamps, not
+
+                  password_hash — and this DTO is the only path membership data takes to a
+
+                  response body. Adding a column to `users` must not widen this.
+
+
+                  Field set is reconciled with the webui''s TenantMember interface
+
+                  (services/webui/src/client/types/index.ts).'
+                properties:
+                  id:
+                    title: Id
+                    type: integer
+                  invited_by_id:
+                    anyOf:
+                      - type: integer
+                      - type: 'null'
+                    title: Invited By Id
+                  joined_at:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: Joined At
+                  role:
+                    title: Role
+                    type: string
+                  tenant_id:
+                    title: Tenant Id
+                    type: integer
+                  user_email:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: User Email
+                  user_full_name:
+                    anyOf:
+                      - type: string
+                      - type: 'null'
+                    title: User Full Name
+                  user_id:
+                    title: User Id
+                    type: integer
+                required:
+                  - id
+                  - tenant_id
+                  - user_id
+                  - role
+                  - invited_by_id
+                  - joined_at
+                  - user_email
+                  - user_full_name
+                title: TenantMemberResponse
+                type: object
+          description: 'A tenant membership row plus the member''s contact identity.
+
+
+            PII policy (deliberate, not incidental): ``user_email`` and
+
+            ``user_full_name`` ARE included, because administering a tenant means
+
+            administering its member accounts and an MSP admin cannot do that
+
+            against opaque user ids. NO other column from the users table is
+
+            exposed here — not role, not is_active, not timestamps, not
+
+            password_hash — and this DTO is the only path membership data takes to a
+
+            response body. Adding a column to `users` must not widen this.
+
+
+            Field set is reconciled with the webui''s TenantMember interface
+
+            (services/webui/src/client/types/index.ts).'
+      summary: Update member role (holders of members:manage, incl. delegated).
+  /api/v1/tenants/{tenant_id}/parent:
+    put:
+      description: '
+
+        Requires admin authority in BOTH the tenant being moved and the
+
+        destination parent — moving a subtree under a parent you administer is
+
+        a grant of authority over that subtree, so authority over only one side
+
+        is not enough. Rejects cycles, maintains ``depth`` for the whole moved
+
+        subtree, and invalidates caches on both the old and new ancestor chains.'
+      operationId: put_reparent_tenant_endpoint
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: Request body for moving a tenant within the hierarchy.
+              properties:
+                parent_tenant_id:
+                  anyOf:
+                    - type: integer
+                    - type: 'null'
+                  title: Parent Tenant Id
+              title: ReparentRequest
+              type: object
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Move a tenant (and its subtree) under a new parent, or to a root.
+  /api/v1/tenants/{tenant_id}/switch:
+    post:
+      description: '
+
+        Allowed if the caller is a direct member of the tenant, or holds
+
+        admin/owner in one of its ancestors (delegated MSP admin).
+
+
+        Authorization runs BEFORE the existence/active check on purpose. The
+
+        other order answers "does tenant 4127 exist?" for any authenticated
+
+        user, because a non-existent tenant 404s while a real one they cannot
+
+        reach 403s. Now every unauthorized caller sees the same 403 regardless.'
+      operationId: post_switch_tenant
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 'Token re-issue result for a tenant switch.
+
+
+                  ``tenant`` is a full TenantDetail, not a TenantSummary. The caller has
+
+                  just been authorized into this tenant, so they are entitled to exactly
+
+                  what GET /tenants/<id> would hand them — and the webui populates its
+
+                  entire ``currentTenant`` from this one object (tenantStore.ts), so a
+
+                  summary here starves every consumer that reads it. LicenseGate.tsx falls
+
+                  back to "free" on a missing ``plan``, which silently hides every licensed
+
+                  feature from every user rather than failing visibly.'
+                properties:
+                  access_token:
+                    title: Access Token
+                    type: string
+                  scope:
+                    items:
+                      type: string
+                    maxItems: 10000
+                    title: Scope
+                    type: array
+                  tenant:
+                    $ref: '#/components/schemas/TenantDetail'
+                  tenant_role:
+                    title: Tenant Role
+                    type: string
+                required:
+                  - access_token
+                  - tenant
+                  - tenant_role
+                  - scope
+                title: TenantSwitchResponse
+                type: object
+          description: 'Token re-issue result for a tenant switch.
+
+
+            ``tenant`` is a full TenantDetail, not a TenantSummary. The caller has
+
+            just been authorized into this tenant, so they are entitled to exactly
+
+            what GET /tenants/<id> would hand them — and the webui populates its
+
+            entire ``currentTenant`` from this one object (tenantStore.ts), so a
+
+            summary here starves every consumer that reads it. LicenseGate.tsx falls
+
+            back to "free" on a missing ``plan``, which silently hides every licensed
+
+            feature from every user rather than failing visibly.'
+      summary: Switch active tenant — returns a new JWT scoped to it.
+  /api/v1/tenants/{tenant_id}/usage:
+    get:
+      description: ''
+      operationId: get_get_tenant_usage
+      parameters:
+        - in: path
+          name: tenant_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get tenant resource usage and quotas.
+  /api/v1/users:
+    get:
+      description: ''
+      operationId: get_get_users
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for GET /api/v1/users.\n\nAttributes:\n    users: The\
+                  \ matching users, credentials never included.\n    pagination: Page metadata\
+                  \ for this result set."
+                properties:
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+                  users:
+                    items:
+                      $ref: '#/components/schemas/UserSummary'
+                    maxItems: 10000
+                    title: Users
+                    type: array
+                required:
+                  - users
+                  - pagination
+                title: UsersListResponse
+                type: object
+          description: "Envelope for GET /api/v1/users.\n\nAttributes:\n    users: The matching\
+            \ users, credentials never included.\n    pagination: Page metadata for this result\
+            \ set."
+      summary: List all users with pagination (Admin only).
+    post:
+      description: ''
+      operationId: post_create_new_user
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Create new user (Admin only).
+  /api/v1/users/api-keys:
+    get:
+      description: ''
+      operationId: get_list_api_keys
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: List user's API keys.
+    post:
+      description: ''
+      operationId: post_create_api_key_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Create new API key.
+  /api/v1/users/api-keys/{key_id}:
+    delete:
+      description: ''
+      operationId: delete_delete_api_key
+      parameters:
+        - in: path
+          name: key_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Revoke an API key.
+  /api/v1/users/audit-logs:
+    get:
+      description: ''
+      operationId: get_get_audit_logs_endpoint
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get audit logs for one tenant. Requires audit:read and tenants:manage.
+  /api/v1/users/me:
+    get:
+      description: ''
+      operationId: get_get_profile
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get own profile.
+    put:
+      description: ''
+      operationId: put_update_profile
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Update own profile.
+  /api/v1/users/me/password:
+    put:
+      description: ''
+      operationId: put_change_password
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Change own password.
+  /api/v1/users/roles:
+    get:
+      description: ''
+      operationId: get_get_roles
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get list of valid roles (Admin only).
+  /api/v1/users/{user_id}:
+    delete:
+      description: ''
+      operationId: delete_delete_existing_user
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Delete user by ID (Admin only).
+    get:
+      description: ''
+      operationId: get_get_user
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Get single user by ID (Admin only).
+    put:
+      description: ''
+      operationId: put_update_existing_user
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Update user by ID (Admin only).
+  /api/v1/users/{user_id}/rate-limit-reset:
+    post:
+      description: '
+
+        An operator-facing escape hatch for app.ratelimit''s account-scoped
+
+        windows: without it, a locked-out user waits out the TTL (up to 1h) or
+
+        an operator opens a Python shell against production to call
+
+        :func:`app.ratelimit.rate_limit_reset` by hand — see that module''s
+
+        docstring.
+
+
+        ``tenant_id`` is REQUIRED in the body, not derived from the target
+
+        user, and the caller''s authority is checked against exactly that
+
+        tenant — the same shape ``GET /api/v1/users/audit-logs`` uses, and for
+
+        the same reason: that route used to read ``db(db.audit_logs.id > 0)``,
+
+        every row in the deployment, behind a scope check with no tenant
+
+        predicate. The check below closes the same class of leak here: naming
+
+        a tenant the caller genuinely administers is not enough on its own — the
+
+        membership lookup a few lines down also requires ``user_id`` to be a
+
+        MEMBER of that exact tenant, so a delegated admin of tenant A cannot
+
+        reach a user who only exists in tenant B by naming A. Scope is checked
+
+        BEFORE that membership lookup runs, so a caller with no authority over
+
+        ``tenant_id`` at all learns nothing about who is or is not a member of
+
+        it — the 403 and the 404 never depend on each other''s timing or
+
+        presence.
+
+
+        Clears BOTH key shapes app.ratelimit''s account-scoped buckets can use
+
+        (the submitted email for ``login``/``forgot_password``, and
+
+        ``user:<id>`` for the MFA/change-password buckets) rather than
+
+        hand-mapping which bucket uses which — deleting a key that was never
+
+        set is a no-op, and a hand-maintained bucket->key-shape table is
+
+        exactly the kind of parallel structure that drifts silently the day a
+
+        new bucket is added and only one side of it is updated.'
+      operationId: post_reset_user_rate_limit
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: "Envelope for POST /api/v1/users/<user_id>/rate-limit-reset.\n\n\
+                  Attributes:\n    message: Human-readable confirmation.\n    user_id: The user\
+                  \ whose lockout bucket was cleared.\n    bucket: Which credential bucket was\
+                  \ cleared."
+                properties:
+                  bucket:
+                    title: Bucket
+                    type: string
+                  message:
+                    title: Message
+                    type: string
+                  user_id:
+                    title: User Id
+                    type: integer
+                required:
+                  - message
+                  - user_id
+                  - bucket
+                title: RateLimitResetResponse
+                type: object
+          description: "Envelope for POST /api/v1/users/<user_id>/rate-limit-reset.\n\nAttributes:\n\
+            \    message: Human-readable confirmation.\n    user_id: The user whose lockout\
+            \ bucket was cleared.\n    bucket: Which credential bucket was cleared."
+      summary: Clear one credential-lockout bucket for a user (holders of members:manage).
+  /healthz:
+    get:
+      description: '
+
+        Tests database connectivity by attempting a simple query.'
+      operationId: get_health_check
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Health check endpoint.
+  /readyz:
+    get:
+      description: ''
+      operationId: get_readiness_check
+      parameters: []
+      responses:
+        default:
+          description: Response shape is not yet declared for this operation. The view has no
+            @validate_response annotation, so no schema is published for it; do not rely on
+            a specific body until one is.
+      summary: Readiness check endpoint.
+security:
+  - bearerAuth: []

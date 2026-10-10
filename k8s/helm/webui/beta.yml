@@ -1,0 +1,59 @@
+# webui — beta overrides (dal2-beta cluster).
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/penguintechinc/penguincloud/webui
+  tag: ""  # set at deploy time to the CI-built beta-<epoch64> tag; rendering fails until set (requireTag below)
+  digest: ""
+  pullPolicy: IfNotPresent
+  requireTag: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+    ephemeral-storage: 128Mi
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  className: cilium
+  host: penguincloud.penguintech.cloud
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    - hosts:
+        - penguincloud.penguintech.cloud
+      secretName: webui-tls
+
+config:
+  NODE_ENV: production
+  PORT: "3000"
+  FLASK_API_URL: http://portal-api:8000
+
+networkPolicy:
+  enabled: true
+  extraIngress:
+    - namespaceLabels:
+        "k8s:io.kubernetes.pod.namespace": kube-system
+      ports:
+        - port: "3000"
+          protocol: TCP
+
+podSecurityAdmission:
+  manageNamespace: false
+  namespace: penguincloud
+  enforce: restricted

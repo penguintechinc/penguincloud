@@ -1,0 +1,158 @@
+{
+  "_README": "Real Gough payloads, captured 2026-08-08 from Gough at commit-of-checkout /home/penguin/code/gough, running from its own docker-compose against postgres:16. NOT hand-written. Regenerate with tests/api/README-gough-fixtures.md. HTTP-level captures came off the wire; serializer-level captures were produced by calling Gough's OWN serializer functions over its OWN database rows, because Gough's scope middleware denies every authenticated route in this build (see the live-verification report).",
+  "http": {
+    "GET /healthz": {
+      "status": 200,
+      "body": {
+        "database": "connected",
+        "status": "healthy"
+      }
+    },
+    "GET /readyz": {
+      "status": 200,
+      "body": {
+        "checks": {
+          "database": "up",
+          "grpc": "up",
+          "nats": "unchecked",
+          "spire": "error: No module named 'pyspiffe'",
+          "vault": "up"
+        },
+        "status": "ready"
+      }
+    },
+    "GET /api/v1/status": {
+      "status": 403,
+      "body": {
+        "error": "Endpoint not registered in scope policy",
+        "status": "forbidden_scope"
+      },
+      "note": "Denied unauthenticated AND with a valid scoped token."
+    },
+    "POST /api/v1/auth/login": {
+      "status": 403,
+      "body": {
+        "error": "Endpoint not registered in scope policy",
+        "status": "forbidden_scope"
+      },
+      "note": "Login is not in ANONYMOUS_PATHS nor SCOPE_POLICY, so the adapter cannot authenticate at all."
+    }
+  },
+  "metrics_families": [
+    "gough_api_error_created",
+    "gough_api_error_total",
+    "gough_api_request_latency_seconds",
+    "gough_api_request_latency_seconds_created",
+    "gough_audit_chain_break_total",
+    "gough_audit_chain_integrity_failure_total",
+    "gough_audit_offsite_mirror_lag_seconds",
+    "gough_biomes_signature_verification_failed_total",
+    "gough_cluster_quorum_loss_created",
+    "gough_cluster_quorum_loss_total",
+    "gough_deployment_queue_depth",
+    "gough_joiner_secrets_decryption_failure_created",
+    "gough_joiner_secrets_decryption_failure_total",
+    "gough_nats_audit_mirror_lag_messages",
+    "gough_provisioning_queue_depth",
+    "gough_security_otp_replay_detected_total",
+    "gough_spiffe_svid_rotation_grace_exceeded_total",
+    "gough_vault_bootstrap_window_expired_created",
+    "gough_vault_bootstrap_window_expired_total",
+    "gough_vault_key_rotation_total"
+  ],
+  "serializer": {
+    "node": {
+      "id": 1,
+      "tenant_id": "__default__",
+      "name": "live-verify-node-1",
+      "state": "ready",
+      "posture": "compliant",
+      "dmi_uuid": null,
+      "primary_nic_mac": "aa:bb:cc:dd:ee:01",
+      "ipv4": "10.9.0.11",
+      "ipv6": "fd00::11",
+      "ipv4_static": null,
+      "firmware_type": null,
+      "boot_config_id": null,
+      "preferred_addr_family": "auto",
+      "attestation_method": "discovery_agent",
+      "discovered_at": "2026-08-08T21:17:01.228808Z",
+      "deployed_at": null,
+      "created_at": "2026-08-08T21:17:01.228808Z",
+      "updated_at": "2026-08-08T21:17:01.228808Z",
+      "hardware_json": null,
+      "hardware_tags": [
+        "gpu",
+        "nvme"
+      ]
+    },
+    "biome": {
+      "id": 1,
+      "name": "k8s-primary",
+      "display_name": null,
+      "description": null,
+      "biome_type": null,
+      "version": null,
+      "category": null,
+      "snap_name": null,
+      "snap_channel": "stable",
+      "snap_classic": false,
+      "cloud_init_content": null,
+      "lxd_image_alias": null,
+      "lxd_image_url": null,
+      "lxd_profiles": null,
+      "is_hypervisor_config": false,
+      "dependencies": null,
+      "min_ram_mb": null,
+      "min_disk_gb": null,
+      "required_architecture": "any",
+      "is_active": true,
+      "is_default": false,
+      "checksum": null,
+      "size_bytes": null,
+      "biome_kind": "infrastructure",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": true,
+      "auto_join_cluster": false,
+      "upgrade_strategy": "rolling",
+      "requires_hardware_tags": [],
+      "prefers_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "storage_requirements": null,
+      "readiness_probe": null,
+      "emits_joiner_secrets": true,
+      "joiner_emit_spec": null,
+      "consumes_joiner_secrets_from": null,
+      "joiner_consume_spec": null,
+      "snapshot_schedule": null,
+      "required_interfaces": null,
+      "tenant_id": "__default__",
+      "signing_key_id": null,
+      "sbom_url": null,
+      "registry_url": null,
+      "signing_status": "unsigned",
+      "created_at": null,
+      "updated_at": null
+    },
+    "biome_group": {
+      "id": 1,
+      "name": "k8s-stack",
+      "display_name": "K8s Stack",
+      "description": "primary + worker",
+      "biomes": [
+        {
+          "biome_id": 1,
+          "order": 0
+        },
+        {
+          "biome_id": 2,
+          "order": 1
+        }
+      ],
+      "is_default": false,
+      "created_at": "2026-08-08T21:20:37.804985+00:00",
+      "updated_at": "2026-08-08T21:20:37.804985+00:00"
+    }
+  }
+}
