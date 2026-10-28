@@ -1,33 +1,10 @@
 version: 2
 updates:
   - package-ecosystem: "docker"
-    directory: "/services/mobile"
-    schedule:
-      interval: "weekly"
-    groups:
-      all-dependencies:
-        applies-to: version-updates
-        patterns:
-          - "*"
-      security:
-        applies-to: security-updates
-        patterns:
-          - "*"
-  - package-ecosystem: "docker"
-    directory: "/services/portal-api"
-    schedule:
-      interval: "weekly"
-    groups:
-      all-dependencies:
-        applies-to: version-updates
-        patterns:
-          - "*"
-      security:
-        applies-to: security-updates
-        patterns:
-          - "*"
-  - package-ecosystem: "docker"
-    directory: "/services/webui"
+    directories:
+      - "/services/mobile"
+      - "/services/portal-api"
+      - "/services/webui"
     schedule:
       interval: "weekly"
     groups:
@@ -53,20 +30,9 @@ updates:
         patterns:
           - "*"
   - package-ecosystem: "gradle"
-    directory: "/services/mobile/android"
-    schedule:
-      interval: "weekly"
-    groups:
-      all-dependencies:
-        applies-to: version-updates
-        patterns:
-          - "*"
-      security:
-        applies-to: security-updates
-        patterns:
-          - "*"
-  - package-ecosystem: "gradle"
-    directory: "/services/mobile/android/app"
+    directories:
+      - "/services/mobile/android"
+      - "/services/mobile/android/app"
     schedule:
       interval: "weekly"
     groups:
@@ -92,33 +58,10 @@ updates:
         patterns:
           - "*"
   - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    groups:
-      all-dependencies:
-        applies-to: version-updates
-        patterns:
-          - "*"
-      security:
-        applies-to: security-updates
-        patterns:
-          - "*"
-  - package-ecosystem: "pip"
-    directory: "/services/cli"
-    schedule:
-      interval: "weekly"
-    groups:
-      all-dependencies:
-        applies-to: version-updates
-        patterns:
-          - "*"
-      security:
-        applies-to: security-updates
-        patterns:
-          - "*"
-  - package-ecosystem: "pip"
-    directory: "/services/portal-api"
+    directories:
+      - "/"
+      - "/services/cli"
+      - "/services/portal-api"
     schedule:
       interval: "weekly"
     groups:
